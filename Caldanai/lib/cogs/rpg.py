@@ -26,7 +26,8 @@ class RPG(Cog):
 	
 	# Get the game associated with a context, it if exists.
 	async def get_game(self, ctx, gameIdx:int = None):
-		game = games = None
+		game: Game = None
+		games: list[Game] = []
 		if ctx.guild is None:
 			games = self.get_games_for_user(ctx.author.id)
 		else:
@@ -51,9 +52,9 @@ class RPG(Cog):
 		return game
 
 	# Gets the player associated with a context, if any exists
-	async def get_player(self, ctx, game: Game = None, notify: bool = True):
+	async def get_player(self, ctx, game: Game = None, notify: bool = True) -> Player:
 		if game is None or not isinstance(game, Game):
-			game = await self.get_game(ctx)
+			game: Game = await self.get_game(ctx)
 		
 		if game is None:
 			return None
@@ -66,16 +67,16 @@ class RPG(Cog):
 		return None
 
 	# Returns a tuple containing (game, player) if both exist.
-	async def get_game_and_player(self, ctx, notify: bool = True):
-		game = await self.get_game(ctx)
+	async def get_game_and_player(self, ctx, notify: bool = True) -> (Game, Player):
+		game: Game = await self.get_game(ctx)
 		if game is None:
-			return (None, None)
+			return None, None
 
-		player = await self.get_player(ctx, game, notify)
-		return (game, player)
+		player: Player = await self.get_player(ctx, game, notify)
+		return game, player
 	
 	# Adds a player to the RPG system if they don't already exist.
-	@command(brief="Adds a player to the RPG system.")
+	@command(name='joingame', brief="Adds a player to the RPG system.")
 	@guild_only()
 	@cooldown(1, 60, BucketType.member)
 	async def joinGame(self, ctx):
@@ -84,7 +85,7 @@ class RPG(Cog):
 		Adds a member to the RPG system as a player if they do not already exist in the database. This can only be called by the member trying to participate.
 		(60-second cooldown)
 		"""
-		game = await self.get_game(ctx)
+		game: Game = await self.get_game(ctx)
 		if game is None:
 			return
 
@@ -108,12 +109,12 @@ class RPG(Cog):
 		(60-second cooldown)
 		"""
 
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		
 		if game is None:
 			return
 
-		player = game.players[ctx.author.id]
+		player: Player = game.players[ctx.author.id]
 
 		if player is not None:
 			MongoDB.players.delete_one({ 'guildId': ctx.guild.id, 'userId': ctx.author.id })
@@ -128,7 +129,7 @@ class RPG(Cog):
 		"""Lists the current players in the game.
 		(60-second cooldown for everyone)
 		"""
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		if game is None:
 			return
 
@@ -148,16 +149,16 @@ class RPG(Cog):
 		(10-second cooldown)
 		"""
 
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		if game is None:
 			return
 
-		player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
+		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
 
 		if player is None:
 			return
 
-		embed = player.getProfile(game.guild.name)
+		embed = player.get_profile(game.guild.name)
 		embed.set_thumbnail(url=game.guild.icon_url)
 		await player.send(embed=embed)
 		if ctx.guild is not None:
@@ -236,7 +237,7 @@ class RPG(Cog):
 		(5-second cooldown)
 		'''
 		if msg is not None and len(msg) > 0:
-			game = await self.get_game(ctx, False)
+			game: Game = await self.get_game(ctx, False)
 			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
 				await ctx.send(game.monster.receiveHug(ctx.author.display_name, ctx.invoked_with))
 			else:
@@ -248,11 +249,11 @@ class RPG(Cog):
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon.')
 	@cooldown(1, 5, BucketType.member)
 	async def equip(self, ctx, hand: str, index: int, gameIdx: int = None):
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		if game is None:
 			return
 
-		player = await self.get_player(ctx, game)
+		player: Player = await self.get_player(ctx, game)
 		if player is None:
 			return
 
@@ -283,12 +284,12 @@ class RPG(Cog):
 
 		(10-second cooldown)
 		'''
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		if game is None:
 			print("Game was none.")
 			return
 
-		player = await self.get_player(ctx, game)
+		player: Player = await self.get_player(ctx, game)
 		if player is None:
 			print("Players was none.")
 			return
@@ -300,7 +301,7 @@ class RPG(Cog):
 	@command(name='item', brief='Sends the player a DM with info regarding the specified item.')
 	@cooldown(1, 5, BucketType.member)
 	async def item(self, ctx, index: int, gameIdx: int = None):
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		if game is None:
 			return
 		
@@ -327,7 +328,7 @@ class RPG(Cog):
 	# Returns a string to display games in which a user is currently playing.
 	@cooldown(1, 60, BucketType.user)
 	@command(name='games', brief='Sends a DM to the calling player with a list of each game they are currently in for Caldanai Bot.')
-	async def games_display(self, ctx) -> str:
+	async def games_display(self, ctx):
 		msg = ""
 		games = self.get_games_for_user(ctx.author.id)
 		for idx, game in enumerate(games):
@@ -341,7 +342,7 @@ class RPG(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@command(name='sell', brief='Sells an item.')
 	async def sell(self, ctx, index: int = None, gameIdx: int = None):
-		game = await self.get_game(ctx, gameIdx)
+		game: Game = await self.get_game(ctx, gameIdx)
 		if game is None:
 			return
 
