@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block content %}
+			<div class='radio-group'>
+				<input type="radio" id="item" name="template" value="Item" checked>
+				<label for="item">Item</label>
+				<input type="radio" id="weapon" name="template" value="Weapon">
+				<label for="weapon">Weapon</label>
+				<input type="radio" id="monster" name="template" value="Monster">
+				<label for="monster">Monster</label>
+			</div>
+			<div id="template">
+				Template:
+			</div>
+			<textarea id="format" rows="30" cols="80" readonly></textarea>
+			<script src='/static/formatter.js'></script>
+{% endblock %}
