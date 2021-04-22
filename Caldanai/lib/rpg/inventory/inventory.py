@@ -33,7 +33,7 @@ class Inventory:
 		return True
 
 	# Returns the current inventory weight
-	def getWeight(self):
+	def get_weight(self):
 		return self.__weight
 	
 	# Returns an index and item from the inventory.
@@ -41,7 +41,7 @@ class Inventory:
 		return enumerate(self.__contents.values())
 
 	# Returns an item based on index, rather than key.
-	def getByIndex(self, index):
+	def get_by_index(self, index):
 		for i, item in enumerate(self.__contents.values()):
 			if i == index:
 				return item

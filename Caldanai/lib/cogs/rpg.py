@@ -264,15 +264,15 @@ class RPG(Cog):
 			await ctx.send(f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
 			return
 
-		item = player.inventory.getByIndex(index)
+		item = player.inventory.get_by_index(index)
 		if not isinstance(item, Weapon):
 			await ctx.send(f"That item is not equippable.")
 			return
 
 		if hand.lower()[0] == 'l':
-			player.equipLeft(item)
+			player.equip_left(item)
 		else:
-			player.equipRight(item)
+			player.equip_right(item)
 		player.save()
 		await ctx.send(f"You have equipped {item.article} {item.name}.")
 
@@ -309,7 +309,7 @@ class RPG(Cog):
 			return
 			
 		if index >= 0 and len(player.inventory) > index:
-			embed, file = player.inventory.getByIndex(index).getEmbed()
+			embed, file = player.inventory.get_by_index(index).getEmbed()
 			await ctx.send(embed=embed, file=file)
 		else:
 			await ctx.send(f"I'm afraid you don't have that, {player.name}")
@@ -354,7 +354,7 @@ class RPG(Cog):
 			return
 
 		if index >= 0 and len(player.inventory) > index:
-			item = player.inventory.getByIndex(index)
+			item = player.inventory.get_by_index(index)
 			player.inventory.remove(item)
 			player.clarks += item.value
 			player.save()

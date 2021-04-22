@@ -75,7 +75,7 @@ class Game:
 
 	# Builds a combat message for a player, and returns the message and the damage as a tuple
 	def getCombatMessage(self, player: Player):
-		lAtk, lDmg, rAtk, rDmg = player.getAttackRolls();
+		lAtk, lDmg, rAtk, rDmg = player.get_attack_rolls();
 		lCrit = lAtk == 20
 		rCrit = rAtk == 20
 		lFumble = lAtk == 1
