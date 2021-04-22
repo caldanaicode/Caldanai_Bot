@@ -259,7 +259,7 @@ class Player(Creature):
             uid=p['userId'],
             level=p['level'],
             exp=p['exp'],
-            wlimit=p['weightLimit'],
+            weight_limit=p['weightLimit'],
             joined=p['joined'],
             clarks=p['clarks'],
             defense=p['defense'],
