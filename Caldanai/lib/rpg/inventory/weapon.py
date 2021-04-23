@@ -34,7 +34,7 @@ class Weapon(Item):
 	def getAttackDamage(self):
 		return quick_roll(self.attack) + self.bonus
 	
-	def getEmbed(self) -> tuple:
+	def get_embed(self) -> tuple:
 		embed = Embed(title=f"{'' if self.article is None else self.article + ' '}{self.name}", description=self.description, color=self.rarity.color)
 		file = None
 		if self.image is not None:

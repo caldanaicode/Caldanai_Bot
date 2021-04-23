@@ -233,7 +233,7 @@ class RPG_Admin(Cog):
 			await game.send("There is no monster present!")
 			return
 		
-		await game.killMonster()
+		await game.kill_monster()
 
 	# ------------------------------------------------------
 

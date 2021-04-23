@@ -24,9 +24,8 @@ class Monster(Creature):
 		self.loot = mDict['loot']
 	
 	# Returns an embed populated with the monster's details.
-	def getEmbed(self) -> tuple:
-		'''Returns a tuple containing (Embed, File) for the monster's details
-		'''
+	def get_embed(self) -> tuple:
+		"""Returns a tuple containing (Embed, File) for the monster's details"""
 		embed = Embed(
 			title=self.name.title(),
 			description=self.flavor,

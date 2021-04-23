@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class Rarity:
 	def __init__(self, name: str, color: int, frequency: float, multiplier: float):
 		self.name = name

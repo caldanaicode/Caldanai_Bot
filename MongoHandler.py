@@ -1,6 +1,7 @@
 import logging
 from pymongo.collection import Collection
 
+
 class MongoHandler(logging.Handler):
 	def __init__(self, collection: Collection, ignored: tuple = ()):
 		logging.Handler.__init__(self)

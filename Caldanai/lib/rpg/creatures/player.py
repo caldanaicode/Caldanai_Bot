@@ -19,7 +19,7 @@ class Player(Creature):
                  level: int = 0,
                  exp: int = 0,
                  weight_limit: int = 100,
-                 joined: str = None,
+                 joined: datetime = None,
                  clarks: int = 0,
                  defense: int = 1,
                  dodge: int = 1,
@@ -163,15 +163,14 @@ class Player(Creature):
 
     # Returns the cumulative weight of the player's inventory.
     def get_weight(self):
-        '''Returns the cumulative weight of the player's inventory.'''
+        """Returns the cumulative weight of the player's inventory."""
         return self.inventory.get_weight()
 
-    # Addes an item to the player's inventory, if they can afford the weight.
-    def giveItem(self, item: Item) -> bool:
-        '''Addes an item to the player's inventory, if they can afford the weight.
-		
-		Returns a boolean value indicating if the item was added.
-		'''
+    # Adds an item to the player's inventory, if they can afford the weight.
+    def give_item(self, item: Item) -> bool:
+        """Adds an item to the player's inventory, if they can afford the weight.
+
+        Returns a boolean value indicating if the item was added."""
         if self.get_weight() + item.weight > self.weightLimit:
             return False
 
