@@ -179,10 +179,10 @@ class Player(Creature):
 
     # Removes an item from the player's inventory, if present.
     def takeItem(self, item: Item) -> bool:
-        '''Removes an item from the player's inventory, if present.
+        """Removes an item from the player's inventory, if present.
 
-		Returns a boolean indicating if the item was found and removed.
-		'''
+        Returns a boolean indicating if the item was found and removed.
+        """
         if item == self.inventory[str(item.id)]:
             item.playerId = None
             return self.inventory.remove(item)
@@ -190,7 +190,7 @@ class Player(Creature):
 
     # Returns a string containing a formatted display of the player's inventory.
     def getInventory(self, guildName: str):
-        '''Returns a string containing a formatted display of the player's inventory.'''
+        """Returns a string containing a formatted display of the player's inventory."""
         msg = ''
         for idx, item in self.inventory.enumeration():
             msg += f"\n{idx}: {item.article} {item.name} ({item.rarity.name} {item.itemType}){' [left hand]' if item == self.leftHand else ''}{' [right hand]' if item == self.rightHand else ''}"
@@ -201,7 +201,7 @@ class Player(Creature):
         return f'Inventory for {self.name} on {guildName}```js\n{msg}```'
 
     def to_dict(self) -> dict:
-        '''Returns a dictionary of the player's attributes.'''
+        """Returns a dictionary of the player's attributes."""
         d = {
             '_id': self.id,
             'userId': self.userId,
@@ -226,8 +226,8 @@ class Player(Creature):
 
     # Adds or updates a player object in the database.
     def save(self) -> None:
-        '''Adds or updates a player object in the database.
-		'''
+        """Adds or updates a player object in the database.
+        """
         try:
             self.id = MongoDB.players.insert_one(self.to_dict()).inserted_id
         except DuplicateKeyError:
@@ -236,8 +236,8 @@ class Player(Creature):
     @classmethod
     # Retrieves a player object from the database, or None if it does not exist.
     def load(cls, **kwargs):
-        '''Retrieves a player object from the database, or None if it does not exist.
-		'''
+        """Retrieves a player object from the database, or None if it does not exist.
+        """
         p = None
         if 'guildId' in kwargs.keys() and 'userId' in kwargs.keys():
             p = MongoDB.players.find_one({"guildId": kwargs['guildId'], "id": kwargs['userId']})

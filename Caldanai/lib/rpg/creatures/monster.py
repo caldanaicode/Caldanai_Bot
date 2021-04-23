@@ -6,8 +6,9 @@ from ..inventory.item import Item
 from ..inventory.weapon import Weapon
 from ....db.db import MongoDB
 
+
 class Monster(Creature):
-	def __init__(self, mDict:dict):
+	def __init__(self, mDict: dict):
 		name = mDict['name']
 		attack = mDict['attack']
 		defense = mDict['defense']

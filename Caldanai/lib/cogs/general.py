@@ -4,6 +4,7 @@ from discord.embeds import EmptyEmbed
 from discord.ext.commands import Cog, command, cooldown, BucketType
 from discord.ext.commands.errors import MissingRequiredArgument
 
+
 class General(Cog):
 	def __init__(self, bot):
 		self.bot = bot

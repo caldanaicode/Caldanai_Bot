@@ -1,6 +1,8 @@
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed
+from typing import List
+
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory.weapon import Weapon
@@ -13,7 +15,7 @@ class RPG(Cog):
         self.bot = bot
 
     # Gets a list of games to which a user belongs.
-    def get_games_for_user(self, userId: int) -> list[Game]:
+    def get_games_for_user(self, userId: int) -> List[Game]:
         if userId is None:
             return []
 
@@ -28,7 +30,7 @@ class RPG(Cog):
     # Get the game associated with a context, it if exists.
     async def get_game(self, ctx, gameIdx: int = None):
         game: Game = None
-        games: list[Game] = []
+        games: List[Game] = []
         if ctx.guild is None:
             games = self.get_games_for_user(ctx.author.id)
         else:

@@ -2,6 +2,8 @@ from discord.errors import HTTPException
 from discord.ext.commands import Bot
 from discord.ext import tasks
 from discord import Guild, TextChannel, Embed, File
+from typing import Dict, List
+
 from .creatures.player import Player
 from .creatures.monster import Monster
 from random import choice, randint
@@ -28,10 +30,10 @@ class Game:
         self.id = game_id
         self.guild = guild
         self.channel = channel
-        self.players: dict[int, Player] = {}
+        self.players: Dict[int, Player] = {}
         self.monster: Monster = None
-        self.combatants: list[int] = []
-        self.loot: dict[int, list] = {}
+        self.combatants: List[int] = []
+        self.loot: Dict[int, list] = {}
         self.use_spawn_timer = use_spawn_timer
         self.spawn_duration = spawn_duration
         self.loot_duration = loot_duration

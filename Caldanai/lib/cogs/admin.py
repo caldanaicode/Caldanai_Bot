@@ -1,6 +1,7 @@
 from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only
 from ...db.db import MongoDB
 
+
 class Admin(Cog):
 	def __init__(self, bot):
 		self.bot = bot
@@ -39,7 +40,7 @@ class Admin(Cog):
 			self.bot.reload_all_cogs()
 			await ctx.send("Cogs reloaded!")
 		else:
-			if(cog in self.bot.COGS):
+			if cog in self.bot.COGS:
 				self.bot.reload_cog(cog)
 				await ctx.send(f"{cog} cog reloaded!".capitalize())
 			else:

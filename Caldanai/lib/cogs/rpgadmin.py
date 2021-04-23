@@ -1,11 +1,14 @@
 from discord.ext.commands import BucketType, Cog, cooldown, command, guild_only, has_permissions
+from typing import Dict
+from Caldanai.lib.bot import Bot
 from ...db.db import MongoDB
 from ..rpg.game import Game
 
-class RPG_Admin(Cog):
-	def __init__(self, bot):
-		self.bot = bot
-		self.bot.games: dict[int, Game] = {}
+
+class RpgAdmin(Cog):
+	def __init__(self, bot: Bot):
+		self.bot: Bot = bot
+		self.bot.games: Dict[int, Game] = {}
 
 	# Checks the given context to see if a game exists for it.
 	async def check_game_exists(self, ctx) -> bool:
@@ -248,4 +251,4 @@ class RPG_Admin(Cog):
 
 
 def setup(bot):
-	bot.add_cog(RPG_Admin(bot))
+	bot.add_cog(RpgAdmin(bot))

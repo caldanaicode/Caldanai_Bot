@@ -1,5 +1,6 @@
 from random import randint
 
+
 def quick_roll(ndn: str) -> int:
 	try:
 		count, sides = map(int, ndn.lower().split('d'))

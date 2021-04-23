@@ -1,6 +1,7 @@
 import re
 from random import choice
 
+
 class Parser:
 	optionsRE = r'\{(?P<options>[^{}]+)\}'
 	nounRE = r'\$n'

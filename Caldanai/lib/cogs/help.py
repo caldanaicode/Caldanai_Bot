@@ -4,10 +4,11 @@ from discord.utils import get
 from discord.ext.commands import Cog, command, cooldown, BucketType
 from discord.ext.menus import MenuPages, ListPageSource
 
-def syntax(command):
-	aliases = "|".join([str(command), *command.aliases])
+
+def syntax(cmd: command):
+	aliases = "|".join([str(cmd), *cmd.aliases])
 	params = []
-	for key, value in command.params.items():
+	for key, value in cmd.params.items():
 		if key not in ("self", "ctx"):
 			params.append(f"[{key}]" if "NoneType" in str(value) else f"<{key}>")
 	
@@ -21,7 +22,7 @@ class HelpMenu(ListPageSource):
 
 		super().__init__(data, per_page=3)
 	
-	async def write_page(self, menu, fields=[]):
+	async def write_page(self, menu, fields=()):
 		offset = (menu.current_page*self.per_page) + 1
 		length = len(self.entries)
 
@@ -47,6 +48,7 @@ class HelpMenu(ListPageSource):
 
 		return await self.write_page(menu, fields)
 
+
 class Help(Cog):
 	def __init__(self, bot):
 		self.bot = bot
@@ -68,17 +70,17 @@ class Help(Cog):
 
 			await menu.start(ctx)
 		else:
-			if(command := get(self.bot.commands, name=cmd)):
-				await self.cmd_help(ctx, command)
+			if cmd := get(self.bot.commands, name=cmd):
+				await self.cmd_help(ctx, cmd)
 			else:
 				await ctx.send(f"No such command exists: {cmd}")
 	
-	async def cmd_help(self, ctx, command):
+	async def cmd_help(self, ctx, cmd):
 		embed = Embed(
-			title=f"Help for `{command}`",
-			description=syntax(command),
+			title=f"Help for `{cmd}`",
+			description=syntax(cmd),
 			color=0xff7700)
-		embed.add_field(name="Command Description", value=command.help)
+		embed.add_field(name="Command Description", value=cmd.help)
 		await ctx.send(embed=embed)
 
 	@Cog.listener()
