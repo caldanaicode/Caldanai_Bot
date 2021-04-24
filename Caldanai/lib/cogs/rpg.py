@@ -16,11 +16,11 @@ class RPG(Cog):
 
     # Gets a list of games to which a user belongs.
     def get_games_for_user(self, userId: int) -> List[Game]:
+        games = []
         if userId is None:
-            return []
+            return games
 
         players = MongoDB.players.find({'userId': userId})
-        games = []
         for player in players:
             game = self.bot.games[player['guildId']]
             games.append(game)
@@ -28,7 +28,7 @@ class RPG(Cog):
         return games
 
     # Get the game associated with a context, it if exists.
-    async def get_game(self, ctx, gameIdx: int = None):
+    async def get_game(self, ctx, game_idx: int = None) -> Game:
         game: Game = None
         games: List[Game] = []
         if ctx.guild is None:
@@ -41,12 +41,14 @@ class RPG(Cog):
             return None
 
         if game is None:
-            if len(games) > 1 and gameIdx is None:
+            if len(games) > 1 and game_idx is None:
                 await ctx.send(
-                    f"You are playing more than one game and did not supply the game's index. Check `{ctx.prefix}games` to get the index of the game from which you wish to view your profile, or try again from the game's channel.")
+                    f"You are playing more than one game and did not supply the game's index."
+                    f" Check `{ctx.prefix}games` to get the index of the game from which you wish to"
+                    f" view your profile, or try again from the game's channel.")
                 return None
-            elif len(games) > 1 and len(games) > gameIdx >= 0:
-                game = games[gameIdx]
+            elif len(games) > 1 and len(games) > game_idx >= 0:
+                game = games[game_idx]
             elif len(games) == 1:
                 game = games[0]
             else:
@@ -300,13 +302,12 @@ class RPG(Cog):
 
     @command(name='item', brief='Sends the player a DM with info regarding the specified item.')
     @cooldown(1, 5, BucketType.member)
-    async def item(self, ctx, index: int, gameIdx: int = None):
-        print(index, gameIdx)
-        game: Game = await self.get_game(ctx, gameIdx)
+    async def item(self, ctx, index: int, game_idx: int = None):
+        game: Game = await self.get_game(ctx, game_idx)
         if game is None:
             return
 
-        player = await self.get_player(ctx)
+        player = await self.get_player(ctx, game)
         if player is None:
             return
 
@@ -321,7 +322,7 @@ class RPG(Cog):
         if isinstance(error, MissingRequiredArgument):
             embed = Embed(
                 title=f'Item help',
-                description=f"The item''s index is required. To find the index, check `{ctx.prefix}inventory`",
+                description=f"The item's index is required. To find the index, check `{ctx.prefix}inventory`",
                 color=0xff0000
             )
             await ctx.author.send(embed=embed)
