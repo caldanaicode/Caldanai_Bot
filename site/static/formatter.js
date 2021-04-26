@@ -291,7 +291,7 @@ function updateFormat(elmt) {
 	        fmt[elmt.name] = val.trim().split('\n').filter( line => { return line.length > 0; } );
 	        break;
 	    case 'checkbox':
-	        fmt[elmt.name] = val == "on";
+	        fmt[elmt.name] = elmt.checked
 	        break;
 	    default:
 	        fmt[elmt.name] = val.trim();
