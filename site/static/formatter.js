@@ -278,6 +278,11 @@ function changeFormat(format) {
 	displayFormat();
 }
 
+function sanitize(input) {
+    const reg = /\"/ig;
+    return string.replace(reg, (match)=>('\"'));
+}
+
 function updateFormat(elmt) {
 	if (!validate(elmt))
 		return;
@@ -288,13 +293,13 @@ function updateFormat(elmt) {
 	        fmt[elmt.name] = Number(val);
 	        break;
 	    case 'textarea':
-	        fmt[elmt.name] = val.trim().split('\n').filter( line => { return line.length > 0; } );
+	        fmt[elmt.name] = sanitize(val.trim()).split('\n').filter( line => { return line.length > 0; } );
 	        break;
 	    case 'checkbox':
 	        fmt[elmt.name] = elmt.checked
 	        break;
 	    default:
-	        fmt[elmt.name] = val.trim();
+	        fmt[elmt.name] = sanitize(val.trim());
 	}
 	displayFormat();
 }
