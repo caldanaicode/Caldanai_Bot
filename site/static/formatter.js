@@ -111,10 +111,10 @@ weaponFields = {
 		type: "textbox" ,
 		title: "Article for the weapon, such as 'a', or 'an'",
 		placeholder: "1d4",
-		pattern: "\\d*d\\d+",
+		pattern: "\\d*[dD]\\d+",
 		required: true,
-		size: 4,
-		maxlength: 4
+		size: 8,
+		maxlength: 8
 	},
 	
 	isTwoHanded: {
@@ -143,36 +143,40 @@ monsterFields = {
 		type: "textbox",
 		title: "Monster's attack, in NdN format, such as '1d6' or '3d4'.",
 		placeholder: "1d8",
-		pattern: "\\d*d\\d+",
+		pattern: "\\d*[dD]\\d+",
 		required: true,
-		size: 6
+		size: 8,
+		maxlength: 8
 	},
 	
 	defense: {
 		type: "textbox",
 		title: "Monster's defense (how much damage the monster absorbs before health is taken), in NdN format, such as '1d6' or '3d4'.",
 		placeholder: "1d8",
-		pattern: "\\d*d\\d+",
+		pattern: "\\d*[dD]\\d+",
 		required: true,
-		size: 6
+		size: 8,
+		maxlength: 8
 	},
 	
 	dodge: {
 		type: "textbox",
 		title: "Monster's dodge (how hard it is to land a hit), in NdN format, such as '1d6' or '3d4'.",
 		placeholder: "1d8",
-		pattern: "\\d*d\\d+",
+		pattern: "\\d*[dD]\\d+",
 		required: true,
-		size: 6
+		size: 8,
+		maxlength: 8
 	},
 	
 	health: {
 		type: "textbox",
 		title: "Monster's health, in NdN format, such as '1d6' or '3d4'.",
 		placeholder: "1d8",
-		pattern: "\\d*d\\d+",
+		pattern: "\\d*[dD]\\d+",
 		required: true,
-		size: 6
+		size: 8,
+		maxlength: 8
 	},
 	
 	image: {
