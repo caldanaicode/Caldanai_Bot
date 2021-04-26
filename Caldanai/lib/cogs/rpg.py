@@ -207,7 +207,7 @@ class RPG(Cog):
             await game.send("You should probably kill it before you try to loot it.")
             return
 
-        if len(game.loot) is None:
+        if len(game.loot) == 0:
             await game.send("There is nothing to loot!")
             return
 
