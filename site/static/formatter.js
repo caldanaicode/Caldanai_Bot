@@ -283,14 +283,18 @@ function updateFormat(elmt) {
 		return;
 		
 	val = elmt.value;
-	if (elmt.type == 'number') {
-		fmt[elmt.name] = Number(val);
-	}
-	else if (elmt.type == 'textarea') {
-		fmt[elmt.name] = val.trim().split('\n').filter( line => { return line.length > 0; } );
-	}
-	else {
-		fmt[elmt.name] = val.trim();
+	switch(elmt.type) {
+	    case 'number':
+	        fmt[elmt.name] = Number(val);
+	        break;
+	    case 'textarea':
+	        fmt[elmt.name] = val.trim().split('\n').filter( line => { return line.length > 0; } );
+	        break;
+	    case 'checkbox':
+	        fmt[elmt.name] = val == "on";
+	        break;
+	    default:
+	        fmt[elmt.name] = val.trim();
 	}
 	displayFormat();
 }
