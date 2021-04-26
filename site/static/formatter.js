@@ -279,8 +279,8 @@ function changeFormat(format) {
 }
 
 function sanitize(input) {
-    const reg = /\"/ig;
-    return input.replace(reg, (match)=>('\"'));
+    const reg = /["]/ig;
+    return input.replace(reg, (match)=>('\\"'));
 }
 
 function updateFormat(elmt) {
