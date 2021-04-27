@@ -84,8 +84,8 @@ class Game:
         r_crit = r_atk == 20
         l_fumble = l_atk == 1
         r_fumble = r_atk == 1
-        l_miss = l_atk < self.monster.dodge or l_fumble
-        r_miss = r_atk < self.monster.dodge or r_fumble
+        l_miss = not l_crit and (l_atk < self.monster.dodge or l_fumble)
+        r_miss = not r_crit and (r_atk < self.monster.dodge or r_fumble)
         two_handed = r_atk == 0
         msg = f"{player.member.mention}'s attack:"
 

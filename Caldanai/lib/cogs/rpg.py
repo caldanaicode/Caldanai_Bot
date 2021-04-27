@@ -15,12 +15,12 @@ class RPG(Cog):
         self.bot = bot
 
     # Gets a list of games to which a user belongs.
-    def get_games_for_user(self, userId: int) -> List[Game]:
+    def get_games_for_user(self, uid: int) -> List[Game]:
         games = []
-        if userId is None:
+        if uid is None:
             return games
 
-        players = MongoDB.players.find({'userId': userId})
+        players = MongoDB.players.find({'userId': uid})
         for player in players:
             game = self.bot.games[player['guildId']]
             games.append(game)
@@ -85,10 +85,11 @@ class RPG(Cog):
     @command(name='joingame', brief="Adds a player to the RPG system.")
     @guild_only()
     @cooldown(1, 60, BucketType.member)
-    async def joinGame(self, ctx):
+    async def join_game(self, ctx):
         """Adds a player to the RPG system.
 
-        Adds a member to the RPG system as a player if they do not already exist in the database. This can only be called by the member trying to participate.
+        Adds a member to the RPG system as a player if they do not already exist in the database. This can only be
+        called by the member trying to participate.
         (60-second cool-down)"""
         game: Game = await self.get_game(ctx)
         if game is None:
@@ -105,15 +106,15 @@ class RPG(Cog):
             await game.send(f'You are already a player in this RPG, {ctx.author.display_name}!')
 
     # Removes a player from the RPG system.
-    @command(brief="Removes the player from the RPG system.")
+    @command(name="leavegame", brief="Removes the player from the RPG system.")
     @cooldown(1, 60, BucketType.member)
-    async def leaveGame(self, ctx, gameIdx: int = None):
+    async def leave_game(self, ctx, gid: int = None):
         """Removes the player from the RPG system.
 
         Removes an existing player from the game. This can only be called by member withdrawing from participation.
         (60-second cool-down)"""
 
-        game: Game = await self.get_game(ctx, gameIdx)
+        game: Game = await self.get_game(ctx, gid)
 
         if game is None:
             return
@@ -129,15 +130,16 @@ class RPG(Cog):
     # Lists all players of the current RPG.
     @command(brief="Lists the current players in a game.")
     @cooldown(1, 60, BucketType.guild)
-    async def players(self, ctx, gameIdx: int = None):
+    async def players(self, ctx, gid: int = None):
         """Lists the current players in the game.
         (60-second cool-down for everyone)"""
-        game: Game = await self.get_game(ctx, gameIdx)
+        game: Game = await self.get_game(ctx, gid)
         if game is None:
             return
 
-        l = len(game.players)
-        msg = f"There {'is' if l == 1 else 'are'} currently {l:,} player{'s' if l > 1 or l == 0 else ''}.\n"
+        length = len(game.players)
+        msg = f"There {'is' if length == 1 else 'are'} currently {length:,}" \
+              f"player{'s' if length > 1 or length == 0 else ''}.\n"
         for pid, player in game.players.items():
             msg += f"\t{player.member.display_name}\n"
         await game.send(f'```\n{msg}```')
@@ -145,13 +147,13 @@ class RPG(Cog):
     # Send a DM to the player with their profile.
     @command(brief="Shows a player's profile.")
     @cooldown(1, 10, BucketType.member)
-    async def profile(self, ctx, gameIdx: int = None):
+    async def profile(self, ctx, gid: int = None):
         """Shows a player's profile.
 
         Sends a DM to the calling player with their profile results.
         (10-second cool-down)"""
 
-        game: Game = await self.get_game(ctx, gameIdx)
+        game: Game = await self.get_game(ctx, gid)
         if game is None:
             return
 
@@ -219,8 +221,8 @@ class RPG(Cog):
         msg = ', '.join([f"{item.article} {item.rarity.name} {item.name}" for item in loot])
         if msg is not None and len(msg) > 0:
             msg = f"{ctx.author.display_name} found {' and '.join(msg.rsplit(', ', 1))}."
-            for l in loot:
-                player.give_item(l)
+            for item in loot:
+                player.give_item(item)
         else:
             msg = f"{ctx.author.display_name} pokes around the corpse, finding nothing useful."
         del game.loot[player.userId]
@@ -344,8 +346,8 @@ class RPG(Cog):
     # Sells an item
     @cooldown(1, 5, BucketType.member)
     @command(name='sell', brief='Sells an item.')
-    async def sell(self, ctx, index: int = None, gameIdx: int = None):
-        game: Game = await self.get_game(ctx, gameIdx)
+    async def sell(self, ctx, index: int = None, gid: int = None):
+        game: Game = await self.get_game(ctx, gid)
         if game is None:
             return
 
