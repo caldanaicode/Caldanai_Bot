@@ -1,4 +1,6 @@
 from random import choice, randint
+from typing import Union, Tuple
+
 from discord import Embed
 from discord.embeds import EmptyEmbed
 from discord.ext.commands import Cog, command, cooldown, BucketType
@@ -21,13 +23,14 @@ class General(Cog):
 		greeting = f"{choice(('Hello', 'Hi', 'Hey', 'Greetings'))}, {ctx.author.nick or ctx.author.mention}!"
 		await ctx.send(greeting)
 
-	async def check_hilo(self, ctx, count: int, options: tuple) -> int:
+	async def check_hilo(self, ctx, count: int, options: tuple) -> Union[int, None]:
 		idx = None
 		hilo = 0
 		if 'hi' in options and 'lo' in options:
 			embed = Embed(
 				title=f'Dice Roll for {ctx.author.nick or ctx.author.name}',
-				description="Specify `hi` or `lo`, but not both. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
+				description="Specify `hi` or `lo`, but not both. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each,"
+				" and keeps the 3 highest.",
 				color=0xff0000
 			)
 			await ctx.send(embed=embed)
@@ -48,7 +51,8 @@ class General(Cog):
 			except Exception:
 				embed = Embed(
 					title=f'Dice Roll for {ctx.author.nick or ctx.author.name}',
-					description="Specify how many dice to keep immediately following `hi` or `lo`. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
+					description="Specify how many dice to keep immediately following `hi` or `lo`. Example:"
+					" ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
 					color=0xff0000
 				)
 				await ctx.send(embed=embed)
@@ -57,7 +61,8 @@ class General(Cog):
 			if abs(hilo) >= count:
 				embed = Embed(
 					title=f'Dice Roll for {ctx.author.nick or ctx.author.name}',
-					description="The number of rolls to keep must be greater than 0 and less than the number of dice being rolled. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
+					description="The number of rolls to keep must be greater than 0 and less than the number of dice "
+					"being rolled. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
 					color=0xff0000
 				)
 				await ctx.send(embed=embed)
@@ -65,17 +70,17 @@ class General(Cog):
 
 		return hilo
 	
-	async def check_dice(self, ctx, dice: str):
+	async def check_dice(self, ctx, dice: str) -> Tuple[Union[int, None], Union[int, None]]:
 		try:
 			count, sides = map(int, dice.split('d'))
-		except Exception:
+		except Exception as e:
 			embed = Embed(
 				title=f'Dice Roll for {ctx.author.nick or ctx.author.name}',
 				description="Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.",
 				color=0xff0000
 			)
 			await ctx.send(embed=embed)
-			return (None, None)
+			return None, None
 
 		if sides < 2:
 			embed = Embed(
@@ -84,7 +89,7 @@ class General(Cog):
 				color=0xff0000
 			)
 			await ctx.send(embed=embed)
-			return (None, None)
+			return None, None
 		
 		if count > 1000000:
 			embed = Embed(
@@ -93,8 +98,8 @@ class General(Cog):
 				color=0xff0000
 			)
 			await ctx.send(embed=embed)
-			return (None, None)
-		return (count, sides)
+			return None, None
+		return count, sides
 	
 	@command(name='roll', aliases=['dice'], brief="Rolls dice given in the NdN format.")
 	@cooldown(1, 5, BucketType.member)
@@ -103,7 +108,8 @@ class General(Cog):
 
 		Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.
 
-		Specify `hi` or `lo` to keep a number of highest or lowest rolls. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.
+		Specify `hi` or `lo` to keep a number of highest or lowest rolls. Example: ` 4d6 hi 3 ` rolls 4 dice with 6
+		sides each, and keeps the 3 highest.
 
 		The number of rolls to keep must be greater than 0 and less than the number of dice being rolled.
 
@@ -153,7 +159,8 @@ class General(Cog):
 			shorten = True
 
 		if shorten or not verbose:
-			msg = f"```\n{count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else '' } = {total:,}```"
+			msg = f"```\n{count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else '' } =" \
+				f" {total:,}```"
 		
 		embed = Embed(
 			title=f"{ctx.author.nick or ctx.author.name}'s roll",
@@ -163,7 +170,8 @@ class General(Cog):
 
 		footer = EmptyEmbed
 		if verbose and not shorten:
-			footer = f"[ TL;DR ] {count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else '' } = {total:,}"
+			footer = f"[ TL;DR ] {count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else ''}" \
+				f" = {total:,}"
 
 		elif verbose:
 			footer = 'Verbose ignored due to message length.'

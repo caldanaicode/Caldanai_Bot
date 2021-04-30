@@ -1,7 +1,7 @@
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only
+from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed
-from typing import List
+from typing import List, Union
 
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
@@ -28,8 +28,8 @@ class RPG(Cog):
         return games
 
     # Get the game associated with a context, it if exists.
-    async def get_game(self, ctx, game_idx: int = None) -> Game:
-        game: Game = None
+    async def get_game(self, ctx, game_idx: int = None) -> Union[Game, None]:
+        game: Union[Game, None] = None
         games: List[Game] = []
         if ctx.guild is None:
             games = self.get_games_for_user(ctx.author.id)
@@ -58,7 +58,7 @@ class RPG(Cog):
         return game
 
     # Gets the player associated with a context, if any exists
-    async def get_player(self, ctx, game: Game = None, notify: bool = True) -> Player:
+    async def get_player(self, ctx, game: Game = None, notify: bool = True) -> Union[Player, None]:
         if game is None or not isinstance(game, Game):
             game: Game = await self.get_game(ctx)
 
@@ -67,7 +67,7 @@ class RPG(Cog):
 
         if ctx.author.id not in game.players.keys():
             if notify:
-                await game.send(f'Why, {ctx.author.display_name}! You are not even playing the game! Try ` $joingame `')
+                await game.send(f'Why, {ctx.author.display_name}! You are not even playing the game! Try ` $game join`')
         else:
             return game.players[ctx.author.id]
         return None
@@ -81,11 +81,17 @@ class RPG(Cog):
         player: Player = await self.get_player(ctx, game, notify)
         return game, player
 
-    # Adds a player to the RPG system if they don't already exist.
-    @command(name='joingame', brief="Adds a player to the RPG system.")
+    @group()
     @guild_only()
-    @cooldown(1, 60, BucketType.member)
-    async def join_game(self, ctx):
+    @cooldown(1, 10, BucketType.member)
+    async def game(self, ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.send("This command cannot be used on its own.")
+            return
+
+    # Adds a player to the RPG system if they don't already exist.
+    @game.command(brief="Adds a player to the RPG system.")
+    async def join(self, ctx):
         """Adds a player to the RPG system.
 
         Adds a member to the RPG system as a player if they do not already exist in the database. This can only be
@@ -106,14 +112,12 @@ class RPG(Cog):
             await game.send(f'You are already a player in this RPG, {ctx.author.display_name}!')
 
     # Removes a player from the RPG system.
-    @command(name="leavegame", brief="Removes the player from the RPG system.")
-    @cooldown(1, 60, BucketType.member)
-    async def leave_game(self, ctx, gid: int = None):
+    @game.command(name="leave", brief="Removes the player from the RPG system.")
+    async def leave(self, ctx, gid: int = None):
         """Removes the player from the RPG system.
 
         Removes an existing player from the game. This can only be called by member withdrawing from participation.
         (60-second cool-down)"""
-
         game: Game = await self.get_game(ctx, gid)
 
         if game is None:
@@ -194,8 +198,7 @@ class RPG(Cog):
         await game.send(f"{player.name} prepares to attack!")
 
     # Loots the current monster, if it was defeated.
-    @command(name='loot', aliases=['spoils', 'pillage', 'plunder'],
-             brief='Loots the remains of a recently-felled foe.')
+    @command(name='loot', aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
     @guild_only()
     @cooldown(1, 10, BucketType.member)
     async def loot(self, ctx):
@@ -303,7 +306,7 @@ class RPG(Cog):
             await ctx.message.delete()
 
     @command(name='item', brief='Sends the player a DM with info regarding the specified item.')
-    @cooldown(1, 5, BucketType.member)
+    @cooldown(1, 2, BucketType.member)
     async def item(self, ctx, index: int, game_idx: int = None):
         game: Game = await self.get_game(ctx, game_idx)
         if game is None:

@@ -1,3 +1,5 @@
+from typing import Dict
+
 from discord.ext.commands import Bot as BotBase
 from discord.ext.commands import CommandNotFound, BadArgument, CommandOnCooldown, MissingRequiredArgument, \
     when_mentioned_or, MissingPermissions, NoPrivateMessage
@@ -5,6 +7,8 @@ from discord import Intents, Guild
 from discord.errors import HTTPException, Forbidden
 from glob import glob
 from os import getenv, path
+
+from ..rpg.game import Game
 from ...db.db import MongoDB
 from dotenv import load_dotenv
 
@@ -35,6 +39,7 @@ class Bot(BotBase):
         self.online = False
         self.stdout = None
         self.retry = 0
+        self.games: Dict[int, Game] = {}
         intents = Intents.default()
         intents.members = True
         super().__init__(

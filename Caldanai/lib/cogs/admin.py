@@ -16,13 +16,12 @@ class Admin(Cog):
 		"""
 		if len(prefix) > 5:
 			await ctx.send("Prefix cannot be longer than 5 characters.")
-		
 
 		else:
-			if MongoDB.servers.find_one({ 'guildId': ctx.guild.id }) is None:
-				MongoDB.servers.insert_one({ 'guildId': ctx.guild.id, 'prefix': prefix })
+			if MongoDB.servers.find_one({'guildId': ctx.guild.id}) is None:
+				MongoDB.servers.insert_one({'guildId': ctx.guild.id, 'prefix': prefix})
 			else:
-				MongoDB.servers.update_one({ 'guildId': ctx.guild.id } , { '$set': { 'prefix': prefix } })
+				MongoDB.servers.update_one({'guildId': ctx.guild.id}, {'$set': {'prefix': prefix}})
 			
 			await ctx.send(f"Prefix set to {prefix}.")
 		
