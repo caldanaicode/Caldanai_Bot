@@ -136,17 +136,24 @@ class RPG(Cog):
 	@cooldown(1, 60, BucketType.guild)
 	async def players(self, ctx, gid: int = None):
 		"""Lists the current players in the game.
-		(60-second cool-down for everyone)"""
+		(60-second cool-down for server-wide)"""
 		game: Game = await self.get_game(ctx, gid)
 		if game is None:
 			return
 
 		length = len(game.players)
-		msg = f"There {'is' if length == 1 else 'are'} currently {length:,} " \
-			  f"player{'s' if length > 1 or length == 0 else ''}.\n"
-		for pid, player in game.players.items():
-			msg += f"\t{player.member.display_name}\n"
-		await game.send(f'```\n{msg}```')
+		s = list(game.players.values())
+		s.sort(key=lambda p: p.member.display_name)
+		msg = "```\n"
+		for player in s:
+			msg += f"{player.member.display_name}\n"
+
+		embed = Embed(
+			title=f"There {'is' if length == 1 else 'are'} currently {length:,} player{'' if length == 1 else 's'}.",
+			description=msg.strip()+'```' if len(msg) > 4 else None
+		)
+		embed.set_thumbnail(url=game.guild.icon_url)
+		await game.send(embed=embed)
 
 	# Send a DM to the player with their profile.
 	@command(brief="Shows a player's profile.")

@@ -19,8 +19,6 @@ class Player(Creature):
 			gid: int = None,
 			uid: int = None,
 			member: Member = None,
-			level: int = 0,
-			exp: int = 0,
 			weight_limit: int = 100,
 			joined: datetime = None,
 			clarks: int = 0,
@@ -41,8 +39,6 @@ class Player(Creature):
 		self.guildId = gid
 		self.userId = uid
 		self.member = member
-		self.level = level
-		self.exp = exp
 		self.weightLimit = weight_limit
 		self.joined = joined
 		self.clarks = clarks
@@ -157,8 +153,6 @@ class Player(Creature):
 			color=0x00ffff
 		)
 		fields = [
-			("Level", self.level, True),
-			("Exp", f'{self.exp:,}', True),
 			("Equipped", "---------------------------------------------------", False),
 			("Left Hand", "None" if self.leftHand is None
 				else f"{self.leftHand.article} {self.leftHand.name} ({self.leftHand.rarity.name})", True),
@@ -235,8 +229,6 @@ class Player(Creature):
 			'defense': self.defense,
 			'dodge': self.dodge,
 			'health': self.health,
-			'level': self.level,
-			'exp': self.exp,
 			'weightLimit': self.weightLimit,
 			'joined': self.joined,
 			'clarks': self.clarks,
@@ -285,8 +277,6 @@ class Player(Creature):
 			pid=p['_id'],
 			gid=p['guildId'],
 			uid=p['userId'],
-			level=p['level'],
-			exp=p['exp'],
 			weight_limit=p['weightLimit'],
 			joined=p['joined'],
 			clarks=p['clarks'],

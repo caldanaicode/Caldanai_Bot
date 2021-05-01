@@ -2,7 +2,7 @@ from discord.errors import HTTPException
 from discord.ext.commands import Bot
 from discord.ext import tasks
 from discord import Guild, TextChannel, Embed, File
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from .creatures.player import Player
 from .creatures.monster import Monster
@@ -14,29 +14,31 @@ from datetime import datetime
 
 
 class Game:
-	def __init__(self,
-				 bot: Bot = None,
-				 game_id: str = None,
-				 guild: Guild = None,
-				 channel: TextChannel = None,
-				 use_spawn_timer: bool = True,
-				 spawn_max: int = 60,
-				 spawn_min: int = 10,
-				 spawn_duration: int = 10,
-				 loot_duration: int = 5,
-				 prefix: str = None
-				 ):
+	def __init__(
+			self,
+			bot: Bot = None,
+			game_id: str = None,
+			guild: Guild = None,
+			channel: TextChannel = None,
+			use_spawn_timer: bool = True,
+			spawn_max: int = 60,
+			spawn_min: int = 10,
+			spawn_duration: int = 10,
+			loot_duration: int = 5,
+			prefix: str = None
+	):
 		self.bot = bot
 		self.id = game_id
 		self.guild = guild
 		self.channel = channel
 		self.players: Dict[int, Player] = {}
-		self.monster: Monster = None
+		self.monster: Union[Monster, None] = None
 		self.combatants: List[int] = []
 		self.loot: Dict[int, list] = {}
 		self.use_spawn_timer = use_spawn_timer
 		self.spawn_duration = spawn_duration
 		self.loot_duration = loot_duration
+		self.loot_countdown = loot_duration * 60
 		self.trigger = randint(0, spawn_max)
 		self.minutes_max = spawn_max
 		self.minutes_min = spawn_min
@@ -69,13 +71,21 @@ class Game:
 		return True
 
 	# Cleans up any loot that wasn't picked up
+	@tasks.loop(seconds=1)
 	async def loot_expires(self):
-		await sleep(self.loot_duration * 60)
+		if len(self.loot) > 0 and self.loot_countdown > 0:
+			self.loot_countdown -= 1
+			return
+
+		self.loot_expires.stop()
+
 		if len(self.loot) > 0:
 			await self.send(
 				"A swarm of tiny, shadow-clad creatures floods in and makes off with the items on the ground.")
-
 		self.loot.clear()
+		self.loot_countdown = self.loot_duration * 60
+		await sleep(self.minutes_min * 60)
+		self.spawn_check.start()
 
 	# Builds a combat message for a player, and returns the message and the damage as a tuple
 	def get_combat_message(self, player: Player) -> (str, int):
@@ -119,13 +129,13 @@ class Game:
 
 		if two_handed:
 			msg += f"```\nAtk: {l_atk} vs Dodge: {self.monster.dodge} --> " \
-				   f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}"
+				f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}"
 			if not l_miss:
 				msg += f"\nDamage: {l_dmg} vs Defense: {self.monster.defense} --> {t_dmg}"
 		else:
 			msg += f"```\nAtk: {l_atk}|{r_atk} vs Dodge: {self.monster.dodge} --> " \
-				   f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}|" \
-				   f"{'FUMBLE' if r_fumble else 'MISS' if r_miss else 'CRIT' if r_crit else 'HIT'}"
+				f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}|" \
+				f"{'FUMBLE' if r_fumble else 'MISS' if r_miss else 'CRIT' if r_crit else 'HIT'}"
 			if not l_miss or not r_miss:
 				msg += f"\nDamage: {l_dmg} + {r_dmg} vs Defense: {self.monster.defense} --> {t_dmg}"
 
@@ -133,25 +143,24 @@ class Game:
 		return msg, t_dmg
 
 	async def on_monster_death(self):
-		if not await self.send(f"{self.monster.death}"):
-			self.cancel_combat()
-
 		for pid in self.combatants:
 			loot = self.monster.getLoot()
 			self.loot[pid] = loot
 
+		msg = self.monster.death
 		self.monster = None
 		self.combatants.clear()
 		if len(self.loot) == 0:
-			await self.send("There does not appear to be anything to loot, this time.")
+			msg += "\nThere does not appear to be anything to loot, this time."
 		else:
-			await self.send(f"There might be something to `{self.prefix}loot`...")
-			await self.loot_expires()
+			msg += f"\nThere might be something to `{self.prefix}loot`..."
+
+		if not await self.send(msg):
+			self.cancel_combat()
 
 	# Performs combat sequence
 	@tasks.loop(count=1)
 	async def do_combat(self):
-		self.spawn_check.cancel()
 		await sleep(self.spawn_duration * 60)
 
 		msg = ""
@@ -186,8 +195,7 @@ class Game:
 
 			self.cancel_combat()
 
-		await sleep(self.minutes_min * 60)
-		self.spawn_check.start()
+		self.loot_expires.start()
 
 	# Spawns a monster
 	async def spawn(self):
@@ -196,6 +204,7 @@ class Game:
 		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
 		embed, file = self.monster.get_embed()
 		if await self.send(self.monster.arrival, embed=embed, file=file):
+			self.spawn_check.cancel()
 			self.do_combat.start()
 		else:
 			self.cancel_combat()
@@ -205,7 +214,7 @@ class Game:
 	async def spawn_check(self):
 		if not self.use_spawn_timer:
 			print("Spawn loop ending...")
-			self.spawn_check.cancel()
+			self.spawn_check.stop()
 			return
 
 		if self.bot.is_ws_ratelimited():
