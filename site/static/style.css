@@ -54,7 +54,7 @@ textarea, input {
 
 .parent {
 	display: grid;
-    grid-template: auto auto / 1fr 1fr;
+	grid-template: auto auto / 1fr 1fr;
 }
 
 .header {

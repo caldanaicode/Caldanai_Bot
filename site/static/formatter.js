@@ -279,8 +279,8 @@ function changeFormat(format) {
 }
 
 function sanitize(input) {
-    const reg = /["]/ig;
-    return input.replace(reg, (match)=>('\\"'));
+	const reg = /["]/ig;
+	return input.replace(reg, (match)=>('\\"'));
 }
 
 function updateFormat(elmt) {
@@ -289,17 +289,17 @@ function updateFormat(elmt) {
 		
 	val = elmt.value;
 	switch(elmt.type) {
-	    case 'number':
-	        fmt[elmt.name] = Number(val);
-	        break;
-	    case 'textarea':
-	        fmt[elmt.name] = sanitize(val.trim()).split('\n').filter( line => { return line.length > 0; } );
-	        break;
-	    case 'checkbox':
-	        fmt[elmt.name] = elmt.checked
-	        break;
-	    default:
-	        fmt[elmt.name] = sanitize(val.trim());
+		case 'number':
+			fmt[elmt.name] = Number(val);
+			break;
+		case 'textarea':
+			fmt[elmt.name] = sanitize(val.trim()).split('\n').filter( line => { return line.length > 0; } );
+			break;
+		case 'checkbox':
+			fmt[elmt.name] = elmt.checked
+			break;
+		default:
+			fmt[elmt.name] = sanitize(val.trim());
 	}
 	displayFormat();
 }
