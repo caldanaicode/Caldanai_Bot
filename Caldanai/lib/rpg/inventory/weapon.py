@@ -1,3 +1,5 @@
+from typing import Union
+
 from discord import Embed, File
 from ..dice import quick_roll
 from .item import Item
@@ -18,21 +20,21 @@ class Weapon(Item):
                  image: str = None,
                  rarity: Rarity = None,
                  atk: str = "1d4",
-                 twoHands: bool = False,
-                 atkMsg: str = None,
+                 twohands: bool = False,
+                 atkmsg: str = None,
                  bonus: int = None,
                  article: str = None
                  ):
         super().__init__(iid, tid, pid, name, desc, weight, value, image, rarity, article)
         self.attack = atk.lower()
-        self.isTwoHanded = twoHands
-        self.attackMessage = atkMsg
+        self.isTwoHanded = twohands
+        self.attackMessage = atkmsg
         self.itemType = 'Weapon'
 
         dice = int(self.attack.split('d')[0])
         self.bonus = bonus or (round(dice * self.rarity.multiplier) if self.rarity.name != 'junk' else 0)
 
-    def getAttackDamage(self):
+    def get_attack_damage(self):
         return quick_roll(self.attack) + self.bonus
 
     def get_embed(self) -> tuple:
@@ -78,13 +80,13 @@ class Weapon(Item):
             rarity=Rarity.load(d['rarity']) if 'rarity' in d.keys() else None,
             article=d['article'] if 'article' in d.keys() else None,
             atk=d['attack'] if 'attack' in d.keys() else None,
-            twoHands=d['isTwoHanded'] if 'isTwoHanded' in d.keys() else False,
-            atkMsg=d['attackMessage'] if 'attackMessage' in d.keys() else None,
+            twohands=d['isTwoHanded'] if 'isTwoHanded' in d.keys() else False,
+            atkmsg=d['attackMessage'] if 'attackMessage' in d.keys() else None,
             bonus=d['bonus'] if 'bonus' in d.keys() else None
         )
 
     @classmethod
-    def load(cls, item) -> 'Weapon':
+    def load(cls, item) -> Union['Weapon', None]:
         if isinstance(item, ObjectId):
             item = MongoDB.items.find_one({'_id': item})
 
@@ -108,7 +110,7 @@ class Weapon(Item):
             rarity=Rarity.load(item['rarity']),
             article=template['article'],
             atk=template['attack'],
-            twoHands=template['isTwoHanded'],
-            atkMsg=template['attackMessage'],
+            twohands=template['isTwoHanded'],
+            atkmsg=template['attackMessage'],
             bonus=item['bonus']
         )

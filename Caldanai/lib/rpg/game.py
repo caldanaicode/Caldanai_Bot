@@ -88,17 +88,28 @@ class Game:
         r_miss = not r_crit and (r_atk < self.monster.dodge or r_fumble)
         two_handed = r_atk == 0
         msg = f"{player.member.mention}'s attack:"
+        atk_rolls = [l_atk]
+        dmg_rolls = []
 
-        if l_miss:
-            l_dmg = 0
-        if r_miss:
-            r_dmg = 0
+        if not two_handed:
+            atk_rolls.append(r_atk)
 
         if l_crit:
             l_dmg *= 2
         if r_crit:
             r_dmg *= 2
 
+        if l_miss:
+            l_dmg = 0
+        else:
+            dmg_rolls.append(l_dmg)
+
+        if r_miss:
+            r_dmg = 0
+        else:
+            dmg_rolls.append(r_dmg)
+
+        player.update_averages(atk_rolls, dmg_rolls)
         t_dmg = l_dmg + r_dmg - self.monster.defense
 
         if t_dmg <= 0 and not (l_miss and r_miss):

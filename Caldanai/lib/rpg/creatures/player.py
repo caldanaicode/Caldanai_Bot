@@ -1,3 +1,6 @@
+from math import fsum
+from typing import List
+
 from discord import Member, Embed, File
 from discord.errors import HTTPException
 from .creature import Creature
@@ -26,7 +29,11 @@ class Player(Creature):
                  health: int = 1,
                  left_hand: Weapon = None,
                  right_hand: Weapon = None,
-                 inventory: Inventory = Inventory()
+                 inventory: Inventory = Inventory(),
+                 atk_avg: float = 0,
+                 atk_cnt: int = 0,
+                 dmg_avg: float = 0,
+                 dmg_cnt: int = 0
                  ):
         name = member.display_name if member is not None else ''
         super().__init__(name=name, atk=None, defense=defense, dodge=dodge, health=health)
@@ -42,6 +49,10 @@ class Player(Creature):
         self.leftHand = left_hand
         self.rightHand = right_hand
         self.inventory = inventory
+        self.attackAverage = atk_avg
+        self.attackCount = atk_cnt
+        self.damageAverage = dmg_avg
+        self.damageCount = dmg_cnt
 
     def __eq__(self, o):
         return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
@@ -118,11 +129,24 @@ class Player(Creature):
         """
         l_atk = quick_roll("1d20")
         r_atk = quick_roll("1d20") if self.rightHand is None or not self.rightHand.isTwoHanded else 0
-        l_dmg = quick_roll("1d4") if self.leftHand is None else self.leftHand.getAttackDamage()
+        l_dmg = quick_roll("1d4") if self.leftHand is None else self.leftHand.get_attack_damage()
         r_dmg = quick_roll("1d4") if self.rightHand is None \
-            else self.rightHand.getAttackDamage() if not self.rightHand.isTwoHanded else 0
+            else self.rightHand.get_attack_damage() if not self.rightHand.isTwoHanded else 0
 
         return l_atk, l_dmg, r_atk, r_dmg
+
+    # Updates the player's attack and damage averages.
+    def update_averages(self, atk_rolls: List[int], dmg_rolls: List[int]):
+        """Updates the player's attack and damage averages."""
+        if len(atk_rolls) == 0 or len(dmg_rolls) == 0:
+            return
+        self.attackAverage =\
+            fsum([self.attackCount * self.attackAverage] + atk_rolls) / (self.attackCount + len(atk_rolls))
+        self.attackCount += len(atk_rolls)
+        self.damageAverage =\
+            fsum([self.damageCount * self.damageAverage] + dmg_rolls) / (self.damageCount + len(dmg_rolls))
+        self.damageCount += len(dmg_rolls)
+        self.save()
 
     # Returns a discord Embed for the player's profile.
     def get_profile(self, guild_name: str) -> Embed:
@@ -136,21 +160,21 @@ class Player(Creature):
             ("Level", self.level, True),
             ("Exp", f'{self.exp:,}', True),
             ("Equipped", "---------------------------------------------------", False),
-            ("Left Hand",
-             "None" if self.leftHand is None
-             else f"{self.leftHand.article} {self.leftHand.name} ({self.leftHand.rarity.name})", True),
-            ("Right Hand",
-             "None" if self.rightHand is None
-             else f"{self.rightHand.article} {self.rightHand.name} ({self.rightHand.rarity.name})", True),
+            ("Left Hand", "None" if self.leftHand is None
+                else f"{self.leftHand.article} {self.leftHand.name} ({self.leftHand.rarity.name})", True),
+            ("Right Hand", "None" if self.rightHand is None
+                else f"{self.rightHand.article} {self.rightHand.name} ({self.rightHand.rarity.name})", True),
             ("Stats", "---------------------------------------------------", False),
-            ("Left Hand",
-             f"{self.leftHand.attack} + {self.leftHand.bonus}" if self.leftHand is not None else "1d4", True),
-            ("Right Hand", f"{self.rightHand.attack} + {self.rightHand.bonus}" if self.rightHand is not None else "1d4",
-             True),
+            ("Left Hand", f"{self.leftHand.attack} + {self.leftHand.bonus}" if self.leftHand is not None
+                else "1d4", True),
+            ("Right Hand", f"{self.rightHand.attack} + {self.rightHand.bonus}" if self.rightHand is not None
+                else "1d4", True),
             ("Defense", self.defense, True),
             ("Dodge", self.dodge, True),
             ("Health", self.health, True),
             ("General", "---------------------------------------------------", False),
+            ("Average Attack Roll", f'{self.attackAverage:.2f}', True),
+            ("Average Damage Amount", f'{self.damageAverage:.2f}', True),
             ("Clarks", f'{self.clarks:,}', False),
             ("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
             ("Joined", self.joined, False)
@@ -178,7 +202,7 @@ class Player(Creature):
         return self.inventory.add(item)
 
     # Removes an item from the player's inventory, if present.
-    def takeItem(self, item: Item) -> bool:
+    def take_item(self, item: Item) -> bool:
         """Removes an item from the player's inventory, if present.
 
         Returns a boolean indicating if the item was found and removed.
@@ -189,16 +213,17 @@ class Player(Creature):
         return False
 
     # Returns a string containing a formatted display of the player's inventory.
-    def getInventory(self, guildName: str):
+    def get_inventory(self, guild_name: str):
         """Returns a string containing a formatted display of the player's inventory."""
         msg = ''
         for idx, item in self.inventory.enumeration():
-            msg += f"\n{idx}: {item.article} {item.name} ({item.rarity.name} {item.itemType}){' [left hand]' if item == self.leftHand else ''}{' [right hand]' if item == self.rightHand else ''}"
+            msg += f"\n{idx}: {item.article} {item.name} ({item.rarity.name} {item.itemType})" \
+                f"{' [left hand]' if item == self.leftHand else ''}{' [right hand]' if item == self.rightHand else ''}"
 
         if msg == '':
             msg = 'You have no items.'
 
-        return f'Inventory for {self.name} on {guildName}```js\n{msg}```'
+        return f'Inventory for {self.name} on {guild_name}```js\n{msg}```'
 
     def to_dict(self) -> dict:
         """Returns a dictionary of the player's attributes."""
@@ -217,6 +242,10 @@ class Player(Creature):
             'clarks': self.clarks,
             'leftHand': self.leftHand.id if self.leftHand is not None else None,
             'rightHand': self.rightHand.id if self.rightHand is not None else None,
+            'attackAverage': self.attackAverage,
+            'attackCount': self.attackCount,
+            'damageAverage': self.damageAverage,
+            'damageCount': self.damageCount
         }
 
         if self.id is None:
@@ -264,7 +293,11 @@ class Player(Creature):
             defense=p['defense'],
             dodge=p['dodge'],
             health=p['health'],
-            inventory=Inventory.load(p['_id'])
+            inventory=Inventory.load(p['_id']),
+            atk_avg=p['attackAverage'],
+            atk_cnt=p['attackCount'],
+            dmg_avg=p['damageAverage'],
+            dmg_cnt=p['damageCount']
         )
 
         if player.inventory[str(p['leftHand'])] is not None:

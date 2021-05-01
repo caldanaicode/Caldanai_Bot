@@ -142,7 +142,7 @@ class RPG(Cog):
             return
 
         length = len(game.players)
-        msg = f"There {'is' if length == 1 else 'are'} currently {length:,}" \
+        msg = f"There {'is' if length == 1 else 'are'} currently {length:,} " \
               f"player{'s' if length > 1 or length == 0 else ''}.\n"
         for pid, player in game.players.items():
             msg += f"\t{player.member.display_name}\n"
@@ -301,7 +301,7 @@ class RPG(Cog):
             print("Players was none.")
             return
 
-        await player.send(player.getInventory(game.guild.name))
+        await player.send(player.get_inventory(game.guild.name))
         if ctx.guild is not None:
             await ctx.message.delete()
 
