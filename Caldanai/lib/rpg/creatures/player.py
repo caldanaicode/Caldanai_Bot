@@ -1,12 +1,12 @@
-from math import fsum
-from typing import List
+from math import fsum, floor
+from typing import List, Dict, Tuple
 
 from discord import Member, Embed, File
 from discord.errors import HTTPException
 from .creature import Creature
 from ..dice import quick_roll
 from ..inventory.inventory import Inventory, Item, Weapon
-from ....db.db import MongoDB
+from Caldanai.db.db import MongoDB
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 
@@ -31,7 +31,8 @@ class Player(Creature):
 			atk_avg: float = 0,
 			atk_cnt: int = 0,
 			dmg_avg: float = 0,
-			dmg_cnt: int = 0
+			dmg_cnt: int = 0,
+			skills: Dict[str, int] = {}
 	):
 		name = member.display_name if member is not None else ''
 		super().__init__(name=name, atk=None, defense=defense, dodge=dodge, health=health)
@@ -49,6 +50,7 @@ class Player(Creature):
 		self.attackCount = atk_cnt
 		self.damageAverage = dmg_avg
 		self.damageCount = dmg_cnt
+		self.skills = skills
 
 	def __eq__(self, o):
 		return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
@@ -118,31 +120,56 @@ class Player(Creature):
 		if weapon is not None and weapon.isTwoHanded:
 			self.leftHand = weapon
 
-	# Calculates attack and damage rolls using the player's equipped weapon(s).
+	# Returns the attack and damage bonus for a given skill as a tuple.
+	def get_skill_bonus(self, skill: str) -> Tuple[int, int]:
+		atk = floor(self.get_skill_level(skill) / 2)
+		dmg = floor(self.get_skill_level(skill) / 4)
+		return atk, dmg
+
+	# Calculates attack and damage rolls (including bonuses) using the player's equipped weapon(s).
 	def get_attack_rolls(self) -> (int, int, int, int):
 		"""Returns a tuple containing (l_atk, l_dmg, r_atk, r_dmg) rolls for the player.
 		r_atk and r_dmg will be 0 if attacking with a two-handed weapon.
 		"""
-		l_atk = quick_roll("1d20")
-		r_atk = quick_roll("1d20") if self.rightHand is None or not self.rightHand.isTwoHanded else 0
-		l_dmg = quick_roll("1d4") if self.leftHand is None else self.leftHand.get_attack_damage()
-		r_dmg = quick_roll("1d4") if self.rightHand is None \
-			else self.rightHand.get_attack_damage() if not self.rightHand.isTwoHanded else 0
+		left = self.leftHand is not None
+		two = left and self.leftHand.isTwoHanded
+		right = self.rightHand is not None
 
-		return l_atk, l_dmg, r_atk, r_dmg
+		l_atk = quick_roll("1d20")
+		l_dmg = self.leftHand.get_attack_damage() if left else quick_roll("1d4")
+		l_bonus = self.get_skill_bonus(self.leftHand.skill) if left else self.get_skill_bonus("unarmed")
+
+		r_atk = quick_roll("1d20") if not two else 0
+		r_dmg = 0 if two else self.rightHand.get_attack_damage() if right else quick_roll("1d4")
+		r_bonus = self.get_skill_bonus(self.rightHand.skill) if right and not two else (0, 0)
+
+		return l_atk + l_bonus[0], l_dmg + l_bonus[1], r_atk + r_bonus[0], r_dmg + r_bonus[1]
 
 	# Updates the player's attack and damage averages.
-	def update_averages(self, atk_rolls: List[int], dmg_rolls: List[int]):
+	def update_averages(self, l_atk, l_dmg, r_atk, r_dmg):
 		"""Updates the player's attack and damage averages."""
-		if len(atk_rolls) == 0 or len(dmg_rolls) == 0:
-			return
-		self.attackAverage =\
-			fsum([self.attackCount * self.attackAverage] + atk_rolls) / (self.attackCount + len(atk_rolls))
-		self.attackCount += len(atk_rolls)
-		self.damageAverage =\
-			fsum([self.damageCount * self.damageAverage] + dmg_rolls) / (self.damageCount + len(dmg_rolls))
-		self.damageCount += len(dmg_rolls)
+		a_count = (1 if l_atk > 0 else 0) + (1 if r_atk > 0 else 0)
+		d_count = (1 if l_dmg > 0 else 0) + (1 if r_dmg > 0 else 0)
+		self.attackAverage = fsum([self.attackCount * self.attackAverage, l_atk, r_atk])\
+			/ (self.attackCount + a_count)
+		self.attackCount += a_count
+		self.damageAverage = fsum([self.damageCount * self.damageAverage, l_dmg, r_dmg])\
+			/ (self.damageCount + d_count)
+		self.damageCount += d_count
 		self.save()
+
+	# Returns the skill level for the given skill name.
+	def get_skill_level(self, skill: str) -> int:
+		if skill not in self.skills.keys():
+			return 1
+
+		return floor((25 + (5 * (125 + self.skills[skill])) ** 0.5) / 50)
+
+	# Increments the given skill's experience level.
+	def gain_skill_experience(self, skill: str) -> None:
+		if skill not in self.skills.keys():
+			self.skills[skill] = 0
+		self.skills[skill] += 10 + floor(10 * (self.get_skill_level(skill) ** 0.5))
 
 	# Returns a discord Embed for the player's profile.
 	def get_profile(self, guild_name: str) -> Embed:
@@ -163,16 +190,22 @@ class Player(Creature):
 				else "1d4", True),
 			("Right Hand", f"{self.rightHand.attack} + {self.rightHand.bonus}" if self.rightHand is not None
 				else "1d4", True),
+			(" ", " ", False),
 			("Defense", self.defense, True),
 			("Dodge", self.dodge, True),
 			("Health", self.health, True),
 			("General", "---------------------------------------------------", False),
 			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
 			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
-			("Clarks", f'{self.clarks:,}', False),
+			(" ", " ", False),
+			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
-			("Joined", self.joined, False)
+			("Joined", self.joined, False),
+			("Skills", "---------------------------------------------------", False)
 		]
+
+		for skill in self.skills.keys():
+			fields.append((skill, f"{self.get_skill_level(skill)}", False))
 
 		for f, v, i in fields:
 			embed.add_field(name=f, value=v, inline=i)
@@ -237,7 +270,8 @@ class Player(Creature):
 			'attackAverage': self.attackAverage,
 			'attackCount': self.attackCount,
 			'damageAverage': self.damageAverage,
-			'damageCount': self.damageCount
+			'damageCount': self.damageCount,
+			'skills': self.skills
 		}
 
 		if self.id is None:
@@ -287,7 +321,8 @@ class Player(Creature):
 			atk_avg=p['attackAverage'],
 			atk_cnt=p['attackCount'],
 			dmg_avg=p['damageAverage'],
-			dmg_cnt=p['damageCount']
+			dmg_cnt=p['damageCount'],
+			skills=p['skills']
 		)
 
 		if player.inventory[str(p['leftHand'])] is not None:

@@ -1,3 +1,5 @@
+from typing import Union
+
 from discord import Embed, File
 from random import randint
 from .rarity import Rarity, Rarities
@@ -7,18 +9,19 @@ from bson.objectid import ObjectId
 
 
 class Item:
-	def __init__(self,
-				 iid: ObjectId = None,
-				 tid: ObjectId = None,
-				 pid: ObjectId = None,
-				 name: str = "",
-				 desc: str = "",
-				 weight: float = 1.0,
-				 value: int = 0,
-				 image: str = None,
-				 rarity: Rarity = None,
-				 article: str = None
-				 ):
+	def __init__(
+			self,
+			iid: ObjectId = None,
+			tid: ObjectId = None,
+			pid: ObjectId = None,
+			name: str = "",
+			desc: str = "",
+			weight: float = 1.0,
+			value: int = 0,
+			image: str = None,
+			rarity: Rarity = None,
+			article: str = None
+	):
 		if rarity is None:
 			self.rarity = Rarities.getRarityFromScale(randint(1, 100), 1, 100)
 		else:
@@ -39,11 +42,14 @@ class Item:
 		return isinstance(o, Item) and self.id == o.id
 
 	def get_embed(self) -> (Embed, File):
-		embed = Embed(title=f"{'' if self.article is None else self.article + ' '}{self.name}",
-					  description=self.description, color=self.rarity.color)
+		embed = Embed(
+			title=f"{'' if self.article is None else self.article + ' '}{self.name}",
+			description=self.description,
+			color=self.rarity.color
+		)
 		file = None
 		if self.image is not None:
-			file = File(f"./Caldanai/images/{self.image}", filename=self.image)
+			file = File(f"./site/static/images/{self.image}", filename=self.image)
 			embed.set_thumbnail(url=f"attachment://{self.image}")
 
 		fields = (
@@ -95,7 +101,7 @@ class Item:
 		)
 
 	@classmethod
-	def load(cls, item) -> 'Item':
+	def load(cls, item) -> Union['Item', None]:
 		if isinstance(item, ObjectId):
 			item = MongoDB.items.find_one({'_id': item})
 

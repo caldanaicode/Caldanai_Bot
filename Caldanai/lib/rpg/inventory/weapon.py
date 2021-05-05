@@ -21,16 +21,24 @@ class Weapon(Item):
 			image: str = None,
 			rarity: Rarity = None,
 			atk: str = "1d4",
-			twohands: bool = False,
-			atkmsg: str = None,
+			is_2handed: bool = False,
+			is_magic: bool = False,
+			is_ranged: bool = False,
+			atk_msg: str = None,
 			bonus: int = None,
-			article: str = None
+			article: str = None,
+			dmg_type: str = None
 	):
 		super().__init__(iid, tid, pid, name, desc, weight, value, image, rarity, article)
 		self.attack = atk.lower()
-		self.isTwoHanded = twohands
-		self.attackMessage = atkmsg
+		self.isTwoHanded = is_2handed
+		self.isMagic = is_magic
+		self.isRanged = is_ranged
+		self.damageType = dmg_type
+		self.attackMessage = atk_msg
 		self.itemType = 'Weapon'
+		self.skill: str = f"{'two-handed ' if is_2handed else 'one-handed '}{'magic ' if is_magic else ''}" \
+			f"{'ranged ' if is_ranged else ''}{dmg_type}"
 
 		dice = int(self.attack.split('d')[0])
 		self.bonus = bonus or (round(dice * self.rarity.multiplier) if self.rarity.name != 'junk' else 0)
@@ -41,16 +49,21 @@ class Weapon(Item):
 	def get_embed(self) -> tuple:
 		embed = Embed(
 			title=f"{'' if self.article is None else self.article + ' '}{self.name}",
-			description=self.description, color=self.rarity.color
+			description=self.description,
+			color=self.rarity.color
 		)
 		file = None
 		if self.image is not None:
-			file = File(f"./Caldanai/images/{self.image}", filename=self.image)
+			file = File(f"./site/static/images/{self.image}", filename=self.image)
 			embed.set_thumbnail(url=f"attachment://{self.image}")
 
 		fields = (
-			("Attack", f"{self.attack} +{self.bonus}", True),
+			("Attack", f"{self.attack} + {self.bonus}", True),
+			("Damage Type", self.damageType, True),
 			("Is Two-Handed", self.isTwoHanded, True),
+			("Is Magic", self.isTwoHanded, True),
+			("Is Ranged", self.isTwoHanded, True),
+			("Skill", self.skill.title(), False),
 			("Rarity", self.rarity.name.title(), True),
 			("Weight", self.weight, True),
 			("Value", self.value, True)
@@ -83,8 +96,11 @@ class Weapon(Item):
 			rarity=Rarity.load(d['rarity']) if 'rarity' in d.keys() else None,
 			article=d['article'] if 'article' in d.keys() else None,
 			atk=d['attack'] if 'attack' in d.keys() else None,
-			twohands=d['isTwoHanded'] if 'isTwoHanded' in d.keys() else False,
-			atkmsg=d['attackMessage'] if 'attackMessage' in d.keys() else None,
+			is_2handed=d['isTwoHanded'] if 'isTwoHanded' in d.keys() else False,
+			is_magic=d['isMagic'] if 'isMagic' in d.keys() else False,
+			is_ranged=d['isRanged'] if 'isRanged' in d.keys() else False,
+			dmg_type=d['damageType'] if 'damageType' in d.keys() else None,
+			atk_msg=d['attackMessage'] if 'attackMessage' in d.keys() else None,
 			bonus=d['bonus'] if 'bonus' in d.keys() else None
 		)
 
@@ -113,7 +129,10 @@ class Weapon(Item):
 			rarity=Rarity.load(item['rarity']),
 			article=template['article'],
 			atk=template['attack'],
-			twohands=template['isTwoHanded'],
-			atkmsg=template['attackMessage'],
-			bonus=item['bonus']
+			is_2handed=template['isTwoHanded'],
+			is_magic=template['isMagic'],
+			is_ranged=template['isRanged'],
+			atk_msg=template['attackMessage'],
+			bonus=item['bonus'],
+			dmg_type=template['damageType']
 		)

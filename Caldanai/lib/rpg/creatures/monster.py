@@ -34,7 +34,7 @@ class Monster(Creature):
 		)
 		file = None
 		if self.image is not None:
-			file = File(f"./Caldanai/images/{self.image}", filename=self.image)
+			file = File(f"./site/static/images/{self.image}", filename=self.image)
 			embed.set_thumbnail(url=f"attachment://{self.image}")
 
 		fields = [
@@ -48,7 +48,7 @@ class Monster(Creature):
 			if isinstance(v, int):
 				v = f"{v:,}"
 			embed.add_field(name=f, value=v, inline=i)
-		return (embed, file)
+		return embed, file
 	
 	# Reacts to hugs.
 	def receiveHug(self, name: str, invocation: str) -> str:

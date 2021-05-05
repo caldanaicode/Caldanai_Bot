@@ -1,8 +1,6 @@
-from os import getenv
 import pymongo
-from dotenv import load_dotenv
+from Caldanai.environment import DB_CONNECTION
 
 
-load_dotenv()
-mongoClient = pymongo.MongoClient(f"{getenv('DBCONNECTION')}")
+mongoClient = pymongo.MongoClient(DB_CONNECTION)
 MongoDB = mongoClient.caldanaiDB

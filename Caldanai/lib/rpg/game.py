@@ -98,11 +98,6 @@ class Game:
 		r_miss = not r_crit and (r_atk < self.monster.dodge or r_fumble)
 		two_handed = r_atk == 0
 		msg = f"{player.member.mention}'s attack:"
-		atk_rolls = [l_atk]
-		dmg_rolls = []
-
-		if not two_handed:
-			atk_rolls.append(r_atk)
 
 		if l_crit:
 			l_dmg *= 2
@@ -111,15 +106,11 @@ class Game:
 
 		if l_miss:
 			l_dmg = 0
-		else:
-			dmg_rolls.append(l_dmg)
 
 		if r_miss:
 			r_dmg = 0
-		else:
-			dmg_rolls.append(r_dmg)
 
-		player.update_averages(atk_rolls, dmg_rolls)
+		player.update_averages(l_atk, l_dmg, r_atk, r_dmg)
 		t_dmg = l_dmg + r_dmg - self.monster.defense
 
 		if t_dmg <= 0 and not (l_miss and r_miss):
@@ -132,12 +123,19 @@ class Game:
 				f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}"
 			if not l_miss:
 				msg += f"\nDamage: {l_dmg} vs Defense: {self.monster.defense} --> {t_dmg}"
+				player.gain_skill_experience(player.leftHand.skill)
+				player.save()
 		else:
 			msg += f"```\nAtk: {l_atk}|{r_atk} vs Dodge: {self.monster.dodge} --> " \
 				f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}|" \
 				f"{'FUMBLE' if r_fumble else 'MISS' if r_miss else 'CRIT' if r_crit else 'HIT'}"
 			if not l_miss or not r_miss:
 				msg += f"\nDamage: {l_dmg} + {r_dmg} vs Defense: {self.monster.defense} --> {t_dmg}"
+				l_skill = player.leftHand.skill if player.leftHand is not None else "unarmed"
+				r_skill = player.rightHand.skill if player.rightHand is not None else "unarmed"
+				player.gain_skill_experience(l_skill)
+				player.gain_skill_experience(r_skill)
+				player.save()
 
 		msg += "```\n"
 		return msg, t_dmg

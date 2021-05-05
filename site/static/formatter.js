@@ -1,6 +1,6 @@
 itemFields = {
 	name: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "Item name, such as 'stick' or 'wondrous ball of yarn'",
 		placeholder: "Item name",
 		required: true,
@@ -8,7 +8,7 @@ itemFields = {
 	},
 		
 	article: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "Article for the item, such as 'a', 'an', or 'some'",
 		placeholder: "a",
 		required: true,
@@ -17,7 +17,7 @@ itemFields = {
 	},
 	
 	description: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "The item's description. Feel free to be a bit creative!",
 		placeholder: "Some fun, descriptive text about this item.",
 		required: true,
@@ -25,7 +25,7 @@ itemFields = {
 	},
 	
 	weight: {
-		type: "number" ,
+		type: "number",
 		title: "The item's weight in pounds, such as 1.0 or 5.2",
 		placeholder: 1.0,
 		required: true,
@@ -36,7 +36,7 @@ itemFields = {
 	},
 	
 	value: {
-		type: "number" ,
+		type: "number",
 		title: "The item's value in clarks, as a whole number.",
 		placeholder: 0,
 		required: true,
@@ -46,7 +46,7 @@ itemFields = {
 	},
 	
 	image: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "A free-use image to represent the item. This will be modified if necessary.",
 		placeholder: "https://some.url/image.png",
 		size: 80
@@ -55,7 +55,7 @@ itemFields = {
 
 weaponFields = {
 	name: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "Weapon name, such as 'staff' or 'greatsword of flaming impunity'",
 		placeholder: "Weapon name",
 		required: true,
@@ -63,7 +63,7 @@ weaponFields = {
 	},
 		
 	article: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "Article for the weapon, such as 'a', or 'an'",
 		placeholder: "a",
 		required: true,
@@ -72,7 +72,7 @@ weaponFields = {
 	},
 	
 	description: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "The weapon's description. Feel free to be a bit creative!",
 		placeholder: "Some fun, descriptive text about this weapon, possible some lore.",
 		required: true,
@@ -80,7 +80,7 @@ weaponFields = {
 	},
 	
 	weight: {
-		type: "number" ,
+		type: "number",
 		title: "The weapon's weight in pounds, such as 1.0 or 5.2",
 		placeholder: 1.0,
 		required: true,
@@ -91,7 +91,7 @@ weaponFields = {
 	},
 	
 	value: {
-		type: "number" ,
+		type: "number",
 		title: "The weapon's value in clarks, as a whole number.",
 		placeholder: 0,
 		required: true,
@@ -101,14 +101,14 @@ weaponFields = {
 	},
 	
 	image: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "A free-use image to represent the weapon. This will be modified if necessary.",
 		placeholder: "https://some.url/image.png",
 		size: 80
 	},
 
 	attack: {
-		type: "textbox" ,
+		type: "textbox",
 		title: "Article for the weapon, such as 'a', or 'an'",
 		placeholder: "1d4",
 		pattern: "\\d*[dD]\\d+",
@@ -116,10 +116,38 @@ weaponFields = {
 		size: 8,
 		maxlength: 8
 	},
+
+	damageType: {
+	    type: "select",
+	    title: "The skill used for the weapon.",
+	    options: [
+	        "piercing",
+	        "slashing",
+	        "bludgeoning",
+	        "earth",
+	        "fire",
+	        "ice",
+	        "lightning",
+	        "water",
+	        "wind"
+	    ],
+	    size: 1,
+	    required: true
+	},
 	
 	isTwoHanded: {
 		type: "checkbox",
 		title: "Check the box if this is a two-handed weapon!"
+	},
+
+	isMagic: {
+	    type: "checkbox",
+	    title: "Check the box if this is a magic weapon!"
+	},
+
+	isRanged: {
+	    type: "checkbox",
+	    title: "Check the box if this is a ranged weapon!"
 	},
 	
 	attackMessage: {
@@ -251,7 +279,7 @@ function displayFormat() {
 			output.value += '],\n';
 		}
 		else {
-			output.value += `${typeof(v) == 'string' ? '"' : '' }${v}${typeof(v) == 'string' ? '"' : '' },\n`;
+		    output.value += `${typeof(v) == 'string' ? '"' : '' }${v}${typeof(v) == 'string' ? '"' : '' },\n`;
 		}
 	}
 	output.value = output.value.substring(0, output.value.length - 2);
@@ -262,6 +290,7 @@ function changeFormat(format) {
 	for (var field in format) {
 		switch(format[field].type) {
 			case 'textbox':
+			case 'select':
 				fmt[field] = '';
 				break;
 			case 'textarea':
@@ -300,6 +329,7 @@ function updateFormat(elmt) {
 			break;
 		default:
 			fmt[elmt.name] = sanitize(val.trim());
+			break;
 	}
 	displayFormat();
 }
@@ -314,21 +344,52 @@ function validate(elmt) {
 }
 
 function buildInput(name, input) {
-	html = `<label for="${name}" class="l">${name}</label><br><${input.type == 'textarea' ? input.type : 'input type="' + input.type + '"'} name="${name}" class="f" oninput="updateFormat(this)"`;
-	for (var field in input) {
-		if (field != 'type') {
-			if (field == 'required') {
-				html += ' required';
-			}
-			else {
-				html += ` ${field}="${input[field]}"`;
-				if (field == 'pattern') {
-					html += `oninput="validate(this.value, ${input[field]})"`;
-				}
-			}
-		}
+	html = `<label for="${name}" class="l">${name}</label><br>`;
+
+	switch(input.type) {
+	    case 'textarea':
+	        html += `<textarea`;
+	        break;
+	    case 'select':
+	        html += `<select value=''`;
+	        break;
+	    default:
+	        html += `<input type="${input.type}"`;
+	        break;
 	}
-	html += `>${input.type == 'textarea' ? '</textarea>' : ''}<br>`;
+
+	html += ` name="${name}" class="f" oninput="updateFormat(this)"`;
+	for (var field in input) {
+	    switch(field) {
+	        case 'required':
+	            html += ' required';
+	            break;
+	        case 'type':
+	        case 'options':
+	            break;
+	        default:
+                html += ` ${field}="${input[field]}"`;
+				break;
+	    }
+	}
+
+	html += '>';
+
+	switch(input.type) {
+	    case 'textarea':
+	        html += '</textarea>';
+	        break;
+	    case 'select':
+	        html += `<option value="none" selected disabled hidden>Select a ${name}</option>`;
+	        for (var o in input.options) {
+	            html += `<option value="${input.options[o]}">${input.options[o]}</option>`;
+	        }
+	        html += '</select>'
+	        break;
+	    default:
+	        break;
+	}
+	html += '<br>';
 	return html;
 }
 

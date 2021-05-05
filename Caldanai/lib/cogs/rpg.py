@@ -180,8 +180,11 @@ class RPG(Cog):
 			await ctx.message.delete()
 
 	# Attacks the current monster.
-	@command(name='attack', aliases=['kill', 'murder'],
-			 brief="Attacks the critter currently daring to show it's face to intrepid adventurers!")
+	@command(
+		name='attack',
+		aliases=['kill', 'murder'],
+		brief="Attacks the critter currently daring to show it's face to intrepid adventurers!"
+	)
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
 	async def attack(self, ctx):

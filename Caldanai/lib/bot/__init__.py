@@ -6,14 +6,11 @@ from discord.ext.commands import CommandNotFound, BadArgument, CommandOnCooldown
 from discord import Intents, Guild
 from discord.errors import HTTPException, Forbidden
 from glob import glob
-from os import getenv, path
+from os import path
 
 from ..rpg.game import Game
 from ...db.db import MongoDB
-from dotenv import load_dotenv
-
-load_dotenv()
-OWNER_IDS = [getenv('OWNERID')]
+from Caldanai.environment import OWNER_IDS, TOKEN
 
 
 def get_prefix(bot, message):
@@ -73,7 +70,7 @@ class Bot(BotBase):
 			self.reload_cog(cog)
 
 	def run(self):
-		self.TOKEN = getenv('TOKEN')
+		self.TOKEN = TOKEN
 		self.setup()
 		self.retry = 0
 		try:
@@ -90,9 +87,10 @@ class Bot(BotBase):
 		raise
 
 	async def on_command_error(self, ctx, exc):
-		if isinstance(exc,
-					  (BadArgument, CommandOnCooldown, MissingRequiredArgument)
-					  ):
+		if isinstance(
+				exc,
+				(BadArgument, CommandOnCooldown, MissingRequiredArgument)
+		):
 			pass
 
 		elif isinstance(exc, CommandNotFound):

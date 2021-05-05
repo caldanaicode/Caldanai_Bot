@@ -1,6 +1,5 @@
 from discord import Embed, Guild
-from discord.ext.commands import BucketType, Cog, cooldown, command, guild_only, has_permissions, group
-from typing import Dict
+from discord.ext.commands import Cog, guild_only, has_permissions, group
 from Caldanai.lib.bot import Bot
 from ...db.db import MongoDB
 from ..rpg.game import Game

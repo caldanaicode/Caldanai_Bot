@@ -3,7 +3,7 @@ from MongoHandler import MongoHandler
 from Caldanai.db.db import MongoDB
 from Caldanai.lib.bot import bot
 from threading import Thread
-from server import run as runServer
+from server import run as run_server
 
 logger = getLogger('discord')
 logger.setLevel(DEBUG)
@@ -23,7 +23,7 @@ mHandler = MongoHandler(MongoDB.logs_discord, ignore)
 mHandler.setFormatter(formatter)
 logger.addHandler(mHandler)
 
-serverThread = Thread(target=runServer)
+serverThread = Thread(target=run_server)
 serverThread.start()
 
 bot.run()
