@@ -68,6 +68,8 @@ class Player(Creature):
 					msg += f" Retry After {e.response.headers['Retry-After']} seconds."
 			elif e.code == 400:
 				msg += f' -- Message returned a bad format error.'
+			else:
+				msg += e.text
 
 			print(msg)
 			return False
@@ -190,14 +192,14 @@ class Player(Creature):
 				else "1d4", True),
 			("Right Hand", f"{self.rightHand.attack} + {self.rightHand.bonus}" if self.rightHand is not None
 				else "1d4", True),
-			(" ", " ", False),
+			("\u200b", "\u200b", False),
 			("Defense", self.defense, True),
 			("Dodge", self.dodge, True),
 			("Health", self.health, True),
 			("General", "---------------------------------------------------", False),
 			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
 			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
-			(" ", " ", False),
+			("\u200b", "\u200b", False),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
 			("Joined", self.joined, False),

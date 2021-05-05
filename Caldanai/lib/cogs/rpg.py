@@ -294,8 +294,11 @@ class RPG(Cog):
 		player.save()
 		await ctx.send(f"You have equipped {item.article} {item.name}.")
 
-	@command(name='inventory', aliases=['inv', 'items', 'bag'],
-			 brief='Sends a DM to the player with information about the items they carry.')
+	@command(
+		name='inventory',
+		aliases=['inv', 'items', 'bag'],
+		brief='Sends a DM to the player with information about the items they carry.'
+	)
 	@cooldown(1, 10, BucketType.member)
 	async def inventory(self, ctx, game_idx: int = None):
 		"""Sends a DM to the player with information about the items they carry.
@@ -344,8 +347,10 @@ class RPG(Cog):
 
 	# Returns a string to display games in which a user is currently playing.
 	@cooldown(1, 60, BucketType.user)
-	@command(name='games',
-			 brief='Sends a DM to the calling player with a list of each game they are currently in for Caldanai Bot.')
+	@command(
+		name='games',
+		brief='Sends a DM to the calling player with a list of each game they are currently in for Caldanai Bot.'
+	)
 	async def games_display(self, ctx):
 		msg = ""
 		games = self.get_games_for_user(ctx.author.id)
