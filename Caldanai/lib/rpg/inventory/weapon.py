@@ -60,6 +60,7 @@ class Weapon(Item):
 		fields = (
 			("Attack", f"{self.attack} + {self.bonus}", True),
 			("Damage Type", self.damageType, True),
+			("\u200b", "\u200b", True),
 			("Is Two-Handed", self.isTwoHanded, True),
 			("Is Magic", self.isTwoHanded, True),
 			("Is Ranged", self.isTwoHanded, True),
@@ -76,7 +77,6 @@ class Weapon(Item):
 	def to_dict(self):
 		d = super().to_dict()
 		d['bonus'] = self.bonus
-
 		return d
 
 	@classmethod
