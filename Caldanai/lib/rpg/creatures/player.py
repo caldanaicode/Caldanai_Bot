@@ -152,12 +152,14 @@ class Player(Creature):
 		"""Updates the player's attack and damage averages."""
 		a_count = (1 if l_atk > 0 else 0) + (1 if r_atk > 0 else 0)
 		d_count = (1 if l_dmg > 0 else 0) + (1 if r_dmg > 0 else 0)
-		self.attackAverage = fsum([self.attackCount * self.attackAverage, l_atk, r_atk])\
-			/ (self.attackCount + a_count)
-		self.attackCount += a_count
-		self.damageAverage = fsum([self.damageCount * self.damageAverage, l_dmg, r_dmg])\
-			/ (self.damageCount + d_count)
-		self.damageCount += d_count
+		if self.attackCount + a_count > 0:
+			self.attackAverage = fsum([self.attackCount * self.attackAverage, l_atk, r_atk])\
+				/ (self.attackCount + a_count)
+			self.attackCount += a_count
+		if self.damageCount + d_count > 0:
+			self.damageAverage = fsum([self.damageCount * self.damageAverage, l_dmg, r_dmg])\
+				/ (self.damageCount + d_count)
+			self.damageCount += d_count
 		self.save()
 
 	# Returns the skill level for the given skill name.
@@ -187,6 +189,7 @@ class Player(Creature):
 				else f"{self.leftHand.article} {self.leftHand.name} ({self.leftHand.rarity.name})", True),
 			("Right Hand", "None" if self.rightHand is None
 				else f"{self.rightHand.article} {self.rightHand.name} ({self.rightHand.rarity.name})", True),
+			("\u200b", "\u200b", False),
 			("Stats", "---------------------------------------------------", False),
 			("Left Hand", f"{self.leftHand.attack} + {self.leftHand.bonus}" if self.leftHand is not None
 				else "1d4", True),
@@ -196,6 +199,7 @@ class Player(Creature):
 			("Defense", self.defense, True),
 			("Dodge", self.dodge, True),
 			("Health", self.health, True),
+			("\u200b", "\u200b", False),
 			("General", "---------------------------------------------------", False),
 			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
 			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
@@ -203,6 +207,7 @@ class Player(Creature):
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
 			("Joined", self.joined, False),
+			("\u200b", "\u200b", False),
 			("Skills", "---------------------------------------------------", False)
 		]
 
