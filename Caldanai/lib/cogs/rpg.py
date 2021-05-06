@@ -239,7 +239,7 @@ class RPG(Cog):
 				if not player.give_item(item):
 					dropped.append(item)
 			if len(dropped) > 0:
-				msg += f"It appears you may have a hoarding problem, {player.display_name}." \
+				msg += f"It appears you may have a hoarding problem, {player.name}." \
 					f" The following items would overburden you: {' and '.join(', '.join(dropped)).rsplit(', ', 1)}"
 		else:
 			msg = f"{ctx.author.display_name} pokes around the corpse, finding nothing useful."
