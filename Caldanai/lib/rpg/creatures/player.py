@@ -212,7 +212,9 @@ class Player(Creature):
 		]
 
 		for skill in self.skills.keys():
-			fields.append((skill, f"Level: {self.get_skill_level(skill)}, Current XP: {self.skills[skill]:,}", False))
+			bonuses = self.get_skill_bonus(skill)
+			msg = f"Current XP: {self.skills[skill]:,}, Attack Bonus: {bonuses[0]}, Damage Bonus: {bonuses[1]}"
+			fields.append((f"{skill} ({self.get_skill_level(skill)})", msg, False))
 
 		for f, v, i in fields:
 			embed.add_field(name=f, value=v, inline=i)
