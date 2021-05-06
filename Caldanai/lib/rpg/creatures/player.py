@@ -202,8 +202,8 @@ class Player(Creature):
 			("\u200b", "\u200b", False),
 			("General", "---------------------------------------------------", False),
 			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
-			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
 			("\u200b", "\u200b", True),
+			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
 			("Joined", self.joined, False),
@@ -212,7 +212,7 @@ class Player(Creature):
 		]
 
 		for skill in self.skills.keys():
-			fields.append((skill, f"Level: {self.get_skill_level(skill)}, Current XP:{self.skills[skill]}", False))
+			fields.append((skill, f"Level: {self.get_skill_level(skill)}, Current XP: {self.skills[skill]:,}", False))
 
 		for f, v, i in fields:
 			embed.add_field(name=f, value=v, inline=i)
