@@ -195,7 +195,7 @@ class Player(Creature):
 				else "1d4", True),
 			("Right Hand", f"{self.rightHand.attack} + {self.rightHand.bonus}" if self.rightHand is not None
 				else "1d4", True),
-			("\u200b", "\u200b", False),
+			("\u200b", "\u200b", True),
 			("Defense", self.defense, True),
 			("Dodge", self.dodge, True),
 			("Health", self.health, True),
@@ -203,7 +203,7 @@ class Player(Creature):
 			("General", "---------------------------------------------------", False),
 			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
 			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
-			("\u200b", "\u200b", False),
+			("\u200b", "\u200b", True),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
 			("Joined", self.joined, False),
@@ -212,7 +212,7 @@ class Player(Creature):
 		]
 
 		for skill in self.skills.keys():
-			fields.append((skill, f"{self.get_skill_level(skill)}", False))
+			fields.append((skill, f"Level: {self.get_skill_level(skill)}, Current XP:{self.skills[skill]}", False))
 
 		for f, v, i in fields:
 			embed.add_field(name=f, value=v, inline=i)
