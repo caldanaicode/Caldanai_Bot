@@ -234,15 +234,16 @@ class RPG(Cog):
 		msg = ', '.join([f"{item.article} {item.rarity.name} {item.name}" for item in loot])
 		dropped = []
 		if msg is not None and len(msg) > 0:
-			msg = f"{ctx.author.display_name} found {' and '.join(msg.rsplit(', ', 1))}."
+			msg = f"{player.name} found {' and '.join(msg.rsplit(', ', 1))}."
 			for item in loot:
 				if not player.give_item(item):
 					dropped.append(item)
 			if len(dropped) > 0:
 				msg += f"It appears you may have a hoarding problem, {player.name}." \
-					f" The following items would overburden you: {' and '.join(', '.join(dropped)).rsplit(', ', 1)}"
+					f" The following items would overburden you: " \
+					f"{' and '.join(', '.join([d.name for d in dropped]).rsplit(', ', 1))}"
 		else:
-			msg = f"{ctx.author.display_name} pokes around the corpse, finding nothing useful."
+			msg = f"{player.name} pokes around the corpse, finding nothing useful."
 		del game.loot[player.userId]
 		if len(dropped) > 0:
 			game.loot[player.userId] = dropped
