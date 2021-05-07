@@ -241,7 +241,7 @@ class RPG(Cog):
 			if len(dropped) > 0:
 				msg += f"It appears you may have a hoarding problem, {player.name}." \
 					f" The following items would overburden you: " \
-					f"{' and '.join(', '.join([d.name for d in dropped]).rsplit(', ', 1))}"
+					f"{' and '.join(', '.join([d.article + ' ' + d.name for d in dropped]).rsplit(', ', 1))}"
 		else:
 			msg = f"{player.name} pokes around the corpse, finding nothing useful."
 		del game.loot[player.userId]
