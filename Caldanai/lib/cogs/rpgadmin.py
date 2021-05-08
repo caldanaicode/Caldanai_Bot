@@ -189,14 +189,14 @@ class RpgAdmin(Cog):
 			return
 
 		value = value.lower()
-		if any(v == value for v in ['1', 'on', 'true']):
+		if any(v == value for v in ['1', 'on', 'true', 'enabled']):
 			if not game.use_spawn_timer:
 				game.use_spawn_timer = True
 				game.spawn_check.start()
 			else:
 				await game.send("Spawning is already enabled.")
 		
-		elif any(v == value for v in ['0', 'off', 'false']):
+		elif any(v == value for v in ['0', 'off', 'false', 'disabled']):
 			if game.use_spawn_timer:
 				game.use_spawn_timer = False
 			else:

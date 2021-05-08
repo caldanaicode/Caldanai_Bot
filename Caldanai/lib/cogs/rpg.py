@@ -145,8 +145,8 @@ class RPG(Cog):
 		s = list(game.players.values())
 		s.sort(key=lambda p: p.member.display_name)
 		msg = "```\n"
-		for player in s:
-			msg += f"{player.member.display_name}\n"
+		for idx, player in enumerate(s):
+			msg += f"{idx}: {player.member.display_name}\n"
 
 		embed = Embed(
 			title=f"There {'is' if length == 1 else 'are'} currently {length:,} player{'' if length == 1 else 's'}.",
@@ -239,9 +239,11 @@ class RPG(Cog):
 				if not player.give_item(item):
 					dropped.append(item)
 			if len(dropped) > 0:
-				msg += f"It appears you may have a hoarding problem, {player.name}." \
-					f" The following items would overburden you: " \
-					f"{' and '.join(', '.join([d.article + ' ' + d.name for d in dropped]).rsplit(', ', 1))}"
+				txt = ', '.join([d.article + ' ' + d.rarity.name + ' ' + d.name for d in dropped]).rsplit(', ', 1)
+				txt = ' and '.join(txt)
+				' and '
+				msg += f" It appears you may have a hoarding problem, though. The following item" \
+					f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
 		else:
 			msg = f"{player.name} pokes around the corpse, finding nothing useful."
 		del game.loot[player.userId]

@@ -202,8 +202,11 @@ class Player(Creature):
 			("\u200b", "\u200b", False),
 			("General", "---------------------------------------------------", False),
 			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
+			("Attack Count", f"{self.attackCount:,}", True),
 			("\u200b", "\u200b", True),
 			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
+			("Damage Count", f'{self.damageCount:,}', True),
+			("\u200b", "\u200b", True),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
 			("Joined", self.joined, False),
@@ -213,7 +216,7 @@ class Player(Creature):
 
 		for skill in self.skills.keys():
 			bonuses = self.get_skill_bonus(skill)
-			msg = f"Current XP: {self.skills[skill]:,}, Attack Bonus: {bonuses[0]}, Damage Bonus: {bonuses[1]}"
+			msg = f"Current XP: {self.skills[skill]:,}\nAttack Bonus: {bonuses[0]}\nDamage Bonus: {bonuses[1]}"
 			fields.append((f"{skill} ({self.get_skill_level(skill)})", msg, False))
 
 		for f, v, i in fields:
