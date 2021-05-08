@@ -173,7 +173,8 @@ class Player(Creature):
 	def gain_skill_experience(self, skill: str) -> None:
 		if skill not in self.skills.keys():
 			self.skills[skill] = 0
-		self.skills[skill] += 10 + floor(10 * (self.get_skill_level(skill) ** 0.5))
+		self.skills[skill] += (10 + floor(10 * (self.get_skill_level(skill) ** 0.5))) * (2 if "two-handed" in skill
+			else 1)
 
 	# Returns a discord Embed for the player's profile.
 	def get_profile(self, guild_name: str) -> Embed:
