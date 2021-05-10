@@ -234,7 +234,7 @@ class RpgAdmin(Cog):
 	# ------------------------------------------------------
 
 	@tasks.loop(minutes=1)
-	def save_players(self):
+	async def save_players(self):
 		dirty = []
 		players = []
 		for g in self.bot.games.values():
