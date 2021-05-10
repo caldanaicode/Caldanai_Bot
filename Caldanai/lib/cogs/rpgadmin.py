@@ -244,7 +244,7 @@ class RpgAdmin(Cog):
 						UpdateOne(
 							{"guildId": p.guildId, "userId": p.userId},
 							{"$set": p.to_dict()},
-							{"upsert": True}
+							upsert=True
 						)
 					)
 					players.append(p)
