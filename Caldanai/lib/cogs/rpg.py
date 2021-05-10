@@ -242,11 +242,11 @@ class RPG(Cog):
 			if len(dropped) > 0:
 				txt = ', '.join([d.article + ' ' + d.rarity.name + ' ' + d.name for d in dropped]).rsplit(', ', 1)
 				txt = ' and '.join(txt)
-				' and '
 				msg += f" It appears you may have a hoarding problem, though. The following item" \
 					f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
 		else:
 			msg = f"{player.name} pokes around the corpse, finding nothing useful."
+
 		del game.loot[player.userId]
 		if len(dropped) > 0:
 			game.loot[player.userId] = dropped
