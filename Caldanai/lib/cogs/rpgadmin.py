@@ -1,5 +1,8 @@
 from discord import Embed, Guild
+from discord.ext import tasks
 from discord.ext.commands import Cog, guild_only, has_permissions, group
+from pymongo import UpdateOne
+
 from Caldanai.lib.bot import Bot
 from ...db.db import MongoDB
 from ..rpg.game import Game
@@ -46,8 +49,8 @@ class RpgAdmin(Cog):
 	# Removes a game from the bot's list of games
 	def remove_game(self, gid: int):
 		if gid in self.bot.games.keys():
-			MongoDB.games.delete_one({ 'guildId': gid })
-			MongoDB.players.delete_many({ 'guildId': gid })
+			MongoDB.games.delete_one({'guildId': gid})
+			MongoDB.players.delete_many({'guildId': gid})
 			del self.bot.games[gid]
 		
 	# ----------------------------------------------------------
@@ -230,13 +233,34 @@ class RpgAdmin(Cog):
 
 	# ------------------------------------------------------
 
+	@tasks.loop(minutes=1)
+	def save_players(self):
+		dirty = []
+		players = []
+		for g in self.bot.games.values():
+			for p in g.players.values():
+				if p.isDirty:
+					dirty.append(
+						UpdateOne(
+							{"guildId": p.guildId, "userId": p.userId},
+							{"$set": p.to_dict()},
+							{"upsert": True}
+						)
+					)
+					players.append(p)
+
+		if len(dirty) > 0:
+			result = MongoDB["players"].bulk_write(dirty, ordered=False)
+			for idx, _id in result.upserted_ids.items():
+				players[idx].id = _id
+
 	# Additional maintenance after cog loads.
 	@Cog.listener()
 	async def on_ready(self):
 		games = MongoDB.games.find()
 		for g in games:
 			await self.add_game(game=g)
-
+		self.save_players.start()
 		print("RPG Admin Cog ready.")
 
 

@@ -19,35 +19,35 @@ class Rarity:
 	@classmethod
 	def load(cls, rarity: dict):
 		return cls(
-			name = rarity['name'],
-			color = rarity['color'],
-			frequency = rarity['frequency'],
-			multiplier = rarity['multiplier']
+			name=rarity['name'],
+			color=rarity['color'],
+			frequency=rarity['frequency'],
+			multiplier=rarity['multiplier']
 		)
 	
 	@classmethod
 	def junk(cls):
-		return cls('junk', 0x777777, 0.60, 0.75)	# Gray
+		return cls('junk', 0x777777, 0.60, 0.75)  # Gray
 
 	@classmethod
 	def common(cls):
-		return cls('common', 0xffffff, 0.50, 1.00)	# White
+		return cls('common', 0xffffff, 0.50, 1.00)  # White
 
 	@classmethod	
 	def uncommon(cls):
-		return cls('uncommon', 0x00ff00, 0.25, 1.25)	# Green
+		return cls('uncommon', 0x00ff00, 0.25, 1.25)  # Green
 	
 	@classmethod
 	def rare(cls):
-		return cls('rare', 0x0000ff, 0.10, 1.50)	# Blue
+		return cls('rare', 0x0000ff, 0.10, 1.50)  # Blue
 
 	@classmethod
 	def legendary(cls):
-		return cls('legendary', 0x800080, 0.05, 1.75)	# Purple
+		return cls('legendary', 0x800080, 0.05, 1.75)  # Purple
 
 	@classmethod
 	def unique(cls):
-		return cls('unique', 0xffd700, 0.01, 2.00)	# Gold
+		return cls('unique', 0xffd700, 0.01, 2.00)  # Gold
 
 
 class Rarities(Enum):
@@ -66,8 +66,7 @@ class Rarities(Enum):
 		v_normalized = (v - lb)/(ub - lb)
 		if v_normalized < 0 or v_normalized > 1:
 			raise Exception("The value does not fall within the provided range.")
-			return None
-			
+
 		rarity = Rarities.Junk.value
 		for x in list(Rarities):
 			if v_normalized <= x.value.frequency:

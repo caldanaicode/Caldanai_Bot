@@ -58,7 +58,7 @@ class AttackRoll(RollData):
 		self.isFumble = roll == 1
 
 	def __str__(self):
-		return f"{self.roll}{' + ' + str(self.skillBonus) if not self.isFumble else ''}"
+		return f"{self.roll}{' + ' + str(self.skillBonus) if self.skillBonus > 0 and not self.isFumble else ''}"
 
 	def to_dict(self) -> dict:
 		return super().to_dict()

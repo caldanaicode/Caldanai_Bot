@@ -1,6 +1,7 @@
-import pymongo
+from pymongo import MongoClient
+from pymongo.database import Database
 from Caldanai.environment import DB_CONNECTION
 
 
-mongoClient = pymongo.MongoClient(DB_CONNECTION)
-MongoDB = mongoClient.caldanaiDB
+mongoClient = MongoClient(DB_CONNECTION)
+MongoDB: Database = mongoClient.caldanaiDB

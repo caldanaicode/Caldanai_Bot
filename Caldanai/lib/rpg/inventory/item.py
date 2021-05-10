@@ -42,6 +42,8 @@ class Item:
 		return isinstance(o, Item) and self.id == o.id
 
 	def get_embed(self) -> (Embed, File):
+		"""Returns a tuple containing an Embed and File object for this item."""
+
 		embed = Embed(
 			title=f"{'' if self.article is None else self.article + ' '}{self.name}",
 			description=self.description,
@@ -61,7 +63,9 @@ class Item:
 			embed.add_field(name=f, value=v, inline=i)
 		return embed, file
 
-	def to_dict(self):
+	def to_dict(self) -> dict:
+		"""Returns the database-friendly dictionary for this item."""
+
 		d = {
 			'_id': self.id,
 			'playerId': self.playerId,
@@ -75,6 +79,7 @@ class Item:
 	# Adds or updates an item object in the database.
 	def save(self) -> None:
 		"""Adds or updates an item object in the database."""
+
 		try:
 			self.id = MongoDB.items.insert_one(self.to_dict()).inserted_id
 		except DuplicateKeyError:
@@ -84,6 +89,7 @@ class Item:
 	@classmethod
 	def from_dict(cls, d: dict):
 		"""Creates a new item from a dictionary."""
+
 		if d is None:
 			return None
 
@@ -102,6 +108,8 @@ class Item:
 
 	@classmethod
 	def load(cls, item) -> Union['Item', None]:
+		"""Loads an item from the database"""
+
 		if isinstance(item, ObjectId):
 			item = MongoDB.items.find_one({'_id': item})
 

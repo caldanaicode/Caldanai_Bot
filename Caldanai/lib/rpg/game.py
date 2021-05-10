@@ -12,7 +12,6 @@ from asyncio import sleep
 from .inventory.item import Item
 from .inventory.weapon import Weapon
 from ...db.db import MongoDB
-from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 
 
@@ -260,10 +259,9 @@ class Game:
 	def save(self) -> None:
 		"""Adds or updates a game object in the database."""
 
-		try:
-			self.id = MongoDB.games.insert_one(self.to_dict()).inserted_id
-		except DuplicateKeyError:
-			MongoDB.games.update_one({'_id': self.id}, {'$set': self.to_dict()})
+		result = MongoDB["games"].update_one({'guildId': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
+		if self.id is None:
+			self.id = result.upserted_id
 
 	@classmethod
 	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:

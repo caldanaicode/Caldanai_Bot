@@ -9,7 +9,6 @@ from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory.inventory import Inventory, Item, Weapon
 from Caldanai.db.db import MongoDB
-from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 
 
@@ -17,22 +16,22 @@ class Player(Creature):
 	"""A simple Player object for tracking player data"""
 
 	def __init__(
-			self,
-			pid: Optional[int],
-			gid: Optional[int],
-			uid: Optional[int],
-			weight_limit: Optional[int],
-			joined: Optional[datetime],
-			clarks: Optional[int],
-			defense: Optional[int],
-			dodge: Optional[int],
-			health: Optional[int],
-			inventory: Optional[Inventory],
-			atk_avg: Optional[float],
-			atk_cnt: Optional[int],
-			dmg_avg: Optional[float],
-			dmg_cnt: Optional[int],
-			skills: Optional[Dict[str, int]]
+			self, *,
+			pid: Optional[int] = None,
+			gid: Optional[int] = None,
+			uid: Optional[int] = None,
+			weight_limit: Optional[int] = None,
+			joined: Optional[datetime] = None,
+			clarks: Optional[int] = None,
+			defense: Optional[int] = None,
+			dodge: Optional[int] = None,
+			health: Optional[int] = None,
+			inventory: Optional[Inventory] = None,
+			atk_avg: Optional[float] = None,
+			atk_cnt: Optional[int] = None,
+			dmg_avg: Optional[float] = None,
+			dmg_cnt: Optional[int] = None,
+			skills: Optional[Dict[str, int]] = None
 	):
 		super().__init__(name=None, atk=None, defense=defense, dodge=dodge, health=health)
 		self.id = pid
@@ -56,7 +55,12 @@ class Player(Creature):
 		return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
 
 	# Sends a message and/or embed to the player as a DM, returning a boolean indicating success or failure.
-	async def send(self, message: Optional[str], embed: Optional[Embed], file: Optional[File]) -> bool:
+	async def send(
+			self,
+			message: Optional[str] = None,
+			embed: Optional[Embed] = None,
+			file: Optional[File] = None
+	) -> bool:
 		"""Sends a message and/or embed to the player as a DM, returning a boolean indicating success or failure."""
 
 		try:
@@ -88,6 +92,7 @@ class Player(Creature):
 		self.leftHand = None
 		if item is not None and item.isTwoHanded:
 			self.rightHand = None
+		self.isDirty = True
 
 	# Un-equips the item in the player's right hand.
 	def disarm_right(self) -> None:
@@ -101,6 +106,7 @@ class Player(Creature):
 		self.rightHand = None
 		if item is not None and item.isTwoHanded:
 			self.leftHand = None
+		self.isDirty = True
 
 	# Equips an item in the left hand, removing the currently equipped item if necessary.
 	def equip_left(self, weapon: Weapon) -> None:
@@ -116,6 +122,7 @@ class Player(Creature):
 		self.leftHand = weapon
 		if weapon is not None and weapon.isTwoHanded:
 			self.rightHand = weapon
+		self.isDirty = True
 
 	# Equips an item in the right hand, removing the currently equipped item if necessary.
 	def equip_right(self, weapon: Weapon) -> None:
@@ -131,6 +138,7 @@ class Player(Creature):
 		self.rightHand = weapon
 		if weapon is not None and weapon.isTwoHanded:
 			self.leftHand = weapon
+		self.isDirty = True
 
 	# Returns the attack and damage bonus for a given skill as a tuple.
 	def get_skill_bonus(self, skill: str) -> Tuple[int, int]:
@@ -306,7 +314,8 @@ class Player(Creature):
 
 		item.playerId = self.id
 		self.isDirty = True
-		return self.inventory.add(item)
+		self.inventory.add(item)
+		return True
 
 	# Removes an item from the player's inventory, if present.
 	def take_item(self, item: Item) -> bool:
@@ -319,11 +328,12 @@ class Player(Creature):
 		if item == self.inventory[str(item.id)]:
 			item.playerId = None
 			self.isDirty = True
-			return self.inventory.remove(item)
+			self.inventory.remove(item)
+			return True
 		return False
 
 	# Returns a string containing a formatted display of the player's inventory.
-	def get_inventory(self, guild_name: str):
+	def get_inventory(self, guild_name: str) -> str:
 		"""Returns a string containing a formatted display of the player's inventory."""
 
 		msg = ''
@@ -363,19 +373,6 @@ class Player(Creature):
 			del d['_id']
 
 		return d
-
-	# Adds or updates a player object in the database.
-	def save(self) -> None:
-		"""Adds or updates a player object in the database."""
-
-		if not self.isDirty:
-			return
-
-		try:
-			self.id = MongoDB.players.insert_one(self.to_dict()).inserted_id
-			self.isDirty = False
-		except DuplicateKeyError:
-			MongoDB.players.update_one({'_id': self.id}, {'$set': self.to_dict()})
 
 	@classmethod
 	# Retrieves a player object from the database, or None if it does not exist.

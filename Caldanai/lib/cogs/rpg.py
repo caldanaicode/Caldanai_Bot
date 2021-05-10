@@ -103,8 +103,9 @@ class RPG(Cog):
 
 		player = await self.get_player(ctx, game, False)
 		if player is None:
-			player = Player(gid=ctx.guild.id, uid=ctx.author.id, member=ctx.author, joined=datetime.now())
-			player.save()
+			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=datetime.now())
+			player.member = ctx.author
+			player.isDirty = True
 			game.players[ctx.author.id] = player
 			await game.send(f'Welcome, {ctx.author.display_name}')
 
@@ -302,7 +303,6 @@ class RPG(Cog):
 			player.equip_left(item)
 		else:
 			player.equip_right(item)
-		player.save()
 		await ctx.send(f"You have equipped {item.article} {item.name}.")
 
 	@command(
@@ -392,7 +392,7 @@ class RPG(Cog):
 			item = player.inventory.get_by_index(index)
 			player.inventory.remove(item)
 			player.clarks += item.value
-			player.save()
+			player.isDirty = True
 			await player.send(f"You sold {item.article} {item.rarity.name} {item.name} for {item.value} clarks.")
 		else:
 			await ctx.send(f"I'm afraid you don't have that, {player.name}")
