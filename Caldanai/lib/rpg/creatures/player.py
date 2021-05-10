@@ -243,7 +243,7 @@ class Player(Creature):
 			if right and not right.isMiss:
 				self.gain_skill_experience(self.rightHand.skill if self.rightHand else "unarmed")
 
-			msg += f"\nTotal ({raw_dmg}) vs Defense ({monster.defense}) = {t_dmg}"
+			msg += f"\n\nTotal ({raw_dmg}) vs Defense ({monster.defense}) = {t_dmg}"
 
 		msg += "```\n"
 		self.update_averages(left, right)
