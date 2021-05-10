@@ -1,7 +1,6 @@
 from typing import Union
 
 from discord import Embed, File
-from ..dice import quick_roll
 from .item import Item
 from .rarity import Rarity
 from ....db.db import MongoDB
@@ -42,9 +41,6 @@ class Weapon(Item):
 
 		dice = int(self.attack.split('d')[0])
 		self.bonus = bonus or (round(dice * self.rarity.multiplier) if self.rarity.name != 'junk' else 0)
-
-	def get_attack_damage(self):
-		return quick_roll(self.attack) + self.bonus
 
 	def get_embed(self) -> tuple:
 		embed = Embed(

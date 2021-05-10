@@ -1,7 +1,7 @@
 from discord import Embed, File
 from random import choice, random
 from .creature import Creature
-from ..parser import Parser
+from Caldanai.lib.rpg.helpers.parser import Parser
 from ..inventory.item import Item
 from ..inventory.weapon import Weapon
 from ....db.db import MongoDB
@@ -27,6 +27,7 @@ class Monster(Creature):
 	# Returns an embed populated with the monster's details.
 	def get_embed(self) -> tuple:
 		"""Returns a tuple containing (Embed, File) for the monster's details"""
+
 		embed = Embed(
 			title=self.name.title(),
 			description=self.flavor,
@@ -59,7 +60,7 @@ class Monster(Creature):
 		items = []
 		for item, frequency in self.loot.items():
 			if random() <= frequency:
-				i = MongoDB.templates_items.find_one({ 'name': item })
+				i = MongoDB.templates_items.find_one({'name': item})
 				if i is not None:
 					i['templateId'] = i['_id']
 					del i['_id']
