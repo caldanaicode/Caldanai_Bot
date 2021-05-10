@@ -2,18 +2,60 @@ from discord.errors import HTTPException
 from discord.ext.commands import Bot
 from discord.ext import tasks
 from discord import Guild, TextChannel, Embed, File
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional
 
 from .creatures.player import Player
 from .creatures.monster import Monster
 from random import choice, randint
 from asyncio import sleep
+
+from .inventory.item import Item
+from .inventory.weapon import Weapon
 from ...db.db import MongoDB
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 
 
 class Game:
+	"""
+	Structure for game information.
+
+	Attributes
+	----------
+	bot : discord.ext.commands.Bot
+		The bot that runs this game
+	id : str
+		The game's database ID.
+	guild : discord.Guild
+		The Guild that hosts this game.
+	channel : discord.TextChannel
+		The TextChannel to which this game sends public responses.
+	players : Dict[int, Player]
+		The dictionary mapping of user ID to Player mappings.
+	monster : Monster
+		The current monster spawned.
+	combatants : List[int]
+		The list of players attacking the current monster.
+	loot : Dict[int, List[Union[Item, Weapon]]
+		The list of loot from the current monster.
+	use_spawn_timer : bool
+		Whether or not to spawn monsters using the timer.
+	spawn_duration : int
+		Combat duration in minutes
+	loot_duration : int
+		Loot duration in minutes
+	loot_countdown : int
+		Current loot timer counter
+	trigger : int
+		Trigger chance for monster spawn
+	minutes_max : int
+		Maximum minutes between monster spawns
+	minutes_min : int
+		Minimum minutes between monster spawns
+	prefix : str
+		The prefix used by the bot for this game
+	"""
+
 	def __init__(
 			self,
 			bot: Bot = None,
@@ -34,7 +76,7 @@ class Game:
 		self.players: Dict[int, Player] = {}
 		self.monster: Union[Monster, None] = None
 		self.combatants: List[int] = []
-		self.loot: Dict[int, list] = {}
+		self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
 		self.use_spawn_timer = use_spawn_timer
 		self.spawn_duration = spawn_duration
 		self.loot_duration = loot_duration
@@ -48,6 +90,8 @@ class Game:
 			self.spawn_check.start()
 
 	def cancel_combat(self):
+		"""Clears the current monster, combatants, and loot."""
+
 		self.monster = None
 		self.combatants.clear()
 		self.loot.clear()
@@ -55,6 +99,7 @@ class Game:
 	# Sends a message and/or embed to the game's channel, returning a boolean indicating success or failure.
 	async def send(self, message: str = None, embed: Embed = None, file: File = None) -> bool:
 		"""Sends a message and/or embed to the game's channel, returning a boolean indicating success or failure."""
+
 		try:
 			await self.channel.send(content=message, embed=embed, file=file)
 		except HTTPException as e:
@@ -73,6 +118,8 @@ class Game:
 	# Cleans up any loot that wasn't picked up
 	@tasks.loop(seconds=1)
 	async def loot_expires(self):
+		"""Cleans up uncollected loot and restarts spawning after loot expiration and minimum spawn time."""
+
 		if len(self.loot) > 0 and self.loot_countdown > 0:
 			self.loot_countdown -= 1
 			return
@@ -87,60 +134,9 @@ class Game:
 		await sleep(self.minutes_min * 60)
 		self.spawn_check.start()
 
-	# Builds a combat message for a player, and returns the message and the damage as a tuple
-	def get_combat_message(self, player: Player) -> (str, int):
-		l_atk, l_dmg, r_atk, r_dmg = player.get_attack_rolls()
-		l_crit = l_atk == 20
-		r_crit = r_atk == 20
-		l_fumble = l_atk == 1
-		r_fumble = r_atk == 1
-		l_miss = not l_crit and (l_atk < self.monster.dodge or l_fumble)
-		r_miss = not r_crit and (r_atk < self.monster.dodge or r_fumble)
-		two_handed = r_atk == 0
-		msg = f"{player.member.mention}'s attack:"
-
-		if l_crit:
-			l_dmg *= 2
-		if r_crit:
-			r_dmg *= 2
-
-		if l_miss:
-			l_dmg = 0
-
-		if r_miss:
-			r_dmg = 0
-
-		player.update_averages(l_atk, l_dmg, r_atk, r_dmg)
-		t_dmg = l_dmg + r_dmg - self.monster.defense
-
-		if t_dmg <= 0 and not (l_miss and r_miss):
-			t_dmg = 1
-		elif t_dmg < 0 and l_miss and r_miss:
-			t_dmg = 0
-
-		if two_handed:
-			msg += f"```\nAtk: {l_atk} vs Dodge: {self.monster.dodge} --> " \
-				f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}"
-			if not l_miss:
-				msg += f"\nDamage: {l_dmg} vs Defense: {self.monster.defense} --> {t_dmg}"
-				player.gain_skill_experience(player.leftHand.skill)
-				player.save()
-		else:
-			msg += f"```\nAtk: {l_atk}|{r_atk} vs Dodge: {self.monster.dodge} --> " \
-				f"{'FUMBLE' if l_fumble else 'MISS' if l_miss else 'CRIT' if l_crit else 'HIT'}|" \
-				f"{'FUMBLE' if r_fumble else 'MISS' if r_miss else 'CRIT' if r_crit else 'HIT'}"
-			if not l_miss or not r_miss:
-				msg += f"\nDamage: {l_dmg} + {r_dmg} vs Defense: {self.monster.defense} --> {t_dmg}"
-				l_skill = player.leftHand.skill if player.leftHand is not None else "unarmed"
-				r_skill = player.rightHand.skill if player.rightHand is not None else "unarmed"
-				player.gain_skill_experience(l_skill)
-				player.gain_skill_experience(r_skill)
-				player.save()
-
-		msg += "```\n"
-		return msg, t_dmg
-
 	async def on_monster_death(self):
+		"""Generates loot, shows monster death, and clears combatants."""
+
 		for pid in self.combatants:
 			loot = self.monster.getLoot()
 			self.loot[pid] = loot
@@ -159,12 +155,15 @@ class Game:
 	# Performs combat sequence
 	@tasks.loop(count=1)
 	async def do_combat(self):
+		"""Awaits the combat duration, and tallies and displays combat damage."""
+
 		await sleep(self.spawn_duration * 60)
 
 		msg = ""
 		damage = 0
 		for pid in self.combatants:
-			m, d = self.get_combat_message(self.players[pid])
+			player = self.players[pid]
+			m, d = player.do_attack(self.monster)
 			if len(msg) + len(m) > 2000:
 				if await self.send(msg):
 					msg = ""
@@ -198,6 +197,7 @@ class Game:
 	# Spawns a monster
 	async def spawn(self):
 		"""Spawns a monster, and starts the combat sequence."""
+
 		self.trigger = 0
 		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
 		embed, file = self.monster.get_embed()
@@ -210,6 +210,8 @@ class Game:
 	# Attempts to spawn a monster
 	@tasks.loop(minutes=1)
 	async def spawn_check(self):
+		"""Determines whether or not to randomly spawn a monster."""
+
 		if not self.use_spawn_timer:
 			print("Spawn loop ending...")
 			self.spawn_check.stop()
@@ -229,11 +231,15 @@ class Game:
 		return
 
 	async def kill_monster(self):
+		"""Cancels combat and forces monster death."""
+
 		self.do_combat.cancel()
 		await self.on_monster_death()
 
 	# Gets a dictionary representation of the game.
 	def to_dict(self):
+		"""Returns the database friendly dictionary for this game."""
+
 		d = {
 			'guildId': self.guild.id,
 			'channelId': self.channel.id,
@@ -253,13 +259,16 @@ class Game:
 	# Adds or updates a game object in the database.
 	def save(self) -> None:
 		"""Adds or updates a game object in the database."""
+
 		try:
 			self.id = MongoDB.games.insert_one(self.to_dict()).inserted_id
 		except DuplicateKeyError:
 			MongoDB.games.update_one({'_id': self.id}, {'$set': self.to_dict()})
 
 	@classmethod
-	async def load(cls, guild_id: int, bot: Bot):
+	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:
+		"""Returns a game loaded from the database."""
+
 		if guild_id is None:
 			return None
 
@@ -270,8 +279,9 @@ class Game:
 		return await Game.from_dict(g, bot)
 
 	@classmethod
-	async def from_dict(cls, d: dict, bot: Bot):
-		"""Returns a dictionary representation of the game."""
+	async def from_dict(cls, d: dict, bot: Bot) -> Optional["Game"]:
+		"""Returns a game from it's dictionary representation."""
+
 		if d is None or bot is None:
 			return None
 
