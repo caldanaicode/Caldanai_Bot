@@ -28,13 +28,14 @@ class Inventory:
 	def add(self, item: Union[Item, Weapon]) -> None:
 		"""Add an item to the inventory and the database."""
 
-		result = MongoDB["items"].update_one(
-			{'_id': item.id} if item.id else {},
-			{'$set': item.to_dict()},
-			upsert=True
-		)
-		if result.upserted_id:
-			item.id = result.upserted_id
+		if item.id:
+			MongoDB["items"].update_one(
+				{'_id': item.id},
+				{'$set': item.to_dict()}
+			)
+
+		else:
+			item.id = MongoDB["items"].insert_one(item.to_dict()).inserted_id
 
 		self.__contents[str(item.id)] = item
 

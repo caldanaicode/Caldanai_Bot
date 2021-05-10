@@ -218,23 +218,24 @@ class Player(Creature):
 		two_handed = self.leftHand and self.leftHand.isTwoHanded
 		left = self.get_combat_rolls(self.leftHand, monster)
 		right: Optional[CombinedRoll] = None if two_handed else self.get_combat_rolls(self.rightHand, monster)
-		t_dmg = left.result + (right.result if right else 0) - monster.defense
+		raw_dmg = left.result + (right.result if right else 0)
+		t_dmg = raw_dmg - monster.defense
 
 		if left.isMiss and (right is None or right.isMiss):
 			t_dmg = 0
 		elif t_dmg < 0:
 			t_dmg = 1
 
-		msg = f"{self.member.mention}'s attack:```diff\nAttack:" \
+		msg = f"{self.member.mention}'s attack:```diff\nAttack vs Dodge ({monster.dodge}): " \
 			f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} " \
 			f"({left.get_hit_string()})"
 		msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
-		msg += f"\nvs Dodge: {monster.dodge}"
 
 		if not left.isMiss or (right and not right.isMiss):
-			msg += f"\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.damage} " \
-				f"= {left.result}"
-			msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.damage} = {right.result}" if right else ""
+			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}:" \
+				f" {left.damage} * {'0' if left.isMiss else '2' if left.isCritical else '1'} = {left.result}"
+			msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.damage} * " \
+				f"{'0' if right.isMiss else '2' if right.isCritical else '1'} = {right.result}" if right else ""
 
 			if not left.isMiss:
 				self.gain_skill_experience(self.leftHand.skill if self.leftHand else "unarmed")
@@ -242,7 +243,7 @@ class Player(Creature):
 			if right and not right.isMiss:
 				self.gain_skill_experience(self.rightHand.skill if self.rightHand else "unarmed")
 
-			msg += f"\nvs Defense: {monster.defense} --> {t_dmg}"
+			msg += f"\nTotal ({raw_dmg}) vs Defense ({monster.defense}) = {t_dmg}"
 
 		msg += "```\n"
 		self.update_averages(left, right)
@@ -316,8 +317,8 @@ class Player(Creature):
 			return False
 
 		item.playerId = self.id
-		self.isDirty = True
 		self.inventory.add(item)
+		self.isDirty = True
 		return True
 
 	# Removes an item from the player's inventory, if present.
@@ -335,8 +336,8 @@ class Player(Creature):
 				self.disarm_right()
 
 			item.playerId = None
-			self.isDirty = True
 			self.inventory.remove(item)
+			self.isDirty = True
 			return True
 		return False
 
