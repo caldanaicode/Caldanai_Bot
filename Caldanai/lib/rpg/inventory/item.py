@@ -3,7 +3,6 @@ from typing import Union
 from discord import Embed, File
 from random import randint
 from .rarity import Rarity, Rarities
-from pymongo.errors import DuplicateKeyError
 from ....db.db import MongoDB
 from bson.objectid import ObjectId
 
@@ -75,15 +74,6 @@ class Item:
 		if self.id is None:
 			del d['_id']
 		return d
-
-	# Adds or updates an item object in the database.
-	def save(self) -> None:
-		"""Adds or updates an item object in the database."""
-
-		try:
-			self.id = MongoDB.items.insert_one(self.to_dict()).inserted_id
-		except DuplicateKeyError:
-			MongoDB.items.update_one({'_id': self.id}, {'$set': self.to_dict()})
 
 	# Creates a new item from a dictionary
 	@classmethod

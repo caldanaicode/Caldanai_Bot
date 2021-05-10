@@ -1,5 +1,5 @@
 from math import fsum, floor
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Union
 
 from discord import Member, Embed, File
 from discord.errors import HTTPException
@@ -157,15 +157,15 @@ class Player(Creature):
 		if self.attackCount + a_count > 0:
 			self.attackAverage = fsum([
 				self.attackCount * self.attackAverage,
-				left.attack.result if left and left.attack else 0,
-				right.attack.result if right and right.attack else 0
+				left.result if left else 0,
+				right.result if right else 0
 			]) / (self.attackCount + a_count)
 			self.attackCount += a_count
 		if self.damageCount + d_count > 0:
 			self.damageAverage = fsum([
 				self.damageCount * self.damageAverage,
-				left.damage.result if left and left.damage else 0,
-				right.damage.result if right and right.damage else 0
+				left.result if left else 0,
+				right.result if right else 0
 			]) / (self.damageCount + d_count)
 			self.damageCount += d_count
 		self.isDirty = True
@@ -225,21 +225,24 @@ class Player(Creature):
 		elif t_dmg < 0:
 			t_dmg = 1
 
-		msg = f"{self.member.mention}'s attack:" \
-			f"```\nAttack: {left.attack}{' | ' + str(right.attack) if right else ''} " \
-			f"vs Dodge: {monster.dodge} --> " \
-			f"{left.get_hit_string()}{' | ' + right.get_hit_string() if right else ''}" \
+		msg = f"{self.member.mention}'s attack:```diff\nAttack:" \
+			f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} " \
+			f"({left.get_hit_string()})"
+		msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
+		msg += f"\nvs Dodge: {monster.dodge}"
 
 		if not left.isMiss or (right and not right.isMiss):
-			msg += f"\nDamage: {left.damage}{' | ' + str(right.damage) if right else ''}"
+			msg += f"\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.damage} " \
+				f"= {left.result}"
+			msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.damage} = {right.result}" if right else ""
 
 			if not left.isMiss:
-				self.gain_skill_experience(self.leftHand.skill)
+				self.gain_skill_experience(self.leftHand.skill if self.leftHand else "unarmed")
 
 			if right and not right.isMiss:
-				self.gain_skill_experience(self.rightHand.skill)
+				self.gain_skill_experience(self.rightHand.skill if self.rightHand else "unarmed")
 
-			msg += f" vs Defense: {monster.defense} --> {t_dmg}"
+			msg += f"\nvs Defense: {monster.defense} --> {t_dmg}"
 
 		msg += "```\n"
 		self.update_averages(left, right)
@@ -302,7 +305,7 @@ class Player(Creature):
 		return self.inventory.get_weight()
 
 	# Adds an item to the player's inventory, if they can afford the weight.
-	def give_item(self, item: Item) -> bool:
+	def give_item(self, item: Union[Item, Weapon]) -> bool:
 		"""
 		Adds an item to the player's inventory, if they can afford the weight.
 
@@ -318,7 +321,7 @@ class Player(Creature):
 		return True
 
 	# Removes an item from the player's inventory, if present.
-	def take_item(self, item: Item) -> bool:
+	def take_item(self, item: Union[Item, Weapon]) -> bool:
 		"""
 		Removes an item from the player's inventory, if present.
 
@@ -326,6 +329,11 @@ class Player(Creature):
 		"""
 
 		if item == self.inventory[str(item.id)]:
+			if item == self.leftHand:
+				self.disarm_left()
+			elif item == self.rightHand:
+				self.disarm_right()
+
 			item.playerId = None
 			self.isDirty = True
 			self.inventory.remove(item)
@@ -345,6 +353,14 @@ class Player(Creature):
 			msg = 'You have no items.'
 
 		return f'Inventory for {self.name} on {guild_name}```js\n{msg}```'
+
+	# Sells the given item if the player has it.
+	def sell(self, item: Union[Item, Weapon]) -> None:
+		"""Sells the given item if the player has it."""
+
+		value = item.value
+		self.clarks += value if self.take_item(item) else 0
+		self.isDirty = True
 
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""

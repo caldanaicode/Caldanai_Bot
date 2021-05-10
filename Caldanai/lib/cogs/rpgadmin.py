@@ -235,24 +235,37 @@ class RpgAdmin(Cog):
 
 	@tasks.loop(minutes=1)
 	async def save_players(self):
-		dirty = []
-		players = []
-		for g in self.bot.games.values():
-			for p in g.players.values():
-				if p.isDirty:
-					dirty.append(
-						UpdateOne(
-							{"guildId": p.guildId, "userId": p.userId},
-							{"$set": p.to_dict()},
-							upsert=True
-						)
-					)
-					players.append(p)
+		dirty = [
+			(p, UpdateOne(
+				{"guildId": p.guildId, "userId": p.userId},
+				{"$set": p.to_dict()},
+				upsert=True
+			)) for g in self.bot.games.values() for p in g.players.values() if p.isDirty
+		]
 
 		if len(dirty) > 0:
-			result = MongoDB["players"].bulk_write(dirty, ordered=False)
+			result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
 			for idx, _id in result.upserted_ids.items():
-				players[idx].id = _id
+				dirty[idx][0].id = _id
+
+		# dirty_players = []
+		# upserted_players = []
+		# for g in self.bot.games.values():
+		# 	for p in g.players.values():
+		# 		if p.isDirty:
+		# 			dirty_players.append(
+		# 				UpdateOne(
+		# 					{"guildId": p.guildId, "userId": p.userId},
+		# 					{"$set": p.to_dict()},
+		# 					upsert=True
+		# 				)
+		# 			)
+		# 			upserted_players.append(p)
+		#
+		# if len(dirty_players) > 0:
+		# 	result = MongoDB["players"].bulk_write(dirty_players, ordered=False)
+		# 	for idx, _id in result.upserted_ids.items():
+		# 		upserted_players[idx].id = _id
 
 	# Additional maintenance after cog loads.
 	@Cog.listener()

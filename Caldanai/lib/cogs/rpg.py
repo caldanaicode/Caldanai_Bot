@@ -373,9 +373,9 @@ class RPG(Cog):
 			await ctx.message.delete()
 
 	# Sells an item
-	@cooldown(1, 5, BucketType.member)
-	@command(name='sell', brief='Sells an item.')
-	async def sell(self, ctx, index: int = None, gid: int = None):
+	@cooldown(1, 2, BucketType.member)
+	@command(name='sell', brief='Sell an item by index, or all unequipped items if "unequipped" is given.')
+	async def sell(self, ctx, flag: Union[int, str] = None, gid: int = None):
 		game: Game = await self.get_game(ctx, gid)
 		if game is None:
 			return
@@ -384,16 +384,27 @@ class RPG(Cog):
 		if player is None:
 			return
 
-		if index is None:
-			await ctx.send("You must specify the item index to sell.")
+		if flag is None:
+			await ctx.send("You must specify the item index to sell, or unequipped to sell anything not equipped.")
 			return
 
-		if 0 <= index < len(player.inventory):
-			item = player.inventory.get_by_index(index)
-			player.inventory.remove(item)
-			player.clarks += item.value
-			player.isDirty = True
+		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
+			item = player.inventory.get_by_index(flag)
+			player.sell(item)
 			await player.send(f"You sold {item.article} {item.rarity.name} {item.name} for {item.value} clarks.")
+
+		elif isinstance(flag, str) and flag.lower() == 'unequipped':
+			msg = ''
+			equipped = [i.id for i in [player.leftHand, player.rightHand] if i is not None]
+			for item in player.inventory.all():
+				if item.id not in equipped:
+					player.sell(item)
+					msg += f"\n{item.article} {item.rarity.name} {item.name} for {item.value} clarks"
+			if len(msg) == 0:
+				await ctx.send(f'You had no unequipped items to sell, {player.name}')
+			else:
+				await ctx.send(f'You sold the following items: ```{msg}```')
+
 		else:
 			await ctx.send(f"I'm afraid you don't have that, {player.name}")
 

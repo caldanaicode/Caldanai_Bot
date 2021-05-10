@@ -1,5 +1,7 @@
 from typing import Union
 
+from pymongo import UpdateOne, DeleteOne
+
 from .item import Item
 from .weapon import Weapon
 from ....db.db import MongoDB
@@ -9,7 +11,8 @@ from math import fsum
 
 class Inventory:
 	def __init__(self, contents: list = ()):
-		self.__contents: dict = {}
+		self.__contents = {}
+		self.operations = []
 		for item in contents:
 			self.add(item)
 
@@ -23,27 +26,51 @@ class Inventory:
 
 	# Add an item to the inventory.
 	def add(self, item: Union[Item, Weapon]) -> None:
-		item.save()
+		"""Add an item to the inventory and the database."""
+
+		result = MongoDB["items"].update_one(
+			{'_id': item.id} if item.id else {},
+			{'$set': item.to_dict()},
+			upsert=True
+		)
+		if result.upserted_id:
+			item.id = result.upserted_id
+
 		self.__contents[str(item.id)] = item
 
 	# Remove an item from the inventory if it exists.
 	def remove(self, item: Union[Item, Weapon]) -> None:
+		"""Remove an item from the inventory and database."""
+
 		del self.__contents[str(item.id)]
 		MongoDB["items"].delete_one({'_id': item.id})
+		del item
 
 	# Returns the current inventory weight
 	def get_weight(self) -> float:
+		"""Gets the total weight of the inventory."""
+
 		return fsum([i.weight for i in self.__contents.values()])
 
 	# Returns an index and item from the inventory.
 	def enumeration(self) -> enumerate:
+		"""Returns an index, item enumeration for the inventory."""
+
 		return enumerate(self.__contents.values())
 
 	# Returns an item based on index, rather than key.
 	def get_by_index(self, index: int) -> Union[Item, Weapon]:
+		"""Returns an item by index, rather than by key."""
+
 		for i, item in enumerate(self.__contents.values()):
 			if i == index:
 				return item
+
+	# Returns all inventory items as a tuple.
+	def all(self) -> tuple:
+		"""Returns a tuple containing all inventory items."""
+
+		return tuple(self.__contents.values())
 
 	# Loads the inventory from a list of items
 	@classmethod

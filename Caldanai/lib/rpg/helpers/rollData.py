@@ -149,7 +149,7 @@ class CombinedRoll:
 		self.result = damage.result * (0 if self.isMiss else 2 if self.attack.isCritical else 1)
 
 	def get_hit_string(self):
-		return f"{'FUMBLE' if self.isFumble else 'MISS' if self.isMiss else 'CRIT' if self.isCritical else 'HIT'}"
+		return f"{'FUMBLE' if self.isFumble else 'MISS' if self.isMiss else 'CRITICAL' if self.isCritical else 'HIT'}"
 
 	def to_dict(self) -> dict:
 		return {
