@@ -12,8 +12,8 @@ class Creature:
 			dodge: Optional[Union[str, int]],
 			health: Optional[Union[str, int]]
 	):
-		self.name = name
-		self.attack = atk
+		self.name = name or ''
+		self.attack = atk or '1d4'
 		self.defense = Dice.quick_roll(defense) if isinstance(defense, str) else defense if defense else 1
 		self.dodge = Dice.quick_roll(dodge) if isinstance(dodge, str) else dodge if dodge else 1
 		self.health = Dice.quick_roll(health) if isinstance(health, str) else health if health else 1
