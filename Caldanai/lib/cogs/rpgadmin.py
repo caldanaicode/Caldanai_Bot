@@ -1,6 +1,6 @@
 from discord import Embed, Guild
 from discord.ext import tasks
-from discord.ext.commands import Cog, guild_only, has_permissions, group
+from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
 from pymongo import UpdateOne
 
 from Caldanai.lib.bot import Bot
@@ -55,10 +55,14 @@ class RpgAdmin(Cog):
 		
 	# ----------------------------------------------------------
 
-	@group(aliases=["rpg"])
+	@group(aliases=["rpg"], brief="Groups the various Game commands.")
 	@guild_only()
 	@has_permissions(manage_guild=True)
 	async def game_cmd(self, ctx):
+		"""
+		Groups the various game commands for administrators.
+		"""
+
 		if ctx.invoked_subcommand is None:
 			await ctx.send("This command cannot be used on its own.")
 			return
@@ -70,10 +74,10 @@ class RpgAdmin(Cog):
 	# Adds a game to the bot
 	@game_cmd.command(brief="Begins an RPG game on the server in the current channel.")
 	async def create(self, ctx) -> bool:
-		"""Begins an RPG game on the server in the current channel.
-
-		Only a single game per server is supported.
 		"""
+		Begins an RPG game on the server in the current channel. Only a single game per server is supported.
+		"""
+
 		if MongoDB.games.find_one({'guildId': ctx.guild.id}) is not None:
 			await ctx.send("Only a single game per server is supported.")
 
@@ -88,20 +92,27 @@ class RpgAdmin(Cog):
 	# Removes a game from the bot and the database
 	@game_cmd.command(brief="Removes the RPG game for this server. WARNING: Cannot be undone.")
 	async def remove(self, ctx) -> None:
-		"""Removes the RPG game for this server. WARNING: Cannot be undone.
-
-		Upon removal, a new game may be created but data from the removed game in not recoverable.
 		"""
+		Removes the RPG game for this server. WARNING: Cannot be undone.
+		Upon removal, a new game may be created but data from the removed game is not recoverable.
+		"""
+
 		if not await self.check_game_exists(ctx):
 			return
 
 		self.remove_game(ctx.guild.id)
 		await ctx.send("The game has been removed.")
 
-	@group()
+	@group(brief="Displays or sets various spawning options.")
 	@guild_only()
 	@has_permissions(manage_guild=True)
+	@cooldown(1, 5, BucketType.guild)
 	async def spawn(self, ctx):
+		"""
+		Displays or sets various spawning options.
+		(5-second cool-down server-wide)
+		"""
+
 		if not await self.check_game_exists(ctx):
 			return
 
@@ -117,9 +128,13 @@ class RpgAdmin(Cog):
 			await ctx.send(embed=embed)
 
 	# Sets the minimum time between monster spawns for a game, in minutes
-	@spawn.command(aliases=["min"], brief="Sets the minimum time between monster spawns for a game, in minutes")
+	@spawn.command(
+		aliases=["min"],
+		brief="Sets or displays the minimum time between monster spawns for a game, in minutes"
+	)
 	async def minimum(self, ctx, minutes: int = None):
-		"""Sets the minimum time between monster spawns for a game, in minutes"""
+		"""Sets or displays the minimum time between monster spawns for a game, in minutes"""
+
 		game = self.bot.games[ctx.guild.id]		
 		if minutes is None:
 			await game.send(f"Minimum spawn time is {game.minutes_min} minutes.")
@@ -134,9 +149,13 @@ class RpgAdmin(Cog):
 		await game.send("Minimum spawn time has been set.")
 
 	# Sets the maximum time between monster spawns for a game, in minutes
-	@spawn.command(aliases=["max"], brief="Sets the maximum time between monster spawns for a game, in minutes.")
+	@spawn.command(
+		aliases=["max"],
+		brief="Sets or displays the maximum time between monster spawns for a game, in minutes."
+	)
 	async def maximum(self, ctx, minutes: int = None):
-		"""Sets the maximum time between monster spawns for a game, in minutes."""
+		"""Sets or displays the maximum time between monster spawns for a game, in minutes."""
+
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
 			await game.send(f"Maximum spawn time is {game.minutes_max} minutes.")
@@ -151,9 +170,10 @@ class RpgAdmin(Cog):
 		await game.send("Maximum spawn time has been set.")
 
 	# Sets the spawn duration for a game, in minutes
-	@spawn.command(aliases=["dur", "d"], brief="Sets the spawn duration for a game, in minutes.")
+	@spawn.command(aliases=["dur", "d"], brief="Sets or displays the spawn duration for a game, in minutes.")
 	async def duration(self, ctx, minutes: int = None):
-		"""Sets the spawn duration for a game, in minutes."""
+		"""Sets or displays the spawn duration for a game, in minutes."""
+
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
 			await game.send(f"Spawn duration is {game.spawn_duration} minutes.")
@@ -168,8 +188,10 @@ class RpgAdmin(Cog):
 		await game.send("Spawn duration has been set.")
 
 	# Sets the loot duration for a game, in minutes
-	@spawn.command(brief="Sets the loot duration for a game, in minutes.")
+	@spawn.command(brief="Sets or displays the loot duration for a game, in minutes.")
 	async def loot(self, ctx, minutes: int = None):
+		"""Sets or displays the loot duration, in minutes."""
+
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
 			await game.send(f"Loot duration is {game.loot_duration} minutes.")
@@ -184,8 +206,10 @@ class RpgAdmin(Cog):
 		await game.send("Loot duration has been set.")
 	
 	# Sets the spawning for a game on or off
-	@spawn.command(brief="Sets the spawning for a game on or off.")
+	@spawn.command(brief="Sets or displays the spawning for a game on or off.")
 	async def set(self, ctx, value: str = None):
+		"""Sets or displays the spawning for a game on or off."""
+
 		game = self.bot.games[ctx.guild.id]
 		if value is None:
 			await game.send(f"Spawning is currently {'en' if game.use_spawn_timer else 'dis'}abled.")
@@ -214,6 +238,8 @@ class RpgAdmin(Cog):
 	# Forces a monster to spawn.
 	@spawn.command(brief="Forces a monster to spawn.")
 	async def monster(self, ctx):
+		"""Forces a monster to spawn."""
+
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
 			await game.spawn()
@@ -224,6 +250,8 @@ class RpgAdmin(Cog):
 	# Forces a monster to die.
 	@spawn.command(brief="Forces a monster to die.")
 	async def kill(self, ctx):
+		"""Forces a monster to die."""
+
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
 			await game.send("There is no monster present!")
@@ -235,6 +263,8 @@ class RpgAdmin(Cog):
 
 	@tasks.loop(minutes=1)
 	async def save_players(self):
+		"""Database loop to save player data."""
+
 		dirty = [
 			(p, UpdateOne(
 				{"guildId": p.guildId, "userId": p.userId},

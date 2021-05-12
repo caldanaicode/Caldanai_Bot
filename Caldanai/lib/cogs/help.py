@@ -1,18 +1,26 @@
 from typing import Optional
 from discord import Embed
 from discord.utils import get
-from discord.ext.commands import Cog, command, cooldown, BucketType
+from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group
 from discord.ext.menus import MenuPages, ListPageSource
 
 
-def syntax(cmd: command):
+def syntax(cmd: Command):
 	aliases = "|".join([str(cmd), *cmd.aliases])
 	params = []
 	for key, value in cmd.params.items():
 		if key not in ("self", "ctx"):
 			params.append(f"[{key}]" if "NoneType" in str(value) else f"<{key}>")
-	
 	params = " ".join(params)
+
+	subs = []
+	if isinstance(cmd, Group):
+		for sub in cmd.walk_commands():
+			if sub.parents[0] == cmd:
+				subs.append(f"\n*{sub.name}*\n{sub.help}\n{syntax(sub)}")
+	subs = '\n'.join(subs)
+	if len(subs) > 0:
+		return f"```\n{aliases} {params}```\n**Subcommands:**\n{subs}"
 	return f"```\n{aliases} {params}```"
 
 
@@ -40,7 +48,7 @@ class HelpMenu(ListPageSource):
 
 		return embed
 	
-	async def format_page(self, menu, commands):
+	async def format_page(self, menu: MenuPages, commands):
 		fields = []
 
 		for cmd in commands:
@@ -79,7 +87,8 @@ class Help(Cog):
 		embed = Embed(
 			title=f"Help for `{cmd}`",
 			description=syntax(cmd),
-			color=0xff7700)
+			color=0xff7700
+		)
 		embed.add_field(name="Command Description", value=cmd.help)
 		await ctx.send(embed=embed)
 

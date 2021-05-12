@@ -16,6 +16,10 @@ class RPG(Cog):
 
 	# Gets a list of games to which a user belongs.
 	def get_games_for_user(self, uid: int) -> List[Game]:
+		"""
+		Returns a list of Games for the given discord user id.
+		"""
+
 		games = []
 		if uid is None:
 			return games
@@ -29,6 +33,10 @@ class RPG(Cog):
 
 	# Get the game associated with a context, it if exists.
 	async def get_game(self, ctx, game_idx: int = None) -> Union[Game, None]:
+		"""
+		Returns a Game associated with a context, or by index, if it exists. Otherwise returns None.
+		"""
+
 		game: Union[Game, None] = None
 		games: List[Game] = []
 		if ctx.guild is None:
@@ -59,6 +67,10 @@ class RPG(Cog):
 
 	# Gets the player associated with a context, if any exists
 	async def get_player(self, ctx, game: Game = None, notify: bool = True) -> Union[Player, None]:
+		"""
+		Returns a Player associated with a context, or None if the Player does not exist.
+		"""
+
 		if game is None or not isinstance(game, Game):
 			game: Game = await self.get_game(ctx)
 
@@ -74,6 +86,10 @@ class RPG(Cog):
 
 	# Returns a tuple containing (game, player) if both exist.
 	async def get_game_and_player(self, ctx, notify: bool = True) -> (Game, Player):
+		"""
+		Returns a tuple containing a Game and Player if they exist, or None for one or both upon failure.
+		"""
+
 		game: Game = await self.get_game(ctx)
 		if game is None:
 			return None, None
@@ -81,10 +97,15 @@ class RPG(Cog):
 		player: Player = await self.get_player(ctx, game, notify)
 		return game, player
 
-	@group()
+	@group(brief="Groups together various game commands for players.")
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
 	async def game(self, ctx):
+		"""
+		Requires a subcommand.
+		(10-second cool-down)
+		"""
+
 		if ctx.invoked_subcommand is None:
 			await ctx.send("This command cannot be used on its own.")
 			return
@@ -92,11 +113,11 @@ class RPG(Cog):
 	# Adds a player to the RPG system if they don't already exist.
 	@game.command(brief="Adds a player to the RPG system.")
 	async def join(self, ctx):
-		"""Adds a player to the RPG system.
-
+		"""
 		Adds a member to the RPG system as a player if they do not already exist in the database. This can only be
 		called by the member trying to participate.
-		(60-second cool-down)"""
+		"""
+
 		game: Game = await self.get_game(ctx)
 		if game is None:
 			return
@@ -115,10 +136,10 @@ class RPG(Cog):
 	# Removes a player from the RPG system.
 	@game.command(name="leave", brief="Removes the player from the RPG system.")
 	async def leave(self, ctx, gid: int = None):
-		"""Removes the player from the RPG system.
-
+		"""
 		Removes an existing player from the game. This can only be called by member withdrawing from participation.
-		(60-second cool-down)"""
+		"""
+
 		game: Game = await self.get_game(ctx, gid)
 
 		if game is None:
@@ -134,10 +155,13 @@ class RPG(Cog):
 
 	# Lists all players of the current RPG.
 	@command(brief="Lists the current players in a game.")
-	@cooldown(1, 60, BucketType.guild)
+	@cooldown(1, 10, BucketType.guild)
 	async def players(self, ctx, gid: int = None):
-		"""Lists the current players in the game.
-		(60-second cool-down for server-wide)"""
+		"""
+		Lists the current players in the game.
+		(10-second cool-down across the server)
+		"""
+
 		game: Game = await self.get_game(ctx, gid)
 		if game is None:
 			return
@@ -160,10 +184,10 @@ class RPG(Cog):
 	@command(brief="Shows a player's profile.")
 	@cooldown(1, 10, BucketType.member)
 	async def profile(self, ctx, gid: int = None):
-		"""Shows a player's profile.
-
-		Sends a DM to the calling player with their profile results.
-		(10-second cool-down)"""
+		"""
+		Shows a player's profile.
+		(10-second cool-down)
+		"""
 
 		game: Game = await self.get_game(ctx, gid)
 		if game is None:
@@ -176,9 +200,66 @@ class RPG(Cog):
 
 		embed = player.get_profile(game.guild.name)
 		embed.set_thumbnail(url=game.guild.icon_url)
-		await player.send(embed=embed)
-		if ctx.guild is not None:
-			await ctx.message.delete()
+		if ctx.guild is None:
+			await player.send(embed=embed)
+		else:
+			await game.channel.send(embed=embed)
+
+	@command(brief="Shows a player's skills.")
+	@cooldown(1, 10, BucketType.member)
+	async def skills(self, ctx, gid: int = None):
+		"""
+		Shows a player's skills.
+		(10-second cool-down)
+		"""
+
+		game: Game = await self.get_game(ctx, gid)
+		if game is None:
+			return
+
+		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
+
+		if player is None:
+			return
+
+		embed = player.get_skill_display()
+		embed.set_thumbnail(url=game.guild.icon_url)
+		if ctx.guild is None:
+			await player.send(embed=embed)
+		else:
+			await game.channel.send(embed=embed)
+
+	@group(brief="Groups together charting commands for players.")
+	async def chart(self, ctx):
+		"""
+		Generates a specific chart. See subcommands for chart options.
+		"""
+
+		if ctx.invoked_subcommand is None:
+			await ctx.send("This command cannot be used on its own.")
+			return
+
+	# Displays a bar chart of the player's natural rolls.
+	@chart.command(brief="Displays a bar chart of the player's natural rolls.")
+	@cooldown(1, 10, BucketType.member)
+	async def attacks(self, ctx, gid: int = None):
+		"""
+		Displays a bar chart of the player's natural attack rolls.
+		(10-second cool-down)
+		"""
+
+		game: Game = await self.get_game(ctx, gid)
+		if game is None:
+			return
+
+		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
+
+		if player is None:
+			return
+
+		embed, file = player.get_chart_attacks()
+		embed.set_thumbnail(url=game.guild.icon_url)
+		await ctx.send(embed=embed, file=file)
 
 	# Attacks the current monster.
 	@command(
@@ -189,9 +270,11 @@ class RPG(Cog):
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
 	async def attack(self, ctx):
-		"""Attacks the critter currently daring to show it's face to intrepid adventurers!
+		"""
+		Attacks the critter currently daring to show it's face to intrepid adventurers!
+		(10-second cool-down)
+		"""
 
-		(10-second cool-down)"""
 		game, player = await self.get_game_and_player(ctx)
 
 		if game is None or player is None:
@@ -209,11 +292,15 @@ class RPG(Cog):
 		await game.send(f"{player.name} prepares to attack!")
 
 	# Loots the current monster, if it was defeated.
-	@command(name='loot', aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
+	@command(aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
 	async def loot(self, ctx):
-		"""Loots the remains of a recently-felled foe."""
+		"""
+		Loots the remains of a recently-felled foe.
+		(10-second cool-down)
+		"""
+
 		game, player = await self.get_game_and_player(ctx)
 
 		if game is None or player is None:
@@ -258,7 +345,8 @@ class RPG(Cog):
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
 	async def hug(self, ctx, *, msg: str = None):
-		"""Hugs, snuggles, and cuddles for all of your needs!
+		"""
+		Hugs, snuggles, and cuddles for all of your needs!
 
 		See that monster over there?! It's just angry because it never feels loved!
 		Want to show your fellows a little appreciation? There's a hug for them too!
@@ -278,6 +366,11 @@ class RPG(Cog):
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
 	@cooldown(1, 5, BucketType.member)
 	async def equip(self, ctx, hand: str, index: int, game_idx: int = None):
+		"""
+		Equips a weapon to the given hand.
+		(5-second cool-down)
+		"""
+
 		game: Game = await self.get_game(ctx, game_idx)
 		if game is None:
 			return
@@ -312,9 +405,11 @@ class RPG(Cog):
 	)
 	@cooldown(1, 10, BucketType.member)
 	async def inventory(self, ctx, game_idx: int = None):
-		"""Sends a DM to the player with information about the items they carry.
+		"""
+		Sends a DM to the player with information about the items they carry.
+		(10-second cool-down)
+		"""
 
-		(10-second cool-down)"""
 		game: Game = await self.get_game(ctx, game_idx)
 		if game is None:
 			print("Game was none.")
@@ -329,9 +424,14 @@ class RPG(Cog):
 		if ctx.guild is not None:
 			await ctx.message.delete()
 
-	@command(name='item', brief='Sends the player a DM with info regarding the specified item.')
+	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
 	async def item(self, ctx, index: int, game_idx: int = None):
+		"""
+		Displays details about an item.
+		(2-second cool-down)
+		"""
+
 		game: Game = await self.get_game(ctx, game_idx)
 		if game is None:
 			return
@@ -360,9 +460,14 @@ class RPG(Cog):
 	@cooldown(1, 60, BucketType.user)
 	@command(
 		name='games',
-		brief='Sends a DM to the calling player with a list of each game they are currently in for Caldanai Bot.'
+		brief='Sends a DM to the calling player with a list of games in which they are a member.'
 	)
 	async def games_display(self, ctx):
+		"""
+		Sends a DM to the calling player with a list of games in which they are a member.
+		(60-second cool-down)
+		"""
+
 		msg = ""
 		games = self.get_games_for_user(ctx.author.id)
 		for idx, game in enumerate(games):
@@ -376,6 +481,10 @@ class RPG(Cog):
 	@cooldown(1, 2, BucketType.member)
 	@command(name='sell', brief='Sell an item by index, or all unequipped items if "unequipped" is given.')
 	async def sell(self, ctx, flag: Union[int, str] = None, gid: int = None):
+		"""
+		Sell an item by index, or all unequipped items if "unequipped" is given.
+		"""
+
 		game: Game = await self.get_game(ctx, gid)
 		if game is None:
 			return

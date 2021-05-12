@@ -1,5 +1,9 @@
 from math import fsum, floor
-from typing import Dict, Tuple, Optional, Union
+from typing import Dict, Tuple, Optional, Union, List
+from io import BytesIO
+
+import pandas
+import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
 from discord.errors import HTTPException
@@ -31,6 +35,7 @@ class Player(Creature):
 			atk_cnt: Optional[int] = None,
 			dmg_avg: Optional[float] = None,
 			dmg_cnt: Optional[int] = None,
+			d20_nats: Optional[List[int]] = None,
 			skills: Optional[Dict[str, int]] = None
 	):
 		super().__init__(name=None, atk=None, defense=defense, dodge=dodge, health=health)
@@ -50,6 +55,7 @@ class Player(Creature):
 		self.damageCount = dmg_cnt or 0
 		self.skills = skills or {}
 		self.isDirty = False
+		self.naturalRolls = d20_nats or [0] * 20
 
 	def __eq__(self, o):
 		return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
@@ -152,6 +158,11 @@ class Player(Creature):
 	def update_averages(self, left: Optional[CombinedRoll], right: Optional[CombinedRoll]):
 		"""Updates the player's attack and damage averages."""
 
+		if left and left.attack:
+			self.naturalRolls[left.attack.roll - 1] += 1
+		if right and right.attack:
+			self.naturalRolls[right.attack.roll - 1] += 1
+
 		a_count = (1 if left else 0) + (1 if right else 0)
 		d_count = (1 if left and not left.isMiss else 0) + (1 if right and not right.isMiss else 0)
 		if self.attackCount + a_count > 0:
@@ -219,12 +230,7 @@ class Player(Creature):
 		left = self.get_combat_rolls(self.leftHand, monster)
 		right: Optional[CombinedRoll] = None if two_handed else self.get_combat_rolls(self.rightHand, monster)
 		raw_dmg = left.result + (right.result if right else 0)
-		t_dmg = raw_dmg - monster.defense
-
-		if left.isMiss and (right is None or right.isMiss):
-			t_dmg = 0
-		elif t_dmg < 0:
-			t_dmg = 1
+		t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - monster.defense)
 
 		msg = f"{self.member.mention}'s attack:```diff\nAttack vs Dodge ({monster.dodge}): " \
 			f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} " \
@@ -284,10 +290,22 @@ class Player(Creature):
 			("\u200b", "\u200b", True),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
-			("Joined", self.joined, False),
-			("\u200b", "\u200b", False),
-			("Skills", "---------------------------------------------------", False)
+			("Joined", self.joined, False)
 		]
+
+		for f, v, i in fields:
+			embed.add_field(name=f, value=v, inline=i)
+
+		return embed
+
+	def get_skill_display(self) -> Embed:
+		embed = Embed(
+			title="Skills",
+			description=f'for {self.name}',
+			color=0x00ffff
+		)
+
+		fields = []
 
 		for skill in self.skills.keys():
 			bonuses = self.get_skill_bonus(skill)
@@ -298,6 +316,49 @@ class Player(Creature):
 			embed.add_field(name=f, value=v, inline=i)
 
 		return embed
+
+	def get_chart_attacks(self) -> Tuple[Embed, File]:
+		"""Returns a discord Embed and File for the player's natural rolls."""
+
+		embed = Embed(
+			title=f"Natural Rolls",
+			description=f'for {self.name}',
+			color=0x00ffff
+		)
+
+		rolls = 0
+		total = 0
+		for idx, count in enumerate(self.naturalRolls):
+			rolls += count
+			total += (idx + 1) * count
+
+		mean = total / rolls if rolls > 0 else 0
+
+		embed.add_field(name="Count", value=f"{rolls:,}", inline=True)
+		embed.add_field(name="Mean", value=f"{mean:.2f}", inline=True)
+
+		tcolor = (0., 1., 0.7, 1.)
+
+		series = pandas.Series(self.naturalRolls, index=range(1, 21), dtype='int')
+		ax = series.plot(kind='bar')
+		ax.set_xlabel('Rolls')
+		ax.set_ylabel('Count')
+		ax.xaxis.label.set_color(tcolor)
+		ax.yaxis.label.set_color(tcolor)
+		ax.set_ybound(lower=0)
+		ax.tick_params(axis='both', colors=tcolor)
+		ax.grid(True, axis='y', color=tcolor, alpha=0.25)
+		for spine in ax.spines.values():
+			spine.set_color(tcolor)
+
+		buffer = BytesIO()
+		plt.savefig(buffer, format='png', transparent=True)
+		plt.close()
+		buffer.seek(0)
+		file = File(buffer, filename='plot.png')
+		embed.set_image(url="attachment://plot.png")
+
+		return embed, file
 
 	# Returns the cumulative weight of the player's inventory.
 	def get_weight(self):
@@ -383,6 +444,7 @@ class Player(Creature):
 			'attackCount': self.attackCount,
 			'damageAverage': self.damageAverage,
 			'damageCount': self.damageCount,
+			'naturalRolls': self.naturalRolls,
 			'skills': self.skills
 		}
 
@@ -425,6 +487,7 @@ class Player(Creature):
 			atk_cnt=p['attackCount'],
 			dmg_avg=p['damageAverage'],
 			dmg_cnt=p['damageCount'],
+			d20_nats=p['naturalRolls'],
 			skills=p['skills']
 		)
 
