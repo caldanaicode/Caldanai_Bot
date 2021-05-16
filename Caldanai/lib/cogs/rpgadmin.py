@@ -4,6 +4,7 @@ from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldo
 from pymongo import UpdateOne
 
 from Caldanai.lib.bot import Bot
+from ...Logger import stdout
 from ...db.db import MongoDB
 from ..rpg.game import Game
 
@@ -44,7 +45,7 @@ class RpgAdmin(Cog):
 			game = await Game.from_dict(game, self.bot)
 
 		self.bot.games[game.guild.id] = game
-		print(f"Game added for guild: {game.guild.name} ({game.guild.id})")
+		stdout(f"Game added for guild: {game.guild.name} ({game.guild.id})")
 
 	# Removes a game from the bot's list of games
 	def remove_game(self, gid: int):
@@ -304,7 +305,7 @@ class RpgAdmin(Cog):
 		for g in games:
 			await self.add_game(game=g)
 		self.save_players.start()
-		print("RPG Admin Cog ready.")
+		stdout("RPG Admin Cog ready.")
 
 
 def setup(bot):

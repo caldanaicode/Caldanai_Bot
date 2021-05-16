@@ -1,5 +1,6 @@
-import logging
+from datetime import datetime
 from pymongo.collection import Collection
+import logging
 
 
 class MongoHandler(logging.Handler):
@@ -7,7 +8,7 @@ class MongoHandler(logging.Handler):
 		logging.Handler.__init__(self)
 		self.collection = collection
 		self.ignored = ignored or ()
-	
+
 	def emit(self, record: logging.LogRecord):
 		self.format(record)
 
@@ -16,9 +17,12 @@ class MongoHandler(logging.Handler):
 
 		entry = {
 			'asctime': record.asctime,
-			'level': record.levelname,
-			'name': record.name,
+			'level'  : record.levelname,
+			'name'   : record.name,
 			'message': record.message
 		}
-		
+
 		self.collection.insert_one(entry)
+
+def stdout(msg):
+	print(f"{datetime.now().strftime('%m-%d-%Y %H:%M:%S')}  {msg}")

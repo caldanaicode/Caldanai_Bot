@@ -4,6 +4,7 @@ from pymongo import UpdateOne, DeleteOne
 
 from .item import Item
 from .weapon import Weapon
+from ....Logger import stdout
 from ....db.db import MongoDB
 from bson.objectid import ObjectId
 from math import fsum
@@ -86,7 +87,7 @@ class Inventory:
 			elif t['itemType'] == 'Item':
 				i = Item.load(item)
 			if i is None:
-				print(f"Failed to load item {item['_id']}")
+				stdout(f"Failed to load item {item['_id']}")
 			else:
 				loaded.append(i)
 		return cls(loaded)

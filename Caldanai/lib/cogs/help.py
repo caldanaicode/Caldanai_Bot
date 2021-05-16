@@ -4,6 +4,8 @@ from discord.utils import get
 from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group
 from discord.ext.menus import MenuPages, ListPageSource
 
+from Caldanai.Logger import stdout
+
 
 def syntax(cmd: Command):
 	aliases = "|".join([str(cmd), *cmd.aliases])
@@ -94,7 +96,7 @@ class Help(Cog):
 
 	@Cog.listener()
 	async def on_ready(self):
-		print("Help Cog ready.")
+		stdout("Help Cog ready.")
 
 
 def setup(bot):

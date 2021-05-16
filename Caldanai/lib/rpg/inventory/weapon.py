@@ -3,6 +3,7 @@ from typing import Union
 from discord import Embed, File
 from .item import Item
 from .rarity import Rarity
+from ....Logger import stdout
 from ....db.db import MongoDB
 from bson.objectid import ObjectId
 
@@ -58,8 +59,8 @@ class Weapon(Item):
 			("Damage Type", self.damageType, True),
 			("\u200b", "\u200b", True),
 			("Is Two-Handed", self.isTwoHanded, True),
-			("Is Magic", self.isTwoHanded, True),
-			("Is Ranged", self.isTwoHanded, True),
+			("Is Magic", self.isMagic, True),
+			("Is Ranged", self.isRanged, True),
 			("Skill", self.skill.title(), False),
 			("Rarity", self.rarity.name.title(), True),
 			("Weight", self.weight, True),
@@ -110,7 +111,7 @@ class Weapon(Item):
 
 		template = MongoDB.templates_items.find_one({'_id': item['templateId']})
 		if template is None:
-			print(f"Error loading template ID: {item['templateId']}")
+			stdout(f"Error loading template ID: {item['templateId']}")
 			return None
 
 		return cls(

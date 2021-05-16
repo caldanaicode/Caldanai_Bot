@@ -3,6 +3,7 @@ from typing import Union
 from discord import Embed, File
 from random import randint
 from .rarity import Rarity, Rarities
+from ....Logger import stdout
 from ....db.db import MongoDB
 from bson.objectid import ObjectId
 
@@ -108,7 +109,7 @@ class Item:
 
 		template = MongoDB.templates_items.find_one({'_id': item['templateId']})
 		if template is None:
-			print(f"Error loading template ID: {item['templateId']}")
+			stdout(f"Error loading template ID: {item['templateId']}")
 			return None
 
 		return cls(

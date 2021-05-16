@@ -9,6 +9,7 @@ from glob import glob
 from os import path
 
 from ..rpg.game import Game
+from ...Logger import stdout
 from ...db.db import MongoDB
 from Caldanai.environment import OWNER_IDS, TOKEN
 
@@ -59,7 +60,7 @@ class Bot(BotBase):
 		if cog in self.COGS:
 			self.load_extension(f'Caldanai.lib.cogs.{cog}')
 		else:
-			print(f'{cog} Cog not found.')
+			stdout(f'{cog} Cog not found.')
 
 	def reload_cog(self, cog: str):
 		if cog in self.COGS:
@@ -74,12 +75,12 @@ class Bot(BotBase):
 		self.setup()
 		self.retry = 0
 		try:
-			print('Running bot...')
+			stdout(f"Running bot...")
 			super().run(self.TOKEN, bot=True, reconnect=True)
 		except HTTPException as e:
-			print(e)
+			stdout(e)
 			if 'Retry-After' in e.response.headers.keys():
-				print(f"Retry After {e.response.headers['Retry-After']} seconds")
+				stdout(f"Retry After {e.response.headers['Retry-After']} seconds")
 
 	async def on_error(self, err, *args, **kwargs):
 		if err == 'on_command_error':
@@ -103,41 +104,41 @@ class Bot(BotBase):
 			raise exc.original
 
 		elif isinstance(exc, HTTPException):
-			print(exc)
+			stdout(exc)
 			if 'Retry-After' in exc.response.headers.keys():
-				print(f"Retry After {exc.response.headers['Retry-After']} seconds")
+				stdout(f"Retry After {exc.response.headers['Retry-After']} seconds")
 
 		else:
 			raise exc
 
 	async def on_connect(self):
-		print("Bot connected.")
+		stdout("Bot connected.")
 		self.online = True
 
 	async def on_disconnect(self):
-		print("Bot disconnected.")
+		stdout("Bot disconnected.")
 		self.online = False
 
 	async def on_resumed(self):
-		print("Bot resumed.")
+		stdout("Bot resumed.")
 		self.online = True
 
 	async def on_guild_join(self, guild: Guild):
 		MongoDB.servers.insert_one({'guildId': guild.id, 'name': guild.name, 'prefix': '$'})
-		print(f"Guild joined: {guild.name} ({guild.id})")
+		stdout(f"Guild joined: {guild.name} ({guild.id})")
 
 	async def on_guild_remove(self, guild: Guild):
 		MongoDB.servers.delete_one({'guildId': guild.id})
 		MongoDB.games.delete_many({'guildId': guild.id})
 		MongoDB.players.delete_many({'guildId': guild.id})
-		print(f"Guild left: {guild.name} ({guild.id})")
+		stdout(f"Guild left: {guild.name} ({guild.id})")
 
 	async def on_ready(self):
 		if not self.ready:
-			print(f'Logged in as {bot.user.name}, {bot.user.id}')
+			stdout(f'Logged in as {bot.user.name}, {bot.user.id}')
 			self.ready = True
 		else:
-			print('Bot reconnected')
+			stdout('Bot reconnected')
 		self.online = True
 
 

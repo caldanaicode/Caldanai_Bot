@@ -1,5 +1,7 @@
 from random import randint, choice
 
+from Caldanai.Logger import stdout
+
 
 class Dice:
 	@staticmethod
@@ -8,7 +10,7 @@ class Dice:
 		try:
 			count, sides = map(int, ndn.lower().split('d'))
 		except Exception as e:
-			print(e)
+			stdout(e)
 
 		result = 0
 		for _ in range(count):

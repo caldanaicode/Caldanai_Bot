@@ -6,6 +6,8 @@ from discord.embeds import EmptyEmbed
 from discord.ext.commands import Cog, command, cooldown, BucketType
 from discord.ext.commands.errors import MissingRequiredArgument
 
+from Caldanai.Logger import stdout
+
 
 class General(Cog):
 	def __init__(self, bot):
@@ -13,7 +15,7 @@ class General(Cog):
 	
 	@Cog.listener()
 	async def on_ready(self):
-		print("General Cog ready.")
+		stdout("General Cog ready.")
 	
 	@command(name='hello', aliases=['hi', 'hey'], brief="Greets the user.")
 	@cooldown(1, 5, BucketType.member)

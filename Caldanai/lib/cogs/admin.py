@@ -1,4 +1,6 @@
 from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only
+
+from ...Logger import stdout
 from ...db.db import MongoDB
 
 
@@ -47,7 +49,7 @@ class Admin(Cog):
 	
 	@Cog.listener()
 	async def on_ready(self):
-		print("Admin Cog ready.")
+		stdout("Admin Cog ready.")
 
 
 def setup(bot):

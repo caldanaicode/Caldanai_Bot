@@ -1,8 +1,14 @@
+from io import BytesIO
+
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 from discord.ext.commands.errors import MissingRequiredArgument
-from discord import Embed
+from discord import Embed, File
 from typing import List, Union
 
+import pandas
+import matplotlib.pyplot as plt
+
+from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory.weapon import Weapon
@@ -236,30 +242,100 @@ class RPG(Cog):
 		"""
 
 		if ctx.invoked_subcommand is None:
-			await ctx.send("This command cannot be used on its own.")
+			await ctx.send(
+				"Unrecognized data option. Please see `$help chart` for available options, or check your "
+				"spelling and try again."
+			)
 			return
 
 	# Displays a bar chart of the player's natural rolls.
-	@chart.command(brief="Displays a bar chart of the player's natural rolls.")
-	@cooldown(1, 10, BucketType.member)
-	async def attacks(self, ctx, gid: int = None):
+	@chart.command(brief="Displays a bar chart of players' natural attack rolls.")
+	@guild_only()
+	@cooldown(1, 5, BucketType.member)
+	async def attacks(self, ctx, *options: str):
 		"""
-		Displays a bar chart of the player's natural attack rolls.
-		(10-second cool-down)
+		Displays a bar chart of players' natural attack rolls.
+		(5-second cool-down)
 		"""
 
-		game: Game = await self.get_game(ctx, gid)
+		game: Game = await self.get_game(ctx)
 		if game is None:
 			return
 
-		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
+		plot_types = {
+			# 'hexbin': {'x': 'index', 'y': ''},
+			'bar': {'options': {'stacked': True}, 'labels': ('Rolls', 'Count')},
+			# 'pie': {'options': {'y': 'Roll Counts', 'subplots': True}},
+			'barh': {'options': {'stacked': True}, 'labels': ('Count', 'Rolls')},
+			# 'scatter': {},
+			'hist': {'options': {}, 'labels': ('Rolls by Count', 'Count Total')},
+			# 'density': {},
+			'area': {'options': {}, 'labels': ('Rolls', 'Count')},
+			'line': {'options': {}, 'labels': ('Rolls', 'Count')}
+		}
 
-		if player is None:
-			return
+		rolls = 0
+		total = 0
+		kind = 'bar'
+		tcolor = (0., 1., 0.7, 1.)
+		for p in options:
+			if p.lower() in plot_types.keys():
+				kind = p.lower()
 
-		embed, file = player.get_chart_attacks()
-		embed.set_thumbnail(url=game.guild.icon_url)
-		await ctx.send(embed=embed, file=file)
+		if 'all' in options:
+			data = {p.name: p.naturalRolls for p in game.players.values() if any(p.naturalRolls)}
+			df = pandas.DataFrame(data, index=range(1, 21), dtype='int')
+			for d in data.values():
+				for idx, count in enumerate(d):
+					rolls += count
+					total += (idx + 1) * count
+
+			mean = total / rolls if rolls > 0 else 0
+			ax = df.plot(kind=f'{kind}', **plot_types[kind]['options'])
+			ax.legend(
+				bbox_to_anchor=(1, 1),
+				loc="upper left",
+				facecolor='black',
+				framealpha=0.3,
+				edgecolor=tcolor,
+				labelcolor=tcolor
+			)
+
+		else:
+			player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
+			if player is None:
+				return
+
+			data = player.naturalRolls
+			df = pandas.DataFrame(data, index=range(1, 21), dtype='int')
+			for idx, count in enumerate(data):
+				rolls += count
+				total += (idx + 1) * count
+
+			mean = total / rolls if rolls > 0 else 0
+			ax = df.plot(kind=f'{kind}', legend=False, **plot_types[kind]['options'])
+
+		try:
+			ax.set_xlabel(plot_types[kind]['labels'][0])
+			ax.set_ylabel(plot_types[kind]['labels'][1])
+			ax.xaxis.label.set_color(tcolor)
+			ax.yaxis.label.set_color(tcolor)
+			ax.set_ybound(lower=0)
+			ax.tick_params(axis='both', colors=tcolor)
+			ax.grid(True, axis='y', color=tcolor, alpha=0.25)
+			for spine in ax.spines.values():
+				spine.set_color(tcolor)
+		except:
+			pass
+
+		buffer = BytesIO()
+		plt.savefig(buffer, format='png', transparent=True, bbox_inches="tight")
+		plt.close()
+		buffer.seek(0)
+
+		file = File(buffer, filename='plot.png')
+		await ctx.send(file=file)
+		await ctx.send(f"Count: {rolls:,}, Mean: {mean:.2f}")
 
 	# Attacks the current monster.
 	@command(
@@ -412,12 +488,10 @@ class RPG(Cog):
 
 		game: Game = await self.get_game(ctx, game_idx)
 		if game is None:
-			print("Game was none.")
 			return
 
 		player: Player = await self.get_player(ctx, game)
 		if player is None:
-			print("Players was none.")
 			return
 
 		await player.send(player.get_inventory(game.guild.name))
@@ -519,7 +593,7 @@ class RPG(Cog):
 
 	@Cog.listener()
 	async def on_ready(self):
-		print("RPG Cog ready.")
+		stdout("RPG Cog ready.")
 
 
 def setup(bot):

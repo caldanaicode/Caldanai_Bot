@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
 from discord.errors import HTTPException
+
+from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.creatures.creature import Creature
 from Caldanai.lib.rpg.creatures.monster import Monster
 from Caldanai.lib.rpg.helpers.dice import Dice
@@ -82,7 +84,7 @@ class Player(Creature):
 			else:
 				msg += e.text
 
-			print(msg)
+			stdout(msg)
 			return False
 		return True
 

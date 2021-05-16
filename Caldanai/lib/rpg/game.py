@@ -11,6 +11,7 @@ from asyncio import sleep
 
 from .inventory.item import Item
 from .inventory.weapon import Weapon
+from ...Logger import stdout
 from ...db.db import MongoDB
 from datetime import datetime
 
@@ -110,7 +111,7 @@ class Game:
 			elif e.code == 400:
 				msg += 'Message returned a bad format error.'
 
-			print(msg)
+			stdout(msg)
 			return False
 		return True
 
@@ -212,12 +213,12 @@ class Game:
 		"""Determines whether or not to randomly spawn a monster."""
 
 		if not self.use_spawn_timer:
-			print("Spawn loop ending...")
+			stdout("Spawn loop ending...")
 			self.spawn_check.stop()
 			return
 
 		if self.bot.is_ws_ratelimited():
-			print("Spawning blocked due to rate limit.")
+			stdout("Spawning blocked due to rate limit.")
 			return
 
 		self.trigger = min(self.trigger, self.minutes_max)
