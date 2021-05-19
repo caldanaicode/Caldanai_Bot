@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 from Caldanai.lib.rpg.creatures.monster import Monster
+from Caldanai.lib.rpg.helpers.dice import Dice
 
 
 class RollData:
@@ -11,33 +12,19 @@ class RollData:
 
 	Attributes
 	----------
-	roll : int
-		The natural roll with no bonuses applied.
+	rolls : Tuple
+		The natural rolls with no bonuses applied.
 	skillBonus : int
 		The bonus applied due to skill level.
 	result : int
 		The result of the roll + bonus.
 	"""
 
-	def __init__(self, roll: int, skill_bonus: int):
-		self.roll: int = roll
+	def __init__(self, dice: Dice, skill_bonus: int):
+		self.rolls: Tuple[int] = dice.rolls
+		self.sides = dice.sides
 		self.skillBonus: int = skill_bonus
-		self.result = roll + skill_bonus
-
-	def to_dict(self) -> dict:
-		return {
-			"roll": self.roll,
-			"skillBonus": self.skillBonus
-		}
-
-	@classmethod
-	def load(cls, d: dict) -> Optional["RollData"]:
-		if "roll" not in d.keys() or "skillBonus" not in d.keys():
-			return None
-		return cls(
-			roll=d['roll'],
-			skill_bonus=d['skillBonus']
-		)
+		self.result = dice.value + skill_bonus
 
 
 class AttackRoll(RollData):
@@ -52,25 +39,14 @@ class AttackRoll(RollData):
 		Whether or not the roll is a fumble (natural 1).
 	"""
 
-	def __init__(self, roll: int, skill_bonus: int):
-		super().__init__(roll, skill_bonus)
-		self.isCritical = roll == 20
-		self.isFumble = roll == 1
+	def __init__(self, skill_bonus: int):
+		super().__init__(Dice(1, 20), skill_bonus)
+		self.isCritical = self.rolls[0] == 20
+		self.isFumble = self.rolls[0] == 1
 
 	def __str__(self):
-		return f"{self.roll}{' + ' + str(self.skillBonus) if self.skillBonus > 0 and not self.isFumble else ''}"
-
-	def to_dict(self) -> dict:
-		return super().to_dict()
-
-	@classmethod
-	def load(cls, d: dict) -> Optional["AttackRoll"]:
-		if "roll" not in d.keys() or "skillBonus" not in d.keys():
-			return None
-		return cls(
-			roll=d['roll'],
-			skill_bonus=d['skillBonus']
-		)
+		return f"{' + '.join(str(r) for r in self.rolls)}" \
+			f"{' + ' + str(self.skillBonus) if self.skillBonus > 0 and not self.isFumble else ''}"
 
 
 class DamageRoll(RollData):
@@ -78,13 +54,14 @@ class DamageRoll(RollData):
 	Simple structure for packaging an NdN roll with a skill bonus and a weapon bonus.
 	"""
 
-	def __init__(self, roll: int, skill_bonus: int, weapon_bonus: int):
-		super().__init__(roll, skill_bonus)
+	def __init__(self, dice: Dice, skill_bonus: int, weapon_bonus: int):
+		super().__init__(dice, skill_bonus)
 		self.weaponBonus = weapon_bonus
 		self.result += weapon_bonus
 
 	def __str__(self):
-		msg = f"{self.roll}"
+		msg = f"{'(' if len(self.rolls) > 1 or self.skillBonus or self.weaponBonus else ''}"\
+			f"{' + '.join(str(r) for r in self.rolls)}"
 		show_result = False
 		if self.skillBonus != 0:
 			msg += f" {'+' if self.skillBonus > 0 else '-'} {self.skillBonus}"
@@ -92,25 +69,11 @@ class DamageRoll(RollData):
 		if self.weaponBonus != 0:
 			msg += f" {'+' if self.weaponBonus > 0 else '-'} {self.weaponBonus}"
 			show_result = True
+		msg += f"{')' if len(self.rolls) > 1 or self.skillBonus or self.weaponBonus else ''}"
 		if show_result:
 			msg += f" = {self.result}"
 
 		return msg
-
-	def to_dict(self) -> dict:
-		d = super().to_dict()
-		d['weaponBonus'] = self.weaponBonus
-		return d
-
-	@classmethod
-	def load(cls, d: dict) -> Optional["DamageRoll"]:
-		if "roll" not in d.keys() or "skillBonus" not in d.keys() or "weaponBonus" not in d.keys():
-			return None
-		return cls(
-			roll=d['roll'],
-			skill_bonus=d['skillBonus'],
-			weapon_bonus=d['weaponBonus']
-		)
 
 
 class CombinedRoll:
@@ -150,21 +113,3 @@ class CombinedRoll:
 
 	def get_hit_string(self):
 		return f"{'FUMBLE' if self.isFumble else 'MISS' if self.isMiss else 'CRITICAL' if self.isCritical else 'HIT'}"
-
-	def to_dict(self) -> dict:
-		return {
-			"attack": self.attack.to_dict(),
-			"damage": self.damage.to_dict(),
-			"isMiss": self.isMiss
-		}
-
-	@classmethod
-	def load(cls, d: dict) -> Optional["CombinedRoll"]:
-		if "attack" not in d.keys() or "damage" not in d.keys() or "isMiss" not in d.keys():
-			return None
-
-		return cls(
-			attack=AttackRoll.load(d["attack"]),
-			damage=DamageRoll.load(d["damage"]),
-			is_miss=d["isMiss"]
-		)

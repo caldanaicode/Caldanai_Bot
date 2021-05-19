@@ -1,4 +1,4 @@
-from math import fsum, floor
+from math import floor
 from typing import Dict, Tuple, Optional, Union, List
 from io import BytesIO
 
@@ -33,11 +33,7 @@ class Player(Creature):
 			dodge: Optional[int] = None,
 			health: Optional[int] = None,
 			inventory: Optional[Inventory] = None,
-			atk_avg: Optional[float] = None,
-			atk_cnt: Optional[int] = None,
-			dmg_avg: Optional[float] = None,
-			dmg_cnt: Optional[int] = None,
-			d20_nats: Optional[List[int]] = None,
+			rolls: Optional[Dict[str, List[int]]] = None,
 			skills: Optional[Dict[str, int]] = None
 	):
 		super().__init__(name=None, atk=None, defense=defense, dodge=dodge, health=health)
@@ -51,13 +47,11 @@ class Player(Creature):
 		self.leftHand: Optional[Weapon] = None
 		self.rightHand: Optional[Weapon] = None
 		self.inventory = inventory or Inventory()
-		self.attackAverage = atk_avg or 0
-		self.attackCount = atk_cnt or 0
-		self.damageAverage = dmg_avg or 0
-		self.damageCount = dmg_cnt or 0
 		self.skills = skills or {}
 		self.isDirty = False
-		self.naturalRolls = d20_nats or [0] * 20
+		self.rolls = rolls or {
+			"d4": [0] * 4, "d6": [0] * 6, "d8": [0] * 8, "d10": [0] * 10, "d12": [0] * 12, "d20": [0] * 20
+		}
 
 	def __eq__(self, o):
 		return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
@@ -156,31 +150,21 @@ class Player(Creature):
 		dmg = floor(self.get_skill_level(skill) / 4)
 		return atk, dmg
 
-	# Updates the player's attack and damage averages.
-	def update_averages(self, left: Optional[CombinedRoll], right: Optional[CombinedRoll]):
+	# Updates the player's natural roll counts.
+	def update_roll_counts(self, left: Optional[CombinedRoll], right: Optional[CombinedRoll]):
 		"""Updates the player's attack and damage averages."""
 
 		if left and left.attack:
-			self.naturalRolls[left.attack.roll - 1] += 1
+			self.rolls['d20'][left.attack.rolls[0] - 1] += 1
+			if not left.isMiss:
+				for r in left.damage.rolls:
+					self.rolls[f'd{left.damage.sides}'][r - 1] += 1
 		if right and right.attack:
-			self.naturalRolls[right.attack.roll - 1] += 1
+			self.rolls['d20'][right.attack.rolls[0] - 1] += 1
+			if not right.isMiss:
+				for r in right.damage.rolls:
+					self.rolls[f'd{right.damage.sides}'][r - 1] += 1
 
-		a_count = (1 if left else 0) + (1 if right else 0)
-		d_count = (1 if left and not left.isMiss else 0) + (1 if right and not right.isMiss else 0)
-		if self.attackCount + a_count > 0:
-			self.attackAverage = fsum([
-				self.attackCount * self.attackAverage,
-				left.result if left else 0,
-				right.result if right else 0
-			]) / (self.attackCount + a_count)
-			self.attackCount += a_count
-		if self.damageCount + d_count > 0:
-			self.damageAverage = fsum([
-				self.damageCount * self.damageAverage,
-				left.result if left else 0,
-				right.result if right else 0
-			]) / (self.damageCount + d_count)
-			self.damageCount += d_count
 		self.isDirty = True
 
 	# Returns the skill level for the given skill name.
@@ -210,12 +194,9 @@ class Player(Creature):
 		"""Returns a CombinedRoll for the given weapon's attack and damage rolls."""
 
 		bonus = self.get_skill_bonus("unarmed" if weapon is None else weapon.skill)
-		attack = AttackRoll(
-			roll=Dice.d20(),
-			skill_bonus=bonus[0]
-		)
+		attack = AttackRoll(skill_bonus=bonus[0])
 		damage = DamageRoll(
-			roll=Dice.d4() if weapon is None else Dice.quick_roll(weapon.attack),
+			dice=Dice.d4() if weapon is None else Dice.from_ndn(weapon.attack),
 			weapon_bonus=0 if weapon is None else weapon.bonus,
 			skill_bonus=bonus[1]
 		)
@@ -254,7 +235,7 @@ class Player(Creature):
 			msg += f"\n\nTotal ({raw_dmg}) vs Defense ({monster.defense}) = {t_dmg}"
 
 		msg += "```\n"
-		self.update_averages(left, right)
+		self.update_roll_counts(left, right)
 		return msg, t_dmg
 
 	# Returns a discord Embed for the player's profile.
@@ -284,12 +265,6 @@ class Player(Creature):
 			("Health", self.health, True),
 			("\u200b", "\u200b", False),
 			("General", "---------------------------------------------------", False),
-			("Average Attack Roll", f'{self.attackAverage:.2f}', True),
-			("Attack Count", f"{self.attackCount:,}", True),
-			("\u200b", "\u200b", True),
-			("Average Damage Amount", f'{self.damageAverage:.2f}', True),
-			("Damage Count", f'{self.damageCount:,}', True),
-			("\u200b", "\u200b", True),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
 			("Joined", self.joined, False)
@@ -323,14 +298,14 @@ class Player(Creature):
 		"""Returns a discord Embed and File for the player's natural rolls."""
 
 		embed = Embed(
-			title=f"Natural Rolls",
+			title=f"d20 Rolls",
 			description=f'for {self.name}',
 			color=0x00ffff
 		)
 
 		rolls = 0
 		total = 0
-		for idx, count in enumerate(self.naturalRolls):
+		for idx, count in enumerate(self.rolls['d20']):
 			rolls += count
 			total += (idx + 1) * count
 
@@ -339,19 +314,19 @@ class Player(Creature):
 		embed.add_field(name="Count", value=f"{rolls:,}", inline=True)
 		embed.add_field(name="Mean", value=f"{mean:.2f}", inline=True)
 
-		tcolor = (0., 1., 0.7, 1.)
+		cyan = (0., 1., 0.7, 1.)
 
-		series = pandas.Series(self.naturalRolls, index=range(1, 21), dtype='int')
+		series = pandas.Series(self.rolls['d20'], index=range(1, 21), dtype='int')
 		ax = series.plot(kind='bar')
 		ax.set_xlabel('Rolls')
 		ax.set_ylabel('Count')
-		ax.xaxis.label.set_color(tcolor)
-		ax.yaxis.label.set_color(tcolor)
+		ax.xaxis.label.set_color(cyan)
+		ax.yaxis.label.set_color(cyan)
 		ax.set_ybound(lower=0)
-		ax.tick_params(axis='both', colors=tcolor)
-		ax.grid(True, axis='y', color=tcolor, alpha=0.25)
+		ax.tick_params(axis='both', colors=cyan)
+		ax.grid(True, axis='y', color=cyan, alpha=0.25)
 		for spine in ax.spines.values():
-			spine.set_color(tcolor)
+			spine.set_color(cyan)
 
 		buffer = BytesIO()
 		plt.savefig(buffer, format='png', transparent=True)
@@ -442,11 +417,7 @@ class Player(Creature):
 			'clarks': self.clarks,
 			'leftHand': self.leftHand.id if self.leftHand is not None else None,
 			'rightHand': self.rightHand.id if self.rightHand is not None else None,
-			'attackAverage': self.attackAverage,
-			'attackCount': self.attackCount,
-			'damageAverage': self.damageAverage,
-			'damageCount': self.damageCount,
-			'naturalRolls': self.naturalRolls,
+			'rolls': self.rolls,
 			'skills': self.skills
 		}
 
@@ -485,11 +456,7 @@ class Player(Creature):
 			dodge=p['dodge'],
 			health=p['health'],
 			inventory=Inventory.load(p['_id']),
-			atk_avg=p['attackAverage'],
-			atk_cnt=p['attackCount'],
-			dmg_avg=p['damageAverage'],
-			dmg_cnt=p['damageCount'],
-			d20_nats=p['naturalRolls'],
+			rolls=p['rolls'],
 			skills=p['skills']
 		)
 

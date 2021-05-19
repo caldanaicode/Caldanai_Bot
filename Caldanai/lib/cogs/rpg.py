@@ -235,32 +235,24 @@ class RPG(Cog):
 		else:
 			await game.channel.send(embed=embed)
 
-	@group(brief="Groups together charting commands for players.")
-	async def chart(self, ctx):
-		"""
-		Generates a specific chart. See subcommands for chart options.
-		"""
-
-		if ctx.invoked_subcommand is None:
-			await ctx.send(
-				"Unrecognized data option. Please see `$help chart` for available options, or check your "
-				"spelling and try again."
-			)
-			return
-
-	# Displays a bar chart of the player's natural rolls.
-	@chart.command(brief="Displays a bar chart of players' natural attack rolls.")
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
-	async def attacks(self, ctx, *options: str):
+	@command(brief="Generates a chart using the specified options")
+	async def chart(self, ctx, *options: str):
 		"""
-		Displays a bar chart of players' natural attack rolls.
-		(5-second cool-down)
+		Generates a chart using the specified options.
+		:param ctx: The Discord context of the command.
+		:param options: Options for the display of the chart and data.
+			[d4, d6, d8, d10, d12, d20] The dice rolls for which to show data. Default is d20.
+			[bar, barh, area, line] The type of chart to show. Default is bar.
+			[all] Compiles data for all players.
 		"""
 
 		game: Game = await self.get_game(ctx)
 		if game is None:
 			return
+
+		data_types = ('d4', 'd6', 'd8', 'd10', 'd12', 'd20')
 
 		plot_types = {
 			# 'hexbin': {'x': 'index', 'y': ''},
@@ -278,13 +270,22 @@ class RPG(Cog):
 		total = 0
 		kind = 'bar'
 		tcolor = (0., 1., 0.7, 1.)
-		for p in options:
-			if p.lower() in plot_types.keys():
-				kind = p.lower()
+		dtype = 'd20'
+		dsize = 20
+
+		for option in options:
+			opt = option.lower()
+			if opt in plot_types.keys():
+				kind = opt
+			if opt in data_types:
+				dtype = opt
+				dsize = int(opt.split('d')[1])
 
 		if 'all' in options:
-			data = {p.name: p.naturalRolls for p in game.players.values() if any(p.naturalRolls)}
-			df = pandas.DataFrame(data, index=range(1, 21), dtype='int')
+			data = {p.name: p.rolls[dtype] for p in game.players.values() if any(p.rolls[dtype])}
+			if len(data) == 0:
+				data = {'None': (0,) * dsize}
+			df = pandas.DataFrame(data, index=range(1, dsize + 1), dtype='int')
 			for d in data.values():
 				for idx, count in enumerate(d):
 					rolls += count
@@ -306,8 +307,8 @@ class RPG(Cog):
 			if player is None:
 				return
 
-			data = player.naturalRolls
-			df = pandas.DataFrame(data, index=range(1, 21), dtype='int')
+			data = player.rolls[dtype]
+			df = pandas.DataFrame(data, index=range(1, dsize + 1), dtype='int')
 			for idx, count in enumerate(data):
 				rolls += count
 				total += (idx + 1) * count

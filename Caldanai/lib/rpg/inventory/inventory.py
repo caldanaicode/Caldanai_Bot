@@ -1,7 +1,5 @@
 from typing import Union
 
-from pymongo import UpdateOne, DeleteOne
-
 from .item import Item
 from .weapon import Weapon
 from ....Logger import stdout
