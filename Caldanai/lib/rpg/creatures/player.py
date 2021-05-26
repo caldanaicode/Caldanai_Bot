@@ -360,7 +360,7 @@ class Player(Creature):
 		return True
 
 	# Removes an item from the player's inventory, if present.
-	def take_item(self, item: Union[Item, Weapon]) -> bool:
+	def take_item(self, item: Union[Item, Weapon]) -> Optional[Item]:
 		"""
 		Removes an item from the player's inventory, if present.
 
@@ -376,11 +376,11 @@ class Player(Creature):
 			item.playerId = None
 			self.inventory.remove(item)
 			self.isDirty = True
-			return True
-		return False
+			return item
+		return None
 
 	# Returns a string containing a formatted display of the player's inventory.
-	def get_inventory(self, guild_name: str) -> str:
+	def get_inventory(self) -> Tuple[str]:
 		"""Returns a string containing a formatted display of the player's inventory."""
 
 		msg = ''
@@ -388,18 +388,34 @@ class Player(Creature):
 			msg += f"\n{idx}: {item.article} {item.name} ({item.rarity.name} {item.itemType})" \
 				f"{' [left hand]' if item == self.leftHand else ''}{' [right hand]' if item == self.rightHand else ''}"
 
-		if msg == '':
-			msg = 'You have no items.'
-
-		return f'Inventory for {self.name} on {guild_name}```js\n{msg}```'
+		max = 2000
+		result: Tuple[str] = ()
+		if len(msg) == 0:
+			result = ('\nYou have no items.',)
+		elif len(msg) <= 2000:
+			result = (msg,)
+		else:
+			i = 0
+			while i < len(msg):
+				m = msg[i: i+max].rsplit('\n', 1)
+				result += (m[0],)
+				i += len(m[0])
+		return result
 
 	# Sells the given item if the player has it.
-	def sell(self, item: Union[Item, Weapon]) -> None:
-		"""Sells the given item if the player has it."""
+	def sell(self, item: Union[Item, Weapon]) -> str:
+		"""
+		Sells the given item if the player has it.
+		"""
 
 		value = item.value
-		self.clarks += value if self.take_item(item) else 0
-		self.isDirty = True
+		sold = self.take_item(item)
+		if sold:
+			self.clarks += value
+			self.isDirty = True
+			return f"You sold {item.article} {item.rarity.name} {item.name} for {item.value} clarks."
+		else:
+			return f"Item not found."
 
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""
