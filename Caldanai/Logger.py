@@ -24,5 +24,6 @@ class MongoHandler(logging.Handler):
 
 		self.collection.insert_one(entry)
 
+
 def stdout(msg):
 	print(f"{datetime.now().strftime('%m-%d-%Y %H:%M:%S')}  {msg}")
