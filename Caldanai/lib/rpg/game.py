@@ -85,6 +85,9 @@ class Game:
 		self.minutes_min = spawn_min
 		self.prefix = prefix
 
+		self.spawn_cooldown = 0
+		self.stage = 0
+
 		if use_spawn_timer:
 			self.spawn_check.start()
 
@@ -94,6 +97,8 @@ class Game:
 		self.monster = None
 		self.combatants.clear()
 		self.loot.clear()
+		self.spawn_cooldown = self.minutes_min
+		self.stage = 3
 
 	# Cleans up any loot that wasn't picked up
 	@tasks.loop(seconds=1)
@@ -113,8 +118,8 @@ class Game:
 			)
 		self.loot.clear()
 		self.loot_countdown = self.loot_duration * 60
-		await sleep(self.minutes_min * 60)
-		self.spawn_check.start()
+		self.spawn_cooldown = self.minutes_min
+		self.stage = 3
 
 	async def on_monster_death(self):
 		"""Generates loot, shows monster death, and clears combatants."""
@@ -138,6 +143,7 @@ class Game:
 	async def do_combat(self):
 		"""Awaits the combat duration, and tallies and displays combat damage."""
 
+		self.stage = 1
 		await sleep(self.spawn_duration * 60)
 
 		msg = ""
@@ -161,7 +167,6 @@ class Game:
 		else:
 			Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 			self.cancel_combat()
-			self.spawn_check.start()
 
 	# Spawns a monster
 	async def spawn(self):
@@ -171,7 +176,6 @@ class Game:
 		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
-		self.spawn_check.cancel()
 		self.do_combat.start()
 
 	# Attempts to spawn a monster
@@ -188,6 +192,11 @@ class Game:
 			stdout("Spawning blocked due to rate limit.")
 			return
 
+		if self.stage == 3:
+			self.spawn_cooldown -= 1
+			self.stage = 0 if self.spawn_cooldown <= 0 else 3
+			return
+
 		self.trigger = min(self.trigger, self.minutes_max)
 		r = randint(self.trigger, self.minutes_max)
 		if r == self.minutes_max:
@@ -202,6 +211,7 @@ class Game:
 
 		self.do_combat.cancel()
 		await self.on_monster_death()
+		self.loot_expires.start()
 
 	# Gets a dictionary representation of the game.
 	def to_dict(self):
