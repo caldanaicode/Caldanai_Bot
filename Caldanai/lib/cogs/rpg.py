@@ -495,9 +495,12 @@ class RPG(Cog):
 		if player is None:
 			return
 
-		await player.send(player.get_inventory(game.guild.name))
 		if ctx.guild is not None:
 			await ctx.message.delete()
+
+		await player.send(f'Inventory for {player.name} on {game.guild.name}')
+		for msg in player.get_inventory():
+			await player.send(f'```js{msg}```')
 
 	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
@@ -572,25 +575,44 @@ class RPG(Cog):
 			await ctx.send("You must specify the item index to sell, or unequipped to sell anything not equipped.")
 			return
 
+		msg = ''
+
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
 			item = player.inventory.get_by_index(flag)
-			player.sell(item)
-			await player.send(f"You sold {item.article} {item.rarity.name} {item.name} for {item.value} clarks.")
+			msg = player.sell(item)
 
-		elif isinstance(flag, str) and flag.lower() == 'unequipped':
-			msg = ''
-			equipped = [i.id for i in [player.leftHand, player.rightHand] if i is not None]
-			for item in player.inventory.all():
-				if item.id not in equipped:
-					player.sell(item)
-					msg += f"\n{item.article} {item.rarity.name} {item.name} for {item.value} clarks"
+		elif isinstance(flag, str):
+			if flag.lower() == 'unequipped':
+				equipped = [i.id for i in [player.leftHand, player.rightHand] if i is not None]
+				for item in player.inventory.all():
+					if item.id not in equipped:
+						msg += f"\n{player.sell(item)}"
+
+			elif '-' in flag:
+				try:
+					low, high = map(int, flag.split('-'))
+					if low > high:
+						tmp = low
+						low = high
+						high = tmp
+
+					for i in range(high, low - 1, -1):
+						msg += f"\n{player.sell(player.inventory.get_by_index(i))}"
+
+				except ValueError:
+					await ctx.send(f"Unable to determine lower and upper indices from {flag}.")
+					return
+
 			if len(msg) == 0:
-				await ctx.send(f'You had no unequipped items to sell, {player.name}')
+				msg = f'You had no items to sell, {player.name}'
 			else:
-				await ctx.send(f'You sold the following items: ```{msg}```')
+				msg = f'You sold the following items: ```{msg}```'
 
 		else:
 			await ctx.send(f"I'm afraid you don't have that, {player.name}")
+			return
+
+		await ctx.send(msg)
 
 	@Cog.listener()
 	async def on_ready(self):

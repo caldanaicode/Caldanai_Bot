@@ -16,6 +16,12 @@ class Inventory:
 			self.add(item)
 
 	def __getitem__(self, key) -> Union[Item, Weapon, None]:
+		"""
+		Retrieves an item from the inventory by ID.
+
+		:param key: The ID of the item to retrieve.
+		:return: The item associated with the given ID, or None if the key is not found.
+		"""
 		if key is not None and key in self.__contents.keys():
 			return self.__contents[key]
 		return None
@@ -25,7 +31,11 @@ class Inventory:
 
 	# Add an item to the inventory.
 	def add(self, item: Union[Item, Weapon]) -> None:
-		"""Add an item to the inventory and the database."""
+		"""
+		Add an item to the inventory and the database.
+
+		:param item: The item to add to the inventory.
+		"""
 
 		if item.id:
 			MongoDB["items"].update_one(
@@ -40,7 +50,11 @@ class Inventory:
 
 	# Remove an item from the inventory if it exists.
 	def remove(self, item: Union[Item, Weapon]) -> None:
-		"""Remove an item from the inventory and database."""
+		"""
+		Remove an item from the inventory and database.
+
+		:param item: The item to remove.
+		"""
 
 		del self.__contents[str(item.id)]
 		MongoDB["items"].delete_one({'_id': item.id})
