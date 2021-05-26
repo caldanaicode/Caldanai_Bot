@@ -6,6 +6,7 @@ from discord.embeds import EmptyEmbed
 from discord.ext.commands import Cog, command, cooldown, BucketType
 from discord.ext.commands.errors import MissingRequiredArgument
 
+from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 
 
@@ -23,7 +24,7 @@ class General(Cog):
 		"""Greets the user.
 		"""
 		greeting = f"{choice(('Hello', 'Hi', 'Hey', 'Greetings'))}, {ctx.author.nick or ctx.author.mention}!"
-		await ctx.send(greeting)
+		Dispatcher.add(ctx, greeting)
 
 	async def check_hilo(self, ctx, count: int, options: tuple) -> Union[int, None]:
 		idx = None
@@ -35,7 +36,7 @@ class General(Cog):
 				" and keeps the 3 highest.",
 				color=0xff0000
 			)
-			await ctx.send(embed=embed)
+			Dispatcher.add(ctx, embed=embed)
 			return None
 
 		elif 'hi' in options:
@@ -57,7 +58,7 @@ class General(Cog):
 					" ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
 					color=0xff0000
 				)
-				await ctx.send(embed=embed)
+				Dispatcher.add(ctx, embed=embed)
 				return None
 			
 			if abs(hilo) >= count:
@@ -67,7 +68,7 @@ class General(Cog):
 					"being rolled. Example: ` 4d6 hi 3 ` rolls 4 dice with 6 sides each, and keeps the 3 highest.",
 					color=0xff0000
 				)
-				await ctx.send(embed=embed)
+				Dispatcher.add(ctx, embed=embed)
 				return None
 
 		return hilo
@@ -81,7 +82,7 @@ class General(Cog):
 				description="Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.",
 				color=0xff0000
 			)
-			await ctx.send(embed=embed)
+			Dispatcher.add(ctx, embed=embed)
 			return None, None
 
 		if sides < 2:
@@ -90,7 +91,7 @@ class General(Cog):
 				description="The number of sides must be greater than 1.",
 				color=0xff0000
 			)
-			await ctx.send(embed=embed)
+			Dispatcher.add(ctx, embed=embed)
 			return None, None
 		
 		if count > 1000000:
@@ -99,7 +100,7 @@ class General(Cog):
 				description=f"Don't be absurd, {ctx.author.mention}! Go roll your own {count:,} dice!",
 				color=0xff0000
 			)
-			await ctx.send(embed=embed)
+			Dispatcher.add(ctx, embed=embed)
 			return None, None
 		return count, sides
 	
@@ -179,7 +180,7 @@ class General(Cog):
 			footer = 'Verbose ignored due to message length.'
 		
 		embed.set_footer(text=footer)
-		await ctx.send(embed=embed)
+		Dispatcher.add(ctx, embed=embed)
 
 	@roll.error
 	async def roll_error(self, ctx, exc):
@@ -189,7 +190,7 @@ class General(Cog):
 				description='The dice parameter is required. See `$help roll` for example usage.',
 				color=0xff0000
 			)
-			await ctx.send(embed=embed)
+			Dispatcher.add(ctx, embed=embed)
 
 
 def setup(bot):

@@ -1,7 +1,6 @@
-from discord.errors import HTTPException
 from discord.ext.commands import Bot
 from discord.ext import tasks
-from discord import Guild, TextChannel, Embed, File
+from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 
 from .creatures.player import Player
@@ -11,9 +10,9 @@ from asyncio import sleep
 
 from .inventory.item import Item
 from .inventory.weapon import Weapon
+from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
-from datetime import datetime
 
 
 class Game:
@@ -96,25 +95,6 @@ class Game:
 		self.combatants.clear()
 		self.loot.clear()
 
-	# Sends a message and/or embed to the game's channel, returning a boolean indicating success or failure.
-	async def send(self, message: str = None, embed: Embed = None, file: File = None) -> bool:
-		"""Sends a message and/or embed to the game's channel, returning a boolean indicating success or failure."""
-
-		try:
-			await self.channel.send(content=message, embed=embed, file=file)
-		except HTTPException as e:
-			msg = f'{datetime.now().strftime("%m-%d-%Y %H:%M:%S")}: HTTPException {e.code}'
-			if e.code == 429:
-				msg += 'Message blocked due to rate limiting.'
-				if 'Retry-After' in e.response.headers.keys():
-					msg += f" Retry After {e.response.headers['Retry-After']} seconds."
-			elif e.code == 400:
-				msg += 'Message returned a bad format error.'
-
-			stdout(msg)
-			return False
-		return True
-
 	# Cleans up any loot that wasn't picked up
 	@tasks.loop(seconds=1)
 	async def loot_expires(self):
@@ -127,8 +107,10 @@ class Game:
 		self.loot_expires.stop()
 
 		if len(self.loot) > 0:
-			await self.send(
-				"A swarm of tiny, shadow-clad creatures floods in and makes off with the items on the ground.")
+			Dispatcher.add(
+				self.channel,
+				"A swarm of tiny, shadow-clad creatures floods in and makes off with the items on the ground."
+			)
 		self.loot.clear()
 		self.loot_countdown = self.loot_duration * 60
 		await sleep(self.minutes_min * 60)
@@ -149,8 +131,7 @@ class Game:
 		else:
 			msg += f"\nThere might be something to `{self.prefix}loot`..."
 
-		if not await self.send(msg):
-			self.cancel_combat()
+		Dispatcher.add(self.channel, msg)
 
 	# Performs combat sequence
 	@tasks.loop(count=1)
@@ -164,12 +145,6 @@ class Game:
 		for pid in self.combatants:
 			player = self.players[pid]
 			m, d = player.do_attack(self.monster)
-			if len(msg) + len(m) > 2000:
-				if await self.send(msg):
-					msg = ""
-				else:
-					self.cancel_combat()
-					return
 			msg += m
 			damage += d
 
@@ -177,22 +152,16 @@ class Game:
 
 		self.monster.health -= damage
 		if self.monster.health <= 0:
-			if await self.send(msg):
-				await self.on_monster_death()
-			else:
-				self.cancel_combat()
-				self.spawn_check.start()
-				return
+			msgs = Dispatcher.split_message(msg, '```\n', True)
+			for m in msgs:
+				Dispatcher.add(self.channel, m)
+			await self.on_monster_death()
+			self.loot_expires.start()
 
 		else:
-			if not await self.send(f"{msg}\n{self.monster.escape}"):
-				self.cancel_combat()
-				self.spawn_check.start()
-				return
-
+			Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 			self.cancel_combat()
-
-		self.loot_expires.start()
+			self.spawn_check.start()
 
 	# Spawns a monster
 	async def spawn(self):
@@ -201,11 +170,9 @@ class Game:
 		self.trigger = 0
 		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
 		embed, file = self.monster.get_embed()
-		if await self.send(self.monster.arrival, embed=embed, file=file):
-			self.spawn_check.cancel()
-			self.do_combat.start()
-		else:
-			self.cancel_combat()
+		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
+		self.spawn_check.cancel()
+		self.do_combat.start()
 
 	# Attempts to spawn a monster
 	@tasks.loop(minutes=1)

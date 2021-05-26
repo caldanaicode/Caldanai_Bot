@@ -1,5 +1,6 @@
 from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only
 
+from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
 
@@ -17,7 +18,7 @@ class Admin(Cog):
 		To change the prefix requires the user having Manage Server permissions.
 		"""
 		if len(prefix) > 5:
-			await ctx.send("Prefix cannot be longer than 5 characters.")
+			Dispatcher.add(ctx, "Prefix cannot be longer than 5 characters.")
 
 		else:
 			if MongoDB.servers.find_one({'guildId': ctx.guild.id}) is None:
@@ -25,12 +26,12 @@ class Admin(Cog):
 			else:
 				MongoDB.servers.update_one({'guildId': ctx.guild.id}, {'$set': {'prefix': prefix}})
 			
-			await ctx.send(f"Prefix set to {prefix}.")
+			Dispatcher.add(ctx, f"Prefix set to {prefix}.")
 		
 	@change_prefix.error
 	async def change_prefix_error(self, ctx, exc):
 		if isinstance(exc, CheckFailure):
-			await ctx.send("You need the Manage Server permission to do that.")
+			Dispatcher.add(ctx, "You need the Manage Server permission to do that.")
 
 	@has_permissions(manage_guild=True)
 	@command(name='reloadCog', brief='Reloads a cog -- or all cogs if no cog is specified -- on the bot.')
@@ -39,13 +40,13 @@ class Admin(Cog):
 		"""
 		if cog is None:
 			self.bot.reload_all_cogs()
-			await ctx.send("Cogs reloaded!")
+			Dispatcher.add(ctx, "Cogs reloaded!")
 		else:
 			if cog in self.bot.COGS:
 				self.bot.reload_cog(cog)
-				await ctx.send(f"{cog} cog reloaded!".capitalize())
+				Dispatcher.add(ctx, f"{cog} cog reloaded!".capitalize())
 			else:
-				await ctx.send(f"There is no cog '{cog}' loaded.")
+				Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 	
 	@Cog.listener()
 	async def on_ready(self):

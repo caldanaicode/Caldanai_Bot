@@ -4,6 +4,7 @@ from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldo
 from pymongo import UpdateOne
 
 from Caldanai.lib.bot import Bot
+from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
 from ..rpg.game import Game
@@ -17,9 +18,9 @@ class RpgAdmin(Cog):
 	# Checks the given context to see if a game exists for it.
 	async def check_game_exists(self, ctx) -> bool:
 		if ctx.guild is None:
-			await ctx.send(f"I'm afraid I can't do that from here, {ctx.author.display_name}.")
+			Dispatcher.add(ctx, f"I'm afraid I can't do that from here, {ctx.author.display_name}.")
 		elif ctx.guild.id not in self.bot.games.keys():
-			await ctx.send(f"I'm afraid there is no game on this server, {ctx.author.display_name}")
+			Dispatcher.add(ctx, f"I'm afraid there is no game on this server, {ctx.author.display_name}")
 		else:
 			return True
 		return False
@@ -65,11 +66,11 @@ class RpgAdmin(Cog):
 		"""
 
 		if ctx.invoked_subcommand is None:
-			await ctx.send("This command cannot be used on its own.")
+			Dispatcher.add(ctx, "This command cannot be used on its own.")
 			return
 
 		if ctx.guild is None:
-			await ctx.send("A game cannot be started or ended from a direct message or a group message.")
+			Dispatcher.add(ctx, "A game cannot be started or ended from a direct message or a group message.")
 			return
 
 	# Adds a game to the bot
@@ -80,12 +81,12 @@ class RpgAdmin(Cog):
 		"""
 
 		if MongoDB.games.find_one({'guildId': ctx.guild.id}) is not None:
-			await ctx.send("Only a single game per server is supported.")
+			Dispatcher.add(ctx, "Only a single game per server is supported.")
 
 		else:
 			if MongoDB.games.insert_one({'guildId': ctx.guild.id, 'channelId': ctx.id}):
 				await self.add_game(gid=ctx.guild.id, chid=ctx.id)
-				await ctx.send("A new game has been started in this channel!")
+				Dispatcher.add(ctx, "A new game has been started in this channel!")
 				return True
 		
 		return False
@@ -102,7 +103,7 @@ class RpgAdmin(Cog):
 			return
 
 		self.remove_game(ctx.guild.id)
-		await ctx.send("The game has been removed.")
+		Dispatcher.add(ctx, "The game has been removed.")
 
 	@group(brief="Displays or sets various spawning options.")
 	@guild_only()
@@ -126,7 +127,7 @@ class RpgAdmin(Cog):
 			embed.add_field(name="Spawn Duration", value=f"{game.spawn_duration} minutes", inline=True)
 			embed.add_field(name="Loot Duration", value=f"{game.loot_duration} minutes", inline=True)
 			embed.add_field(name="Spawning Enabled", value=str(game.use_spawn_timer), inline=True)
-			await ctx.send(embed=embed)
+			Dispatcher.add(ctx, embed=embed)
 
 	# Sets the minimum time between monster spawns for a game, in minutes
 	@spawn.command(
@@ -138,16 +139,16 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]		
 		if minutes is None:
-			await game.send(f"Minimum spawn time is {game.minutes_min} minutes.")
+			Dispatcher.add(game.channel, f"Minimum spawn time is {game.minutes_min} minutes.")
 			return
 
 		if minutes <= 1:
-			await game.send("Minimum spawn time must be more than 1 minute.")
+			Dispatcher.add(game.channel, "Minimum spawn time must be more than 1 minute.")
 			return
 
 		game.minutes_min = minutes
 		game.save()
-		await game.send("Minimum spawn time has been set.")
+		Dispatcher.add(game.channel, "Minimum spawn time has been set.")
 
 	# Sets the maximum time between monster spawns for a game, in minutes
 	@spawn.command(
@@ -159,16 +160,16 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
-			await game.send(f"Maximum spawn time is {game.minutes_max} minutes.")
+			Dispatcher.add(game.channel, f"Maximum spawn time is {game.minutes_max} minutes.")
 			return
 		
 		if minutes <= 1:
-			await game.send("Maximum spawn time must be more than 1 minute.")
+			Dispatcher.add(game.channel, "Maximum spawn time must be more than 1 minute.")
 			return
 
 		game.minutes_max = minutes
 		game.save()
-		await game.send("Maximum spawn time has been set.")
+		Dispatcher.add(game.channel, "Maximum spawn time has been set.")
 
 	# Sets the spawn duration for a game, in minutes
 	@spawn.command(aliases=["dur", "d"], brief="Sets or displays the spawn duration for a game, in minutes.")
@@ -177,16 +178,16 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
-			await game.send(f"Spawn duration is {game.spawn_duration} minutes.")
+			Dispatcher.add(game.channel, f"Spawn duration is {game.spawn_duration} minutes.")
 			return
 
 		if minutes <= 1:
-			await game.send("Spawn duration must be more than 1 minute.")
+			Dispatcher.add(game.channel, "Spawn duration must be more than 1 minute.")
 			return
 
 		game.spawn_duration = minutes
 		game.save()
-		await game.send("Spawn duration has been set.")
+		Dispatcher.add(game.channel, "Spawn duration has been set.")
 
 	# Sets the loot duration for a game, in minutes
 	@spawn.command(brief="Sets or displays the loot duration for a game, in minutes.")
@@ -195,16 +196,16 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
-			await game.send(f"Loot duration is {game.loot_duration} minutes.")
+			Dispatcher.add(game.channel, f"Loot duration is {game.loot_duration} minutes.")
 			return
 
 		if minutes <= 1:
-			await game.send("Loot duration must be more than 1 minute.")
+			Dispatcher.add(game.channel, "Loot duration must be more than 1 minute.")
 			return
 
 		game.loot_duration = minutes
 		game.save()
-		await game.send("Loot duration has been set.")
+		Dispatcher.add(game.channel, "Loot duration has been set.")
 	
 	# Sets the spawning for a game on or off
 	@spawn.command(brief="Sets or displays the spawning for a game on or off.")
@@ -213,7 +214,7 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if value is None:
-			await game.send(f"Spawning is currently {'en' if game.use_spawn_timer else 'dis'}abled.")
+			Dispatcher.add(game.channel, f"Spawning is currently {'en' if game.use_spawn_timer else 'dis'}abled.")
 			return
 
 		value = value.lower()
@@ -222,19 +223,19 @@ class RpgAdmin(Cog):
 				game.use_spawn_timer = True
 				game.spawn_check.start()
 			else:
-				await game.send("Spawning is already enabled.")
+				Dispatcher.add(game.channel, "Spawning is already enabled.")
 		
 		elif any(v == value for v in ['0', 'off', 'false', 'disabled']):
 			if game.use_spawn_timer:
 				game.use_spawn_timer = False
 			else:
-				await game.send("Spawning is already disabled.")
+				Dispatcher.add(game.channel, "Spawning is already disabled.")
 
 		else:
 			return
 		
 		game.save()
-		await game.send("Spawning has been set.")
+		Dispatcher.add(game.channel, "Spawning has been set.")
 	
 	# Forces a monster to spawn.
 	@spawn.command(brief="Forces a monster to spawn.")
@@ -246,7 +247,7 @@ class RpgAdmin(Cog):
 			await game.spawn()
 			return
 		
-		await game.send(f"There is already a {game.monster.name} present!")
+		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
 	
 	# Forces a monster to die.
 	@spawn.command(brief="Forces a monster to die.")
@@ -255,7 +256,7 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
-			await game.send("There is no monster present!")
+			Dispatcher.add(game.channel, "There is no monster present!")
 			return
 		
 		await game.kill_monster()

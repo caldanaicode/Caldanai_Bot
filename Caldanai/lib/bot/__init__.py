@@ -9,6 +9,7 @@ from glob import glob
 from os import path
 
 from ..rpg.game import Game
+from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
 from Caldanai.environment import OWNER_IDS, TOKEN
@@ -84,7 +85,7 @@ class Bot(BotBase):
 
 	async def on_error(self, err, *args, **kwargs):
 		if err == 'on_command_error':
-			await args[0].send('*BZZZT* ERROR! DOES NOT COMPUTE!')
+			Dispatcher.add(args[0], '*BZZZT* ERROR! DOES NOT COMPUTE!')
 		raise
 
 	async def on_command_error(self, ctx, exc):
@@ -98,7 +99,7 @@ class Bot(BotBase):
 			pass
 
 		elif isinstance(exc, (Forbidden, MissingPermissions, NoPrivateMessage)):
-			await ctx.send(f"I'm afraid I can't do that, {ctx.author.mention}.")
+			Dispatcher.add(ctx, f"I'm afraid I can't do that, {ctx.author.mention}.")
 
 		elif hasattr(exc, 'original'):
 			raise exc.original

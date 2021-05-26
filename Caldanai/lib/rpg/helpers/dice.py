@@ -1,4 +1,4 @@
-from random import randint, choice
+from random import randint
 from typing import Tuple, Optional, Union
 
 from Caldanai.Logger import stdout

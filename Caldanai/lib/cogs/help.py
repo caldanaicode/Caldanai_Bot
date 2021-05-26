@@ -4,6 +4,7 @@ from discord.utils import get
 from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group
 from discord.ext.menus import MenuPages, ListPageSource
 
+from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 
 
@@ -45,7 +46,7 @@ class HelpMenu(ListPageSource):
 		embed.set_thumbnail(url=thumb)
 		embed.set_footer(text=f"{offset:,} - {min(length, offset+self.per_page-1):,} of {length:,} commands")
 
-		for name,value in fields:
+		for name, value in fields:
 			embed.add_field(name=name, value=value, inline=False)
 
 		return embed
@@ -83,7 +84,7 @@ class Help(Cog):
 			if cmd := get(self.bot.commands, name=cmd):
 				await self.cmd_help(ctx, cmd)
 			else:
-				await ctx.send(f"No such command exists: {cmd}")
+				Dispatcher.add(ctx, f"No such command exists: {cmd}")
 	
 	async def cmd_help(self, ctx, cmd):
 		embed = Embed(
@@ -92,7 +93,7 @@ class Help(Cog):
 			color=0xff7700
 		)
 		embed.add_field(name="Command Description", value=cmd.help)
-		await ctx.send(embed=embed)
+		Dispatcher.add(ctx, embed=embed)
 
 	@Cog.listener()
 	async def on_ready(self):

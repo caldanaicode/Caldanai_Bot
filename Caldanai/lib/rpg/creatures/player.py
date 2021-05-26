@@ -6,9 +6,6 @@ import pandas
 import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
-from discord.errors import HTTPException
-
-from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.creatures.creature import Creature
 from Caldanai.lib.rpg.creatures.monster import Monster
 from Caldanai.lib.rpg.helpers.dice import Dice
@@ -55,32 +52,6 @@ class Player(Creature):
 
 	def __eq__(self, o):
 		return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
-
-	# Sends a message and/or embed to the player as a DM, returning a boolean indicating success or failure.
-	async def send(
-			self,
-			message: Optional[str] = None,
-			embed: Optional[Embed] = None,
-			file: Optional[File] = None
-	) -> bool:
-		"""Sends a message and/or embed to the player as a DM, returning a boolean indicating success or failure."""
-
-		try:
-			await self.member.send(content=message, embed=embed, file=file)
-		except HTTPException as e:
-			msg = f'{datetime.now().strftime("%m-%d-%Y %H:%M:%S")}: HTTP Exception'
-			if e.code == 429:
-				msg += f' -- Message blocked due to rate limiting.'
-				if 'Retry-After' in e.response.headers.keys():
-					msg += f" Retry After {e.response.headers['Retry-After']} seconds."
-			elif e.code == 400:
-				msg += f' -- Message returned a bad format error.'
-			else:
-				msg += e.text
-
-			stdout(msg)
-			return False
-		return True
 
 	# Un-equips the item in the player's left hand.
 	def disarm_left(self) -> None:
@@ -287,7 +258,7 @@ class Player(Creature):
 		for skill in self.skills.keys():
 			bonuses = self.get_skill_bonus(skill)
 			msg = f"Current XP: {self.skills[skill]:,}\nAttack Bonus: {bonuses[0]}\nDamage Bonus: {bonuses[1]}"
-			fields.append((f"{skill} ({self.get_skill_level(skill)})", msg, False))
+			fields.append((f"{skill} ({self.get_skill_level(skill)})", msg, True))
 
 		for f, v, i in fields:
 			embed.add_field(name=f, value=v, inline=i)
@@ -380,7 +351,7 @@ class Player(Creature):
 		return None
 
 	# Returns a string containing a formatted display of the player's inventory.
-	def get_inventory(self) -> Tuple[str]:
+	def get_inventory(self) -> str:
 		"""Returns a string containing a formatted display of the player's inventory."""
 
 		msg = ''
@@ -388,19 +359,10 @@ class Player(Creature):
 			msg += f"\n{idx}: {item.article} {item.name} ({item.rarity.name} {item.itemType})" \
 				f"{' [left hand]' if item == self.leftHand else ''}{' [right hand]' if item == self.rightHand else ''}"
 
-		max = 2000
-		result: Tuple[str] = ()
 		if len(msg) == 0:
-			result = ('\nYou have no items.',)
-		elif len(msg) <= 2000:
-			result = (msg,)
-		else:
-			i = 0
-			while i < len(msg):
-				m = msg[i: i+max].rsplit('\n', 1)
-				result += (m[0],)
-				i += len(m[0])
-		return result
+			msg = '\nYou have no items.'
+
+		return msg
 
 	# Sells the given item if the player has it.
 	def sell(self, item: Union[Item, Weapon]) -> str:

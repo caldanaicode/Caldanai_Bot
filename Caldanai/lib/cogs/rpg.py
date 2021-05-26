@@ -8,6 +8,7 @@ from typing import List, Union
 import pandas
 import matplotlib.pyplot as plt
 
+from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
@@ -51,22 +52,24 @@ class RPG(Cog):
 			game = self.bot.games[ctx.guild.id]
 
 		if len(games) == 0 and game is None:
-			await ctx.send(f"You are not a member of any games at this time.")
+			Dispatcher.add(ctx, f"You are not a member of any games at this time.")
 			return None
 
 		if game is None:
 			if len(games) > 1 and game_idx is None:
-				await ctx.send(
+				Dispatcher.add(
+					ctx,
 					f"You are playing more than one game and did not supply the game's index."
 					f" Check `{ctx.prefix}games` to get the index of the game from which you wish to"
-					f" view your profile, or try again from the game's channel.")
+					f" view your profile, or try again from the game's channel."
+				)
 				return None
 			elif len(games) > 1 and len(games) > game_idx >= 0:
 				game = games[game_idx]
 			elif len(games) == 1:
 				game = games[0]
 			else:
-				await ctx.send("No such game exists.")
+				Dispatcher.add(ctx, "No such game exists.")
 				return None
 
 		return game
@@ -85,7 +88,10 @@ class RPG(Cog):
 
 		if ctx.author.id not in game.players.keys():
 			if notify:
-				await game.send(f'Why, {ctx.author.display_name}! You are not even playing the game! Try ` $game join`')
+				Dispatcher.add(
+					game.channel,
+					f'Why, {ctx.author.display_name}! You are not even playing the game! Try `$game join`'
+				)
 		else:
 			return game.players[ctx.author.id]
 		return None
@@ -113,7 +119,7 @@ class RPG(Cog):
 		"""
 
 		if ctx.invoked_subcommand is None:
-			await ctx.send("This command cannot be used on its own.")
+			Dispatcher.add(ctx, "This command cannot be used on its own.")
 			return
 
 	# Adds a player to the RPG system if they don't already exist.
@@ -134,10 +140,10 @@ class RPG(Cog):
 			player.member = ctx.author
 			player.isDirty = True
 			game.players[ctx.author.id] = player
-			await game.send(f'Welcome, {ctx.author.display_name}')
+			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
 
 		else:
-			await game.send(f'You are already a player in this RPG, {ctx.author.display_name}!')
+			Dispatcher.add(game.channel, f'You are already a player in this RPG, {ctx.author.display_name}!')
 
 	# Removes a player from the RPG system.
 	@game.command(name="leave", brief="Removes the player from the RPG system.")
@@ -157,7 +163,7 @@ class RPG(Cog):
 			MongoDB.players.delete_one({'guildId': ctx.guild.id, 'userId': ctx.author.id})
 			del game.players[ctx.author.id]
 			game.save()
-			await game.send(f'You have been removed from the game, {ctx.author.display_name}!')
+			Dispatcher.add(game.channel, f'You have been removed from the game, {ctx.author.display_name}!')
 
 	# Lists all players of the current RPG.
 	@command(brief="Lists the current players in a game.")
@@ -184,7 +190,7 @@ class RPG(Cog):
 			description=msg.strip()+'```' if len(msg) > 4 else None
 		)
 		embed.set_thumbnail(url=game.guild.icon_url)
-		await game.send(embed=embed)
+		Dispatcher.add(game.channel, embed=embed)
 
 	# Send a DM to the player with their profile.
 	@command(brief="Shows a player's profile.")
@@ -207,9 +213,9 @@ class RPG(Cog):
 		embed = player.get_profile(game.guild.name)
 		embed.set_thumbnail(url=game.guild.icon_url)
 		if ctx.guild is None:
-			await player.send(embed=embed)
+			Dispatcher.add(player.member, embed=embed)
 		else:
-			await game.channel.send(embed=embed)
+			Dispatcher.add(game.channel, embed=embed)
 
 	@command(brief="Shows a player's skills.")
 	@cooldown(1, 10, BucketType.member)
@@ -231,9 +237,9 @@ class RPG(Cog):
 		embed = player.get_skill_display()
 		embed.set_thumbnail(url=game.guild.icon_url)
 		if ctx.guild is None:
-			await player.send(embed=embed)
+			Dispatcher.add(player.member, embed=embed)
 		else:
-			await game.channel.send(embed=embed)
+			Dispatcher.add(game.channel, embed=embed)
 
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
@@ -335,8 +341,8 @@ class RPG(Cog):
 		buffer.seek(0)
 
 		file = File(buffer, filename='plot.png')
-		await ctx.send(file=file)
-		await ctx.send(f"Count: {rolls:,}, Mean: {mean:.2f}")
+		Dispatcher.add(ctx, file=file)
+		Dispatcher.add(ctx, f"Count: {rolls:,}, Mean: {mean:.2f}")
 
 	# Attacks the current monster.
 	@command(
@@ -358,15 +364,15 @@ class RPG(Cog):
 			return
 
 		if game.monster is None:
-			await game.send("You see nothing to attack!")
+			Dispatcher.add(game.channel, "You see nothing to attack!")
 			return
 
 		if any(player.userId == pid for pid in game.combatants):
-			await game.send(f"But {ctx.author.display_name}, you are already attacking!")
+			Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
 			return
 
 		game.combatants.append(player.userId)
-		await game.send(f"{player.name} prepares to attack!")
+		Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
 
 	# Loots the current monster, if it was defeated.
 	@command(aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
@@ -384,15 +390,15 @@ class RPG(Cog):
 			return
 
 		if game.monster is not None:
-			await game.send("You should probably kill it before you try to loot it.")
+			Dispatcher.add(game.channel, "You should probably kill it before you try to loot it.")
 			return
 
 		if len(game.loot) == 0:
-			await game.send("There is nothing to loot!")
+			Dispatcher.add(game.channel, "There is nothing to loot!")
 			return
 
 		if player.userId not in game.loot.keys():
-			await game.send(f"{player.name} attempts to loot the corpse, but cannot interact with it.")
+			Dispatcher.add(game.channel, f"{player.name} attempts to loot the corpse, but cannot interact with it.")
 			return
 
 		loot = game.loot[player.userId]
@@ -415,7 +421,7 @@ class RPG(Cog):
 		if len(dropped) > 0:
 			game.loot[player.userId] = dropped
 
-		await game.send(msg)
+		Dispatcher.add(game.channel, msg)
 
 	# Hugs, snuggles, or cuddles!
 	@command(name='hug', aliases=['snuggle', 'cuddle'], brief='Hugs, snuggles, and cuddles for all of your needs!')
@@ -433,11 +439,11 @@ class RPG(Cog):
 		if msg is not None and len(msg) > 0:
 			game: Game = await self.get_game(ctx, False)
 			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
-				await ctx.send(game.monster.receiveHug(ctx.author.display_name, ctx.invoked_with))
+				Dispatcher.add(ctx, game.monster.receiveHug(ctx.author.display_name, ctx.invoked_with))
 			else:
-				await ctx.send(f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
+				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
 		else:
-			await ctx.send(f"*{ctx.author.display_name} {ctx.invoked_with}s the air awkwardly.*")
+			Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s the air awkwardly.*")
 		await ctx.message.delete()
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
@@ -457,23 +463,23 @@ class RPG(Cog):
 			return
 
 		if hand.lower() not in ('left', 'l', 'right', 'r'):
-			await ctx.send("You must specify to which hand the item will be equipped, left (or l) or right (or r)")
+			Dispatcher.add(ctx, "You must specify to which hand the item will be equipped, left (or l) or right (or r)")
 			return
 
 		if index is None or index < 0 or index >= len(player.inventory):
-			await ctx.send(f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
+			Dispatcher.add(ctx, f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
 			return
 
 		item = player.inventory.get_by_index(index)
 		if not isinstance(item, Weapon):
-			await ctx.send(f"That item cannot be equipped.")
+			Dispatcher.add(ctx, f"That item cannot be equipped.")
 			return
 
 		if hand.lower()[0] == 'l':
 			player.equip_left(item)
 		else:
 			player.equip_right(item)
-		await ctx.send(f"You have equipped {item.article} {item.name}.")
+		Dispatcher.add(ctx, f"You have equipped {item.article} {item.name}.")
 
 	@command(
 		name='inventory',
@@ -498,9 +504,9 @@ class RPG(Cog):
 		if ctx.guild is not None:
 			await ctx.message.delete()
 
-		await player.send(f'Inventory for {player.name} on {game.guild.name}')
-		for msg in player.get_inventory():
-			await player.send(f'```js{msg}```')
+		Dispatcher.add(player.member, f'Inventory for {player.name} on {game.guild.name}')
+		for msg in Dispatcher.split_message(player.get_inventory()):
+			Dispatcher.add(player.member, f'```js{msg}```')
 
 	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
@@ -520,9 +526,9 @@ class RPG(Cog):
 
 		if 0 <= index < len(player.inventory):
 			embed, file = player.inventory.get_by_index(index).get_embed()
-			await ctx.send(embed=embed, file=file)
+			Dispatcher.add(ctx, embed=embed, file=file)
 		else:
-			await ctx.send(f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
 
 	@item.error
 	async def item_err(self, ctx, error):
@@ -532,7 +538,7 @@ class RPG(Cog):
 				description=f"The item's index is required. To find the index, check `{ctx.prefix}inventory`",
 				color=0xff0000
 			)
-			await ctx.author.send(embed=embed)
+			Dispatcher.add(ctx.author, embed=embed)
 
 	# Returns a string to display games in which a user is currently playing.
 	@cooldown(1, 60, BucketType.user)
@@ -551,7 +557,7 @@ class RPG(Cog):
 		for idx, game in enumerate(games):
 			msg += f'{idx}: {game.guild.name}\n'
 
-		await ctx.author.send(f'```js\n{msg}```' if len(msg) > 0 else "You are not playing any games.")
+		Dispatcher.add(ctx.author, f'```js\n{msg}```' if len(msg) > 0 else "You are not playing any games.")
 		if ctx.guild is not None:
 			await ctx.message.delete()
 
@@ -572,7 +578,7 @@ class RPG(Cog):
 			return
 
 		if flag is None:
-			await ctx.send("You must specify the item index to sell, or unequipped to sell anything not equipped.")
+			Dispatcher.add(ctx, "You must specify the item index to sell, or unequipped to sell anything not equipped.")
 			return
 
 		msg = ''
@@ -600,19 +606,24 @@ class RPG(Cog):
 						msg += f"\n{player.sell(player.inventory.get_by_index(i))}"
 
 				except ValueError:
-					await ctx.send(f"Unable to determine lower and upper indices from {flag}.")
+					Dispatcher.add(ctx, f"Unable to determine lower and upper indices from {flag}.")
 					return
 
 			if len(msg) == 0:
-				msg = f'You had no items to sell, {player.name}'
+				Dispatcher.add(ctx, f'You had no items to sell, {player.name}')
+				return
 			else:
 				msg = f'You sold the following items: ```{msg}```'
 
 		else:
-			await ctx.send(f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
 			return
 
-		await ctx.send(msg)
+		msgs = Dispatcher.split_message(msg, 'clarks.', True)
+		count = 0
+		for m in msgs:
+			Dispatcher.add(ctx, ('```\n' if count > 0 else '') + m + ('```' if not m.endswith('```') else ''))
+			count += 1
 
 	@Cog.listener()
 	async def on_ready(self):
