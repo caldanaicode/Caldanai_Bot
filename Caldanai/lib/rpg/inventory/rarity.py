@@ -15,6 +15,9 @@ class Rarity:
 			'frequency': self.frequency,
 			'multiplier': self.multiplier
 		}
+
+	def __eq__(self, other):
+		return isinstance(other, Rarity) and self.name == other.name and self.multiplier == other.multiplier
 	
 	@classmethod
 	def load(cls, rarity: dict):

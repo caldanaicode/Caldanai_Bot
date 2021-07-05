@@ -2,6 +2,7 @@ from discord import Embed, Guild
 from discord.ext import tasks
 from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
 from pymongo import UpdateOne
+from pymongo.errors import ServerSelectionTimeoutError
 
 from Caldanai.lib.bot import Bot
 from ...Dispatcher import Dispatcher
@@ -244,7 +245,7 @@ class RpgAdmin(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
-			await game.spawn()
+			game.do_combat.start()
 			return
 		
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
@@ -267,37 +268,22 @@ class RpgAdmin(Cog):
 	async def save_players(self):
 		"""Database loop to save player data."""
 
-		dirty = [
-			(p, UpdateOne(
-				{"guildId": p.guildId, "userId": p.userId},
-				{"$set": p.to_dict()},
-				upsert=True
-			)) for g in self.bot.games.values() for p in g.players.values() if p.isDirty
-		]
+		try:
+			dirty = [
+				(p, UpdateOne(
+					{"guildId": p.guildId, "userId": p.userId},
+					{"$set": p.to_dict()},
+					upsert=True
+				)) for g in self.bot.games.values() for p in g.players.values() if p.isDirty
+			]
 
-		if len(dirty) > 0:
-			result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
-			for idx, _id in result.upserted_ids.items():
-				dirty[idx][0].id = _id
+			if len(dirty) > 0:
+				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
+				for idx, _id in result.upserted_ids.items():
+					dirty[idx][0].id = _id
 
-		# dirty_players = []
-		# upserted_players = []
-		# for g in self.bot.games.values():
-		# 	for p in g.players.values():
-		# 		if p.isDirty:
-		# 			dirty_players.append(
-		# 				UpdateOne(
-		# 					{"guildId": p.guildId, "userId": p.userId},
-		# 					{"$set": p.to_dict()},
-		# 					upsert=True
-		# 				)
-		# 			)
-		# 			upserted_players.append(p)
-		#
-		# if len(dirty_players) > 0:
-		# 	result = MongoDB["players"].bulk_write(dirty_players, ordered=False)
-		# 	for idx, _id in result.upserted_ids.items():
-		# 		upserted_players[idx].id = _id
+		except ServerSelectionTimeoutError:
+			stdout("Unable to connect to DB.")
 
 	# Additional maintenance after cog loads.
 	@Cog.listener()

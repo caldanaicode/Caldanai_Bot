@@ -370,8 +370,13 @@ class Player(Creature):
 		Sells the given item if the player has it.
 		"""
 
-		value = item.value
-		sold = self.take_item(item)
+		if item is None:
+			sold = False
+
+		else:
+			value = item.value
+			sold = self.take_item(item)
+
 		if sold:
 			self.clarks += value
 			self.isDirty = True

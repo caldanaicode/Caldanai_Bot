@@ -30,27 +30,33 @@ class Dispatcher:
 		cls.queue.put((context, message, embed, file))
 
 	@staticmethod
-	def split_message(message: str, sep: str = '\n', keep_sep: bool = False) -> Tuple[str]:
+	def split_message(message: str, sep: str = '\n', keep_sep: bool = False, limit: int = 2000) -> Tuple[str]:
 		"""
-		Splits a string into a tuple of strings at every separator nearest to a 2000 character limit.
+		Splits a string into a tuple of strings at every separator nearest to a character limit.
 
 		:param message: The string to split.
 		:param sep: The separator to split on. Default is a new line character.
 		:param keep_sep: Specifies whether or not to add the separator back into the split string after splitting.
+		:param limit: The maximum number of characters to allow per split.
 		:return: A tuple of strings.
 		"""
-		limit = 2000
+
 		result: Tuple[str] = ()
 		if message is None or len(message) == 0:
 			return result
-		elif len(message) <= 2000:
+		elif len(message) <= limit:
 			result = (message,)
 		else:
 			i = 0
 			while i < len(message):
-				m = message[i: i + limit].rsplit(sep, 1)
-				result += (m[0] + sep if keep_sep else '',)
-				i += len(m[0]) + len(sep)
+				if len(message) - i < limit:
+					m = message[i:]
+					result += (m,)
+					i += len(m)
+				else:
+					m = message[i: i + limit].rsplit(sep, 1)
+					result += (m[0] + sep if keep_sep else '',)
+					i += len(m[0]) + len(sep)
 		return result
 
 

@@ -80,7 +80,7 @@ class Game:
 		self.spawn_duration = spawn_duration
 		self.loot_duration = loot_duration
 		self.loot_countdown = loot_duration * 60
-		self.trigger = randint(0, spawn_max)
+		self.trigger = randint(spawn_min, spawn_max)
 		self.minutes_max = spawn_max
 		self.minutes_min = spawn_min
 		self.prefix = prefix
@@ -125,7 +125,7 @@ class Game:
 		"""Generates loot, shows monster death, and clears combatants."""
 
 		for pid in self.combatants:
-			loot = self.monster.getLoot()
+			loot = self.monster.get_loot()
 			self.loot[pid] = loot
 
 		msg = self.monster.death
@@ -144,6 +144,10 @@ class Game:
 		"""Awaits the combat duration, and tallies and displays combat damage."""
 
 		self.stage = 1
+		self.trigger = self.minutes_min
+		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
+		embed, file = self.monster.get_embed()
+		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
 		await sleep(self.spawn_duration * 60)
 
 		msg = ""
@@ -168,16 +172,6 @@ class Game:
 			Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 			self.cancel_combat()
 
-	# Spawns a monster
-	async def spawn(self):
-		"""Spawns a monster, and starts the combat sequence."""
-
-		self.trigger = 0
-		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
-		embed, file = self.monster.get_embed()
-		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
-		self.do_combat.start()
-
 	# Attempts to spawn a monster
 	@tasks.loop(minutes=1)
 	async def spawn_check(self):
@@ -197,10 +191,13 @@ class Game:
 			self.stage = 0 if self.spawn_cooldown <= 0 else 3
 			return
 
+		if self.stage != 0:
+			return
+
 		self.trigger = min(self.trigger, self.minutes_max)
 		r = randint(self.trigger, self.minutes_max)
 		if r == self.minutes_max:
-			await self.spawn()
+			self.do_combat.start()
 			return
 
 		self.trigger += 1

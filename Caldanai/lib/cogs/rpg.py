@@ -439,7 +439,7 @@ class RPG(Cog):
 		if msg is not None and len(msg) > 0:
 			game: Game = await self.get_game(ctx, False)
 			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
-				Dispatcher.add(ctx, game.monster.receiveHug(ctx.author.display_name, ctx.invoked_with))
+				Dispatcher.add(ctx, game.monster.get_hug(ctx.author.display_name, ctx.invoked_with))
 			else:
 				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
 		else:
@@ -505,8 +505,8 @@ class RPG(Cog):
 			await ctx.message.delete()
 
 		Dispatcher.add(player.member, f'Inventory for {player.name} on {game.guild.name}')
-		for msg in Dispatcher.split_message(player.get_inventory()):
-			Dispatcher.add(player.member, f'```js{msg}```')
+		for msg in Dispatcher.split_message(player.get_inventory(), keep_sep=True):
+			Dispatcher.add(player.member, f'```js\n{msg.strip()}```')
 
 	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
@@ -602,8 +602,14 @@ class RPG(Cog):
 						low = high
 						high = tmp
 
-					for i in range(high, low - 1, -1):
-						msg += f"\n{player.sell(player.inventory.get_by_index(i))}"
+					if 0 <= low < high <= len(player.inventory):
+						for i in range(high, low - 1, -1):
+							msg += f"\n{player.sell(player.inventory.get_by_index(i))}"
+					else:
+						Dispatcher.add(
+							ctx,
+							f"I'm afraid I can't do that, {player.name}. You may want to check your numbers."
+						)
 
 				except ValueError:
 					Dispatcher.add(ctx, f"Unable to determine lower and upper indices from {flag}.")
@@ -613,7 +619,7 @@ class RPG(Cog):
 				Dispatcher.add(ctx, f'You had no items to sell, {player.name}')
 				return
 			else:
-				msg = f'You sold the following items: ```{msg}```'
+				msg = f'You sold the following items: ```\n{msg}```'
 
 		else:
 			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
@@ -622,7 +628,10 @@ class RPG(Cog):
 		msgs = Dispatcher.split_message(msg, 'clarks.', True)
 		count = 0
 		for m in msgs:
-			Dispatcher.add(ctx, ('```\n' if count > 0 else '') + m + ('```' if not m.endswith('```') else ''))
+			Dispatcher.add(
+				ctx,
+				('```\n' if count > 0 else '') + m + ('```' if count > 0 and not m.endswith('```') else '')
+			)
 			count += 1
 
 	@Cog.listener()

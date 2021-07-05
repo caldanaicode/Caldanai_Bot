@@ -52,11 +52,11 @@ class Monster(Creature):
 		return embed, file
 	
 	# Reacts to hugs.
-	def receiveHug(self, name: str, invocation: str) -> str:
+	def get_hug(self, name: str, invocation: str) -> str:
 		return Parser.parse(choice(self.hugs), name, invocation)
 	
 	# Returns a list of loot items
-	def getLoot(self) -> list:
+	def get_loot(self) -> list:
 		items = []
 		for item, frequency in self.loot.items():
 			if random() <= frequency:
