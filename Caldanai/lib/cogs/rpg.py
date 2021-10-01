@@ -505,7 +505,8 @@ class RPG(Cog):
 			await ctx.message.delete()
 
 		Dispatcher.add(player.member, f'Inventory for {player.name} on {game.guild.name}')
-		for msg in Dispatcher.split_message(player.get_inventory(), keep_sep=True):
+		inv = Dispatcher.split_message(player.get_inventory(), keep_sep=True)
+		for msg in inv:
 			Dispatcher.add(player.member, f'```js\n{msg.strip()}```')
 
 	@command(name='item', brief='Displays details about an item.')

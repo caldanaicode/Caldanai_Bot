@@ -30,7 +30,7 @@ class Dispatcher:
 		cls.queue.put((context, message, embed, file))
 
 	@staticmethod
-	def split_message(message: str, sep: str = '\n', keep_sep: bool = False, limit: int = 2000) -> Tuple[str]:
+	def split_message(message: str, sep: str = '\n', keep_sep: bool = False, limit: int = 1900) -> Tuple[str]:
 		"""
 		Splits a string into a tuple of strings at every separator nearest to a character limit.
 
@@ -77,13 +77,15 @@ async def send():
 					for msg in message:
 						await context.send(msg)
 						count += 1
+				else:
+					stdout(f'Message length was too long: {len(message)} characters.')
 
 		except HTTPException as e:
-			msg = f'{datetime.now().strftime("%m-%d-%Y %H:%M:%S")}: HTTP Exception'
+			msg = f'HTTP Exception'
 			if e.code == 429:
 				msg += f' -- Message blocked due to rate limiting.'
 				if 'Retry-After' in e.response.headers.keys():
-					msg += f" Retry After {e.response.headers['Retry-After']} seconds."
+					msg += f" Retry after {e.response.headers['Retry-After']} seconds."
 
 			elif e.code == 400:
 				msg += f' -- Message returned a bad format error.'

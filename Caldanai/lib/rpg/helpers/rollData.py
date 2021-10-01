@@ -106,7 +106,8 @@ class CombinedRoll:
 	):
 		self.attack = attack
 		self.damage = damage
-		self.isMiss = is_miss or attack.isFumble or (monster is not None and attack.result < monster.dodge)
+		self.isMiss = not attack.isCritical and (is_miss or attack.isFumble or
+					  (monster is not None and attack.result < monster.dodge))
 		self.isCritical = attack.isCritical
 		self.isFumble = attack.isFumble
 		self.result = damage.result * (0 if self.isMiss else 2 if self.attack.isCritical else 1)
