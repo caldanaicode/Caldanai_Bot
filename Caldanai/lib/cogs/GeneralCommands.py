@@ -10,13 +10,13 @@ from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 
 
-class General(Cog):
+class GeneralCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
 	
 	@Cog.listener()
 	async def on_ready(self):
-		stdout("General Cog ready.")
+		stdout("GeneralCommands ready.")
 	
 	@command(name='hello', aliases=['hi', 'hey'], brief="Greets the user.")
 	@cooldown(1, 5, BucketType.member)
@@ -194,4 +194,4 @@ class General(Cog):
 
 
 def setup(bot):
-	bot.add_cog(General(bot))
+	bot.add_cog(GeneralCommands(bot))

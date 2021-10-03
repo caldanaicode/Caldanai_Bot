@@ -1,62 +1,23 @@
 from discord import Embed, Guild
-from discord.ext import tasks
 from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
-from pymongo import UpdateOne
-from pymongo.errors import ServerSelectionTimeoutError
 
 from Caldanai.lib.bot import Bot
+from .RpgUtilities import RpgUtilities
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
-from ..rpg.game import Game
 
 
-class RpgAdmin(Cog):
+class RpgAdminCommands(Cog):
 	def __init__(self, bot: Bot):
 		self.bot: Bot = bot
 		self.bot.games = {}
+		self.utilCog: RpgUtilities = None
 
-	# Checks the given context to see if a game exists for it.
-	async def check_game_exists(self, ctx) -> bool:
-		if ctx.guild is None:
-			Dispatcher.add(ctx, f"I'm afraid I can't do that from here, {ctx.author.display_name}.")
-		elif ctx.guild.id not in self.bot.games.keys():
-			Dispatcher.add(ctx, f"I'm afraid there is no game on this server, {ctx.author.display_name}")
-		else:
-			return True
-		return False
-
-	# Adds a game to the bot's list of games
-	async def add_game(
-			self, game: dict = None, gid: int = None, chid: int = None, timer: bool = True,
-			spawnMinutesMax: int = 60, spawnMinutesMin: int = 10, spawnDuration: int = 10, lootDuration: int = 5
-	):
-		if gid is not None and chid is not None:
-			guild = self.bot.get_guild(gid) or await self.bot.fetch_guild(gid)
-			channel = self.bot.get_channel(chid) or await self.bot.fetch_channel(chid)
-			prefix = MongoDB.servers.find_one({'guildId': gid})['prefix']
-		
-			if game is None:
-				game = Game(
-					self.bot, None, guild, channel, timer, spawnMinutesMax, spawnMinutesMin, spawnDuration,
-					lootDuration, prefix
-				)
-				game.save()
-		
-		else:
-			game = await Game.from_dict(game, self.bot)
-
-		self.bot.games[game.guild.id] = game
-		stdout(f"Game added for guild: {game.guild.name} ({game.guild.id})")
-
-	# Removes a game from the bot's list of games
-	def remove_game(self, gid: int):
-		if gid in self.bot.games.keys():
-			MongoDB.games.delete_one({'guildId': gid})
-			MongoDB.players.delete_many({'guildId': gid})
-			del self.bot.games[gid]
-		
-	# ----------------------------------------------------------
+	def utils(self) -> RpgUtilities:
+		if self.utilCog is None:
+			self.utilCog = self.bot.get_cog("RpgUtilities")
+		return self.utilCog
 
 	@group(aliases=["rpg"], brief="Groups the various Game commands.")
 	@guild_only()
@@ -86,7 +47,7 @@ class RpgAdmin(Cog):
 
 		else:
 			if MongoDB.games.insert_one({'guildId': ctx.guild.id, 'channelId': ctx.id}):
-				await self.add_game(gid=ctx.guild.id, chid=ctx.id)
+				await self.utils().add_game(gid=ctx.guild.id, chid=ctx.id)
 				Dispatcher.add(ctx, "A new game has been started in this channel!")
 				return True
 		
@@ -100,10 +61,10 @@ class RpgAdmin(Cog):
 		Upon removal, a new game may be created but data from the removed game is not recoverable.
 		"""
 
-		if not await self.check_game_exists(ctx):
+		if not await self.utils().check_game_exists(ctx):
 			return
 
-		self.remove_game(ctx.guild.id)
+		self.utils().remove_game(ctx.guild.id)
 		Dispatcher.add(ctx, "The game has been removed.")
 
 	@group(brief="Displays or sets various spawning options.")
@@ -116,7 +77,7 @@ class RpgAdmin(Cog):
 		(5-second cool-down server-wide)
 		"""
 
-		if not await self.check_game_exists(ctx):
+		if not await self.utils().check_game_exists(ctx):
 			return
 
 		if ctx.invoked_subcommand is None:
@@ -262,38 +223,11 @@ class RpgAdmin(Cog):
 		
 		await game.kill_monster()
 
-	# ------------------------------------------------------
-
-	@tasks.loop(minutes=1)
-	async def save_players(self):
-		"""Database loop to save player data."""
-
-		try:
-			dirty = [
-				(p, UpdateOne(
-					{"guildId": p.guildId, "userId": p.userId},
-					{"$set": p.to_dict()},
-					upsert=True
-				)) for g in self.bot.games.values() for p in g.players.values() if p.isDirty
-			]
-
-			if len(dirty) > 0:
-				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
-				for idx, _id in result.upserted_ids.items():
-					dirty[idx][0].id = _id
-
-		except ServerSelectionTimeoutError:
-			stdout("Unable to connect to DB.")
-
 	# Additional maintenance after cog loads.
 	@Cog.listener()
 	async def on_ready(self):
-		games = MongoDB.games.find()
-		for g in games:
-			await self.add_game(game=g)
-		self.save_players.start()
-		stdout("RPG Admin Cog ready.")
+		stdout("RpgAdminCommands ready.")
 
 
 def setup(bot):
-	bot.add_cog(RpgAdmin(bot))
+	bot.add_cog(RpgAdminCommands(bot))

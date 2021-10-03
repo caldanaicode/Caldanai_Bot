@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
+from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory.weapon import Weapon
@@ -17,97 +18,15 @@ from Caldanai.db.db import MongoDB
 from datetime import datetime
 
 
-class RPG(Cog):
+class RpgUserCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
+		self.utilCog: RpgUtilities = None
 
-	# Gets a list of games to which a user belongs.
-	def get_games_for_user(self, uid: int) -> List[Game]:
-		"""
-		Returns a list of Games for the given discord user id.
-		"""
-
-		games = []
-		if uid is None:
-			return games
-
-		players = MongoDB.players.find({'userId': uid})
-		for player in players:
-			game = self.bot.games[player['guildId']]
-			games.append(game)
-
-		return games
-
-	# Get the game associated with a context, it if exists.
-	async def get_game(self, ctx, game_idx: int = None) -> Union[Game, None]:
-		"""
-		Returns a Game associated with a context, or by index, if it exists. Otherwise returns None.
-		"""
-
-		game: Union[Game, None] = None
-		games: List[Game] = []
-		if ctx.guild is None:
-			games = self.get_games_for_user(ctx.author.id)
-		else:
-			game = self.bot.games[ctx.guild.id]
-
-		if len(games) == 0 and game is None:
-			Dispatcher.add(ctx, f"You are not a member of any games at this time.")
-			return None
-
-		if game is None:
-			if len(games) > 1 and game_idx is None:
-				Dispatcher.add(
-					ctx,
-					f"You are playing more than one game and did not supply the game's index."
-					f" Check `{ctx.prefix}games` to get the index of the game from which you wish to"
-					f" view your profile, or try again from the game's channel."
-				)
-				return None
-			elif len(games) > 1 and len(games) > game_idx >= 0:
-				game = games[game_idx]
-			elif len(games) == 1:
-				game = games[0]
-			else:
-				Dispatcher.add(ctx, "No such game exists.")
-				return None
-
-		return game
-
-	# Gets the player associated with a context, if any exists
-	async def get_player(self, ctx, game: Game = None, notify: bool = True) -> Union[Player, None]:
-		"""
-		Returns a Player associated with a context, or None if the Player does not exist.
-		"""
-
-		if game is None or not isinstance(game, Game):
-			game: Game = await self.get_game(ctx)
-
-		if game is None:
-			return None
-
-		if ctx.author.id not in game.players.keys():
-			if notify:
-				Dispatcher.add(
-					game.channel,
-					f'Why, {ctx.author.display_name}! You are not even playing the game! Try `$game join`'
-				)
-		else:
-			return game.players[ctx.author.id]
-		return None
-
-	# Returns a tuple containing (game, player) if both exist.
-	async def get_game_and_player(self, ctx, notify: bool = True) -> (Game, Player):
-		"""
-		Returns a tuple containing a Game and Player if they exist, or None for one or both upon failure.
-		"""
-
-		game: Game = await self.get_game(ctx)
-		if game is None:
-			return None, None
-
-		player: Player = await self.get_player(ctx, game, notify)
-		return game, player
+	def utils(self) -> RpgUtilities:
+		if self.utilCog is None:
+			self.utilCog = self.bot.get_cog("RpgUtilities")
+		return self.utilCog
 
 	@group(brief="Groups together various game commands for players.")
 	@guild_only()
@@ -130,11 +49,11 @@ class RPG(Cog):
 		called by the member trying to participate.
 		"""
 
-		game: Game = await self.get_game(ctx)
+		game: Game = await self.utils().get_game(ctx)
 		if game is None:
 			return
 
-		player = await self.get_player(ctx, game, False)
+		player = await self.utils().get_player(ctx, game, False)
 		if player is None:
 			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=datetime.now())
 			player.member = ctx.author
@@ -152,7 +71,7 @@ class RPG(Cog):
 		Removes an existing player from the game. This can only be called by member withdrawing from participation.
 		"""
 
-		game: Game = await self.get_game(ctx, gid)
+		game: Game = await self.utils().get_game(ctx, gid)
 
 		if game is None:
 			return
@@ -174,7 +93,7 @@ class RPG(Cog):
 		(10-second cool-down across the server)
 		"""
 
-		game: Game = await self.get_game(ctx, gid)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -201,7 +120,7 @@ class RPG(Cog):
 		(10-second cool-down)
 		"""
 
-		game: Game = await self.get_game(ctx, gid)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -225,7 +144,7 @@ class RPG(Cog):
 		(10-second cool-down)
 		"""
 
-		game: Game = await self.get_game(ctx, gid)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -254,7 +173,7 @@ class RPG(Cog):
 			[all] Compiles data for all players.
 		"""
 
-		game: Game = await self.get_game(ctx)
+		game: Game = await self.utils().get_game(ctx)
 		if game is None:
 			return
 
@@ -358,7 +277,7 @@ class RPG(Cog):
 		(10-second cool-down)
 		"""
 
-		game, player = await self.get_game_and_player(ctx)
+		game, player = await self.utils().get_game_and_player(ctx)
 
 		if game is None or player is None:
 			return
@@ -384,7 +303,7 @@ class RPG(Cog):
 		(10-second cool-down)
 		"""
 
-		game, player = await self.get_game_and_player(ctx)
+		game, player = await self.utils().get_game_and_player(ctx)
 
 		if game is None or player is None:
 			return
@@ -437,7 +356,7 @@ class RPG(Cog):
 		(5-second cool-down)
 		"""
 		if msg is not None and len(msg) > 0:
-			game: Game = await self.get_game(ctx, False)
+			game: Game = await self.utils().get_game(ctx, False)
 			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
 				Dispatcher.add(ctx, game.monster.get_hug(ctx.author.display_name, ctx.invoked_with))
 			else:
@@ -454,11 +373,11 @@ class RPG(Cog):
 		(5-second cool-down)
 		"""
 
-		game: Game = await self.get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, game_idx)
 		if game is None:
 			return
 
-		player: Player = await self.get_player(ctx, game)
+		player: Player = await self.utils().get_player(ctx, game)
 		if player is None:
 			return
 
@@ -493,11 +412,11 @@ class RPG(Cog):
 		(10-second cool-down)
 		"""
 
-		game: Game = await self.get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, game_idx)
 		if game is None:
 			return
 
-		player: Player = await self.get_player(ctx, game)
+		player: Player = await self.utils().get_player(ctx, game)
 		if player is None:
 			return
 
@@ -517,11 +436,11 @@ class RPG(Cog):
 		(2-second cool-down)
 		"""
 
-		game: Game = await self.get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, game_idx)
 		if game is None:
 			return
 
-		player = await self.get_player(ctx, game)
+		player = await self.utils().get_player(ctx, game)
 		if player is None:
 			return
 
@@ -554,7 +473,7 @@ class RPG(Cog):
 		"""
 
 		msg = ""
-		games = self.get_games_for_user(ctx.author.id)
+		games = self.utils().get_games_for_user(ctx.author.id)
 		for idx, game in enumerate(games):
 			msg += f'{idx}: {game.guild.name}\n'
 
@@ -570,11 +489,11 @@ class RPG(Cog):
 		Sell an item by index, or all unequipped items if "unequipped" is given.
 		"""
 
-		game: Game = await self.get_game(ctx, gid)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
-		player = await self.get_player(ctx, game)
+		player = await self.utils().get_player(ctx, game)
 		if player is None:
 			return
 
@@ -637,8 +556,8 @@ class RPG(Cog):
 
 	@Cog.listener()
 	async def on_ready(self):
-		stdout("RPG Cog ready.")
+		stdout("RpgUserCommands ready.")
 
 
 def setup(bot):
-	bot.add_cog(RPG(bot))
+	bot.add_cog(RpgUserCommands(bot))
