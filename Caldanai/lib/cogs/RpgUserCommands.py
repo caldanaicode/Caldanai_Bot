@@ -500,20 +500,23 @@ class RpgUserCommands(Cog):
 			return
 
 		if flag is None:
-			Dispatcher.add(ctx, "You must specify the item index to sell, or unequipped to sell anything not equipped.")
+			Dispatcher.add(ctx, "You must specify the item index to sell, the range of indices, a rarity, or 'all' to "
+								"sell anything not equipped.")
 			return
 
 		msg = ''
 		equipped = [player.leftHand.id, player.rightHand.id]
+		sell: List[Item] = []
 
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
 			item = player.inventory.get_by_index(flag)
-			if item not in equipped:
-				msg = player.sell(item)
+			if item.id not in equipped:
+				sell.append(item)
+			else:
+				Dispatcher.add(ctx, 'You must unequip items before selling them.')
+				return
 
 		elif isinstance(flag, str):
-			sell: List[Item] = []
-
 			if flag.lower() == 'all':
 				sell = [i for i in list(player.inventory.all()) if i is not None and i.id not in equipped]
 			elif '-' in flag:
@@ -535,6 +538,7 @@ class RpgUserCommands(Cog):
 							ctx,
 							f"I'm afraid I can't do that, {player.name}. You may want to check your numbers."
 						)
+						return
 
 				except ValueError:
 					Dispatcher.add(ctx, f"Unable to determine lower and upper indices from {flag}.")
@@ -543,19 +547,19 @@ class RpgUserCommands(Cog):
 				sell = [i for i in list(player.inventory.all()) if i is not None and i.rarity.name.lower() ==
 						flag.lower() and i.id not in equipped]
 
-			if len(sell) > 0:
-				for item in sell:
-					msg += f"\n{player.sell(item)}"
-
-			if len(msg) == 0:
-				Dispatcher.add(ctx, f'You had no items to sell, {player.name}')
-				return
-			else:
-				msg = f'You sold the following items: ```\n{msg}```'
-
 		else:
 			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
 			return
+
+		if len(sell) > 0:
+			for item in sell:
+				msg += f"\n{player.sell(item)}"
+
+		if len(msg) == 0:
+			Dispatcher.add(ctx, f'You had no items to sell, {player.name}')
+			return
+		else:
+			msg = f'{player.name} sold the following items: ```\n{msg}```'
 
 		msgs = Dispatcher.split_message(msg, 'clarks.', True)
 		count = 0
