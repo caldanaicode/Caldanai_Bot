@@ -379,7 +379,7 @@ class Player(Creature):
 		if sold:
 			self.clarks += value
 			self.isDirty = True
-			return f"You sold {item.article} {item.rarity.name} {item.name} for {item.value} clarks."
+			return f"You sold {item.get_full_name()} for {item.value} clarks."
 		else:
 			return f"Item not found."
 

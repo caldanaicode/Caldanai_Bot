@@ -38,6 +38,9 @@ class Item:
 		self.image = image
 		self.itemType = 'Item'
 
+	def get_full_name(self):
+		return f"{self.article} {self.rarity.name} {self.name}"
+
 	def __eq__(self, o):
 		return isinstance(o, Item) and self.id == o.id
 

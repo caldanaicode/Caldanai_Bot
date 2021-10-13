@@ -322,15 +322,15 @@ class RpgUserCommands(Cog):
 			return
 
 		loot = game.loot[player.userId]
-		msg = ', '.join([f"{item.article} {item.rarity.name} {item.name}" for item in loot])
-		dropped = []
+		msg = ', '.join([f"{item.get_full_name()}" for item in loot])
+		dropped: List[Item] = []
 		if msg is not None and len(msg) > 0:
 			msg = f"{player.name} found {' and '.join(msg.rsplit(', ', 1))}."
 			for item in loot:
 				if not player.give_item(item):
 					dropped.append(item)
 			if len(dropped) > 0:
-				txt = ', '.join([d.article + ' ' + d.rarity.name + ' ' + d.name for d in dropped]).rsplit(', ', 1)
+				txt = ', '.join([f'{d.get_full_name()}' for d in dropped]).rsplit(', ', 1)
 				txt = ' and '.join(txt)
 				msg += f" It appears you may have a hoarding problem, though. The following item" \
 					f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
@@ -400,7 +400,39 @@ class RpgUserCommands(Cog):
 			player.equip_left(item)
 		else:
 			player.equip_right(item)
-		Dispatcher.add(ctx, f"You have equipped {item.article} {item.name}.")
+		Dispatcher.add(ctx, f"You have equipped {item.get_full_name()}.")
+
+	@command(name='stow', aliases=['disarm', 'unequip'], brief='Unequips the item in the given hand.')
+	@cooldown(1, 5, BucketType.member)
+	async def stow(self, ctx, hand: str, game_idx: int = None):
+		"""
+		Unequips a weapon from the given hand, or all equipped items.
+		(5-second cool-down)
+		"""
+
+		game: Game = await self.utils().get_game(ctx, game_idx)
+		if game is None:
+			return
+
+		player: Player = await self.utils().get_player(ctx, game)
+		if player is None:
+			return
+
+		if hand.lower() not in ('left', 'l', 'right', 'r', 'all'):
+			Dispatcher.add(ctx, "You must specify which hand to stow, left (or l) or right (or r) or all.")
+			return
+
+		msg = ''
+
+		if (hand.lower()[0] == 'l' or hand.lower() == 'all') and player.leftHand is not None:
+			msg += f'\nStowed {player.leftHand.get_full_name()}.'
+			player.disarm_left()
+
+		if (hand.lower()[0] == 'r' or hand.lower() == 'all') and player.rightHand is not None:
+			msg += f'\nStowed {player.rightHand.get_full_name()}.'
+			player.disarm_right()
+
+		Dispatcher.add(ctx, msg or 'You had nothing equipped!')
 
 	@command(
 		name='inventory',
