@@ -3,7 +3,7 @@ from io import BytesIO
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed, File
-from typing import Union
+from typing import Union, List
 
 import pandas
 import matplotlib.pyplot as plt
@@ -13,6 +13,8 @@ from Caldanai.Logger import stdout
 from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.inventory.item import Item
+from Caldanai.lib.rpg.inventory.rarity import Rarities
 from Caldanai.lib.rpg.inventory.weapon import Weapon
 from Caldanai.db.db import MongoDB
 from datetime import datetime
@@ -509,12 +511,10 @@ class RpgUserCommands(Cog):
 			msg = player.sell(item)
 
 		elif isinstance(flag, str):
-			if flag.lower() == 'unequipped':
-				equipped = [i.id for i in [player.leftHand, player.rightHand] if i is not None]
-				for item in player.inventory.all():
-					if item.id not in equipped:
-						msg += f"\n{player.sell(item)}"
+			sell: List[Item] = []
 
+			if flag.lower() == 'unequipped':
+				sell = [i for i in list(player.inventory.all()) if i is not None and i.id not in [player.leftHand.id, player.rightHand.id]]
 			elif '-' in flag:
 				try:
 					low, high = map(int, flag.split('-'))
@@ -525,7 +525,7 @@ class RpgUserCommands(Cog):
 
 					if 0 <= low < high <= len(player.inventory):
 						for i in range(high, low - 1, -1):
-							msg += f"\n{player.sell(player.inventory.get_by_index(i))}"
+							sell.append(player.inventory.get_by_index(i))
 					else:
 						Dispatcher.add(
 							ctx,
@@ -535,6 +535,12 @@ class RpgUserCommands(Cog):
 				except ValueError:
 					Dispatcher.add(ctx, f"Unable to determine lower and upper indices from {flag}.")
 					return
+			else:
+				sell = [i for i in list(player.inventory.all()) if i is not None and i.rarity.name.lower() == flag.lower()]
+
+			if len(sell) > 0:
+				for item in sell:
+					msg += f"\n{player.sell(item)}"
 
 			if len(msg) == 0:
 				Dispatcher.add(ctx, f'You had no items to sell, {player.name}')
