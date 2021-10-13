@@ -3,7 +3,7 @@ from io import BytesIO
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed, File
-from typing import List, Union
+from typing import Union
 
 import pandas
 import matplotlib.pyplot as plt
@@ -358,7 +358,8 @@ class RpgUserCommands(Cog):
 		if msg is not None and len(msg) > 0:
 			game: Game = await self.utils().get_game(ctx, False)
 			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
-				Dispatcher.add(ctx, game.monster.get_hug(ctx.author.display_name, ctx.invoked_with))
+				if game.monster.on_hugged:
+					Dispatcher.add(ctx, game.monster.on_hugged(ctx.author.display_name, ctx.invoked_with))
 			else:
 				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
 		else:

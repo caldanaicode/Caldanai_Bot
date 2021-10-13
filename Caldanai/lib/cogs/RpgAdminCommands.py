@@ -1,6 +1,5 @@
 from discord import Embed, Guild
 from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
-
 from Caldanai.lib.bot import Bot
 from .RpgUtilities import RpgUtilities
 from ...Dispatcher import Dispatcher

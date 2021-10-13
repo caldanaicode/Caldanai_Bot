@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
 from Caldanai.lib.rpg.creatures.creature import Creature
-from Caldanai.lib.rpg.creatures.monster import Monster
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory.inventory import Inventory, Item, Weapon
@@ -161,7 +160,7 @@ class Player(Creature):
 		self.skills[skill] += amt
 		self.isDirty = True
 
-	def get_combat_rolls(self, weapon: Optional[Weapon], monster: Monster) -> CombinedRoll:
+	def get_combat_rolls(self, weapon: Optional[Weapon], creature: Creature) -> CombinedRoll:
 		"""Returns a CombinedRoll for the given weapon's attack and damage rolls."""
 
 		bonus = self.get_skill_bonus("unarmed" if weapon is None else weapon.skill)
@@ -171,9 +170,9 @@ class Player(Creature):
 			weapon_bonus=0 if weapon is None else weapon.bonus,
 			skill_bonus=bonus[1]
 		)
-		return CombinedRoll(attack, damage, monster)
+		return CombinedRoll(attack, damage, creature)
 
-	def do_attack(self, monster: Monster) -> Tuple[str, int]:
+	def do_attack(self, creature: Creature) -> Tuple[str, int]:
 		"""
 		Performs an attack against the given monster, without modifying the monster's attributes.
 
@@ -181,12 +180,12 @@ class Player(Creature):
 		"""
 
 		two_handed = self.leftHand and self.leftHand.isTwoHanded
-		left = self.get_combat_rolls(self.leftHand, monster)
-		right: Optional[CombinedRoll] = None if two_handed else self.get_combat_rolls(self.rightHand, monster)
+		left = self.get_combat_rolls(self.leftHand, creature)
+		right: Optional[CombinedRoll] = None if two_handed else self.get_combat_rolls(self.rightHand, creature)
 		raw_dmg = left.result + (right.result if right else 0)
-		t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - monster.defense)
+		t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - creature.defense)
 
-		msg = f"{self.member.mention}'s attack:```diff\nAttack vs Dodge ({monster.dodge}): " \
+		msg = f"{self.member.mention}'s attack:```diff\nAttack vs Dodge ({creature.dodge}): " \
 			f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} " \
 			f"({left.get_hit_string()})"
 		msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
@@ -203,7 +202,7 @@ class Player(Creature):
 			if right and not right.isMiss:
 				self.gain_skill_experience(self.rightHand.skill if self.rightHand else "unarmed")
 
-			msg += f"\n\nTotal ({raw_dmg}) vs Defense ({monster.defense}) = {t_dmg}"
+			msg += f"\n\nTotal ({raw_dmg}) vs Defense ({creature.defense}) = {t_dmg}"
 
 		msg += "```\n"
 		self.update_roll_counts(left, right)

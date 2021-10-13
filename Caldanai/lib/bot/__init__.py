@@ -49,9 +49,11 @@ class Bot(BotBase):
 		)
 
 	def setup(self):
+		stdout("Loading cogs...")
 		self.discover_cogs()
 		for cog in self.COGS:
 			self.load_extension(f'Caldanai.lib.cogs.{cog}')
+		stdout("Cogs loaded. Bot is setup.")
 
 	def discover_cogs(self):
 		self.COGS = [filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/cogs/*.py")]
