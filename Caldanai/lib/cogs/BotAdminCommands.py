@@ -5,7 +5,7 @@ from ...Logger import stdout
 from ...db.db import MongoDB
 
 
-class Admin(Cog):
+class BotAdminCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
 
@@ -50,8 +50,8 @@ class Admin(Cog):
 	
 	@Cog.listener()
 	async def on_ready(self):
-		stdout("Admin Cog ready.")
+		stdout("BotAdminCommands ready.")
 
 
 def setup(bot):
-	bot.add_cog(Admin(bot))
+	bot.add_cog(BotAdminCommands(bot))

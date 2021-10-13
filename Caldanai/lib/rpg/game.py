@@ -1,10 +1,11 @@
+import importlib
+
 from discord.ext.commands import Bot
 from discord.ext import tasks
 from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 
 from .creatures.player import Player
-from .creatures.monster import Monster
 from random import choice, randint
 from asyncio import sleep
 
@@ -14,6 +15,8 @@ from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
 
+from glob import glob
+from os import path
 
 class Game:
 	"""
@@ -73,7 +76,8 @@ class Game:
 		self.guild = guild
 		self.channel = channel
 		self.players: Dict[int, Player] = {}
-		self.monster: Union[Monster, None] = None
+		self.monster = None
+		self.monsters: List[str] = []
 		self.combatants: List[int] = []
 		self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
 		self.use_spawn_timer = use_spawn_timer
@@ -90,6 +94,11 @@ class Game:
 
 		if use_spawn_timer:
 			self.spawn_check.start()
+
+	def get_monster_plugins(self):
+		self.monsters = [
+			filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
+		]
 
 	def cancel_combat(self):
 		"""Clears the current monster, combatants, and loot."""
@@ -145,9 +154,12 @@ class Game:
 
 		self.stage = 1
 		self.trigger = self.minutes_min
-		self.monster = Monster(choice(list(MongoDB.templates_monsters.find())))
+
+		self.get_monster_plugins()
+		self.load_monster(choice(self.monsters))
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
+
 		await sleep(self.spawn_duration * 60)
 
 		msg = ""
@@ -237,6 +249,10 @@ class Game:
 		result = MongoDB["games"].update_one({'guildId': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
 		if self.id is None:
 			self.id = result.upserted_id
+
+	# Loads a monster (plugin) from the disk.
+	def load_monster(self, filename) -> None:
+		self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{filename}').Monster()
 
 	@classmethod
 	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:

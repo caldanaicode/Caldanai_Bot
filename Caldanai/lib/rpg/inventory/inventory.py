@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Tuple, Dict
 
 from .item import Item
 from .weapon import Weapon
@@ -10,7 +10,7 @@ from math import fsum
 
 class Inventory:
 	def __init__(self, contents: list = ()):
-		self.__contents = {}
+		self.__contents: Dict[str, Item] = {}
 		self.operations = []
 		for item in contents:
 			self.add(item)
@@ -81,7 +81,7 @@ class Inventory:
 				return item
 
 	# Returns all inventory items as a tuple.
-	def all(self) -> tuple:
+	def all(self) -> Tuple[Item]:
 		"""Returns a tuple containing all inventory items."""
 
 		return tuple(self.__contents.values())

@@ -60,7 +60,7 @@ class HelpMenu(ListPageSource):
 		return await self.write_page(menu, fields)
 
 
-class Help(Cog):
+class HelpCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
 		self.bot.remove_command("help")
@@ -97,8 +97,8 @@ class Help(Cog):
 
 	@Cog.listener()
 	async def on_ready(self):
-		stdout("Help Cog ready.")
+		stdout("HelpCommands ready.")
 
 
 def setup(bot):
-	bot.add_cog(Help(bot))
+	bot.add_cog(HelpCommands(bot))
