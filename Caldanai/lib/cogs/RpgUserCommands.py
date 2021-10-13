@@ -3,7 +3,7 @@ from io import BytesIO
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed, File
-from typing import Union, List
+from typing import Union, List, Optional
 
 import pandas
 import matplotlib.pyplot as plt
@@ -14,7 +14,6 @@ from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory.item import Item
-from Caldanai.lib.rpg.inventory.rarity import Rarities
 from Caldanai.lib.rpg.inventory.weapon import Weapon
 from Caldanai.db.db import MongoDB
 from datetime import datetime
@@ -23,7 +22,7 @@ from datetime import datetime
 class RpgUserCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
-		self.utilCog: RpgUtilities = None
+		self.utilCog: Optional[RpgUtilities] = None
 
 	def utils(self) -> RpgUtilities:
 		if self.utilCog is None:
@@ -268,7 +267,7 @@ class RpgUserCommands(Cog):
 	# Attacks the current monster.
 	@command(
 		name='attack',
-		aliases=['kill', 'murder'],
+		aliases=['kill', 'murder', 'destroy', 'obliterate', 'slaughter'],
 		brief="Attacks the critter currently daring to show it's face to intrepid adventurers!"
 	)
 	@guild_only()
@@ -484,12 +483,12 @@ class RpgUserCommands(Cog):
 		if ctx.guild is not None:
 			await ctx.message.delete()
 
-	# Sells an item
+	# Sells an item, range of items, unequipped items, or items having a given rarity.
 	@cooldown(1, 2, BucketType.member)
-	@command(name='sell', brief='Sell an item by index, or all unequipped items if "unequipped" is given.')
+	@command(name='sell', brief='Sells an item, range of items, unequipped items, or items having a given rarity.')
 	async def sell(self, ctx, flag: Union[int, str] = None, gid: int = None):
 		"""
-		Sell an item by index, or all unequipped items if "unequipped" is given.
+		Sells an item, range of items, all items, or items having a given rarity. Items must be unequipped to be sold.
 		"""
 
 		game: Game = await self.utils().get_game(ctx, gid)
@@ -505,16 +504,18 @@ class RpgUserCommands(Cog):
 			return
 
 		msg = ''
+		equipped = [player.leftHand.id, player.rightHand.id]
 
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
 			item = player.inventory.get_by_index(flag)
-			msg = player.sell(item)
+			if item not in equipped:
+				msg = player.sell(item)
 
 		elif isinstance(flag, str):
 			sell: List[Item] = []
 
-			if flag.lower() == 'unequipped':
-				sell = [i for i in list(player.inventory.all()) if i is not None and i.id not in [player.leftHand.id, player.rightHand.id]]
+			if flag.lower() == 'all':
+				sell = [i for i in list(player.inventory.all()) if i is not None and i.id not in equipped]
 			elif '-' in flag:
 				try:
 					low, high = map(int, flag.split('-'))
@@ -525,7 +526,10 @@ class RpgUserCommands(Cog):
 
 					if 0 <= low < high <= len(player.inventory):
 						for i in range(high, low - 1, -1):
-							sell.append(player.inventory.get_by_index(i))
+							item = player.inventory.get_by_index(i)
+							if item.id not in equipped:
+								sell.append(item)
+
 					else:
 						Dispatcher.add(
 							ctx,
@@ -536,7 +540,8 @@ class RpgUserCommands(Cog):
 					Dispatcher.add(ctx, f"Unable to determine lower and upper indices from {flag}.")
 					return
 			else:
-				sell = [i for i in list(player.inventory.all()) if i is not None and i.rarity.name.lower() == flag.lower()]
+				sell = [i for i in list(player.inventory.all()) if i is not None and i.rarity.name.lower() ==
+						flag.lower() and i.id not in equipped]
 
 			if len(sell) > 0:
 				for item in sell:
