@@ -425,14 +425,14 @@ class RpgUserCommands(Cog):
 		msg = ''
 
 		if (hand.lower()[0] == 'l' or hand.lower() == 'all') and player.leftHand is not None:
-			msg += f'\nStowed {player.leftHand.get_full_name()}.'
+			msg += f'\n{player.name} stowed {player.leftHand.get_full_name()}.'
 			player.disarm_left()
 
 		if (hand.lower()[0] == 'r' or hand.lower() == 'all') and player.rightHand is not None:
-			msg += f'\nStowed {player.rightHand.get_full_name()}.'
+			msg += f'\n{player.name} stowed {player.rightHand.get_full_name()}.'
 			player.disarm_right()
 
-		Dispatcher.add(ctx, msg or 'You had nothing equipped!')
+		Dispatcher.add(ctx, msg or f'You had nothing equipped, {player.name}!')
 
 	@command(
 		name='inventory',
