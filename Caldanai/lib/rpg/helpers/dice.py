@@ -38,21 +38,22 @@ class Dice:
 		return result
 
 	@staticmethod
-	def quick_roll(ndn: str) -> int:
+	def quick_roll(ndn: str, keep: Optional[int] = None) -> int:
 		"""
 		Generates a random number between the number of dice, and the number of dice times the number of sides.
 		Ignores intermediate rolls and returns only the result.
 
 		:param ndn: The number of dice and the sides per dice, such as "1d6" or "2d10"
+		:param keep: [Optional] The number of dice to keep. For instance, if ndn is "4d6" and keep is 3, then the 3
+		highest rolls are kept.
 		:return: The integer sum of the generated numbers.
 		"""
-		try:
-			count, sides = map(int, ndn.lower().split('d'))
-		except Exception as e:
-			stdout(e)
-			return 0
-
-		return randint(count, count * sides)
+		dice: Dice = Dice.from_ndn(ndn)
+		if keep is not None and dice is not None and keep < dice.count:
+			rolls = list(dice.rolls)
+			rolls.sort()
+			return sum(rolls[-keep:])
+		return dice.value
 
 	@classmethod
 	def from_ndn(cls, ndn: str) -> Union["Dice", None]:

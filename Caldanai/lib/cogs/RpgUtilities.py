@@ -127,7 +127,7 @@ class RpgUtilities(Cog):
 			if notify:
 				Dispatcher.add(
 					game.channel,
-					f'Why, {ctx.author.display_name}! You are not even playing the game! Try `$game join`'
+					f'Why, {ctx.author.display_name}! You are not even playing the game! Try `{ctx.prefix}game join`'
 				)
 		else:
 			return game.players[ctx.author.id]

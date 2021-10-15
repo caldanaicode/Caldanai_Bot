@@ -24,22 +24,24 @@ class Player(Creature):
 			uid: Optional[int] = None,
 			weight_limit: Optional[int] = None,
 			joined: Optional[datetime] = None,
-			clarks: Optional[int] = None,
-			defense: Optional[int] = None,
-			dodge: Optional[int] = None,
-			health: Optional[int] = None,
+			clarks: Optional[int] = 0,
+			defense: Optional[int] = 10,
+			dodge: Optional[int] = 10,
+			health: Optional[int] = 20,
 			inventory: Optional[Inventory] = None,
 			rolls: Optional[Dict[str, List[int]]] = None,
-			skills: Optional[Dict[str, int]] = None
+			skills: Optional[Dict[str, int]] = None,
+			gender: Optional[str] = None,
+			pronouns: Optional[str] = None,
 	):
-		super().__init__(name=None, atk=None, defense=defense, dodge=dodge, health=health)
+		super().__init__(name=None, atk=None, defense=defense, dodge=dodge, health=health, gender=gender, pronouns=pronouns)
 		self.id = pid
 		self.guildId = gid
 		self.userId = uid
 		self.member: Optional[Member] = None
 		self.weightLimit = weight_limit or 100
 		self.joined = joined
-		self.clarks = clarks or 0
+		self.clarks = clarks
 		self.leftHand: Optional[Weapon] = None
 		self.rightHand: Optional[Weapon] = None
 		self.inventory = inventory or Inventory()
@@ -48,11 +50,11 @@ class Player(Creature):
 		self.rolls = rolls or {
 			"d4": [0] * 4, "d6": [0] * 6, "d8": [0] * 8, "d10": [0] * 10, "d12": [0] * 12, "d20": [0] * 20
 		}
+		self.health_regen = 0
 
 	def __eq__(self, o):
 		return isinstance(o, Player) and self.userId == o.userId and self.guildId == o.guildId
 
-	# Un-equips the item in the player's left hand.
 	def disarm_left(self) -> None:
 		"""
 		Un-equips the item in the player's left hand.
@@ -66,7 +68,6 @@ class Player(Creature):
 			self.rightHand = None
 		self.isDirty = True
 
-	# Un-equips the item in the player's right hand.
 	def disarm_right(self) -> None:
 		"""
 		Un-equips the item in the player's right hand.
@@ -80,7 +81,6 @@ class Player(Creature):
 			self.leftHand = None
 		self.isDirty = True
 
-	# Equips an item in the left hand, removing the currently equipped item if necessary.
 	def equip_left(self, weapon: Weapon) -> None:
 		"""
 		Equips an item in the left hand, removing the currently equipped item if necessary.
@@ -96,7 +96,6 @@ class Player(Creature):
 			self.rightHand = weapon
 		self.isDirty = True
 
-	# Equips an item in the right hand, removing the currently equipped item if necessary.
 	def equip_right(self, weapon: Weapon) -> None:
 		"""
 		Equips an item in the right hand, removing the currently equipped item if necessary.
@@ -112,7 +111,6 @@ class Player(Creature):
 			self.leftHand = weapon
 		self.isDirty = True
 
-	# Returns the attack and damage bonus for a given skill as a tuple.
 	def get_skill_bonus(self, skill: str) -> Tuple[int, int]:
 		"""Returns a tuple containing the attack bonus and damage bonus for a given skill."""
 
@@ -120,7 +118,6 @@ class Player(Creature):
 		dmg = floor(self.get_skill_level(skill) / 4)
 		return atk, dmg
 
-	# Updates the player's natural roll counts.
 	def update_roll_counts(self, left: Optional[CombinedRoll], right: Optional[CombinedRoll]):
 		"""Updates the player's attack and damage averages."""
 
@@ -137,7 +134,6 @@ class Player(Creature):
 
 		self.isDirty = True
 
-	# Returns the skill level for the given skill name.
 	def get_skill_level(self, skill: str) -> int:
 		"""Return the skill level for the given skill."""
 
@@ -146,7 +142,6 @@ class Player(Creature):
 
 		return floor((25 + (5 * (125 + self.skills[skill])) ** 0.5) / 50)
 
-	# Increments the given skill's experience level.
 	def gain_skill_experience(self, skill: str) -> None:
 		"""Applies experience gain for the given skill."""
 
@@ -208,13 +203,12 @@ class Player(Creature):
 		self.update_roll_counts(left, right)
 		return msg, t_dmg
 
-	# Returns a discord Embed for the player's profile.
 	def get_profile(self, guild_name: str) -> Embed:
 		"""Returns a discord Embed for the player's profile."""
 
 		embed = Embed(
 			title=f"Player Profile",
-			description=f'for {self.name} on {guild_name}',
+			description=f"for {self.name} on {guild_name}",
 			color=0x00ffff
 		)
 		fields = [
@@ -232,11 +226,15 @@ class Player(Creature):
 			("\u200b", "\u200b", True),
 			("Defense", self.defense, True),
 			("Dodge", self.dodge, True),
-			("Health", self.health, True),
+			("Health", f"{self.health} / {self.health_max}", True),
 			("\u200b", "\u200b", False),
 			("General", "---------------------------------------------------", False),
+			("Gender", self.gender.lower(), True),
+			("Pronouns", '/'.join(self.pronouns.values()), True),
+			("\u200b", "\u200b", True),
 			("Clarks", f'{self.clarks:,}', True),
 			("Weight", f'{self.get_weight():,} / {self.weightLimit:,}', True),
+			("\u200b", "\u200b", True),
 			("Joined", self.joined, False)
 		]
 
@@ -307,13 +305,11 @@ class Player(Creature):
 
 		return embed, file
 
-	# Returns the cumulative weight of the player's inventory.
 	def get_weight(self):
 		"""Returns the cumulative weight of the player's inventory."""
 
 		return self.inventory.get_weight()
 
-	# Adds an item to the player's inventory, if they can afford the weight.
 	def give_item(self, item: Union[Item, Weapon]) -> bool:
 		"""
 		Adds an item to the player's inventory, if they can afford the weight.
@@ -329,7 +325,6 @@ class Player(Creature):
 		self.isDirty = True
 		return True
 
-	# Removes an item from the player's inventory, if present.
 	def take_item(self, item: Union[Item, Weapon]) -> Optional[Item]:
 		"""
 		Removes an item from the player's inventory, if present.
@@ -349,7 +344,6 @@ class Player(Creature):
 			return item
 		return None
 
-	# Returns a string containing a formatted display of the player's inventory.
 	def get_inventory(self) -> str:
 		"""Returns a string containing a formatted display of the player's inventory."""
 
@@ -363,7 +357,6 @@ class Player(Creature):
 
 		return msg
 
-	# Sells the given item if the player has it.
 	def sell(self, item: Union[Item, Weapon]) -> str:
 		"""
 		Sells the given item if the player has it.
@@ -393,14 +386,16 @@ class Player(Creature):
 			'name': self.name,
 			'defense': self.defense,
 			'dodge': self.dodge,
-			'health': self.health,
+			'health': self.health_max,
 			'weightLimit': self.weightLimit,
 			'joined': self.joined,
 			'clarks': self.clarks,
 			'leftHand': self.leftHand.id if self.leftHand is not None else None,
 			'rightHand': self.rightHand.id if self.rightHand is not None else None,
 			'rolls': self.rolls,
-			'skills': self.skills
+			'skills': self.skills,
+			'gender': self.gender,
+			'pronouns': ','.join(list(self.pronouns.values()))
 		}
 
 		if self.id is None:
@@ -409,7 +404,6 @@ class Player(Creature):
 		return d
 
 	@classmethod
-	# Retrieves a player object from the database, or None if it does not exist.
 	def load(cls, **kwargs) -> Optional["Player"]:
 		"""Retrieves a player object from the database, or None if it does not exist."""
 
@@ -422,7 +416,6 @@ class Player(Creature):
 		return cls.from_dict(p)
 
 	@classmethod
-	# Retrieves a player object given a dictionary representation.
 	def from_dict(cls, p: dict) -> Optional["Player"]:
 		if p is None:
 			return None
@@ -439,7 +432,9 @@ class Player(Creature):
 			health=p['health'],
 			inventory=Inventory.load(p['_id']),
 			rolls=p['rolls'],
-			skills=p['skills']
+			skills=p['skills'],
+			gender=p['gender'] if 'gender' in p.keys() else None,
+			pronouns=p['pronouns'] if 'pronouns' in p.keys() else None
 		)
 
 		if player.inventory[str(p['leftHand'])] is not None:

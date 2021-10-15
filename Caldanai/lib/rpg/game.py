@@ -147,7 +147,16 @@ class Game:
 
 		Dispatcher.add(self.channel, msg)
 
-	# Performs combat sequence
+	def health_regen(self) -> None:
+		"""
+		Applies health regen to players, and increments the health regen amount.
+
+		:return: None
+		"""
+		for player in self.players.values():
+			player.apply_damage(-player.health_regen)
+			player.health_regen = (player.health_regen + 1) if player.health < player.health_max else 0
+
 	@tasks.loop(count=1)
 	async def do_combat(self):
 		"""Awaits the combat duration, and tallies and displays combat damage."""
@@ -166,14 +175,15 @@ class Game:
 		damage = 0
 		for pid in self.combatants:
 			player = self.players[pid]
+			player.health_regen = 0
 			m, d = player.do_attack(self.monster)
 			msg += m
 			damage += d
 
 		msg += f"Total damage done: {damage:,} vs Health: {self.monster.health:,}\n"
 
-		self.monster.health -= damage
-		if self.monster.health <= 0:
+		self.monster.apply_damage(damage)
+		if self.monster.is_dead():
 			msgs = Dispatcher.split_message(msg, '```\n', True)
 			for m in msgs:
 				Dispatcher.add(self.channel, m)
@@ -184,7 +194,8 @@ class Game:
 			Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 			self.cancel_combat()
 
-	# Attempts to spawn a monster
+		self.health_regen()
+
 	@tasks.loop(minutes=1)
 	async def spawn_check(self):
 		"""Determines whether or not to randomly spawn a monster."""
@@ -222,7 +233,6 @@ class Game:
 		await self.on_monster_death()
 		self.loot_expires.start()
 
-	# Gets a dictionary representation of the game.
 	def to_dict(self):
 		"""Returns the database friendly dictionary for this game."""
 

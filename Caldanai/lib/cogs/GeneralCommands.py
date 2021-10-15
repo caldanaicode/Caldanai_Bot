@@ -122,8 +122,8 @@ class GeneralCommands(Cog):
 		if count is None or sides is None:
 			return
 
-		rolls = [randint(1, sides) for d in range(count)]
-		dropped = None
+		rolls = [randint(1, sides) for _ in range(count)]
+		dropped = []
 
 		hilo = 0
 		verbose = False
@@ -134,7 +134,6 @@ class GeneralCommands(Cog):
 			if hilo is None:
 				return
 
-		dropped = []
 		rolls.sort()
 
 		if hilo == 0:

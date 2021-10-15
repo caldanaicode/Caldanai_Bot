@@ -58,6 +58,7 @@ class RpgUserCommands(Cog):
 		if player is None:
 			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=datetime.now())
 			player.member = ctx.author
+			player.name = ctx.author.display_name
 			player.isDirty = True
 			game.players[ctx.author.id] = player
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
@@ -267,7 +268,7 @@ class RpgUserCommands(Cog):
 	# Attacks the current monster.
 	@command(
 		name='attack',
-		aliases=['kill', 'murder', 'destroy', 'obliterate', 'slaughter'],
+		aliases=['annihilate', 'kill', 'murder', 'destroy', 'obliterate', 'slaughter'],
 		brief="Attacks the critter currently daring to show it's face to intrepid adventurers!"
 	)
 	@guild_only()
@@ -357,10 +358,10 @@ class RpgUserCommands(Cog):
 		(5-second cool-down)
 		"""
 		if msg is not None and len(msg) > 0:
-			game: Game = await self.utils().get_game(ctx, False)
+			game, player = await self.utils().get_game_and_player(ctx, False)
 			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
 				if game.monster.on_hugged:
-					Dispatcher.add(ctx, game.monster.on_hugged(ctx.author.display_name, ctx.invoked_with))
+					Dispatcher.add(ctx, game.monster.on_hugged(player, ctx.invoked_with))
 			else:
 				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
 		else:
@@ -400,7 +401,7 @@ class RpgUserCommands(Cog):
 			player.equip_left(item)
 		else:
 			player.equip_right(item)
-		Dispatcher.add(ctx, f"You have equipped {item.get_full_name()}.")
+		Dispatcher.add(ctx, f"{player.name} has equipped {item.get_full_name()}.")
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Unequips the item in the given hand.')
 	@cooldown(1, 5, BucketType.member)
@@ -537,7 +538,12 @@ class RpgUserCommands(Cog):
 			return
 
 		msg = ''
-		equipped = [player.leftHand.id, player.rightHand.id]
+		equipped = []
+		if player.leftHand:
+			equipped.append(player.leftHand.id)
+		if player.rightHand:
+			equipped.append(player.rightHand.id)
+
 		sell: List[Item] = []
 
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
@@ -601,6 +607,54 @@ class RpgUserCommands(Cog):
 				('```\n' if count > 0 else '') + m + ('```' if count > 0 and not m.endswith('```') else '')
 			)
 			count += 1
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='gender', brief='Displays or sets the user\'s gender.')
+	async def gender(self, ctx, gender: Optional[str] = None):
+		"""
+		Displays or sets the user's gender.
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
+		if gender:
+			player.gender = gender.lower()
+			player.is_dirty = True
+			Dispatcher.add(ctx, f"{player.name}'s gender has been set to '{player.gender}'. "
+								f"You may also wish to set your `{ctx.prefix}pronouns`")
+		else:
+			Dispatcher.add(ctx, f"{player.name}'s gender is currently shown as '{player.gender}'.")
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
+	async def pronouns(self, ctx, pronouns: Optional[str] = None):
+		"""
+		Displays or sets the user's pronouns.
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
+		if pronouns is None:
+			Dispatcher.add(ctx, f"{player.name}'s pronouns are currently shown as '"
+								f"{'/'.join(player.pronouns.values())}'.")
+			return
+
+		if isinstance(pronouns, str):
+			p = pronouns.split('/')
+			if len(p) != 3:
+				Dispatcher.add(ctx, f"Please enter pronouns in the form of 'subject/object/possessive'. Example: `"
+									f"{ctx.prefix}pronouns she/her/her` or `{ctx.prefix}pronouns he/him/his`.")
+				return
+
+			player.pronouns["subject"] = p[0]
+			player.pronouns["object"] = p[1]
+			player.pronouns["possessive"] = p[2]
+			player.is_dirty = True
+			Dispatcher.add(ctx, f"{player.name}'s pronouns have been set to '"
+								f"{'/'.join(player.pronouns.values())}'. You may also wish to set your "
+								f"`{ctx.prefix}gender`")
 
 	@Cog.listener()
 	async def on_ready(self):
