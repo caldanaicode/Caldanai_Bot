@@ -14,6 +14,7 @@ class Monster(Creature):
 		)
 
 		self.image = None
+		self.aggression = "rampage"
 		self.arrival = "A piercing roar rocks the heavens, as a dragon swoops down out of the clouds searching for prey."
 		self.flavor = "A massive red dragon, smelling faintly of cinnamon and charcoal."
 		self.escape = "The dragon circles the area lazily before taking to the clouds, disappearing from sight."

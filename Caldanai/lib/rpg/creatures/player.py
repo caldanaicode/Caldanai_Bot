@@ -165,11 +165,11 @@ class Player(Creature):
 			weapon_bonus=0 if weapon is None else weapon.bonus,
 			skill_bonus=bonus[1]
 		)
-		return CombinedRoll(attack, damage, creature)
+		return CombinedRoll(attack, damage, creature.dodge)
 
 	def do_attack(self, creature: Creature) -> Tuple[str, int]:
 		"""
-		Performs an attack against the given monster, without modifying the monster's attributes.
+		Performs an attack against the given creature, without modifying the monster's attributes.
 
 		Returns a tuple containing the attack message and the total damage done.
 		"""

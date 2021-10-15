@@ -15,6 +15,7 @@ class Monster(Creature):
 		)
 
 		self.image = None
+		self.aggression = "vengeful"
 		self.arrival = choice([
 			f"A giant toad {choice('hops|leaps|bounds'.split('|'))} in from the "
 			f"{choice('north|south|east|west|northeast|northwest|southeast|southwest'.split('|'))}, with a hungry gaze."

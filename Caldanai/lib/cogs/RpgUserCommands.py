@@ -288,6 +288,10 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(game.channel, "You see nothing to attack!")
 			return
 
+		if player.is_dead():
+			Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}")
+			return
+
 		if any(player.userId == pid for pid in game.combatants):
 			Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
 			return
@@ -359,9 +363,11 @@ class RpgUserCommands(Cog):
 		"""
 		if msg is not None and len(msg) > 0:
 			game, player = await self.utils().get_game_and_player(ctx, False)
-			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
+			if player.is_dead():
+				Dispatcher.add(game.channel, f"An lonely sigh slips from the corpse of {player.name}")
+			elif game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
 				if game.monster.on_hugged:
-					Dispatcher.add(ctx, game.monster.on_hugged(player, ctx.invoked_with))
+					Dispatcher.add(game.channel, game.monster.on_hugged(player, ctx.invoked_with))
 			else:
 				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
 		else:
@@ -375,13 +381,16 @@ class RpgUserCommands(Cog):
 		Equips a weapon to the given hand.
 		(5-second cool-down)
 		"""
-
 		game: Game = await self.utils().get_game(ctx, game_idx)
 		if game is None:
 			return
 
 		player: Player = await self.utils().get_player(ctx, game)
 		if player is None:
+			return
+
+		if player.is_dead():
+			Dispatcher.add(ctx.channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
 		if hand.lower() not in ('left', 'l', 'right', 'r'):
@@ -417,6 +426,10 @@ class RpgUserCommands(Cog):
 
 		player: Player = await self.utils().get_player(ctx, game)
 		if player is None:
+			return
+
+		if player.is_dead():
+			Dispatcher.add(ctx.channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
 		if hand.lower() not in ('left', 'l', 'right', 'r', 'all'):
@@ -530,6 +543,10 @@ class RpgUserCommands(Cog):
 
 		player = await self.utils().get_player(ctx, game)
 		if player is None:
+			return
+
+		if player.is_dead():
+			Dispatcher.add(ctx.channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
 		if flag is None:

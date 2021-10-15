@@ -16,6 +16,7 @@ class Monster(Creature):
 		)
 
 		self.image = None
+		self.aggression = "rampage"
 		self.arrival = "The ground trembles slightly as a giant trudges in."
 		self.flavor = f"This giant would blend in nicely with the surrounding rocks, if {self.pronouns['subject']} " \
 					  f"would stop moving."

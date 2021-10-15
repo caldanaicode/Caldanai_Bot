@@ -17,6 +17,7 @@ class Monster(Creature):
 		)
 
 		self.image = "bandit128.png"
+		self.aggression = "vengeful"
 		self.arrival = f"A masked bandit {choice('stealthily|clumsily|quickly|slowly'.split('|'))} " \
 					   f"{choice('walks|saunters|sashays|sneaks'.split('|'))} out of the " \
 					   f"{choice('bushes|rocks|distance|shadows'.split('|'))}."
@@ -63,7 +64,8 @@ class Monster(Creature):
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
-			f"The bandit breaks down crying at the first affection {self.pronouns['subject']} has ever known.",
+			f"The bandit breaks down crying at the first affection {self.pronouns['subject']} has ever known, "
+			f"as {actor.name} {invocation}s {self.pronouns['object']}.",
 			f"The bandit graciously accepts {actor.name}'s {invocation} while reaching toward {actor.pronouns['possessive']} wallet...",
 			f"The bandit sneers at {actor.name}'s attempt to {invocation} {self.pronouns['object']}."
 		]

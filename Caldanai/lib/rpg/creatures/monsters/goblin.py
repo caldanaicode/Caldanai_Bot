@@ -16,6 +16,7 @@ class Monster(Creature):
 		)
 
 		self.image = None
+		self.aggression = "vengeful"
 		self.arrival = choice([
 			f"With a spluttering snarl, a goblin {choice('bursts|pads|runs'.split('|'))} into the area.",
 			f"A screeching laugh shatters the serenity that once lingered here, as a goblin finds "

@@ -15,6 +15,7 @@ class Monster(Creature):
 		)
 
 		self.image = "owl128.png"
+		self.aggression = "vengeful"
 		self.arrival = f"A genetically improbable creature " \
 					   f"{choice('lurches|trudges|charges|walks|wanders'.split('|'))} " \
 					   f"in from the {choice('north|south|east|west'.split('|'))}."
@@ -37,7 +38,7 @@ class Monster(Creature):
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
-			"Are you really sure you want to do that?",
+			f"Are you really sure you want to do that, {actor.name}?",
 			f"The bearowl looks at {actor.name} suspiciously before accepting the {invocation}.",
 			f"{invocation.capitalize()}s do not work on bearowls, {actor.name}."
 		]

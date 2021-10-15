@@ -5,6 +5,7 @@ from discord.ext import tasks
 from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 
+from .creatures.creature import Creature
 from .creatures.player import Player
 from random import choice, randint
 from asyncio import sleep
@@ -76,9 +77,10 @@ class Game:
 		self.guild = guild
 		self.channel = channel
 		self.players: Dict[int, Player] = {}
-		self.monster = None
+		self.monster: Optional[Creature] = None
 		self.monsters: List[str] = []
 		self.combatants: List[int] = []
+		self.looters: List[int] = []
 		self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
 		self.use_spawn_timer = use_spawn_timer
 		self.spawn_duration = spawn_duration
@@ -95,17 +97,13 @@ class Game:
 		if use_spawn_timer:
 			self.spawn_check.start()
 
-	def get_monster_plugins(self):
-		self.monsters = [
-			filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
-		]
-
 	def cancel_combat(self):
 		"""Clears the current monster, combatants, and loot."""
 
 		self.monster = None
 		self.combatants.clear()
 		self.loot.clear()
+		self.looters.clear()
 		self.spawn_cooldown = self.minutes_min
 		self.stage = 3
 
@@ -133,13 +131,15 @@ class Game:
 	async def on_monster_death(self):
 		"""Generates loot, shows monster death, and clears combatants."""
 
-		for pid in self.combatants:
+		for pid in self.looters:
 			loot = self.monster.get_loot()
-			self.loot[pid] = loot
+			if len(loot) > 0:
+				self.loot[pid] = loot
 
 		msg = self.monster.death
 		self.monster = None
 		self.combatants.clear()
+		self.looters.clear()
 		if len(self.loot) == 0:
 			msg += "\nThere does not appear to be anything to loot, this time."
 		else:
@@ -157,6 +157,24 @@ class Game:
 			player.apply_damage(-player.health_regen)
 			player.health_regen = (player.health_regen + 1) if player.health < player.health_max else 0
 
+	def get_monster(self):
+		self.monsters = [
+			filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
+		]
+		self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(self.monsters)}').Monster()
+		embed, file = self.monster.get_embed()
+		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
+
+	def attack_random_combatant(self) -> str:
+		victim = self.players[choice(self.combatants)]
+		m, d = self.monster.do_attack(victim)
+		if d > 0:
+			victim.apply_damage(d)
+			if victim.is_dead():
+				m += f"\n{victim.name} crumples to the ground lifelessly!"
+				self.combatants.remove(victim.id)
+		return m
+
 	@tasks.loop(count=1)
 	async def do_combat(self):
 		"""Awaits the combat duration, and tallies and displays combat damage."""
@@ -164,35 +182,44 @@ class Game:
 		self.stage = 1
 		self.trigger = self.minutes_min
 
-		self.get_monster_plugins()
-		self.load_monster(choice(self.monsters))
-		embed, file = self.monster.get_embed()
-		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
+		await sleep(self.spawn_duration * 30)
 
-		await sleep(self.spawn_duration * 60)
+		while self.monster is not None:
+			await sleep(self.spawn_duration * 30)
 
-		msg = ""
-		damage = 0
-		for pid in self.combatants:
-			player = self.players[pid]
-			player.health_regen = 0
-			m, d = player.do_attack(self.monster)
-			msg += m
-			damage += d
+			msg = ""
+			damage = 0
+			for pid in self.combatants:
+				player = self.players[pid]
+				player.health_regen = 0
+				if not player.is_dead():
+					if pid not in self.looters:
+						self.looters.append(pid)
+					m, d = player.do_attack(self.monster)
+					msg += m
+					damage += d
 
-		msg += f"Total damage done: {damage:,} vs Health: {self.monster.health:,}\n"
+			msg += f"Total damage done: {damage:,} vs Health: {self.monster.health:,}\n"
 
-		self.monster.apply_damage(damage)
-		if self.monster.is_dead():
-			msgs = Dispatcher.split_message(msg, '```\n', True)
-			for m in msgs:
-				Dispatcher.add(self.channel, m)
-			await self.on_monster_death()
-			self.loot_expires.start()
+			self.monster.apply_damage(damage)
+			if self.monster.is_dead():
+				msgs = Dispatcher.split_message(msg, '```\n', True)
+				for m in msgs:
+					Dispatcher.add(self.channel, m)
+				await self.on_monster_death()
+				self.loot_expires.start()
 
-		else:
-			Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
-			self.cancel_combat()
+			else:
+				if self.monster.aggression in ("rampage", "vengeful") and len(self.combatants) > 0:
+					msg += self.attack_random_combatant()
+					if self.monster.aggression == "rampage":
+						Dispatcher.add(self.channel, f"{msg}\nThe {self.monster.name} seems enraged!")
+						self.combatants.clear()
+						continue
+
+				if self.monster.aggression in ("vengeful", "neutral") or len(self.combatants) == 0:
+					Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
+					self.cancel_combat()
 
 		self.health_regen()
 
@@ -220,6 +247,7 @@ class Game:
 		self.trigger = min(self.trigger, self.minutes_max)
 		r = randint(self.trigger, self.minutes_max)
 		if r == self.minutes_max:
+			self.get_monster()
 			self.do_combat.start()
 			return
 
@@ -259,10 +287,6 @@ class Game:
 		result = MongoDB["games"].update_one({'guildId': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
 		if self.id is None:
 			self.id = result.upserted_id
-
-	# Loads a monster (plugin) from the disk.
-	def load_monster(self, filename) -> None:
-		self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{filename}').Monster()
 
 	@classmethod
 	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:

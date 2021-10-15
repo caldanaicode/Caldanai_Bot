@@ -45,8 +45,8 @@ class RpgAdminCommands(Cog):
 			Dispatcher.add(ctx, "Only a single game per server is supported.")
 
 		else:
-			if MongoDB.games.insert_one({'guildId': ctx.guild.id, 'channelId': ctx.id}):
-				await self.utils().add_game(gid=ctx.guild.id, chid=ctx.id)
+			if MongoDB.games.insert_one({'guildId': ctx.guild.id, 'channelId': ctx.channel.id}):
+				await self.utils().add_game(gid=ctx.guild.id, chid=ctx.channel.id)
 				Dispatcher.add(ctx, "A new game has been started in this channel!")
 				return True
 		
@@ -205,6 +205,7 @@ class RpgAdminCommands(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
+			game.get_monster()
 			game.do_combat.start()
 			return
 		

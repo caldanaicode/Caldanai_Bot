@@ -1,10 +1,11 @@
 from random import random, choice
-from typing import Union, Optional, Dict
+from typing import Union, Optional, Dict, Tuple
 
 from discord import Embed, File
 
 from Caldanai.db.db import MongoDB
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.weapon import Weapon
 
@@ -47,6 +48,8 @@ class Creature:
 		self.loot: Dict[str, float] = {}
 		self.gender: Optional[str] = gender or choice(['male', 'female'])
 		self.is_dirty: bool = False
+		self.aggression = None
+
 		if pronouns:
 			s = pronouns.split(',')
 			self.pronouns: Dict[str, str] = {
@@ -151,3 +154,27 @@ class Creature:
 			self.is_dirty = True
 			return True
 		return False
+
+	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
+		"""
+		Performs an attack against the given creature, without modifying the monster's attributes.
+
+		Returns a tuple containing the attack message and the total damage done.
+		"""
+
+		attack = AttackRoll(skill_bonus=0)
+		damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
+		combined = CombinedRoll(attack, damage, creature.dodge)
+		t_dmg = 0 if combined.isMiss else max(1, combined.result - creature.defense)
+
+		msg = f"{self.name.capitalize()} attacks {creature.name}:```diff\nAttack vs Dodge ({creature.dodge}): " \
+			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
+
+		if not combined.isMiss:
+			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
+				   f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
+
+			msg += f"\n\nTotal ({combined.result}) vs Defense ({creature.defense}) = {t_dmg}"
+
+		msg += "```\n"
+		return msg, t_dmg
