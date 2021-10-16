@@ -289,7 +289,7 @@ class RpgUserCommands(Cog):
 			return
 
 		if player.is_dead():
-			Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}")
+			Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
 			return
 
 		if any(player.userId == pid for pid in game.combatants):
@@ -361,17 +361,20 @@ class RpgUserCommands(Cog):
 
 		(5-second cool-down)
 		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
 		if msg is not None and len(msg) > 0:
-			game, player = await self.utils().get_game_and_player(ctx, False)
 			if player.is_dead():
-				Dispatcher.add(game.channel, f"An lonely sigh slips from the corpse of {player.name}")
-			elif game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
+				Dispatcher.add(game.channel, f"A lonely sigh slips from the corpse of {player.name}.")
+			elif game.monster is not None and game.monster.name.lower() in msg.lower():
 				if game.monster.on_hugged:
 					Dispatcher.add(game.channel, game.monster.on_hugged(player, ctx.invoked_with))
 			else:
-				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
+				Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s {msg}*")
 		else:
-			Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s the air awkwardly.*")
+			Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s the air awkwardly.*")
 		await ctx.message.delete()
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
@@ -390,27 +393,28 @@ class RpgUserCommands(Cog):
 			return
 
 		if player.is_dead():
-			Dispatcher.add(ctx.channel, f"A frustrated wail escapes the corpse of {player.name}.")
+			Dispatcher.add(game.channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
 		if hand.lower() not in ('left', 'l', 'right', 'r'):
-			Dispatcher.add(ctx, "You must specify to which hand the item will be equipped, left (or l) or right (or r)")
+			Dispatcher.add(game.channel, "You must specify to which hand the item will be equipped, left (or l) or "
+									   "right (or r)")
 			return
 
 		if index is None or index < 0 or index >= len(player.inventory):
-			Dispatcher.add(ctx, f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
+			Dispatcher.add(game.channel, f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
 			return
 
 		item = player.inventory.get_by_index(index)
 		if not isinstance(item, Weapon):
-			Dispatcher.add(ctx, f"That item cannot be equipped.")
+			Dispatcher.add(game.channel, f"That item cannot be equipped.")
 			return
 
 		if hand.lower()[0] == 'l':
 			player.equip_left(item)
 		else:
 			player.equip_right(item)
-		Dispatcher.add(ctx, f"{player.name} has equipped {item.get_full_name()}.")
+		Dispatcher.add(game.channel, f"{player.name} has equipped {item.get_full_name()}.")
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Unequips the item in the given hand.')
 	@cooldown(1, 5, BucketType.member)
@@ -429,11 +433,11 @@ class RpgUserCommands(Cog):
 			return
 
 		if player.is_dead():
-			Dispatcher.add(ctx.channel, f"A frustrated wail escapes the corpse of {player.name}.")
+			Dispatcher.add(game.channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
 		if hand.lower() not in ('left', 'l', 'right', 'r', 'all'):
-			Dispatcher.add(ctx, "You must specify which hand to stow, left (or l) or right (or r) or all.")
+			Dispatcher.add(game.channel, "You must specify which hand to stow, left (or l) or right (or r) or all.")
 			return
 
 		msg = ''
@@ -446,7 +450,7 @@ class RpgUserCommands(Cog):
 			msg += f'\n{player.name} stowed {player.rightHand.get_full_name()}.'
 			player.disarm_right()
 
-		Dispatcher.add(ctx, msg or f'You had nothing equipped, {player.name}!')
+		Dispatcher.add(game.channel, msg or f'You had nothing equipped, {player.name}!')
 
 	@command(
 		name='inventory',
@@ -494,9 +498,9 @@ class RpgUserCommands(Cog):
 
 		if 0 <= index < len(player.inventory):
 			embed, file = player.inventory.get_by_index(index).get_embed()
-			Dispatcher.add(ctx, embed=embed, file=file)
+			Dispatcher.add(game.channel, embed=embed, file=file)
 		else:
-			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(game.channel, f"I'm afraid you don't have that, {player.name}")
 
 	@item.error
 	async def item_err(self, ctx, error):
@@ -546,11 +550,12 @@ class RpgUserCommands(Cog):
 			return
 
 		if player.is_dead():
-			Dispatcher.add(ctx.channel, f"A frustrated wail escapes the corpse of {player.name}.")
+			Dispatcher.add(game.channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
 		if flag is None:
-			Dispatcher.add(ctx, "You must specify the item index to sell, the range of indices, a rarity, or 'all' to "
+			Dispatcher.add(game.channel, "You must specify the item index to sell, the range of indices, a rarity, "
+								  "or 'all' to "
 								"sell anything not equipped.")
 			return
 
@@ -568,7 +573,7 @@ class RpgUserCommands(Cog):
 			if item.id not in equipped:
 				sell.append(item)
 			else:
-				Dispatcher.add(ctx, 'You must unequip items before selling them.')
+				Dispatcher.add(game.channel, 'You must unequip items before selling them.')
 				return
 
 		elif isinstance(flag, str):
@@ -590,20 +595,20 @@ class RpgUserCommands(Cog):
 
 					else:
 						Dispatcher.add(
-							ctx,
+							game.channel,
 							f"I'm afraid I can't do that, {player.name}. You may want to check your numbers."
 						)
 						return
 
 				except ValueError:
-					Dispatcher.add(ctx, f"Unable to determine lower and upper indices from {flag}.")
+					Dispatcher.add(game.channel, f"Unable to determine lower and upper indices from {flag}.")
 					return
 			else:
 				sell = [i for i in list(player.inventory.all()) if i is not None and i.rarity.name.lower() ==
 						flag.lower() and i.id not in equipped]
 
 		else:
-			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(game.channel, f"I'm afraid you don't have that, {player.name}")
 			return
 
 		if len(sell) > 0:
@@ -611,7 +616,7 @@ class RpgUserCommands(Cog):
 				msg += f"\n{player.sell(item)}"
 
 		if len(msg) == 0:
-			Dispatcher.add(ctx, f'You had no items to sell, {player.name}')
+			Dispatcher.add(game.channel, f'You had no items to sell, {player.name}')
 			return
 		else:
 			msg = f'{player.name} sold the following items: ```\n{msg}```'
@@ -620,7 +625,7 @@ class RpgUserCommands(Cog):
 		count = 0
 		for m in msgs:
 			Dispatcher.add(
-				ctx,
+				game.channel,
 				('```\n' if count > 0 else '') + m + ('```' if count > 0 and not m.endswith('```') else '')
 			)
 			count += 1
@@ -638,10 +643,10 @@ class RpgUserCommands(Cog):
 		if gender:
 			player.gender = gender.lower()
 			player.is_dirty = True
-			Dispatcher.add(ctx, f"{player.name}'s gender has been set to '{player.gender}'. "
+			Dispatcher.add(game.channel, f"{player.name}'s gender has been set to '{player.gender}'. "
 								f"You may also wish to set your `{ctx.prefix}pronouns`")
 		else:
-			Dispatcher.add(ctx, f"{player.name}'s gender is currently shown as '{player.gender}'.")
+			Dispatcher.add(game.channel, f"{player.name}'s gender is currently shown as '{player.gender}'.")
 
 	@cooldown(1, 5, BucketType.member)
 	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
@@ -654,14 +659,15 @@ class RpgUserCommands(Cog):
 			return
 
 		if pronouns is None:
-			Dispatcher.add(ctx, f"{player.name}'s pronouns are currently shown as '"
+			Dispatcher.add(game.channel, f"{player.name}'s pronouns are currently shown as '"
 								f"{'/'.join(player.pronouns.values())}'.")
 			return
 
 		if isinstance(pronouns, str):
 			p = pronouns.split('/')
 			if len(p) != 3:
-				Dispatcher.add(ctx, f"Please enter pronouns in the form of 'subject/object/possessive'. Example: `"
+				Dispatcher.add(game.channel, f"Please enter pronouns in the form of 'subject/object/possessive'. "
+										  f"Example: `"
 									f"{ctx.prefix}pronouns she/her/her` or `{ctx.prefix}pronouns he/him/his`.")
 				return
 
@@ -669,9 +675,20 @@ class RpgUserCommands(Cog):
 			player.pronouns["object"] = p[1]
 			player.pronouns["possessive"] = p[2]
 			player.is_dirty = True
-			Dispatcher.add(ctx, f"{player.name}'s pronouns have been set to '"
+			Dispatcher.add(game.channel, f"{player.name}'s pronouns have been set to '"
 								f"{'/'.join(player.pronouns.values())}'. You may also wish to set your "
 								f"`{ctx.prefix}gender`")
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='health', brief='Displays the player\'s current health.')
+	async def health(self, ctx):
+		game, player = await self.utils().get_game_and_player(ctx)
+
+		if game is None or player is None:
+			return
+
+		Dispatcher.add(game.channel, f"{player.name}, you're currently at {player.health} / {player.health_max}, "
+							f"and your current regeneration is {player.health_regen} per combat avoided.")
 
 	@Cog.listener()
 	async def on_ready(self):

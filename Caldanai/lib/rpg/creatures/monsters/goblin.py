@@ -47,8 +47,17 @@ class Monster(Creature):
 		if attempt >= actor.dodge:
 			dmg = Dice.quick_roll('1d4')
 			msg += f" {actor.name} is caught off-guard and takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
-			actor.apply_damage(dmg)
+			m = actor.apply_damage(dmg)
+			msg += f"\n{m}" if len(m) > 0 else ""
 		else:
-			msg += f" {actor.name} narrowly avoids the goblin's thrashing!"
+			msg += f"\n{actor.name} narrowly avoids the goblin's thrashing!"
 
 		return msg
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

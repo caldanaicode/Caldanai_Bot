@@ -167,7 +167,7 @@ class Creature:
 		combined = CombinedRoll(attack, damage, creature.dodge)
 		t_dmg = 0 if combined.isMiss else max(1, combined.result - creature.defense)
 
-		msg = f"{self.name.capitalize()} attacks {creature.name}:```diff\nAttack vs Dodge ({creature.dodge}): " \
+		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({creature.dodge}): " \
 			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
 
 		if not combined.isMiss:

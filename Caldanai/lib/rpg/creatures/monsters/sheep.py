@@ -44,3 +44,11 @@ class Monster(Creature):
 			f"A soft bleat escapes the sheep as {actor.name} {invocation}s {self.pronouns['object']}.",
 			f"The sheep wuffles happily and leans into {actor.name}'s {invocation}."
 		])
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

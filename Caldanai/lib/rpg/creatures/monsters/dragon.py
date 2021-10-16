@@ -28,3 +28,11 @@ class Monster(Creature):
 		# TODO: Perhaps attack the hugger in some way.
 		return f"The dragon glowers hungrily at {actor.name}, and sends a wisp of flame in " \
 			   f"{actor.pronouns['possessive']} direction."
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

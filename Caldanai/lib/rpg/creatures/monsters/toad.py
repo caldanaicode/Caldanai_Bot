@@ -30,3 +30,11 @@ class Monster(Creature):
 			"toad slime": 0.9,
 			"mushroom hat": 0.3
 		}
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

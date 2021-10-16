@@ -43,3 +43,11 @@ class Monster(Creature):
 			f"{invocation.capitalize()}s do not work on bearowls, {actor.name}."
 		]
 		return choice(responses)
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

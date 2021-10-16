@@ -1,9 +1,9 @@
-from datetime import datetime
 from queue import Queue
-from typing import Union, Tuple
+from typing import Union, Tuple, Dict
 
 from discord import User, Member, TextChannel, Guild, Embed, File, HTTPException
 from discord.ext import tasks
+from discord.ext.commands import Context
 
 from Caldanai.Logger import stdout
 
@@ -11,23 +11,66 @@ from Caldanai.Logger import stdout
 class Dispatcher:
 	queue: Queue = Queue(-1)
 
+	class Message:
+		"""
+		Container class for message data.
+		"""
+
+		def __init__(
+				self,
+				channel: Union[User, Member, TextChannel, Guild],
+				text: Union[str, Tuple[str], None] = None,
+				embed: Union[Embed, None] = None,
+				file: Union[File, None] = None
+		):
+			self.channel = channel
+			self.text = text
+			self.embed = embed
+			self.file = file
+
+	@classmethod
+	def add_message(cls, message: Message):
+		"""
+		Enqueues a message to the dispatcher.
+
+		:param message: Message object to send.
+		"""
+		if not cls.queue.empty():
+			last_msg: cls.Message = cls.queue.queue[-1]
+			if isinstance(last_msg.channel, type(message.channel)) and last_msg.channel.id == message.channel.id and \
+					last_msg.file is None and last_msg.embed is None and message.embed is None and message.file is None \
+					and len(last_msg.text) + len(message.text) + 1 < 2000:
+				last_msg.text += f"\n{message.text}"
+				stdout("Message grouped successfully!")
+			else:
+				cls.queue.put(message)
+		else:
+			cls.queue.put(message)
+
 	@classmethod
 	def add(
 			cls,
-			context: Union[User, Member, TextChannel, Guild],
-			message: Union[str, Tuple[str], None] = None,
+			channel: Union[User, Member, TextChannel, Guild],
+			text: Union[str, Tuple[str], None] = None,
 			embed: Embed = None,
 			file: File = None
 	):
 		"""
 		Enqueues a message to the dispatcher.
 
-		:param context: The User, Member, TextChannel, or Guild to which the message will be sent.
-		:param message: Optional message to send. Limit of 2000 characters.
+		:param channel: The User, Member, TextChannel, or Guild to which the message will be sent.
+		:param text: Optional message to send. Limit of 2000 characters.
 		:param embed: Optional Embed to send.
 		:param file: Optional File to send.
 		"""
-		cls.queue.put((context, message, embed, file))
+		if isinstance(channel, Context):
+			m = cls.Message(channel.channel, text, embed, file)
+		elif isinstance(channel, (User, Member, TextChannel, Guild)):
+			m = cls.Message(channel, text, embed, file)
+		else:
+			stdout(f"Unrecognized channel type: {type(channel)}")
+			return
+		cls.add_message(m)
 
 	@staticmethod
 	def split_message(message: str, sep: str = '\n', keep_sep: bool = False, limit: int = 1900) -> Tuple[str]:
@@ -68,17 +111,18 @@ async def send():
 
 	count = 0
 	while not Dispatcher.queue.empty() and count < 10:
-		context, message, embed, file = Dispatcher.queue.get()
+		message: Dispatcher.Message = Dispatcher.queue.get()
+		# context, message, embed, file = Dispatcher.queue.get()
 		try:
-			if isinstance(message, str) or message is None:
-				if message is None or len(message) <= 2000:
-					await context.send(message, embed=embed, file=file)
-				elif isinstance(message, Tuple):
-					for msg in message:
-						await context.send(msg)
+			if isinstance(message.text, (str, Tuple)) or message.text is None:
+				if message.text is None or len(message.text) <= 2000:
+					await message.channel.send(message.text, embed=message.embed, file=message.file)
+				elif isinstance(message.text, Tuple):
+					for msg in message.text:
+						await message.channel.send(msg)
 						count += 1
 				else:
-					stdout(f'Message length was too long: {len(message)} characters.')
+					stdout(f'Message length was too long: {len(message.text)} characters.')
 
 		except HTTPException as e:
 			msg = f'HTTP Exception'

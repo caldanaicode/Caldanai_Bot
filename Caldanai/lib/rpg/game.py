@@ -19,6 +19,7 @@ from ...db.db import MongoDB
 from glob import glob
 from os import path
 
+
 class Game:
 	"""
 	Structure for game information.
@@ -128,24 +129,23 @@ class Game:
 		self.spawn_cooldown = self.minutes_min
 		self.stage = 3
 
-	async def on_monster_death(self):
+	def on_monster_death(self) -> str:
 		"""Generates loot, shows monster death, and clears combatants."""
 
+		has_loot = False
 		for pid in self.looters:
 			loot = self.monster.get_loot()
 			if len(loot) > 0:
-				self.loot[pid] = loot
+				has_loot = True
+			self.loot[pid] = loot
 
-		msg = self.monster.death
 		self.monster = None
 		self.combatants.clear()
 		self.looters.clear()
-		if len(self.loot) == 0:
-			msg += "\nThere does not appear to be anything to loot, this time."
+		if has_loot:
+			return f"\nThere might be something to `{self.prefix}loot`..."
 		else:
-			msg += f"\nThere might be something to `{self.prefix}loot`..."
-
-		Dispatcher.add(self.channel, msg)
+			return "\nThere does not appear to be anything to loot, this time."
 
 	def health_regen(self) -> None:
 		"""
@@ -169,10 +169,7 @@ class Game:
 		victim = self.players[choice(self.combatants)]
 		m, d = self.monster.do_attack(victim)
 		if d > 0:
-			victim.apply_damage(d)
-			if victim.is_dead():
-				m += f"\n{victim.name} crumples to the ground lifelessly!"
-				self.combatants.remove(victim.id)
+			m += victim.apply_damage(d)
 		return m
 
 	@tasks.loop(count=1)
@@ -199,21 +196,21 @@ class Game:
 					msg += m
 					damage += d
 
-			msg += f"Total damage done: {damage:,} vs Health: {self.monster.health:,}\n"
+			msg += f"**Total damage done: {damage:,} vs Health: {self.monster.health:,}**\n"
 
-			self.monster.apply_damage(damage)
+			msg += self.monster.apply_damage(damage)
 			if self.monster.is_dead():
+				msg += self.on_monster_death()
 				msgs = Dispatcher.split_message(msg, '```\n', True)
 				for m in msgs:
 					Dispatcher.add(self.channel, m)
-				await self.on_monster_death()
 				self.loot_expires.start()
 
 			else:
 				if self.monster.aggression in ("rampage", "vengeful") and len(self.combatants) > 0:
-					msg += self.attack_random_combatant()
+					msg += f"\n{self.attack_random_combatant()}"
 					if self.monster.aggression == "rampage":
-						Dispatcher.add(self.channel, f"{msg}\nThe {self.monster.name} seems enraged!")
+						Dispatcher.add(self.channel, f"{msg}\n**The {self.monster.name} seems enraged!**")
 						self.combatants.clear()
 						continue
 
@@ -254,12 +251,14 @@ class Game:
 		self.trigger += 1
 		return
 
-	async def kill_monster(self):
+	def kill_monster(self):
 		"""Cancels combat and forces monster death."""
 
 		self.do_combat.cancel()
-		await self.on_monster_death()
+		msg = self.on_monster_death()
 		self.loot_expires.start()
+		if len(msg) > 0:
+			Dispatcher.add(self.channel, msg)
 
 	def to_dict(self):
 		"""Returns the database friendly dictionary for this game."""

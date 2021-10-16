@@ -376,6 +376,14 @@ class Player(Creature):
 		else:
 			return f"Item not found."
 
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return f"{self.name} crumples to the ground lifelessly!"
+
+		return ""
+
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""
 
