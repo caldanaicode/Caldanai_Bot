@@ -119,7 +119,7 @@ class Game:
 
 		self.loot_expires.stop()
 
-		if len(self.loot) > 0:
+		if any([len(loot) for loot in self.loot.values()]) > 0:
 			Dispatcher.add(
 				self.channel,
 				"A swarm of tiny, shadow-clad creatures floods in and makes off with the items on the ground."
@@ -147,15 +147,20 @@ class Game:
 		else:
 			return "\nThere does not appear to be anything to loot, this time."
 
-	def health_regen(self) -> None:
+	def health_regen(self) -> str:
 		"""
 		Applies health regen to players, and increments the health regen amount.
 
-		:return: None
+		:return: A string with messages regarding player health, if any.
 		"""
+		msg = ""
 		for player in self.players.values():
-			player.apply_damage(-player.health_regen)
+			m = player.apply_damage(-player.health_regen)
+			if m:
+				msg += f"\n{m}"
 			player.health_regen = (player.health_regen + 1) if player.health < player.health_max else 0
+
+		return msg
 
 	def get_monster(self):
 		self.monsters = [
@@ -196,7 +201,8 @@ class Game:
 					msg += m
 					damage += d
 
-			msg += f"**Total damage done: {damage:,} vs Health: {self.monster.health:,}**\n"
+			msg += f"Total damage done vs Health:\n \u2800\u2800{damage:,} vs {self.monster.health:,} " \
+				   f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
 
 			msg += self.monster.apply_damage(damage)
 			if self.monster.is_dead():
@@ -218,7 +224,9 @@ class Game:
 					Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 					self.cancel_combat()
 
-		self.health_regen()
+		msg = self.health_regen()
+		if msg:
+			Dispatcher.add(self.channel, msg)
 
 	@tasks.loop(minutes=1)
 	async def spawn_check(self):

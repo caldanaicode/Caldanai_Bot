@@ -221,7 +221,7 @@ class RpgAdminCommands(Cog):
 			Dispatcher.add(game.channel, "There is no monster present!")
 			return
 		
-		await game.kill_monster()
+		game.kill_monster()
 
 	# Additional maintenance after cog loads.
 	@Cog.listener()

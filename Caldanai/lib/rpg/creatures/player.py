@@ -118,21 +118,28 @@ class Player(Creature):
 		dmg = floor(self.get_skill_level(skill) / 4)
 		return atk, dmg
 
+	def update_roll_count(self, sides: int, value: int):
+		"""Updates the player's roll count for an individual die roll."""
+
+		if sides <= 1 or 1 > value or value > sides or f'd{sides}' not in self.rolls.keys():
+			return
+
+		self.rolls[f'd{sides}'][value - 1] += 1
+		self.isDirty = True
+
 	def update_roll_counts(self, left: Optional[CombinedRoll], right: Optional[CombinedRoll]):
 		"""Updates the player's attack and damage averages."""
 
 		if left and left.attack:
-			self.rolls['d20'][left.attack.rolls[0] - 1] += 1
+			self.update_roll_count(20, left.attack.rolls[0])
 			if not left.isMiss:
 				for r in left.damage.rolls:
-					self.rolls[f'd{left.damage.sides}'][r - 1] += 1
+					self.update_roll_count(left.damage.sides, r)
 		if right and right.attack:
-			self.rolls['d20'][right.attack.rolls[0] - 1] += 1
+			self.update_roll_count(20, right.attack.rolls[0])
 			if not right.isMiss:
 				for r in right.damage.rolls:
-					self.rolls[f'd{right.damage.sides}'][r - 1] += 1
-
-		self.isDirty = True
+					self.update_roll_count(right.damage.sides, r)
 
 	def get_skill_level(self, skill: str) -> int:
 		"""Return the skill level for the given skill."""
@@ -372,7 +379,7 @@ class Player(Creature):
 		if sold:
 			self.clarks += value
 			self.isDirty = True
-			return f"You sold {item.get_full_name()} for {item.value} clarks."
+			return f"You sold {item.get_full_name()} for {item.value} clark{'s' if item.value != 1 else ''}."
 		else:
 			return f"Item not found."
 
@@ -381,6 +388,9 @@ class Player(Creature):
 		super().apply_damage(amount)
 		if was_alive and self.is_dead():
 			return f"{self.name} crumples to the ground lifelessly!"
+
+		if not was_alive and not self.is_dead():
+			return f"{self.member.mention} suddenly gasps raggedly as life returns to {self.pronouns['object']}!"
 
 		return ""
 

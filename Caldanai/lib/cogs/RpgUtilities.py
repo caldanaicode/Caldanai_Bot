@@ -1,7 +1,9 @@
 from typing import List, Union
 
+import discord.channel
+from discord import Member, User
 from discord.ext import tasks
-from discord.ext.commands import Cog
+from discord.ext.commands import Cog, Context
 from pymongo import UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
@@ -31,7 +33,7 @@ class RpgUtilities(Cog):
 	# Adds a game to the bot's list of games
 	async def add_game(
 			self, game: dict = None, gid: int = None, chid: int = None, timer: bool = True,
-			spawnMinutesMax: int = 60, spawnMinutesMin: int = 10, spawnDuration: int = 10, lootDuration: int = 5
+			spawn_mins_max: int = 60, spawn_mins_min: int = 10, spawn_duration: int = 10, loot_duration: int = 5
 	):
 		if gid is not None and chid is not None:
 			guild = self.bot.get_guild(gid) or await self.bot.fetch_guild(gid)
@@ -40,8 +42,8 @@ class RpgUtilities(Cog):
 
 			if game is None:
 				game = Game(
-					self.bot, None, guild, channel, timer, spawnMinutesMax, spawnMinutesMin, spawnDuration,
-					lootDuration, prefix
+					self.bot, None, guild, channel, timer, spawn_mins_max, spawn_mins_min, spawn_duration,
+					loot_duration, prefix
 				)
 				game.save()
 
@@ -123,14 +125,19 @@ class RpgUtilities(Cog):
 		if game is None:
 			return None
 
-		if ctx.author.id not in game.players.keys():
-			if notify:
-				Dispatcher.add(
-					game.channel,
-					f'Why, {ctx.author.display_name}! You are not even playing the game! Try `{ctx.prefix}game join`'
-				)
-		else:
-			return game.players[ctx.author.id]
+		if isinstance(ctx, Context):
+			if ctx.author.id not in game.players.keys():
+				if notify:
+					Dispatcher.add(
+						game.channel,
+						f'Why, {ctx.author.display_name}! You are not even playing the game! Try `{ctx.prefix}game '
+						f'join`'
+					)
+			else:
+				return game.players[ctx.author.id]
+		elif isinstance(ctx, (Member, User)):
+			return game.players[ctx.id]
+
 		return None
 
 	# Returns a tuple containing (game, player) if both exist.

@@ -38,10 +38,9 @@ class Dispatcher:
 		if not cls.queue.empty():
 			last_msg: cls.Message = cls.queue.queue[-1]
 			if isinstance(last_msg.channel, type(message.channel)) and last_msg.channel.id == message.channel.id and \
-					last_msg.file is None and last_msg.embed is None and message.embed is None and message.file is None \
-					and len(last_msg.text) + len(message.text) + 1 < 2000:
+				last_msg.file is None and last_msg.embed is None and message.embed is None and message.file is None \
+				and len(last_msg.text) + len(message.text) + 1 < 2000:
 				last_msg.text += f"\n{message.text}"
-				stdout("Message grouped successfully!")
 			else:
 				cls.queue.put(message)
 		else:

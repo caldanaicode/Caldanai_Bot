@@ -21,7 +21,13 @@ class Monster(Creature):
 		self.death = f"The dragon gives a final bellow of rage and disbelief as {self.pronouns['subject']} falls to " \
 					 f"the ground. {self.pronouns['possessive'].capitalize()} thrashing lasts but a moment, " \
 					 f"then all is still."
-		self.loot: Dict[str, float] = {}
+		self.loot: Dict[str, float] = {
+			"small gem": 0.7,
+			"tee-shirt": 0.2,
+			"candy": 0.3,
+			"heavy stringed instrument": 0.2,
+			"mace": 0.3
+		}
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
