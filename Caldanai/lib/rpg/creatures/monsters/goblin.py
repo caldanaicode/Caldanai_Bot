@@ -2,7 +2,7 @@ from typing import Dict
 
 from random import choice
 from Caldanai.lib.rpg.creatures.creature import Creature
-from Caldanai.lib.rpg.helpers.parser import Parser
+from Caldanai.lib.rpg.helpers.dice import Dice
 
 
 class Monster(Creature):
@@ -16,23 +16,23 @@ class Monster(Creature):
 		)
 
 		self.image = None
-		self.arrival = Parser.parse(choice([
-			"With a spluttering snarl, a goblin {bursts|pads|runs} into the area.",
-			"A screeching laugh shatters the serenity that once lingered here, as a goblin finds it way hither."
-		]))
+		self.aggression = "vengeful"
+		self.arrival = choice([
+			f"With a spluttering snarl, a goblin {choice('bursts|pads|runs'.split('|'))} into the area.",
+			f"A screeching laugh shatters the serenity that once lingered here, as a goblin finds "
+			f"{self.pronouns['possessive']} way hither."
+		])
 
-		self.flavor = Parser.parse(choice([
-			"This goblin is so ugly it's almost cute.",
+		self.flavor = choice([
+			f"This goblin is so ugly {self.pronouns['subject']} is almost cute.",
 			"A green and gray blob of stupidity."
-		]))
+		])
 
-		self.escape = Parser.parse(choice([
-			"The goblin snorts, a vacant eye roaming the surroundings before it trudges off."
-		]))
-
-		self.death = Parser.parse(choice([
-			"The goblin's eyes bulge as if it only now realized it was outmatched, and it flops onto the ground unceremoniously."
-		]))
+		self.escape = f"The goblin snorts, a vacant eye roaming the surroundings before {self.pronouns['subject']} " \
+					  f"trudges off."
+		self.death = f"The goblin's eyes bulge as if {self.pronouns['subject']} only now realized " \
+					 f"{self.pronouns['subject']} was outmatched, and {self.pronouns['subject']} flops onto the " \
+					 f"ground unceremoniously."
 
 		self.loot: Dict[str, float] = {
 			"stick": 0.5,
@@ -41,9 +41,23 @@ class Monster(Creature):
 		}
 
 	# Reacts to hugs.
-	def on_hugged(self, name: str, invocation: str) -> str:
-		# TODO: Perhaps this goblin should attack in response? Or maybe the erratic flailing damages the hugger...
-		responses = [
-			"The goblin hoots at $n and backs away, flailing erratically."
-		]
-		return Parser.parse(choice(responses), name, invocation)
+	def on_hugged(self, actor: Creature, invocation: str) -> str:
+		msg = f"The goblin hoots at {actor.name} and backs away, flailing erratically."
+		attempt = Dice.quick_roll('1d20')
+		if attempt >= actor.dodge:
+			dmg = Dice.quick_roll('1d4')
+			msg += f" {actor.name} is caught off-guard and takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
+			m = actor.apply_damage(dmg)
+			msg += f"\n{m}" if len(m) > 0 else ""
+		else:
+			msg += f"\n{actor.name} narrowly avoids the goblin's thrashing!"
+
+		return msg
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

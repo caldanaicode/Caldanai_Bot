@@ -2,7 +2,6 @@ from typing import Dict
 
 from random import choice
 from Caldanai.lib.rpg.creatures.creature import Creature
-from Caldanai.lib.rpg.helpers.parser import Parser
 
 
 class Monster(Creature):
@@ -16,26 +15,22 @@ class Monster(Creature):
 		)
 
 		self.image = None
-		self.arrival = Parser.parse(choice([
-			"A fluffy mass of fur {saunters|ambles|prances|skitters|tiptoes|wanders} in from the {"
-			"north|south|east|west|northeast|northwest|southeast|southwest}."
-		]))
+		self.aggression = "neutral"
+		self.arrival = f"A fluffy mass of fur {choice('saunters|ambles|prances|skitters|tiptoes|wanders'.split('|'))} " \
+					   f"in from the {choice('north|south|east|west|northeast|northwest|southeast|southwest'.split('|'))}."
 
-		self.flavor = Parser.parse(choice([
+		self.flavor = choice([
 			"Just a cuddly sheep, searching the lonely fields for hugs.",
 			"Ple-e-e-e-ease don't kill me-e-e-e-e.",
-			"A sleepy looking sheep, seeking naught but the warmth of her barn."
-		]))
+			f"A sleepy looking sheep, seeking naught but the warmth of {self.pronouns['possessive']} barn."
+		])
 
-		self.escape = Parser.parse(choice([
-			"The sheep {slips|bounds|wanders} away merrily, not a care in the world."
-		]))
-
-		self.death = Parser.parse(choice([
+		self.escape = f"The sheep {choice('slips|bounds|wanders'.split('|'))} away merrily, not a care in the world."
+		self.death = choice([
 			"The sheep gurgles out a final, sad, bleating cry, and goes still.",
 			"Eyes rolling wildly in terror and pain, the sheep stumbles and falls to the ground motionless.",
 			"A final wheezing breath escapes slowly, as the sheep collapses to the ground in a twitching heap."
-		]))
+		])
 
 		self.loot: Dict[str, float] = {
 			"stick": 0.5,
@@ -43,10 +38,17 @@ class Monster(Creature):
 			"leather": 0.25
 		}
 
-	# Reacts to hugs.
-	def on_hugged(self, name: str, invocation: str) -> str:
-		responses = [
-			"The sheep glances at $n, but apparently decides to allow the $c.",
-			"A soft bleat escapes the sheep as $n $cs it."
-		]
-		return Parser.parse(choice(responses), name, invocation)
+	def on_hugged(self, actor: Creature, invocation: str) -> str:
+		return choice([
+			f"The sheep glances at {actor.name}, but apparently decides to allow the {invocation}.",
+			f"A soft bleat escapes the sheep as {actor.name} {invocation}s {self.pronouns['object']}.",
+			f"The sheep wuffles happily and leans into {actor.name}'s {invocation}."
+		])
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

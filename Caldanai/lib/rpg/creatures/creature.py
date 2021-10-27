@@ -1,38 +1,78 @@
-from random import random
-from typing import Union, Optional, Dict
+from random import random, choice
+from typing import Union, Optional, Dict, Tuple
 
 from discord import Embed, File
 
 from Caldanai.db.db import MongoDB
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.weapon import Weapon
 
 
 class Creature:
+	"""
+	An instance of a creature object.
+	"""
+
 	def __init__(
 			self,
 			name: Optional[str],
 			atk: Optional[str],
 			defense: Optional[Union[str, int]],
 			dodge: Optional[Union[str, int]],
-			health: Optional[Union[str, int]]
+			health: Optional[Union[str, int]],
+			gender: Optional[str] = None,
+			pronouns: Optional[str] = None
 	):
+		"""
+		Creates a new instance of a creature object.
+
+		:param name: The creature's name or noun. Defaults to ''.
+		:param atk: The creature's attack strength as an ndn string. Defaults to '1d4'.
+		:param defense: The creature's defense strength as an integer or ndn string. Defaults to 1.
+		:param dodge: The creature's dodge ability as an integer or ndn string. Defaults to 1.
+		:param health: The creature's max health as an integer or ndn string. Defaults to 1.
+		:param gender: The creature's gender as a string. Will randomly choose between 'male' and 'female' for NPCs	if not provided. For players, the gender can be defined by the player.
+		:param pronouns: The creature's pronouns as a comma-separated string in the format of 'subject, object,	possessive'. For example, a female's pronouns will default to 'she, her, hers' if no pronouns are provided.
+		"""
 		self.name = name or ''
 		self.attack = atk or '1d4'
 		self.defense = Dice.quick_roll(defense) if isinstance(defense, str) else defense if defense else 1
 		self.dodge = Dice.quick_roll(dodge) if isinstance(dodge, str) else dodge if dodge else 1
-		self.health = Dice.quick_roll(health) if isinstance(health, str) else health if health else 1
+		self.health_max = Dice.quick_roll(health) if isinstance(health, str) else health if health else 1
+		self.health = self.health_max
 		self.flavor = ''
 		self.image = None
+		self.clarks = 0
 		self.loot: Dict[str, float] = {}
+		self.gender: Optional[str] = gender or choice(['male', 'female'])
+		self.is_dirty: bool = False
+		self.aggression = None
 
-	# Returns an embed populated with the creature's details.
+		if pronouns:
+			s = pronouns.split(',')
+			self.pronouns: Dict[str, str] = {
+				'subject': s[0].strip(),
+				'object': s[1].strip(),
+				'possessive': s[2].strip()
+			}
+		else:
+			self.pronouns: Dict[str, str] = {
+				'subject': 'he' if self.gender == 'male' else 'she' if self.gender == 'female' else 'it',
+				'object': 'him' if self.gender == 'male' else 'her' if self.gender == 'female' else 'it',
+				'possessive': 'his' if self.gender == 'male' else 'her' if self.gender == 'female' else 'its'
+			}
+
 	def get_embed(self) -> tuple:
-		"""Returns a tuple containing (Embed, File) for the creature's details"""
+		"""
+		Generates a discord embed and image file for displaying information about this creature.
+
+		:return: A tuple containing (Embed, File) for the creature's details
+		"""
 
 		embed = Embed(
-			title=self.name.title(),
+			title=f'{self.name.title()}',
 			description=self.flavor,
 			color=0xffcc00
 		)
@@ -45,7 +85,7 @@ class Creature:
 			("Attack", self.attack, True),
 			("Defense", self.defense, True),
 			("Dodge", self.dodge, True),
-			("Health", self.health, True)
+			("Health", f"{self.health} / {self.health_max}", True)
 		]
 
 		for f, v, i in fields:
@@ -69,6 +109,72 @@ class Creature:
 						items.append(Weapon.from_dict(i))
 		return items
 
-	# Reacts to hugs.
-	def on_hugged(self, name: str, invocation: str) -> str:
-		return f"The {self.name} ignores the hug."
+	def on_hugged(self, actor: "Creature", invocation: str) -> str:
+		"""
+		Gets a creature's reaction to being hugged.
+
+		:param actor: The Creature object initiating the hug.
+		:param invocation: The calling command, such as 'hug', 'cuddle', or 'snuggle'.
+		:return: A string representing the creature's reaction.
+		"""
+		if self.is_dead():
+			return f"{self.name.capitalize()}'s corpse rolls lifelessly in {actor.name}'s arms."
+		return f"The {self.name} glances at {actor.name} and sidesteps {actor.pronouns['possessive']} hug."
+
+	# Applies damage (or healing if amount is negative) to the creature's health.
+	def apply_damage(self, amount: int) -> None:
+		"""
+		Applies damage (or healing if amount is negative) to the creature's health.
+
+		:param amount: Integer representing the amount by which to adjust health.
+		:return: None
+		"""
+		self.health -= amount
+		self.health = max(0, self.health)
+		self.health = min(self.health, self.health_max)
+
+	# Returns a boolean indicating whether or not the creature's health is depleted.
+	def is_dead(self) -> bool:
+		"""
+		Returns a boolean indicating whether or not the creature's health is depleted.
+
+		:return: True if health <= 0, otherwise False.
+		"""
+		return self.health <= 0
+
+	def give_clarks(self, amount: int) -> bool:
+		"""
+		Gives (or removes, if negative amount is passed) clarks to the creature.
+
+		:param amount: The amount to adjust clarks by.
+		:return: True if the exchange succeeded, otherwise False.
+		"""
+		if self.clarks + amount > 0:
+			self.clarks += amount
+			self.is_dirty = True
+			return True
+		return False
+
+	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
+		"""
+		Performs an attack against the given creature, without modifying the monster's attributes.
+
+		Returns a tuple containing the attack message and the total damage done.
+		"""
+
+		attack = AttackRoll(skill_bonus=0)
+		damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
+		combined = CombinedRoll(attack, damage, creature.dodge)
+		t_dmg = 0 if combined.isMiss else max(1, combined.result - creature.defense)
+
+		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({creature.dodge}): " \
+			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
+
+		if not combined.isMiss:
+			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
+				   f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
+
+			msg += f"\n\nTotal ({combined.result}) vs Defense ({creature.defense}) = {t_dmg}"
+
+		msg += "```\n"
+		return msg, t_dmg

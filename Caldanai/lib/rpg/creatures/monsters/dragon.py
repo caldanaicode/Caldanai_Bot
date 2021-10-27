@@ -1,8 +1,6 @@
 from typing import Dict
 
-from random import choice
 from Caldanai.lib.rpg.creatures.creature import Creature
-from Caldanai.lib.rpg.helpers.parser import Parser
 
 
 class Monster(Creature):
@@ -16,30 +14,31 @@ class Monster(Creature):
 		)
 
 		self.image = None
-		self.arrival = Parser.parse(choice([
-			"A piercing roar rocks the heavens, as a dragon swoops down out of the clouds searching for prey."
-		]))
-
-		self.flavor = Parser.parse(choice([
-			"A massive red dragon, smelling faintly of cinnamon and charcoal."
-		]))
-
-		self.escape = Parser.parse(choice([
-			"The dragon circles the area lazily before taking to the clouds, disappearing from sight."
-		]))
-
-		self.death = Parser.parse(choice([
-			"The dragon gives a final bellow of rage and disbelief as it falls to the ground. It's thrashing lasts "
-			"but a moment, then all is still."
-		]))
-
+		self.aggression = "rampage"
+		self.arrival = "A piercing roar rocks the heavens, as a dragon swoops down out of the clouds searching for prey."
+		self.flavor = "A massive red dragon, smelling faintly of cinnamon and charcoal."
+		self.escape = "The dragon circles the area lazily before taking to the clouds, disappearing from sight."
+		self.death = f"The dragon gives a final bellow of rage and disbelief as {self.pronouns['subject']} falls to " \
+					 f"the ground. {self.pronouns['possessive'].capitalize()} thrashing lasts but a moment, " \
+					 f"then all is still."
 		self.loot: Dict[str, float] = {
+			"small gem": 0.7,
+			"tee-shirt": 0.2,
+			"candy": 0.3,
+			"heavy stringed instrument": 0.2,
+			"mace": 0.3
 		}
 
 	# Reacts to hugs.
-	def on_hugged(self, name: str, invocation: str) -> str:
+	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		# TODO: Perhaps attack the hugger in some way.
-		responses = [
-			"The dragon glowers hungrily at $n, and sends a wisp of flame in their direction."
-		]
-		return Parser.parse(choice(responses), name, invocation)
+		return f"The dragon glowers hungrily at {actor.name}, and sends a wisp of flame in " \
+			   f"{actor.pronouns['possessive']} direction."
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

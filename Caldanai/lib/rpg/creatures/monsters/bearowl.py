@@ -2,7 +2,6 @@ from typing import Dict
 
 from random import choice
 from Caldanai.lib.rpg.creatures.creature import Creature
-from Caldanai.lib.rpg.helpers.parser import Parser
 
 
 class Monster(Creature):
@@ -16,36 +15,39 @@ class Monster(Creature):
 		)
 
 		self.image = "owl128.png"
-		self.arrival = Parser.parse(choice([
-			"A genetically improbable creature {lurches|trudges|charges|walks|wanders} in from the {"
-			"north|south|east|west}."
-		]))
+		self.aggression = "vengeful"
+		self.arrival = f"A genetically improbable creature " \
+					   f"{choice('lurches|trudges|charges|walks|wanders'.split('|'))} " \
+					   f"in from the {choice('north|south|east|west'.split('|'))}."
 
-		self.flavor = Parser.parse(choice([
+		self.flavor = choice([
 			"Legally distinct from any similarly-named creatures.",
 			"Hoo.  Hoo.  A frickin' bearowl, that's who.",
 			"Trust me, you don't want to know."
-		]))
+		])
 
-		self.escape = Parser.parse(choice([
-			"The bearowl, silent as a jackhammer, slips away."
-		]))
-
-		self.death = Parser.parse(choice([
+		self.escape = "The bearowl, silent as a jackhammer, slips away."
+		self.death = choice([
 			"The bearowl gives a final howl of pain and terror before crumpling to the ground.",
 			"After a last-ditch effort to escape your fury, the bearowl collapses into lifelessness.",
 			"The abomination of nature will no more threaten your sense of reason."
-		]))
+		])
 
-		self.loot: Dict[str, float] = {
-		}
+		self.loot: Dict[str, float] = {}
 
 	# Reacts to hugs.
-	def on_hugged(self, name: str, invocation: str) -> str:
-		# TODO: Perhaps attack the hugger in some way.
+	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
-			"Are you really sure you want to do that?",
-			"The bearowl looks at $n suspiciously before accepting the $c.",
-			"$cs do not work on bearowls, $n."
+			f"Are you really sure you want to do that, {actor.name}?",
+			f"The bearowl looks at {actor.name} suspiciously before accepting the {invocation}.",
+			f"{invocation.capitalize()}s do not work on bearowls, {actor.name}."
 		]
-		return Parser.parse(choice(responses), name, invocation)
+		return choice(responses)
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

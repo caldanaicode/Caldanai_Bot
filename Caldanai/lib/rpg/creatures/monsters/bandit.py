@@ -1,8 +1,9 @@
+import random
 from typing import Dict
 
 from random import choice
 from Caldanai.lib.rpg.creatures.creature import Creature
-from Caldanai.lib.rpg.helpers.parser import Parser
+from Caldanai.lib.rpg.helpers.dice import Dice
 
 
 class Monster(Creature):
@@ -16,27 +17,27 @@ class Monster(Creature):
 		)
 
 		self.image = "bandit128.png"
-		self.arrival = Parser.parse(choice([
-			"A masked bandit {stealthily|clumsily|quickly|slowly} {walks|saunters|sashays|sneaks} out of the {"
-			"bushes|rocks|distance|shadows}."
-		]))
+		self.aggression = "vengeful"
+		self.arrival = f"A masked bandit {choice('stealthily|clumsily|quickly|slowly'.split('|'))} " \
+					   f"{choice('walks|saunters|sashays|sneaks'.split('|'))} out of the " \
+					   f"{choice('bushes|rocks|distance|shadows'.split('|'))}."
 
-		self.flavor = Parser.parse(choice([
+		self.flavor = choice([
 			"Your money or your life.",
 			"This is a stick up.",
 			"You'll never take me alive."
-		]))
+		])
 
-		self.escape = Parser.parse(choice([
+		self.escape = choice([
 			"The bandit runs off, taking whatever she can grab.",
 			"Other horizons call the bandit away."
-		]))
+		])
 
-		self.death = Parser.parse(choice([
+		self.death = choice([
 			"The bandit dies, and shall no longer steal from the rich and give to the poor.",
 			"The bandit coughs blood before collapsing to the ground.",
 			'"In another life, you could have been me," the bandit gasps with her dying breath.'
-		]))
+		])
 
 		self.loot: Dict[str, float] = {
 			"shortsword": 0.2,
@@ -46,12 +47,39 @@ class Monster(Creature):
 			"wallet": 0.25
 		}
 
-	# Reacts to hugs.
-	def on_hugged(self, name: str, invocation: str) -> str:
-		# TODO: Perhaps attack the hugger in some way, or steal from them
+	def steal(self, target: Creature) -> str:
+		"""
+		Attempts to steal a creature's wealth.
+
+		:param target: The creature being targeted.
+		:return: A string indicating the results of the theft.
+		"""
+
+		amount = random.randint(1, int(target.clarks / 10))
+		attempt = Dice.quick_roll("1d20")
+		if attempt >= target.dodge:
+			target.give_clarks(-amount)
+			return f"\n{target.name}'s wallet suddenly feels lighter... {amount} clarks were lost!"
+		return f"\n{target.name} easily avoids the bandit's groping fingers."
+
+	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
-			"The bandit breaks down crying at the first affection she has ever known.",
-			"The bandit graciously accepts $n's $c while reaching toward their wallet.",
-			"The bandit sneers at $n's attempt to $c it."
+			f"The bandit breaks down crying at the first affection {self.pronouns['subject']} has ever known, "
+			f"as {actor.name} {invocation}s {self.pronouns['object']}.",
+			f"The bandit graciously accepts {actor.name}'s {invocation} while reaching toward {actor.pronouns['possessive']} wallet...",
+			f"The bandit sneers at {actor.name}'s attempt to {invocation} {self.pronouns['object']}."
 		]
-		return Parser.parse(choice(responses), name, invocation)
+
+		response = choice(responses)
+		if response == responses[1]:
+			response += f"\n{self.steal(actor)}"
+
+		return response
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""

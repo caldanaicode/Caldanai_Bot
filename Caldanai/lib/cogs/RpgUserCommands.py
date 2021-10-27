@@ -1,4 +1,6 @@
+import math
 from io import BytesIO
+from random import choice
 
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 from discord.ext.commands.errors import MissingRequiredArgument
@@ -11,8 +13,10 @@ import matplotlib.pyplot as plt
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
+from Caldanai.lib.rpg.creatures.creature import Creature
 from Caldanai.lib.rpg.game import Game
 from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.weapon import Weapon
 from Caldanai.db.db import MongoDB
@@ -42,7 +46,6 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(ctx, "This command cannot be used on its own.")
 			return
 
-	# Adds a player to the RPG system if they don't already exist.
 	@game.command(brief="Adds a player to the RPG system.")
 	async def join(self, ctx):
 		"""
@@ -58,6 +61,7 @@ class RpgUserCommands(Cog):
 		if player is None:
 			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=datetime.now())
 			player.member = ctx.author
+			player.name = ctx.author.display_name
 			player.isDirty = True
 			game.players[ctx.author.id] = player
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
@@ -65,7 +69,6 @@ class RpgUserCommands(Cog):
 		else:
 			Dispatcher.add(game.channel, f'You are already a player in this RPG, {ctx.author.display_name}!')
 
-	# Removes a player from the RPG system.
 	@game.command(name="leave", brief="Removes the player from the RPG system.")
 	async def leave(self, ctx, gid: int = None):
 		"""
@@ -85,7 +88,6 @@ class RpgUserCommands(Cog):
 			game.save()
 			Dispatcher.add(game.channel, f'You have been removed from the game, {ctx.author.display_name}!')
 
-	# Lists all players of the current RPG.
 	@command(brief="Lists the current players in a game.")
 	@cooldown(1, 10, BucketType.guild)
 	async def players(self, ctx, gid: int = None):
@@ -107,12 +109,11 @@ class RpgUserCommands(Cog):
 
 		embed = Embed(
 			title=f"There {'is' if length == 1 else 'are'} currently {length:,} player{'' if length == 1 else 's'}.",
-			description=msg.strip()+'```' if len(msg) > 4 else None
+			description=msg.strip() + '```' if len(msg) > 4 else None
 		)
 		embed.set_thumbnail(url=game.guild.icon_url)
 		Dispatcher.add(game.channel, embed=embed)
 
-	# Send a DM to the player with their profile.
 	@command(brief="Shows a player's profile.")
 	@cooldown(1, 10, BucketType.member)
 	async def profile(self, ctx, gid: int = None):
@@ -167,7 +168,7 @@ class RpgUserCommands(Cog):
 	async def chart(self, ctx, *options: str):
 		"""
 		Generates a chart using the specified options.
-		:param ctx: The Discord context of the command.
+
 		:param options: Options for the display of the chart and data.
 			[d4, d6, d8, d10, d12, d20] The dice rolls for which to show data. Default is d20.
 			[bar, barh, area, line] The type of chart to show. Default is bar.
@@ -264,10 +265,9 @@ class RpgUserCommands(Cog):
 		Dispatcher.add(ctx, file=file)
 		Dispatcher.add(ctx, f"Count: {rolls:,}, Mean: {mean:.2f}")
 
-	# Attacks the current monster.
 	@command(
 		name='attack',
-		aliases=['kill', 'murder', 'destroy', 'obliterate', 'slaughter'],
+		aliases=['annihilate', 'kill', 'murder', 'destroy', 'obliterate', 'slaughter', 'slay'],
 		brief="Attacks the critter currently daring to show it's face to intrepid adventurers!"
 	)
 	@guild_only()
@@ -287,6 +287,10 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(game.channel, "You see nothing to attack!")
 			return
 
+		if player.is_dead():
+			Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
+			return
+
 		if any(player.userId == pid for pid in game.combatants):
 			Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
 			return
@@ -294,13 +298,13 @@ class RpgUserCommands(Cog):
 		game.combatants.append(player.userId)
 		Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
 
-	# Loots the current monster, if it was defeated.
 	@command(aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
 	async def loot(self, ctx):
 		"""
 		Loots the remains of a recently-felled foe.
+
 		(10-second cool-down)
 		"""
 
@@ -333,7 +337,7 @@ class RpgUserCommands(Cog):
 				txt = ', '.join([f'{d.get_full_name()}' for d in dropped]).rsplit(', ', 1)
 				txt = ' and '.join(txt)
 				msg += f" It appears you may have a hoarding problem, though. The following item" \
-					f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
+					   f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
 		else:
 			msg = f"{player.name} pokes around the corpse, finding nothing useful."
 
@@ -343,7 +347,6 @@ class RpgUserCommands(Cog):
 
 		Dispatcher.add(game.channel, msg)
 
-	# Hugs, snuggles, or cuddles!
 	@command(name='hug', aliases=['snuggle', 'cuddle'], brief='Hugs, snuggles, and cuddles for all of your needs!')
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
@@ -356,15 +359,23 @@ class RpgUserCommands(Cog):
 
 		(5-second cool-down)
 		"""
-		if msg is not None and len(msg) > 0:
-			game: Game = await self.utils().get_game(ctx, False)
-			if game is not None and game.monster is not None and game.monster.name.lower() in msg.lower():
+		game, player = await self.utils().get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
+		if player.is_dead():
+			Dispatcher.add(game.channel, f"A lonely sigh slips from the corpse of {player.name}.")
+
+		elif msg is not None and len(msg) > 0:
+			if game.monster is not None and game.monster.name.lower() in msg.lower():
 				if game.monster.on_hugged:
-					Dispatcher.add(ctx, game.monster.on_hugged(ctx.author.display_name, ctx.invoked_with))
+					Dispatcher.add(game.channel, game.monster.on_hugged(player, ctx.invoked_with))
 			else:
-				Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s {msg}*")
+				Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s {msg}*")
+
 		else:
-			Dispatcher.add(ctx, f"*{ctx.author.display_name} {ctx.invoked_with}s the air awkwardly.*")
+			Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s the air awkwardly.*")
+
 		await ctx.message.delete()
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
@@ -374,7 +385,6 @@ class RpgUserCommands(Cog):
 		Equips a weapon to the given hand.
 		(5-second cool-down)
 		"""
-
 		game: Game = await self.utils().get_game(ctx, game_idx)
 		if game is None:
 			return
@@ -383,30 +393,36 @@ class RpgUserCommands(Cog):
 		if player is None:
 			return
 
+		if player.is_dead():
+			Dispatcher.add(game.channel, f"A frustrated wail escapes the corpse of {player.name}.")
+			return
+
 		if hand.lower() not in ('left', 'l', 'right', 'r'):
-			Dispatcher.add(ctx, "You must specify to which hand the item will be equipped, left (or l) or right (or r)")
+			Dispatcher.add(game.channel, "You must specify to which hand the item will be equipped, left (or l) or "
+										 "right (or r)")
 			return
 
 		if index is None or index < 0 or index >= len(player.inventory):
-			Dispatcher.add(ctx, f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
+			Dispatcher.add(game.channel, f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
 			return
 
 		item = player.inventory.get_by_index(index)
 		if not isinstance(item, Weapon):
-			Dispatcher.add(ctx, f"That item cannot be equipped.")
+			Dispatcher.add(game.channel, f"That item cannot be equipped.")
 			return
 
 		if hand.lower()[0] == 'l':
 			player.equip_left(item)
 		else:
 			player.equip_right(item)
-		Dispatcher.add(ctx, f"You have equipped {item.get_full_name()}.")
+		Dispatcher.add(game.channel, f"{player.name} has equipped {item.get_full_name()}.")
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Unequips the item in the given hand.')
 	@cooldown(1, 5, BucketType.member)
 	async def stow(self, ctx, hand: str, game_idx: int = None):
 		"""
 		Unequips a weapon from the given hand, or all equipped items.
+
 		(5-second cool-down)
 		"""
 
@@ -418,8 +434,12 @@ class RpgUserCommands(Cog):
 		if player is None:
 			return
 
+		if player.is_dead():
+			Dispatcher.add(game.channel, f"A frustrated wail escapes the corpse of {player.name}.")
+			return
+
 		if hand.lower() not in ('left', 'l', 'right', 'r', 'all'):
-			Dispatcher.add(ctx, "You must specify which hand to stow, left (or l) or right (or r) or all.")
+			Dispatcher.add(game.channel, "You must specify which hand to stow, left (or l) or right (or r) or all.")
 			return
 
 		msg = ''
@@ -432,7 +452,7 @@ class RpgUserCommands(Cog):
 			msg += f'\n{player.name} stowed {player.rightHand.get_full_name()}.'
 			player.disarm_right()
 
-		Dispatcher.add(ctx, msg or f'You had nothing equipped, {player.name}!')
+		Dispatcher.add(game.channel, msg or f'You had nothing equipped, {player.name}!')
 
 	@command(
 		name='inventory',
@@ -443,6 +463,7 @@ class RpgUserCommands(Cog):
 	async def inventory(self, ctx, game_idx: int = None):
 		"""
 		Sends a DM to the player with information about the items they carry.
+
 		(10-second cool-down)
 		"""
 
@@ -467,6 +488,7 @@ class RpgUserCommands(Cog):
 	async def item(self, ctx, index: int, game_idx: int = None):
 		"""
 		Displays details about an item.
+
 		(2-second cool-down)
 		"""
 
@@ -480,9 +502,9 @@ class RpgUserCommands(Cog):
 
 		if 0 <= index < len(player.inventory):
 			embed, file = player.inventory.get_by_index(index).get_embed()
-			Dispatcher.add(ctx, embed=embed, file=file)
+			Dispatcher.add(game.channel, embed=embed, file=file)
 		else:
-			Dispatcher.add(ctx, f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(game.channel, f"I'm afraid you don't have that, {player.name}")
 
 	@item.error
 	async def item_err(self, ctx, error):
@@ -503,6 +525,7 @@ class RpgUserCommands(Cog):
 	async def games_display(self, ctx):
 		"""
 		Sends a DM to the calling player with a list of games in which they are a member.
+
 		(60-second cool-down)
 		"""
 
@@ -521,6 +544,8 @@ class RpgUserCommands(Cog):
 	async def sell(self, ctx, flag: Union[int, str] = None, gid: int = None):
 		"""
 		Sells an item, range of items, all items, or items having a given rarity. Items must be unequipped to be sold.
+
+		(2-second cool-down)
 		"""
 
 		game: Game = await self.utils().get_game(ctx, gid)
@@ -531,13 +556,22 @@ class RpgUserCommands(Cog):
 		if player is None:
 			return
 
+		if player.is_dead():
+			Dispatcher.add(ctx, f"A frustrated wail escapes the corpse of {player.name}.")
+			return
+
 		if flag is None:
-			Dispatcher.add(ctx, "You must specify the item index to sell, the range of indices, a rarity, or 'all' to "
-								"sell anything not equipped.")
+			Dispatcher.add(ctx, "You must specify the item index to sell, the range of indices, a rarity, "
+				"or 'all' to sell anything not equipped.")
 			return
 
 		msg = ''
-		equipped = [player.leftHand.id, player.rightHand.id]
+		equipped = []
+		if player.leftHand:
+			equipped.append(player.leftHand.id)
+		if player.rightHand:
+			equipped.append(player.rightHand.id)
+
 		sell: List[Item] = []
 
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
@@ -567,8 +601,7 @@ class RpgUserCommands(Cog):
 
 					else:
 						Dispatcher.add(
-							ctx,
-							f"I'm afraid I can't do that, {player.name}. You may want to check your numbers."
+							ctx, f"I'm afraid I can't do that, {player.name}. You may want to check your numbers."
 						)
 						return
 
@@ -601,6 +634,221 @@ class RpgUserCommands(Cog):
 				('```\n' if count > 0 else '') + m + ('```' if count > 0 and not m.endswith('```') else '')
 			)
 			count += 1
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='gender', brief='Displays or sets the user\'s gender.')
+	async def gender(self, ctx, gender: Optional[str] = None):
+		"""
+		Displays or sets the user's gender.
+
+		(5-second cool-down)
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
+		if gender:
+			player.gender = gender.lower()
+			player.is_dirty = True
+			Dispatcher.add(game.channel, f"{player.name}'s gender has been set to '{player.gender}'. "
+										 f"You may also wish to set your `{ctx.prefix}pronouns`")
+		else:
+			Dispatcher.add(game.channel, f"{player.name}'s gender is currently shown as '{player.gender}'.")
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
+	async def pronouns(self, ctx, pronouns: Optional[str] = None):
+		"""
+		Displays or sets the user's pronouns using subject/object/possessive form.
+
+		(5-second cool-down)
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
+		if pronouns is None:
+			Dispatcher.add(game.channel, f"{player.name}'s pronouns are currently shown as '"
+										 f"{'/'.join(player.pronouns.values())}'.")
+			return
+
+		if isinstance(pronouns, str):
+			p = pronouns.split('/')
+			if len(p) != 3:
+				Dispatcher.add(
+					game.channel, f"Please enter pronouns in the form of 'subject/object/possessive'. "
+					f"Example: `{ctx.prefix}pronouns she/her/her` or `{ctx.prefix}pronouns he/him/his`."
+				)
+				return
+
+			player.pronouns["subject"] = p[0]
+			player.pronouns["object"] = p[1]
+			player.pronouns["possessive"] = p[2]
+			player.is_dirty = True
+			Dispatcher.add(
+				game.channel, f"{player.name}'s pronouns have been set to '"
+				f"{'/'.join(player.pronouns.values())}'. You may also wish to set your `{ctx.prefix}gender`"
+			)
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='health', brief='Displays the player\'s current health and regeneration.')
+	async def health(self, ctx, flag: str = None):
+		"""
+		Displays the player's current health and regeneration. If the word 'all' is supplied, all players' health are
+		shown without the regeneration message.
+
+		(5-second cool-down)
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+
+		if game is None or player is None:
+			return
+
+		if flag == 'all':
+			p: Player = None
+			players = game.players.values()
+			players = sorted(players, key=lambda x: x.name.lower())
+			players = sorted(players, key=lambda x: x.health / x.health_max)
+			msg = '```diff'
+			for p in players:
+				msg += f"\n{'-' if p.health < p.health_max else '+'} {p.name}: {p.health} / {p.health_max}"
+			msg += '\n```'
+			Dispatcher.add(game.channel, msg)
+
+		else:
+			Dispatcher.add(
+				game.channel, f"{player.name}, you currently have {player.health} / {player.health_max} "
+				f"health, and {player.health_regen} regeneration per combat avoided."
+			)
+
+	@cooldown(1, 5, BucketType.member)
+	@command(name='haunt', brief='Allows the dead to harass the less-dead.')
+	async def haunt(self, ctx, target: str = None):
+		"""
+		Allows the dead to harass the less-dead. When specifying a target, use the @ symbol to target another player.
+
+		(5-second cool-down)
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+
+		if game is None or player is None:
+			return
+
+		if target is not None:
+			if game.monster is not None and game.monster.name == target.lower():
+				haunted = game.monster
+			elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+				haunted = await self.utils().get_player(ctx.message.mentions[0])
+			else:
+				haunted = None
+
+			if haunted is None or not isinstance(haunted, Creature):
+				await self.haunt(ctx)
+				return
+
+			msgs = [
+				f"{'The ' if not isinstance(haunted, Player) else  ''}{haunted.name} glances around the area "
+				f"suspiciously as {haunted.pronouns['subject']} senses the unearthly presence of {player.name}.",
+				f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else  ''}{haunted.name}'s ears "
+				f"as {player.name}'s spirit toys with {haunted.pronouns['object']}.",
+				f"{'The ' if not isinstance(haunted, Player) else  ''}{haunted.name}'s breath suddenly catches as "
+				f"{player.name}'s shade wisps through {haunted.pronouns['object']}."
+			]
+
+		else:
+			msgs = [
+				f"The ghostly presence of {player.name} floods into the area briefly before ebbing away.",
+				f"A sudden chill blankets the area as {player.name}'s spirit wafts through.",
+				f"{player.name}'s forlorn lament brings with it a cold, solemn feeling."
+			]
+
+		if player.is_dead():
+			msg = choice(msgs)
+		else:
+			msg = f"{player.name} pretends to float around, making supposedly ghostly noises, but it's not very " \
+				f"effective."
+
+		Dispatcher.add(game.channel, msg)
+
+	@cooldown(1, 60, BucketType.member)
+	@command(
+		name='pray',
+		aliases=['meditate', 'reflect'],
+		brief='Beseeches heavenly blessings.'
+	)
+	async def pray(self, ctx):
+		"""
+		Beseeches heavenly blessings. Occasionally, prayers may be answered...
+
+		(60-second cool-down)
+		"""
+		game, player = await self.utils().get_game_and_player(ctx)
+
+		if game is None or player is None:
+			return
+
+		if ctx.guild is None:
+			Dispatcher.add(ctx, f"I see you're interested in a little private reflection...")
+			return
+
+		if player.is_dead():
+			msg = choice([
+				f"Posthumous piety profits particularly poorly, {player.name}.",
+				f"Your prayers can no longer pierce the planes of piety, {player.name}.",
+				f"It seems, {player.name}, that if anyone is listening, they no longer care...",
+				f"The power of prayer eludes the dead, {player.name}."
+			])
+			Dispatcher.add(game.channel, msg)
+			return
+
+		msgs = [
+			f"{player.name} offers a solemn prayer, seeking forgiveness and humility.",
+			f"{player.name} seeks the guidance of the Divine.",
+			f"{player.name} falls to {player.pronouns['possessive']} knees in reverence, face lifted to the sky as "
+			f"{player.pronouns['subject']} basks in a divine embrace.",
+			f"{player.name}'s eyes turn skyward as {player.pronouns['subject']} entreats the Divine for benevolence.",
+			f"{player.name} proffers words of hope, attempting to sooth the splintered souls of comrades."
+		]
+
+		msg = choice(msgs)
+		heal_msg = ''
+		d20 = Dice.d20()
+		msg += f" (1d{d20.sides} = {d20.value})"
+		player.update_roll_count(d20.sides, d20.value)
+		heal_amount = 0
+		third = 0
+		if d20.value > 17:
+			heal_target: Player = player
+			for p in game.players.values():
+				if p.health < heal_target.health:
+					heal_target = p
+			missing_health = heal_target.health_max - heal_target.health
+			third = math.ceil(missing_health / 3)
+			if third > 1:
+				if d20.value == 18:
+					heal_amount = Dice.quick_roll(f"1d{third}")
+				elif d20.value == 19:
+					heal_amount = Dice.quick_roll(f"1d{third}") + third
+				elif d20.value == 20:
+					heal_amount = Dice.quick_roll(f"1d{third}") + third * 2
+			elif missing_health == 1:
+				heal_amount = 1
+			else:
+				heal_amount = Dice.quick_roll(f"1d{missing_health}")
+
+			heal_msg = heal_target.apply_damage(-heal_amount)
+
+			if heal_msg:
+				msg += f"\n{heal_msg}"
+
+			msg += f"\nA warm light suffuses {heal_target.name}, "
+
+			if heal_amount > 0:
+				msg += f"imbuing {heal_target.pronouns['object']} with {heal_amount} points of health!"
+			else:
+				msg += f"and a pleasant tingle envelops {heal_target.pronouns['object']} without noticeable effect."
+
+		Dispatcher.add(game.channel, msg)
 
 	@Cog.listener()
 	async def on_ready(self):

@@ -1,6 +1,5 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
-from Caldanai.lib.rpg.creatures.creature import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -101,13 +100,12 @@ class CombinedRoll:
 			self,
 			attack: AttackRoll,
 			damage: DamageRoll,
-			creature: Optional[Creature] = None,
+			dodge: int = 0,
 			is_miss: bool = False
 	):
 		self.attack = attack
 		self.damage = damage
-		self.isMiss = not attack.isCritical and (is_miss or attack.isFumble or
-												 (creature is not None and attack.result < creature.dodge))
+		self.isMiss = not attack.isCritical and (is_miss or attack.isFumble or attack.result < dodge)
 		self.isCritical = attack.isCritical
 		self.isFumble = attack.isFumble
 		self.result = damage.result * (0 if self.isMiss else 2 if self.attack.isCritical else 1)
