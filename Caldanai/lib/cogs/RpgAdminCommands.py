@@ -2,6 +2,8 @@ from discord import Embed, Guild
 from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
 from Caldanai.lib.bot import Bot
 from .RpgUtilities import RpgUtilities
+from ..rpg.creatures.player import Player
+from ..rpg.inventory import Inventory
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
@@ -41,17 +43,17 @@ class RpgAdminCommands(Cog):
 		Begins an RPG game on the server in the current channel. Only a single game per server is supported.
 		"""
 
-		if MongoDB.games.find_one({'guildId': ctx.guild.id}) is not None:
+		if MongoDB.games.find_one({'guild_id': ctx.guild.id}) is not None:
 			Dispatcher.add(ctx, "Only a single game per server is supported.")
 
 		else:
-			if MongoDB.games.insert_one({'guildId': ctx.guild.id, 'channelId': ctx.channel.id}):
+			if MongoDB.games.insert_one({'guild_id': ctx.guild.id, 'channelId': ctx.channel.id}):
 				await self.utils().add_game(gid=ctx.guild.id, chid=ctx.channel.id)
 				Dispatcher.add(ctx, "A new game has been started in this channel!")
 				return True
-		
+
 		return False
-	
+
 	# Removes a game from the bot and the database
 	@game_cmd.command(brief="Removes the RPG game for this server. WARNING: Cannot be undone.")
 	async def remove(self, ctx) -> None:
@@ -90,7 +92,6 @@ class RpgAdminCommands(Cog):
 			embed.add_field(name="Spawning Enabled", value=str(game.use_spawn_timer), inline=True)
 			Dispatcher.add(ctx, embed=embed)
 
-	# Sets the minimum time between monster spawns for a game, in minutes
 	@spawn.command(
 		aliases=["min"],
 		brief="Sets or displays the minimum time between monster spawns for a game, in minutes"
@@ -98,7 +99,7 @@ class RpgAdminCommands(Cog):
 	async def minimum(self, ctx, minutes: int = None):
 		"""Sets or displays the minimum time between monster spawns for a game, in minutes"""
 
-		game = self.bot.games[ctx.guild.id]		
+		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
 			Dispatcher.add(game.channel, f"Minimum spawn time is {game.minutes_min} minutes.")
 			return
@@ -123,7 +124,7 @@ class RpgAdminCommands(Cog):
 		if minutes is None:
 			Dispatcher.add(game.channel, f"Maximum spawn time is {game.minutes_max} minutes.")
 			return
-		
+
 		if minutes <= 1:
 			Dispatcher.add(game.channel, "Maximum spawn time must be more than 1 minute.")
 			return
@@ -167,7 +168,7 @@ class RpgAdminCommands(Cog):
 		game.loot_duration = minutes
 		game.save()
 		Dispatcher.add(game.channel, "Loot duration has been set.")
-	
+
 	# Sets the spawning for a game on or off
 	@spawn.command(brief="Sets or displays the spawning for a game on or off.")
 	async def set(self, ctx, value: str = None):
@@ -185,7 +186,7 @@ class RpgAdminCommands(Cog):
 				game.spawn_check.start()
 			else:
 				Dispatcher.add(game.channel, "Spawning is already enabled.")
-		
+
 		elif any(v == value for v in ['0', 'off', 'false', 'disabled']):
 			if game.use_spawn_timer:
 				game.use_spawn_timer = False
@@ -194,11 +195,10 @@ class RpgAdminCommands(Cog):
 
 		else:
 			return
-		
+
 		game.save()
 		Dispatcher.add(game.channel, "Spawning has been set.")
-	
-	# Forces a monster to spawn.
+
 	@spawn.command(brief="Forces a monster to spawn.")
 	async def monster(self, ctx):
 		"""Forces a monster to spawn."""
@@ -208,9 +208,9 @@ class RpgAdminCommands(Cog):
 			game.get_monster()
 			game.do_combat.start()
 			return
-		
+
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
-	
+
 	# Forces a monster to die.
 	@spawn.command(brief="Forces a monster to die.")
 	async def kill(self, ctx):
@@ -220,8 +220,35 @@ class RpgAdminCommands(Cog):
 		if game.monster is None:
 			Dispatcher.add(game.channel, "There is no monster present!")
 			return
-		
+
 		game.kill_monster()
+
+	@spawn.command(brief="Spawns the requested item to the given player's inventory.")
+	async def item(self, ctx, item_type: str, plugin: str, t: str = None):
+		"""Spawns the requested item to the given player's inventory."""
+
+		game = self.bot.games[ctx.guild.id]
+		target: Player = None
+
+		if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+			target = await self.utils().get_player(ctx.message.mentions[0])
+
+		if target is None:
+			target = await self.utils().get_player(ctx)
+
+		if target is None or item_type is None or plugin is None:
+			return
+
+		item = Inventory.load_plugin({'plugin': plugin, 'item_type': item_type})
+		if item:
+			target.give_item(item)
+			Dispatcher.add(game.channel, f"{item.get_full_name().capitalize()} was given to {target.name}.")
+			return
+
+		Dispatcher.add(
+			game.channel,
+			"Unable to spawn item. Please check the spelling of the plugin name and item type."
+		)
 
 	# Additional maintenance after cog loads.
 	@Cog.listener()

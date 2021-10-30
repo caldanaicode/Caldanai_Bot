@@ -5,13 +5,13 @@ from discord.ext import tasks
 from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 
-from .creatures.creature import Creature
+from .creatures import Creature
 from .creatures.player import Player
 from random import choice, randint
 from asyncio import sleep
 
-from .inventory.item import Item
-from .inventory.weapon import Weapon
+from .inventory.items import Item
+from .inventory.weapons import Weapon
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db.db import MongoDB
@@ -26,13 +26,7 @@ class Game:
 
 	Attributes
 	----------
-	bot : discord.ext.commands.Bot
-		The bot that runs this game
-	id : str
-		The game's database ID.
-	guild : discord.Guild
-		The Guild that hosts this game.
-	channel : discord.TextChannel
+	:var channel: discord.TextChannel
 		The TextChannel to which this game sends public responses.
 	players : Dict[int, Player]
 		The dictionary mapping of user ID to Player mappings.
@@ -58,6 +52,7 @@ class Game:
 		Minimum minutes between monster spawns
 	prefix : str
 		The prefix used by the bot for this game
+
 	"""
 
 	def __init__(
@@ -73,6 +68,19 @@ class Game:
 			loot_duration: int = 5,
 			prefix: str = None
 	):
+		"""
+
+		:param bot: discord.ext.commands.Bot -- The bot that owns this game.
+		:param game_id: The game's database ID.
+		:param guild: The Discord Guild (a.k.a server) that hosts this game.
+		:param channel: The Discord TextChannel to which this game sends responds.
+		:param use_spawn_timer:
+		:param spawn_max:
+		:param spawn_min:
+		:param spawn_duration:
+		:param loot_duration:
+		:param prefix:
+		"""
 		self.bot = bot
 		self.id = game_id
 		self.guild = guild
@@ -166,6 +174,7 @@ class Game:
 		self.monsters = [
 			filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
 		]
+		self.monsters.remove('__init__')
 		self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(self.monsters)}').Monster()
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
@@ -180,6 +189,10 @@ class Game:
 	@tasks.loop(count=1)
 	async def do_combat(self):
 		"""Awaits the combat duration, and tallies and displays combat damage."""
+
+		if self.monster is None:
+			stdout(f"Combat unable to start on `{self.guild.name}` because no monster was generated.")
+			return
 
 		self.stage = 1
 		self.trigger = self.minutes_min
@@ -201,7 +214,7 @@ class Game:
 					msg += m
 					damage += d
 
-			msg += f"Total damage done vs Health:\n \u2800\u2800{damage:,} vs {self.monster.health:,} " \
+			msg += f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {self.monster.health:,} " \
 				   f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
 
 			msg += self.monster.apply_damage(damage)
@@ -272,7 +285,7 @@ class Game:
 		"""Returns the database friendly dictionary for this game."""
 
 		d = {
-			'guildId': self.guild.id,
+			'guild_id': self.guild.id,
 			'channelId': self.channel.id,
 			'use_spawn_timer': self.use_spawn_timer,
 			'spawn_duration': self.spawn_duration,
@@ -291,7 +304,7 @@ class Game:
 	def save(self) -> None:
 		"""Adds or updates a game object in the database."""
 
-		result = MongoDB["games"].update_one({'guildId': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
+		result = MongoDB["games"].update_one({'guild_id': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
 		if self.id is None:
 			self.id = result.upserted_id
 
@@ -302,7 +315,7 @@ class Game:
 		if guild_id is None:
 			return None
 
-		g = MongoDB.games.find_one({'guildId': guild_id})
+		g = MongoDB.games.find_one({'guild_id': guild_id})
 		if g is None or bot is None:
 			return None
 
@@ -326,11 +339,11 @@ class Game:
 			prefix=d['prefix']
 		)
 
-		game.guild = bot.get_guild(d['guildId'])
-		game.channel = bot.get_channel(d['channelId'])
+		game.guild = bot.get_guild(d['guild_id'])
+		game.channel = bot.get_channel(d['channel_id'])
 
-		for p in MongoDB.players.find({'guildId': game.guild.id}):
-			uid = p['userId']
+		for p in MongoDB.players.find({'guild_id': game.guild.id}):
+			uid = p['user_id']
 			player = Player.from_dict(p)
 			player.member = game.guild.get_member(uid) or await game.guild.fetch_member(uid)
 			player.name = player.member.display_name

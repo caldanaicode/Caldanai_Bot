@@ -1,0 +1,68 @@
+import importlib
+
+from bson import ObjectId
+from discord import Embed, File
+
+from Caldanai.Logger import stdout
+from Caldanai.lib.rpg.inventory.items import Item
+from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
+
+
+class Consumable(Item):
+	def __init__(
+			self,
+			iid: ObjectId = None,
+			name: str = "",
+			desc: str = "",
+			unit_weight: float = 1.0,
+			unit_value: int = 0,
+			image: str = None,
+			rarity: Rarity = None,
+			article: str = None,
+			uses_max: int = 1,
+			uses_left: int = 1
+	):
+		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type="Consumable")
+		self.uses_max = max(uses_max, 0)
+		self.uses_left = min(max(uses_left, 0), uses_max)
+
+	def get_embed(self) -> (Embed, File):
+		"""Returns a tuple containing an Embed and File object for this item."""
+
+		embed, file = super().get_embed()
+
+		embed.insert_field_at(0, name="Uses Remaining", value=self.uses_left, inline=True)
+		return embed, file
+
+	def use(self) -> (str, bool):
+		"""
+		Uses the consumable item and returns a tuple containing a string intended for display and a boolean value
+		indicating whether or not any uses remain.
+		"""
+
+		self.uses_left -= 1
+		return "", self.uses_left > 0
+
+	def to_dict(self) -> dict:
+		d = super().to_dict()
+		d['uses_max'] = self.uses_max
+		d['uses_left'] = self.uses_left
+		return d
+
+	@classmethod
+	def from_plugin(cls, plugin_name: str, data: dict):
+		"""Creates a new consumable from a plugin with initial data."""
+
+		try:
+			item = importlib.import_module(f'Caldanai.lib.rpg.inventory.consumables.{plugin_name}').ConsumablePlugin(
+				data['_id'] if '_id' in data.keys() else None,
+				Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+				data['uses_max'] if 'uses_max' in data.keys() else 1,
+				data['uses_left'] if 'uses_left' in data.keys() else 1
+			)
+
+			return item
+
+		except:
+			stdout(f"Unable to load ConsumablePlugin: {data}")
+			return None

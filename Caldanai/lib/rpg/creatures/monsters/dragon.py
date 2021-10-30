@@ -1,6 +1,6 @@
-from typing import Dict
+from typing import Dict, List
 
-from Caldanai.lib.rpg.creatures.creature import Creature
+from Caldanai.lib.rpg.creatures import Creature
 
 
 class Monster(Creature):
@@ -10,7 +10,7 @@ class Monster(Creature):
 			atk="3d10",
 			defense="3d8",
 			dodge="3d10",
-			health="10d10"
+			health_max="10d10"
 		)
 
 		self.image = None
@@ -21,13 +21,14 @@ class Monster(Creature):
 		self.death = f"The dragon gives a final bellow of rage and disbelief as {self.pronouns['subject']} falls to " \
 					 f"the ground. {self.pronouns['possessive'].capitalize()} thrashing lasts but a moment, " \
 					 f"then all is still."
-		self.loot: Dict[str, float] = {
-			"small gem": 0.7,
-			"tee-shirt": 0.2,
-			"candy": 0.3,
-			"heavy stringed instrument": 0.2,
-			"mace": 0.3
-		}
+
+		self.loot: List[Dict] = [
+			{"plugin": "small_gem", "item_type": "Item", "frequency": 0.7},
+			{"plugin": "tee_shirt", "item_type": "Armor", "frequency": 0.2},
+			{"plugin": "candy", "item_type": "Consumable", "frequency": 0.3},
+			{"plugin": "heavy_stringed_instrument", "item_type": "Item", "frequency": 0.2},
+			{"plugin": "mace", "item_type": "Weapon", "frequency": 0.3}
+		]
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:

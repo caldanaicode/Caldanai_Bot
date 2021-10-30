@@ -20,11 +20,11 @@ def get_prefix(bot, message):
 	if message.guild is None:
 		prefix = "$"
 
-	elif MongoDB.servers.find_one({'guildId': message.guild.id}) is None:
-		MongoDB.servers.insert_one({'guildId': message.guild.id, 'prefix': '$'})
+	elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
+		MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
 
 	if prefix is None and message.guild is not None:
-		prefix = MongoDB.servers.find_one({'guildId': message.guild.id})['prefix']
+		prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
 
 	return when_mentioned_or(prefix)(bot, message)
 
@@ -127,13 +127,13 @@ class Bot(BotBase):
 		self.online = True
 
 	async def on_guild_join(self, guild: Guild):
-		MongoDB.servers.insert_one({'guildId': guild.id, 'name': guild.name, 'prefix': '$'})
+		MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
 		stdout(f"Guild joined: {guild.name} ({guild.id})")
 
 	async def on_guild_remove(self, guild: Guild):
-		MongoDB.servers.delete_one({'guildId': guild.id})
-		MongoDB.games.delete_many({'guildId': guild.id})
-		MongoDB.players.delete_many({'guildId': guild.id})
+		MongoDB.servers.delete_one({'guild_id': guild.id})
+		MongoDB.games.delete_many({'guild_id': guild.id})
+		MongoDB.players.delete_many({'guild_id': guild.id})
 		stdout(f"Guild left: {guild.name} ({guild.id})")
 
 	async def on_ready(self):

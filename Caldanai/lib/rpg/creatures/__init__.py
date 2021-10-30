@@ -1,13 +1,11 @@
 from random import random, choice
-from typing import Union, Optional, Dict, Tuple
+from typing import Union, Optional, Dict, Tuple, List
 
 from discord import Embed, File
 
-from Caldanai.db.db import MongoDB
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
-from Caldanai.lib.rpg.inventory.item import Item
-from Caldanai.lib.rpg.inventory.weapon import Weapon
+from Caldanai.lib.rpg.inventory import Inventory
 
 
 class Creature:
@@ -21,7 +19,8 @@ class Creature:
 			atk: Optional[str],
 			defense: Optional[Union[str, int]],
 			dodge: Optional[Union[str, int]],
-			health: Optional[Union[str, int]],
+			health_max: Optional[Union[str, int]],
+			health: Optional[int] = None,
 			gender: Optional[str] = None,
 			pronouns: Optional[str] = None
 	):
@@ -32,20 +31,22 @@ class Creature:
 		:param atk: The creature's attack strength as an ndn string. Defaults to '1d4'.
 		:param defense: The creature's defense strength as an integer or ndn string. Defaults to 1.
 		:param dodge: The creature's dodge ability as an integer or ndn string. Defaults to 1.
-		:param health: The creature's max health as an integer or ndn string. Defaults to 1.
+		:param health_max: The creature's max health as an integer or ndn string. Defaults to 1.
+		:param health: The creature's current health as an integer. Defaults to health_max.
 		:param gender: The creature's gender as a string. Will randomly choose between 'male' and 'female' for NPCs	if not provided. For players, the gender can be defined by the player.
 		:param pronouns: The creature's pronouns as a comma-separated string in the format of 'subject, object,	possessive'. For example, a female's pronouns will default to 'she, her, hers' if no pronouns are provided.
 		"""
+
 		self.name = name or ''
 		self.attack = atk or '1d4'
 		self.defense = Dice.quick_roll(defense) if isinstance(defense, str) else defense if defense else 1
 		self.dodge = Dice.quick_roll(dodge) if isinstance(dodge, str) else dodge if dodge else 1
-		self.health_max = Dice.quick_roll(health) if isinstance(health, str) else health if health else 1
-		self.health = self.health_max
+		self.health_max = Dice.quick_roll(health_max) if isinstance(health_max,	str) else health_max if health_max else 1
+		self.health = health if health is not None else self.health_max
 		self.flavor = ''
 		self.image = None
 		self.clarks = 0
-		self.loot: Dict[str, float] = {}
+		self.loot: List[Dict] = []
 		self.gender: Optional[str] = gender or choice(['male', 'female'])
 		self.is_dirty: bool = False
 		self.aggression = None
@@ -97,16 +98,15 @@ class Creature:
 	# Returns a list of loot items
 	def get_loot(self) -> list:
 		items = []
-		for item, frequency in self.loot.items():
-			if random() <= frequency:
-				i = MongoDB.templates_items.find_one({'name': item})
-				if i is not None:
-					i['templateId'] = i['_id']
-					del i['_id']
-					if i['itemType'] == 'Item':
-						items.append(Item.from_dict(i))
-					elif i['itemType'] == 'Weapon':
-						items.append(Weapon.from_dict(i))
+		for data in self.loot:
+			plugin = data['plugin'] if 'plugin' in data.keys() else None
+			item_type = data['item_type'] if 'item_type' in data.keys() else None
+			frequency = data['frequency'] if 'frequency' in data.keys() else -1.0
+			if plugin and item_type and random() <= frequency:
+				item = Inventory.load_plugin(data)
+				if item:
+					items.append(item)
+
 		return items
 
 	def on_hugged(self, actor: "Creature", invocation: str) -> str:
