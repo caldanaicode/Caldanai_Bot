@@ -1,7 +1,9 @@
-from typing import Dict
+from typing import Dict, List
 
 from random import choice
-from Caldanai.lib.rpg.creatures.creature import Creature
+
+from Caldanai.lib.rpg import get_random_direction
+from Caldanai.lib.rpg.creatures import Creature
 
 
 class Monster(Creature):
@@ -11,13 +13,13 @@ class Monster(Creature):
 			atk="1d4",
 			defense="1d6",
 			dodge="1d6",
-			health="2d4"
+			health_max="2d4"
 		)
 
 		self.image = None
 		self.aggression = "neutral"
 		self.arrival = f"A fluffy mass of fur {choice('saunters|ambles|prances|skitters|tiptoes|wanders'.split('|'))} " \
-					   f"in from the {choice('north|south|east|west|northeast|northwest|southeast|southwest'.split('|'))}."
+					   f"in from the {get_random_direction()}."
 
 		self.flavor = choice([
 			"Just a cuddly sheep, searching the lonely fields for hugs.",
@@ -32,11 +34,11 @@ class Monster(Creature):
 			"A final wheezing breath escapes slowly, as the sheep collapses to the ground in a twitching heap."
 		])
 
-		self.loot: Dict[str, float] = {
-			"stick": 0.5,
-			"wool": 0.5,
-			"leather": 0.25
-		}
+		self.loot: List[Dict] = [
+			{"plugin": "stick", "item_type": "Weapon", "frequency": 0.5},
+			{"plugin": "wool", "item_type": "Item", "frequency": 0.5},
+			{"plugin": "leather", "item_type": "Item", "frequency": 0.25}
+		]
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		return choice([

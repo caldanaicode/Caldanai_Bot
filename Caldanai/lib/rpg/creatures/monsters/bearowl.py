@@ -1,7 +1,7 @@
-from typing import Dict
-
 from random import choice
-from Caldanai.lib.rpg.creatures.creature import Creature
+
+from Caldanai.lib.rpg import get_random_direction
+from Caldanai.lib.rpg.creatures import Creature
 
 
 class Monster(Creature):
@@ -11,14 +11,14 @@ class Monster(Creature):
 			atk="2d7",
 			defense="3d8",
 			dodge="1d10",
-			health="10d4"
+			health_max="10d4"
 		)
 
 		self.image = "owl128.png"
 		self.aggression = "vengeful"
 		self.arrival = f"A genetically improbable creature " \
 					   f"{choice('lurches|trudges|charges|walks|wanders'.split('|'))} " \
-					   f"in from the {choice('north|south|east|west'.split('|'))}."
+					   f"in from the {get_random_direction()}."
 
 		self.flavor = choice([
 			"Legally distinct from any similarly-named creatures.",
@@ -32,8 +32,6 @@ class Monster(Creature):
 			"After a last-ditch effort to escape your fury, the bearowl collapses into lifelessness.",
 			"The abomination of nature will no more threaten your sense of reason."
 		])
-
-		self.loot: Dict[str, float] = {}
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:

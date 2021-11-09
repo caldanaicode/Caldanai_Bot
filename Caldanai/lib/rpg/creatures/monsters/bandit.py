@@ -1,8 +1,8 @@
 import random
-from typing import Dict
+from typing import Dict, List
 
 from random import choice
-from Caldanai.lib.rpg.creatures.creature import Creature
+from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -13,7 +13,7 @@ class Monster(Creature):
 			atk="1d8",
 			defense="1d12",
 			dodge="1d12",
-			health="1d12"
+			health_max="1d12"
 		)
 
 		self.image = "bandit128.png"
@@ -29,23 +29,24 @@ class Monster(Creature):
 		])
 
 		self.escape = choice([
-			"The bandit runs off, taking whatever she can grab.",
+			f"The bandit runs off, taking whatever {self.pronouns['subject']} can grab.",
 			"Other horizons call the bandit away."
 		])
 
 		self.death = choice([
 			"The bandit dies, and shall no longer steal from the rich and give to the poor.",
 			"The bandit coughs blood before collapsing to the ground.",
-			'"In another life, you could have been me," the bandit gasps with her dying breath.'
+			f'"In another life, you could have been me," the bandit gasps with {self.pronouns["possessive"]} dying '
+			f'breath.'
 		])
 
-		self.loot: Dict[str, float] = {
-			"shortsword": 0.2,
-			"bandana": 0.2,
-			"bow": 0.15,
-			"cheese sandwich": 0.2,
-			"wallet": 0.25
-		}
+		self.loot: List[Dict] = [
+			{"plugin": "shortsword", "item_type": "Weapon", "frequency": 0.2},
+			{"plugin": "bandanna", "item_type": "Armor", "frequency": 0.2},
+			{"plugin": "bow", "item_type": "Weapon", "frequency": 0.15},
+			{"plugin": "cheese_sandwich", "item_type": "Consumable", "frequency": 0.2},
+			{"plugin": "wallet", "item_type": "Item", "frequency": 0.25}
+		]
 
 	def steal(self, target: Creature) -> str:
 		"""

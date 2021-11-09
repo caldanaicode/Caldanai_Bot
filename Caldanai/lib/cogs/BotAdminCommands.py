@@ -2,7 +2,7 @@ from discord.ext.commands import Cog, CheckFailure, command, has_permissions, gu
 
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
-from ...db.db import MongoDB
+from ...db import MongoDB
 
 
 class BotAdminCommands(Cog):
@@ -21,10 +21,10 @@ class BotAdminCommands(Cog):
 			Dispatcher.add(ctx, "Prefix cannot be longer than 5 characters.")
 
 		else:
-			if MongoDB.servers.find_one({'guildId': ctx.guild.id}) is None:
-				MongoDB.servers.insert_one({'guildId': ctx.guild.id, 'prefix': prefix})
+			if MongoDB.servers.find_one({'guild_id': ctx.guild.id}) is None:
+				MongoDB.servers.insert_one({'guild_id': ctx.guild.id, 'prefix': prefix})
 			else:
-				MongoDB.servers.update_one({'guildId': ctx.guild.id}, {'$set': {'prefix': prefix}})
+				MongoDB.servers.update_one({'guild_id': ctx.guild.id}, {'$set': {'prefix': prefix}})
 			
 			Dispatcher.add(ctx, f"Prefix set to {prefix}.")
 		
@@ -44,7 +44,7 @@ class BotAdminCommands(Cog):
 		else:
 			if cog in self.bot.COGS:
 				self.bot.reload_cog(cog)
-				Dispatcher.add(ctx, f"{cog} cog reloaded!".capitalize())
+				Dispatcher.add(ctx, f"{cog} cog reloaded!")
 			else:
 				Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 	

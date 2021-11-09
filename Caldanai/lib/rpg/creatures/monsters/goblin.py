@@ -1,7 +1,7 @@
-from typing import Dict
+from typing import Dict, List
 
 from random import choice
-from Caldanai.lib.rpg.creatures.creature import Creature
+from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -12,7 +12,7 @@ class Monster(Creature):
 			atk="1d8",
 			defense="1d10",
 			dodge="1d10",
-			health="1d20"
+			health_max="1d20"
 		)
 
 		self.image = None
@@ -34,11 +34,11 @@ class Monster(Creature):
 					 f"{self.pronouns['subject']} was outmatched, and {self.pronouns['subject']} flops onto the " \
 					 f"ground unceremoniously."
 
-		self.loot: Dict[str, float] = {
-			"stick": 0.5,
-			"rock": 0.5,
-			"spear": 0.1
-		}
+		self.loot: List[Dict] = [
+			{"plugin": "stick", "item_type": "Weapon", "frequency": 0.5},
+			{"plugin": "rock", "item_type": "Weapon", "frequency": 0.5},
+			{"plugin": "spear", "item_type": "Weapon", "frequency": 0.1}
+		]
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
@@ -48,7 +48,7 @@ class Monster(Creature):
 			dmg = Dice.quick_roll('1d4')
 			msg += f" {actor.name} is caught off-guard and takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
 			m = actor.apply_damage(dmg)
-			msg += f"\n{m}" if len(m) > 0 else ""
+			msg += f"\n{m}" if m else ""
 		else:
 			msg += f"\n{actor.name} narrowly avoids the goblin's thrashing!"
 

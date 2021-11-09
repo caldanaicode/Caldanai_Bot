@@ -1,7 +1,6 @@
-import random
-from typing import Dict
+from typing import Dict, List
 
-from Caldanai.lib.rpg.creatures.creature import Creature
+from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -12,7 +11,7 @@ class Monster(Creature):
 			atk="2d10",
 			defense="2d8",
 			dodge="1d4",
-			health="5d10"
+			health_max="5d10"
 		)
 
 		self.image = None
@@ -24,11 +23,11 @@ class Monster(Creature):
 		self.death = "The giant wobbles unsteadily for a moment, then crashes backward into the earth sending out a " \
 					 "small tremor."
 
-		self.loot: Dict[str, float] = {
-			"rock": 0.7,
-			"sledgehammer": 0.2,
-			"spear": 0.2
-		}
+		self.loot: List[Dict] = [
+			{"plugin": "rock", "item_type": "Weapon", "frequency": 0.7},
+			{"plugin": "sledgehammer", "item_type": "Weapon", "frequency": 0.2},
+			{"plugin": "spear", "item_type": "Weapon", "frequency": 0.2},
+		]
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		dmg = Dice.quick_roll("1d4")

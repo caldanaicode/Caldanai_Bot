@@ -11,8 +11,8 @@ from Caldanai.lib.bot import Bot
 from ..rpg.creatures.player import Player
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
-from ...db.db import MongoDB
-from ..rpg.game import Game
+from ...db import MongoDB
+from ..rpg import Game
 
 
 class RpgUtilities(Cog):
@@ -38,7 +38,7 @@ class RpgUtilities(Cog):
 		if gid is not None and chid is not None:
 			guild = self.bot.get_guild(gid) or await self.bot.fetch_guild(gid)
 			channel = self.bot.get_channel(chid) or await self.bot.fetch_channel(chid)
-			prefix = MongoDB.servers.find_one({'guildId': gid})['prefix']
+			prefix = MongoDB.servers.find_one({'guild_id': gid})['prefix']
 
 			if game is None:
 				game = Game(
@@ -56,8 +56,8 @@ class RpgUtilities(Cog):
 	# Removes a game from the bot's list of games
 	def remove_game(self, gid: int):
 		if gid in self.bot.games.keys():
-			MongoDB.games.delete_one({'guildId': gid})
-			MongoDB.players.delete_many({'guildId': gid})
+			MongoDB.games.delete_one({'guild_id': gid})
+			MongoDB.players.delete_many({'guild_id': gid})
 			del self.bot.games[gid]
 
 	# Gets a list of games to which a user belongs.
@@ -70,9 +70,9 @@ class RpgUtilities(Cog):
 		if uid is None:
 			return games
 
-		players = MongoDB.players.find({'userId': uid})
+		players = MongoDB.players.find({'user_id': uid})
 		for player in players:
-			game = self.bot.games[player['guildId']]
+			game = self.bot.games[player['guild_id']]
 			games.append(game)
 
 		return games
@@ -113,7 +113,6 @@ class RpgUtilities(Cog):
 
 		return game
 
-	# Gets the player associated with a context, if any exists
 	async def get_player(self, ctx, game: Game = None, notify: bool = True) -> Union[Player, None]:
 		"""
 		Returns a Player associated with a context, or None if the Player does not exist.
@@ -154,22 +153,36 @@ class RpgUtilities(Cog):
 		return game, player
 
 	@tasks.loop(minutes=1)
-	async def save_players(self):
-		"""Database loop to save player data."""
+	async def save_game_data(self):
+		"""Database loop to save player and game data."""
 
 		try:
+
+			games = [
+				UpdateOne(
+					{'guild_id': g.guild.id},
+					{'$set': g.to_dict()}
+				) for g in self.bot.games.values()
+			]
+
+			result = MongoDB["games"].bulk_write(games, ordered=False)
+
 			dirty = [
 				(p, UpdateOne(
-					{"guildId": p.guildId, "userId": p.userId},
+					{"guild_id": p.guild_id, "user_id": p.user_id},
 					{"$set": p.to_dict()},
 					upsert=True
-				)) for g in self.bot.games.values() for p in g.players.values() if p.isDirty
+				)) for g in self.bot.games.values() for p in g.players.values() if p.is_dirty
 			]
 
 			if len(dirty) > 0:
 				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
+
 				for idx, _id in result.upserted_ids.items():
 					dirty[idx][0].id = _id
+
+				for p, _ in dirty:
+					p.is_dirty = False
 
 		except ServerSelectionTimeoutError:
 			stdout("Unable to connect to DB.")
@@ -180,7 +193,7 @@ class RpgUtilities(Cog):
 		games = MongoDB.games.find()
 		for g in games:
 			await self.add_game(game=g)
-		self.save_players.start()
+		self.save_game_data.start()
 		stdout("RpgUtilities ready.")
 
 

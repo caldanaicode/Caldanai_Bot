@@ -62,7 +62,7 @@ class Rarities(Enum):
 	Unique = Rarity.unique()
 
 	@classmethod
-	def getRarityFromScale(cls, value: int, minimum: int = 1, maximum: int = 100) -> Rarity:
+	def from_scale(cls, value: int, minimum: int = 1, maximum: int = 100) -> Rarity:
 		lb = min(minimum, maximum)
 		ub = max(minimum, maximum)
 		v = lb if value < lb else ub if value > ub else value
@@ -75,3 +75,10 @@ class Rarities(Enum):
 			if v_normalized <= x.value.frequency:
 				rarity = x.value
 		return rarity
+
+	@classmethod
+	def from_name(cls, name: str):
+		for x in list(Rarities):
+			if x.value.name.lower() == name.lower():
+				return x.value
+		return None

@@ -1,23 +1,22 @@
-import importlib
+import random
 
 from discord.ext.commands import Bot
 from discord.ext import tasks
 from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 
-from .creatures.creature import Creature
+from .creatures import Creature
 from .creatures.player import Player
 from random import choice, randint
 from asyncio import sleep
 
-from .inventory.item import Item
-from .inventory.weapon import Weapon
+from .helpers import get_random_direction, get_random_monster
+from .inventory.items import Item
+from .inventory.weapons import Weapon
+from .time.GameClock import GameClock
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
-from ...db.db import MongoDB
-
-from glob import glob
-from os import path
+from ...db import MongoDB
 
 
 class Game:
@@ -26,13 +25,7 @@ class Game:
 
 	Attributes
 	----------
-	bot : discord.ext.commands.Bot
-		The bot that runs this game
-	id : str
-		The game's database ID.
-	guild : discord.Guild
-		The Guild that hosts this game.
-	channel : discord.TextChannel
+	channel: discord.TextChannel
 		The TextChannel to which this game sends public responses.
 	players : Dict[int, Player]
 		The dictionary mapping of user ID to Player mappings.
@@ -58,6 +51,9 @@ class Game:
 		Minimum minutes between monster spawns
 	prefix : str
 		The prefix used by the bot for this game
+	use_ambiance : bool
+		Whether or not to display ambiance messages such as weather, day/night cycles, and monster ambiance messages
+	:param channel:
 	"""
 
 	def __init__(
@@ -71,8 +67,25 @@ class Game:
 			spawn_min: int = 10,
 			spawn_duration: int = 10,
 			loot_duration: int = 5,
-			prefix: str = None
+			prefix: str = None,
+			use_ambiance: bool = True,
+			time: int = 0
 	):
+		"""
+		:param bot: discord.ext.commands.Bot -- The bot that owns this game.
+		:param game_id: int -- The game's database ID.
+		:param guild: The Discord Guild (a.k.a server) that hosts this game.
+		:param channel: The Discord TextChannel to which this game sends responds.
+		:param use_spawn_timer: bool -- Whether or not to allow periodic monster spawns.
+		:param spawn_max: int -- Maximum minutes between monster spawns.
+		:param spawn_min: int -- Minimum minutes between monster spawns.
+		:param spawn_duration: int -- Number of minutes before first combat triggers.
+		:param loot_duration: int -- Number of minutes before loot expires.
+		:param prefix: str -- The game's command prefix.
+		:param use_ambiance: bool -- Whether or not to display ambiance messages such as weather, day/night cycles,
+		and monster ambiance messages.
+		:param time: int -- The game's internal time value.
+		"""
 		self.bot = bot
 		self.id = game_id
 		self.guild = guild
@@ -91,12 +104,20 @@ class Game:
 		self.minutes_max = spawn_max
 		self.minutes_min = spawn_min
 		self.prefix = prefix
+		self.use_ambiance = use_ambiance
+		self.game_clock = GameClock(time)
 
+		self.game_clock.tick.start()
 		self.spawn_cooldown = 0
 		self.stage = 0
+		self.weather = None
+
+		self.last_tick_game_time = self.game_clock.get_hours()
 
 		if use_spawn_timer:
 			self.spawn_check.start()
+		if use_ambiance:
+			self.do_ambiance.start()
 
 	def cancel_combat(self):
 		"""Clears the current monster, combatants, and loot."""
@@ -163,10 +184,7 @@ class Game:
 		return msg
 
 	def get_monster(self):
-		self.monsters = [
-			filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
-		]
-		self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(self.monsters)}').Monster()
+		self.monster = get_random_monster()
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
 
@@ -180,6 +198,10 @@ class Game:
 	@tasks.loop(count=1)
 	async def do_combat(self):
 		"""Awaits the combat duration, and tallies and displays combat damage."""
+
+		if self.monster is None:
+			stdout(f"Combat unable to start on `{self.guild.name}` because no monster was generated.")
+			return
 
 		self.stage = 1
 		self.trigger = self.minutes_min
@@ -201,7 +223,7 @@ class Game:
 					msg += m
 					damage += d
 
-			msg += f"Total damage done vs Health:\n \u2800\u2800{damage:,} vs {self.monster.health:,} " \
+			msg += f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {self.monster.health:,} " \
 				   f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
 
 			msg += self.monster.apply_damage(damage)
@@ -268,18 +290,51 @@ class Game:
 		if len(msg) > 0:
 			Dispatcher.add(self.channel, msg)
 
+	@tasks.loop(minutes=1)
+	async def do_ambiance(self):
+		"""Picks an ambiance message to display."""
+
+		if not self.use_ambiance:
+			return
+
+		game_time = self.game_clock.get_hours()
+
+		msg = ""
+
+		sunrise, sunset = self.game_clock.get_sunrise_and_sunset()
+
+		if self.last_tick_game_time < sunrise.get_hours() <= game_time:
+			msg = "The sky glows softly to the east as night gives way to day."
+		elif self.last_tick_game_time < sunset.get_hours() <= game_time:
+			msg = "The crimson disc sinks slowly beyond the horizon, and darkness creeps across the land."
+
+		if random.randint(1, 100) > 98:
+			msg += choice([
+				"A squirrel bounds across the ground, and up a nearby tree.",
+				"A bush rustles as something skitters unseen within.",
+				f"A lonesome howl floats in from the {get_random_direction()}.",
+				"Happy warbling resounds as a songbird flits across the area."
+			])
+
+		if msg:
+			Dispatcher.add(self.channel, msg)
+
+		self.last_tick_game_time = game_time
+
 	def to_dict(self):
 		"""Returns the database friendly dictionary for this game."""
 
 		d = {
-			'guildId': self.guild.id,
+			'guild_id': self.guild.id,
 			'channelId': self.channel.id,
 			'use_spawn_timer': self.use_spawn_timer,
 			'spawn_duration': self.spawn_duration,
 			'loot_duration': self.loot_duration,
 			'minutes_max': self.minutes_max,
 			'minutes_min': self.minutes_min,
-			'prefix': self.prefix
+			'prefix': self.prefix,
+			'use_ambiance': self.use_ambiance,
+			'game_time': self.game_clock.get_hours()
 		}
 
 		if self.id is not None:
@@ -291,7 +346,7 @@ class Game:
 	def save(self) -> None:
 		"""Adds or updates a game object in the database."""
 
-		result = MongoDB["games"].update_one({'guildId': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
+		result = MongoDB["games"].update_one({'guild_id': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
 		if self.id is None:
 			self.id = result.upserted_id
 
@@ -302,7 +357,7 @@ class Game:
 		if guild_id is None:
 			return None
 
-		g = MongoDB.games.find_one({'guildId': guild_id})
+		g = await MongoDB.games.find_one({'guild_id': guild_id})
 		if g is None or bot is None:
 			return None
 
@@ -323,14 +378,16 @@ class Game:
 			spawn_min=int(d['minutes_min']),
 			spawn_duration=int(d['spawn_duration']),
 			loot_duration=int(d['loot_duration']),
-			prefix=d['prefix']
+			prefix=d['prefix'],
+			use_ambiance=d['use_ambiance'],
+			time=d['game_time']
 		)
 
-		game.guild = bot.get_guild(d['guildId'])
-		game.channel = bot.get_channel(d['channelId'])
+		game.guild = bot.get_guild(d['guild_id'])
+		game.channel = bot.get_channel(d['channel_id'])
 
-		for p in MongoDB.players.find({'guildId': game.guild.id}):
-			uid = p['userId']
+		for p in MongoDB.players.find({'guild_id': game.guild.id}):
+			uid = p['user_id']
 			player = Player.from_dict(p)
 			player.member = game.guild.get_member(uid) or await game.guild.fetch_member(uid)
 			player.name = player.member.display_name

@@ -1,7 +1,9 @@
-from typing import Dict
+from typing import Dict, List
 
 from random import choice
-from Caldanai.lib.rpg.creatures.creature import Creature
+
+from Caldanai.lib.rpg import get_random_direction
+from Caldanai.lib.rpg.creatures import Creature
 
 
 class Monster(Creature):
@@ -11,14 +13,14 @@ class Monster(Creature):
 			atk="1d8",
 			defense="1d4",
 			dodge="2d8",
-			health="2d8"
+			health_max="2d8"
 		)
 
 		self.image = None
 		self.aggression = "vengeful"
 		self.arrival = choice([
 			f"A giant toad {choice('hops|leaps|bounds'.split('|'))} in from the "
-			f"{choice('north|south|east|west|northeast|northwest|southeast|southwest'.split('|'))}, with a hungry gaze."
+			f"{get_random_direction()}, with a hungry gaze."
 		])
 
 		self.flavor = "This toad is abnormally large, its diet primarily consisting of cute, small animals."
@@ -26,10 +28,10 @@ class Monster(Creature):
 		self.death = f"The toad struggles to leap away, but the effort is futile, as {self.pronouns['subject']} " \
 					 f"collapses onto {self.pronouns['possessive']} belly."
 
-		self.loot: Dict[str, float] = {
-			"toad slime": 0.9,
-			"mushroom hat": 0.3
-		}
+		self.loot: List[Dict] = [
+			{"plugin": "toad_slime", "item_type": "Item", "frequency": 0.9},
+			{"plugin": "mushroom_hat", "item_type": "Armor", "frequency": 0.3}
+		]
 
 	def apply_damage(self, amount: int) -> str:
 		was_alive = self.health > 0
