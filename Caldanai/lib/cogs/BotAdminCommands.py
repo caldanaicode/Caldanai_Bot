@@ -2,7 +2,7 @@ from discord.ext.commands import Cog, CheckFailure, command, has_permissions, gu
 
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
-from ...db.db import MongoDB
+from ...db import MongoDB
 
 
 class BotAdminCommands(Cog):
@@ -44,7 +44,7 @@ class BotAdminCommands(Cog):
 		else:
 			if cog in self.bot.COGS:
 				self.bot.reload_cog(cog)
-				Dispatcher.add(ctx, f"{cog} cog reloaded!".capitalize())
+				Dispatcher.add(ctx, f"{cog} cog reloaded!")
 			else:
 				Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 	

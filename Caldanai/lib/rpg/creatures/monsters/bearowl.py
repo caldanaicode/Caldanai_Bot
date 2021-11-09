@@ -1,4 +1,6 @@
 from random import choice
+
+from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -16,7 +18,7 @@ class Monster(Creature):
 		self.aggression = "vengeful"
 		self.arrival = f"A genetically improbable creature " \
 					   f"{choice('lurches|trudges|charges|walks|wanders'.split('|'))} " \
-					   f"in from the {choice('north|south|east|west'.split('|'))}."
+					   f"in from the {get_random_direction()}."
 
 		self.flavor = choice([
 			"Legally distinct from any similarly-named creatures.",

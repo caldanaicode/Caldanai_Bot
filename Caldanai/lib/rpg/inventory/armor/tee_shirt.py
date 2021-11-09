@@ -20,6 +20,6 @@ class ArmorPlugin(Armor):
 				"dodge": 1,
 				"health_max": 1,
 				"defense": 1
-			}
+			},
+			plugin='tee_shirt'
 		)
-		self.plugin = 'tee_shirt'

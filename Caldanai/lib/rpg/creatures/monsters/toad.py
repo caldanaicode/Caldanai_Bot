@@ -1,6 +1,8 @@
 from typing import Dict, List
 
 from random import choice
+
+from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -18,7 +20,7 @@ class Monster(Creature):
 		self.aggression = "vengeful"
 		self.arrival = choice([
 			f"A giant toad {choice('hops|leaps|bounds'.split('|'))} in from the "
-			f"{choice('north|south|east|west|northeast|northwest|southeast|southwest'.split('|'))}, with a hungry gaze."
+			f"{get_random_direction()}, with a hungry gaze."
 		])
 
 		self.flavor = "This toad is abnormally large, its diet primarily consisting of cute, small animals."

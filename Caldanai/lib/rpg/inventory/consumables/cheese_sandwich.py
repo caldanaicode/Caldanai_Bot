@@ -19,9 +19,9 @@ class ConsumablePlugin(Consumable):
 			rarity=rarity,
 			article="a",
 			uses_max=uses_max,
-			uses_left=uses_left
+			uses_left=uses_left,
+			plugin='cheese_sandwich'
 		)
-		self.plugin = 'cheese_sandwich'
 
 	def use(self, target: Creature) -> (str, bool):
 		msg, keep = super().use(target)

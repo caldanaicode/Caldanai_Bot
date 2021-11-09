@@ -1,4 +1,3 @@
-from itertools import groupby
 from typing import Tuple, Dict, Optional, List, Union
 
 from .armor import Armor

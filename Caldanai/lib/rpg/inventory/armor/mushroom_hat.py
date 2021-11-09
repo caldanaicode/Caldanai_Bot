@@ -19,6 +19,6 @@ class ArmorPlugin(Armor):
 			bonuses={
 				"dodge": 2,
 				"defense": -2
-			}
+			},
+			plugin='mushroom_hat'
 		)
-		self.plugin = 'mushroom_hat'

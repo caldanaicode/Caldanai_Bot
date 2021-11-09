@@ -9,7 +9,7 @@ from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
 class ItemPlugin(Item):
-	def __init__(self, iid: ObjectId = None, rarity: Rarity = None):
+	def __init__(self, iid: ObjectId = None, rarity: Rarity = None, count: int = 1):
 		super().__init__(
 			iid=iid,
 			name="heavy, stringed instrument",
@@ -19,7 +19,8 @@ class ItemPlugin(Item):
 			image="heavy_stringed_instrument128.png",
 			rarity=rarity,
 			article='a',
-			plugin='heavy_stringed_instrument'
+			plugin='heavy_stringed_instrument',
+			count=count
 		)
 
 	def use(self, target: Creature = None) -> str:

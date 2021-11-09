@@ -67,23 +67,22 @@ class Item:
 		self.count += other.count
 		return True
 
-	def get_article_or_count(self, next_word: str = None) -> str:
+	def get_article_or_count(self, next_word: str = None, count: int = None) -> str:
 		exclusions = ['unique']
 		if next_word is not None \
 				and next_word not in exclusions \
 				and next_word[0] in 'aeiouh' \
-				and self.article == 'a' and self.count == 1:
+				and self.article == 'a'\
+				and (count == 1 or self.count == 1):
 			return f'an {next_word}'
 
-		if self.count != 1:
-			return f'{self.count} {next_word}'
+		if count is not None and count != 1 or self.count != 1:
+			return f'{count if count is not None else self.count} {next_word}'
 
 		return f'{self.article} {next_word}'
 
 	def get_full_name(self, count: int = None) -> str:
-		if count:
-			return f"{count} {self.rarity.name} {self.name if self.count == 1 else self.plural}"
-		return f"{self.get_article_or_count(self.rarity.name)} {self.name if self.count == 1 else self.plural}"
+		return f"{self.get_article_or_count(self.rarity.name, count)} {self.name if self.count == 1 else self.plural}"
 
 	def get_embed(self) -> (Embed, File):
 		"""Returns a tuple containing an Embed and File object for this item."""

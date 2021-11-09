@@ -1,6 +1,6 @@
 from logging import getLogger, DEBUG, Formatter
 from Caldanai.Logger import MongoHandler
-from Caldanai.db.db import MongoDB
+from Caldanai.db.__init__ import MongoDB
 from Caldanai.lib.bot import bot
 from threading import Thread
 from flask import Flask, render_template

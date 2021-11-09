@@ -21,9 +21,10 @@ class Armor(Item):
 			rarity: Rarity = None,
 			article: str = None,
 			slot: str = "",
-			bonuses: Dict[str, int] = None
+			bonuses: Dict[str, int] = None,
+			plugin: str = None
 	):
-		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type='Armor')
+		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type='Armor', plugin=plugin)
 
 		self.slot = slot or ""
 		self.bonuses = {}

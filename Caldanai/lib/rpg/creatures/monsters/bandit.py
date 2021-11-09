@@ -44,7 +44,7 @@ class Monster(Creature):
 			{"plugin": "shortsword", "item_type": "Weapon", "frequency": 0.2},
 			{"plugin": "bandanna", "item_type": "Armor", "frequency": 0.2},
 			{"plugin": "bow", "item_type": "Weapon", "frequency": 0.15},
-			{"plugin": "cheese_sandwich", "item_type": "Item", "frequency": 0.2},
+			{"plugin": "cheese_sandwich", "item_type": "Consumable", "frequency": 0.2},
 			{"plugin": "wallet", "item_type": "Item", "frequency": 0.25}
 		]
 

@@ -11,8 +11,8 @@ from Caldanai.lib.bot import Bot
 from ..rpg.creatures.player import Player
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
-from ...db.db import MongoDB
-from ..rpg.game import Game
+from ...db import MongoDB
+from ..rpg import Game
 
 
 class RpgUtilities(Cog):
@@ -153,10 +153,20 @@ class RpgUtilities(Cog):
 		return game, player
 
 	@tasks.loop(minutes=1)
-	async def save_players(self):
-		"""Database loop to save player data."""
+	async def save_game_data(self):
+		"""Database loop to save player and game data."""
 
 		try:
+
+			games = [
+				UpdateOne(
+					{'guild_id': g.guild.id},
+					{'$set': g.to_dict()}
+				) for g in self.bot.games.values()
+			]
+
+			result = MongoDB["games"].bulk_write(games, ordered=False)
+
 			dirty = [
 				(p, UpdateOne(
 					{"guild_id": p.guild_id, "user_id": p.user_id},
@@ -183,7 +193,7 @@ class RpgUtilities(Cog):
 		games = MongoDB.games.find()
 		for g in games:
 			await self.add_game(game=g)
-		self.save_players.start()
+		self.save_game_data.start()
 		stdout("RpgUtilities ready.")
 
 

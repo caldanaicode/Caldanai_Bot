@@ -1,6 +1,8 @@
 from typing import Dict, List
 
 from random import choice
+
+from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -17,7 +19,7 @@ class Monster(Creature):
 		self.image = None
 		self.aggression = "neutral"
 		self.arrival = f"A fluffy mass of fur {choice('saunters|ambles|prances|skitters|tiptoes|wanders'.split('|'))} " \
-					   f"in from the {choice('north|south|east|west|northeast|northwest|southeast|southwest'.split('|'))}."
+					   f"in from the {get_random_direction()}."
 
 		self.flavor = choice([
 			"Just a cuddly sheep, searching the lonely fields for hugs.",

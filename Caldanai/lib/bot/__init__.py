@@ -8,10 +8,10 @@ from discord.errors import HTTPException, Forbidden
 from glob import glob
 from os import path
 
-from ..rpg.game import Game
+from ..rpg import Game
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
-from ...db.db import MongoDB
+from ...db import MongoDB
 from Caldanai.environment import OWNER_IDS, TOKEN
 
 

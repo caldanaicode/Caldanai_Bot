@@ -20,9 +20,11 @@ class Consumable(Item):
 			rarity: Rarity = None,
 			article: str = None,
 			uses_max: int = 1,
-			uses_left: int = 1
+			uses_left: int = 1,
+			plugin: str = None
 	):
-		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type="Consumable")
+		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type="Consumable",
+						 plugin=plugin)
 		self.uses_max = max(uses_max, 0)
 		self.uses_left = min(max(uses_left, 0), uses_max)
 
@@ -54,12 +56,20 @@ class Consumable(Item):
 		"""Creates a new consumable from a plugin with initial data."""
 
 		try:
-			item = importlib.import_module(f'Caldanai.lib.rpg.inventory.consumables.{plugin_name}').ConsumablePlugin(
-				data['_id'] if '_id' in data.keys() else None,
-				Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
-				data['uses_max'] if 'uses_max' in data.keys() else 1,
-				data['uses_left'] if 'uses_left' in data.keys() else 1
-			)
+			if 'uses_left' in data.keys():
+				item = importlib.import_module(f'Caldanai.lib.rpg.inventory.consumables.{plugin_name}').ConsumablePlugin(
+					data['_id'] if '_id' in data.keys() else None,
+					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+					data['uses_max'] if 'uses_max' in data.keys() else None,
+					data['uses_left'] if 'uses_left' in data.keys() else None
+				)
+
+			else:
+				item = importlib.import_module(
+					f'Caldanai.lib.rpg.inventory.consumables.{plugin_name}').ConsumablePlugin(
+					data['_id'] if '_id' in data.keys() else None,
+					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None
+				)
 
 			return item
 

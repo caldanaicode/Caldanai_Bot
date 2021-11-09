@@ -9,7 +9,7 @@ class ItemPlugin(Item):
 		super().__init__(
 			iid=iid,
 			name="small gem",
-			desc="Sadly, the jewelry market has collapsed due to the frequency of dragon.",
+			desc="Sadly, the jewelry market has collapsed due to the frequency of dragon kills.",
 			unit_weight=0.1,
 			unit_value=10,
 			image="small_gem128.png",

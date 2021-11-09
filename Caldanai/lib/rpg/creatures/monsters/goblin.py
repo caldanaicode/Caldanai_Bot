@@ -48,7 +48,7 @@ class Monster(Creature):
 			dmg = Dice.quick_roll('1d4')
 			msg += f" {actor.name} is caught off-guard and takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
 			m = actor.apply_damage(dmg)
-			msg += f"\n{m}" if len(m) > 0 else ""
+			msg += f"\n{m}" if m else ""
 		else:
 			msg += f"\n{actor.name} narrowly avoids the goblin's thrashing!"
 

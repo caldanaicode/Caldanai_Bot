@@ -1,5 +1,5 @@
 from flask import Flask, render_template
-from Caldanai.db.db import MongoDB
+from Caldanai.db.__init__ import MongoDB
 from pymongo import DESCENDING
 
 app = Flask('', static_folder='site/static', template_folder='site/templates')

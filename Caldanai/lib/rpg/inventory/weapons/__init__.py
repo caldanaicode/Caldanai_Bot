@@ -3,7 +3,7 @@ import importlib
 from discord import Embed, File
 
 from Caldanai.Logger import stdout
-from Caldanai.db.db import MongoDB
+from Caldanai.db.__init__ import MongoDB
 from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
@@ -26,9 +26,11 @@ class Weapon(Item):
 			atk_msg: str = None,
 			bonus: int = None,
 			article: str = None,
-			dmg_type: str = None
+			dmg_type: str = None,
+			plugin: str = None
 	):
-		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type="Weapon")
+		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type="Weapon",
+						 plugin=plugin)
 		self.attack = atk.lower()
 		self.is_2handed = is_2handed
 		self.is_magic = is_magic
