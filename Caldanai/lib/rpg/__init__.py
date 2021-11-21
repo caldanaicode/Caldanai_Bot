@@ -4,16 +4,16 @@ from asyncio import sleep
 from discord.ext.commands import Bot
 from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
-
-from .creatures import Creature
-from .creatures.monsters import AggressionLevels
-from .creatures.player import Player
 from random import choice, randint
 
-from .helpers import get_random_direction, get_random_monster
+from .helpers.enums import AggressionLevels, TimesOfDay
+from .time import GameClock
+from .creatures import Creature
+from .helpers import get_random_direction
+from .creatures.monsters import Monster
+from .creatures.player import Player
 from .inventory.items import Item
 from .inventory.weapons import Weapon
-from .time import GameClock
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db import MongoDB
@@ -81,7 +81,8 @@ class Game:
 		:param use_spawn_timer: Whether or not to allow periodic monster spawns.
 		:param spawn_max: Maximum minutes between monster spawns.
 		:param spawn_min: Minimum minutes between monster spawns.
-		:param spawn_duration: Number of minutes before first combat triggers. Additional rounds occur at half this time.
+		:param spawn_duration: Number of minutes before first combat triggers. Additional rounds occur at half this
+		time.
 		:param loot_duration: Number of minutes before loot expires.
 		:param prefix: The game's command prefix.
 		:param enable_ambience: Whether or not to display ambience messages such as weather, day/night cycles,
@@ -93,7 +94,7 @@ class Game:
 		self.guild = guild
 		self.channel = channel
 		self.players: Dict[int, Player] = {}
-		self.monster: Optional[Creature] = None
+		self.monster: Optional[Monster] = None
 		self.monsters: List[str] = []
 		self.combatants: List[int] = []
 		self.looters: List[int] = []
@@ -120,10 +121,28 @@ class Game:
 		if enable_ambience:
 			self.game_clock.add_routine(self.do_ambience, 1)
 
+	async def check_time(self):
+		if not self.monster or self.monster.is_dead() \
+				or (not self.monster.flees_from_time and not self.monster.dies_from_time):
+			self.game_clock.remove_routine(self.check_time)
+			return
+
+		out_of_partition = bool(self.monster.time_partition & TimesOfDay[self.game_clock.get_time_of_day().upper()].value)
+		if out_of_partition and self.monster.dies_from_time:
+			msg = self.monster.time_death
+			if self.monster.is_dead():
+				msg += self.on_monster_death()
+				msgs = Dispatcher.split_message(msg, '```\n', True)
+				for m in msgs:
+					Dispatcher.add(self.channel, m)
+			return
+
 	def get_monster(self):
-		self.monster = get_random_monster(self.game_clock)
+		self.monster = Monster.get_random_monster(self.game_clock)
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
+		if self.monster.dies_from_time or self.monster.flees_from_time:
+			self.game_clock.add_routine(self.check_time, 1)
 
 	async def do_spawn(self, force: bool = False):
 		if self.monster:
@@ -226,7 +245,8 @@ class Game:
 				Dispatcher.add(self.channel, m)
 
 		else:
-			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) and len(self.combatants) > 0:
+			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) and len(
+					self.combatants) > 0:
 				msg += f"\n{self.attack_random_combatant()}"
 				if self.monster.aggression == AggressionLevels.RAMPAGE:
 					Dispatcher.add(self.channel, f"{msg}\n**The {self.monster.name} seems enraged!**")
@@ -234,7 +254,8 @@ class Game:
 					self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
 					return
 
-			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) or len(self.combatants) == 0:
+			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) or len(
+					self.combatants) == 0:
 				Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 				self.cancel_combat()
 
@@ -282,16 +303,16 @@ class Game:
 		"""Returns the database friendly dictionary for this game."""
 
 		d = {
-			'guild_id': self.guild.id,
-			'channelId': self.channel.id,
+			'guild_id'       : self.guild.id,
+			'channelId'      : self.channel.id,
 			'use_spawn_timer': self.use_spawn_timer,
-			'spawn_duration': int(self.spawn_duration / 60),
-			'loot_duration': int(self.loot_duration / 60),
-			'minutes_max': self.minutes_max,
-			'minutes_min': self.minutes_min,
-			'prefix': self.prefix,
+			'spawn_duration' : int(self.spawn_duration / 60),
+			'loot_duration'  : int(self.loot_duration / 60),
+			'minutes_max'    : self.minutes_max,
+			'minutes_min'    : self.minutes_min,
+			'prefix'         : self.prefix,
 			'enable_ambience': self.enable_ambience,
-			'game_time': self.game_clock.get_hours()
+			'game_time'      : self.game_clock.get_hours()
 		}
 
 		if self.id is not None:

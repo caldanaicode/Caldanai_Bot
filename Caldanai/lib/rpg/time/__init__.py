@@ -1,36 +1,10 @@
 import math
 import asyncio
-from enum import Enum, IntFlag
 from typing import List, Callable, Optional
 
 from discord.ext import tasks
 
-from Caldanai.Logger import stdout
-
-
-class TimesOfDay(IntFlag):
-	DAWN = 0x1
-	MORNING = 0x2
-	NOON = 0x4
-	AFTERNOON = 0x8
-	EVENING = 0x10
-	DUSK = 0x20
-	NIGHT = 0x40
-
-
-class TimePartitions(IntFlag):
-	AURORAL = TimesOfDay.DAWN
-	DIURNAL = TimesOfDay.DAWN | TimesOfDay.MORNING | TimesOfDay.NOON | TimesOfDay.AFTERNOON | TimesOfDay.EVENING
-	CREPUSCULAR = TimesOfDay.EVENING | TimesOfDay.DUSK
-	NOCTURNAL = TimesOfDay.DUSK | TimesOfDay.NIGHT
-	CATHEMERAL = AURORAL | DIURNAL | CREPUSCULAR | NOCTURNAL
-
-
-class Seasons(Enum):
-	BRIGHTBLOOM = 0
-	SOLSTIME = 1
-	LEAFGLOW = 2
-	FROSTFALL = 3
+from Caldanai.lib.rpg.helpers.enums import TimesOfDay, Seasons
 
 
 class GameClock:
@@ -167,7 +141,14 @@ class GameClock:
 
 		return 24 - self.get_daylight_length(day)
 
-	def get_hours(self, year: int = None, day: int = None, hour: int = None, minute: int = None, second: int = None) -> float:
+	def get_hours(
+			self,
+			year: int = None,
+			day: int = None,
+			hour: int = None,
+			minute: int = None,
+			second: int = None
+	) -> float:
 		"""
 		Returns the internal representation of a given time, or the current time if none is provided.
 

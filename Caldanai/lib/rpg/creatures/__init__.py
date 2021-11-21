@@ -3,7 +3,6 @@ from typing import Union, Optional, Dict, Tuple, List
 
 from discord import Embed, File
 
-from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory import Inventory
@@ -50,7 +49,6 @@ class Creature:
 		self.loot: List[Dict] = []
 		self.gender: Optional[str] = gender or choice(['male', 'female'])
 		self.is_dirty: bool = False
-		self.aggression = AggressionLevels.PASSIVE
 
 		if pronouns:
 			s = pronouns.split(',')
@@ -158,7 +156,7 @@ class Creature:
 
 	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
 		"""
-		Performs an attack against the given creature, without modifying the monster's attributes.
+		Performs an attack against the given creature, without modifying its attributes.
 
 		Returns a tuple containing the attack message and the total damage done.
 		"""

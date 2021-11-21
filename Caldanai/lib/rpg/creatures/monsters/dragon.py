@@ -1,11 +1,11 @@
 from typing import Dict, List
 
-from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
+from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
 from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.time import TimePartitions
 
 
-class Monster(Creature):
+class MonsterPlugin(Monster):
 	def __init__(self):
 		super().__init__(
 			name="dragon",
