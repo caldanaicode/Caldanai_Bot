@@ -2,6 +2,7 @@ from typing import Dict, List
 
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.time import TimePartitions
 
 
 class Monster(Creature):
@@ -14,6 +15,7 @@ class Monster(Creature):
 			health_max="5d10"
 		)
 
+		self.time_partition = TimePartitions.DIURNAL
 		self.image = None
 		self.aggression = "rampage"
 		self.arrival = "The ground trembles slightly as a giant trudges in."

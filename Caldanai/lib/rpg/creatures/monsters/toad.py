@@ -4,6 +4,7 @@ from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.time import TimePartitions
 
 
 class Monster(Creature):
@@ -16,6 +17,7 @@ class Monster(Creature):
 			health_max="2d8"
 		)
 
+		self.time_partition = TimePartitions.CREPUSCULAR | TimePartitions.NOCTURNAL
 		self.image = None
 		self.aggression = "vengeful"
 		self.arrival = choice([

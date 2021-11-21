@@ -1,6 +1,6 @@
 import math
 import asyncio
-from enum import Enum
+from enum import Enum, IntFlag
 from typing import List, Callable, Optional
 
 from discord.ext import tasks
@@ -8,14 +8,22 @@ from discord.ext import tasks
 from Caldanai.Logger import stdout
 
 
-class TimesOfDay(Enum):
-	NIGHT = 0
-	DAWN = 1
-	MORNING = 2
-	NOON = 3
-	AFTERNOON = 4
-	EVENING = 5
-	DUSK = 6
+class TimesOfDay(IntFlag):
+	DAWN = 0x1
+	MORNING = 0x2
+	NOON = 0x4
+	AFTERNOON = 0x8
+	EVENING = 0x10
+	DUSK = 0x20
+	NIGHT = 0x40
+
+
+class TimePartitions(IntFlag):
+	AURORAL = TimesOfDay.DAWN
+	DIURNAL = TimesOfDay.DAWN | TimesOfDay.MORNING | TimesOfDay.NOON | TimesOfDay.AFTERNOON | TimesOfDay.EVENING
+	CREPUSCULAR = TimesOfDay.EVENING | TimesOfDay.DUSK
+	NOCTURNAL = TimesOfDay.DUSK | TimesOfDay.NIGHT
+	CATHEMERAL = AURORAL | DIURNAL | CREPUSCULAR | NOCTURNAL
 
 
 class Seasons(Enum):
@@ -232,18 +240,18 @@ class GameClock:
 		hr = self.get_time_components()[0]
 
 		if sr <= hr < sr + 1:
-			return TimesOfDay(1).name.lower()
+			return TimesOfDay.DAWN.name.lower()
 		if sr + 1 <= hr < 12:
-			return TimesOfDay(2).name.lower()
+			return TimesOfDay.MORNING.name.lower()
 		if 12 <= hr < 13:
-			return TimesOfDay(3).name.lower()
+			return TimesOfDay.NOON.name.lower()
 		if 13 <= hr < ss - 2:
-			return TimesOfDay(4).name.lower()
+			return TimesOfDay.AFTERNOON.name.lower()
 		if ss - 2 <= hr < ss:
-			return TimesOfDay(5).name.lower()
+			return TimesOfDay.EVENING.name.lower()
 		if ss <= hr < ss + 1:
-			return TimesOfDay(6).name.lower()
-		return TimesOfDay(0).name.lower()
+			return TimesOfDay.DUSK.name.lower()
+		return TimesOfDay.NIGHT.name.lower()
 
 	def get_season_string(self, season: int = None) -> str:
 		"""

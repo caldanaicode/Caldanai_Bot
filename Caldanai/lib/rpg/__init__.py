@@ -120,7 +120,7 @@ class Game:
 			self.game_clock.add_routine(self.do_ambience, 1)
 
 	def get_monster(self):
-		self.monster = get_random_monster()
+		self.monster = get_random_monster(self.game_clock)
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
 

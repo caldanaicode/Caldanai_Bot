@@ -2,6 +2,7 @@ from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.time import TimePartitions
 
 
 class Monster(Creature):
@@ -14,6 +15,7 @@ class Monster(Creature):
 			health_max="10d4"
 		)
 
+		self.time_partition = TimePartitions.NOCTURNAL | TimePartitions.CREPUSCULAR
 		self.image = "owl128.png"
 		self.aggression = "vengeful"
 		self.arrival = f"A genetically improbable creature " \

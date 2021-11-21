@@ -3,6 +3,7 @@ from typing import Dict, List
 from random import choice
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.time import TimePartitions
 
 
 class Monster(Creature):
@@ -15,6 +16,7 @@ class Monster(Creature):
 			health_max="1d20"
 		)
 
+		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = None
 		self.aggression = "vengeful"
 		self.arrival = choice([
