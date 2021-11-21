@@ -1,10 +1,28 @@
 import math
 import asyncio
+from enum import Enum
 from typing import List, Callable, Optional
 
 from discord.ext import tasks
 
 from Caldanai.Logger import stdout
+
+
+class TimesOfDay(Enum):
+	NIGHT = 0
+	DAWN = 1
+	MORNING = 2
+	NOON = 3
+	AFTERNOON = 4
+	EVENING = 5
+	DUSK = 6
+
+
+class Seasons(Enum):
+	BRIGHTBLOOM = 0
+	SOLSTIME = 1
+	LEAFGLOW = 2
+	FROSTFALL = 3
 
 
 class GameClock:
@@ -214,18 +232,18 @@ class GameClock:
 		hr = self.get_time_components()[0]
 
 		if sr <= hr < sr + 1:
-			return "dawn"
+			return TimesOfDay(1).name.lower()
 		if sr + 1 <= hr < 12:
-			return "morning"
+			return TimesOfDay(2).name.lower()
 		if 12 <= hr < 13:
-			return "noon"
+			return TimesOfDay(3).name.lower()
 		if 13 <= hr < ss - 2:
-			return "afternoon"
+			return TimesOfDay(4).name.lower()
 		if ss - 2 <= hr < ss:
-			return "evening"
+			return TimesOfDay(5).name.lower()
 		if ss <= hr < ss + 1:
-			return "dusk"
-		return "night"
+			return TimesOfDay(6).name.lower()
+		return TimesOfDay(0).name.lower()
 
 	def get_season_string(self, season: int = None) -> str:
 		"""
@@ -234,12 +252,11 @@ class GameClock:
 
 		:return: The name of the season.
 		"""
-		seasons = ['Brightbloom', 'Solstime', 'Leafglow', 'Frostfall']
 
 		if season is None:
 			season = self.get_season()
 
-		return seasons[season]
+		return Seasons(season).name.title()
 
 	def get_time(self) -> str:
 		"""Returns the game clock's current time in the hh:mm format."""
