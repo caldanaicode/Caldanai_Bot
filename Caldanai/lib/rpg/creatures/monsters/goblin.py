@@ -1,6 +1,7 @@
 from typing import Dict, List
 
 from random import choice
+from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.time import TimePartitions
@@ -18,7 +19,7 @@ class Monster(Creature):
 
 		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = None
-		self.aggression = "vengeful"
+		self.aggression = AggressionLevels.VENGEFUL
 		self.arrival = choice([
 			f"With a spluttering snarl, a goblin {choice('bursts|pads|runs'.split('|'))} into the area.",
 			f"A screeching laugh shatters the serenity that once lingered here, as a goblin finds "

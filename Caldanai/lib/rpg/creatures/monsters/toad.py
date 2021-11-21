@@ -3,6 +3,7 @@ from typing import Dict, List
 from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
+from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.time import TimePartitions
 
@@ -19,7 +20,7 @@ class Monster(Creature):
 
 		self.time_partition = TimePartitions.CREPUSCULAR | TimePartitions.NOCTURNAL
 		self.image = None
-		self.aggression = "vengeful"
+		self.aggression = AggressionLevels.VENGEFUL
 		self.arrival = choice([
 			f"A giant toad {choice('hops|leaps|bounds'.split('|'))} in from the "
 			f"{get_random_direction()}, with a hungry gaze."

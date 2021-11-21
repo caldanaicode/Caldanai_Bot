@@ -3,6 +3,7 @@ from typing import Dict, List
 from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
+from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.time import TimePartitions
 
@@ -19,7 +20,7 @@ class Monster(Creature):
 
 		self.time_partition = TimePartitions.DIURNAL
 		self.image = None
-		self.aggression = "neutral"
+		self.aggression = AggressionLevels.PASSIVE
 		self.arrival = f"A fluffy mass of fur {choice('saunters|ambles|prances|skitters|tiptoes|wanders'.split('|'))} " \
 					   f"in from the {get_random_direction()}."
 

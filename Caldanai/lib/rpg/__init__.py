@@ -6,6 +6,7 @@ from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 
 from .creatures import Creature
+from .creatures.monsters import AggressionLevels
 from .creatures.player import Player
 from random import choice, randint
 
@@ -225,15 +226,15 @@ class Game:
 				Dispatcher.add(self.channel, m)
 
 		else:
-			if self.monster.aggression in ("rampage", "vengeful") and len(self.combatants) > 0:
+			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) and len(self.combatants) > 0:
 				msg += f"\n{self.attack_random_combatant()}"
-				if self.monster.aggression == "rampage":
+				if self.monster.aggression == AggressionLevels.RAMPAGE:
 					Dispatcher.add(self.channel, f"{msg}\n**The {self.monster.name} seems enraged!**")
 					self.combatants.clear()
 					self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
 					return
 
-			if self.monster.aggression in ("vengeful", "neutral") or len(self.combatants) == 0:
+			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) or len(self.combatants) == 0:
 				Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 				self.cancel_combat()
 

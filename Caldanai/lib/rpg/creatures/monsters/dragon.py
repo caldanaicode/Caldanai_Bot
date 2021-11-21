@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.time import TimePartitions
 
@@ -16,7 +17,7 @@ class Monster(Creature):
 
 		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = None
-		self.aggression = "rampage"
+		self.aggression = AggressionLevels.RAMPAGE
 		self.arrival = "A piercing roar rocks the heavens, as a dragon swoops down out of the clouds searching for prey."
 		self.flavor = "A massive red dragon, smelling faintly of cinnamon and charcoal."
 		self.escape = "The dragon circles the area lazily before taking to the clouds, disappearing from sight."

@@ -2,6 +2,8 @@ import random
 from typing import Dict, List
 
 from random import choice
+
+from Caldanai.lib.rpg.creatures.monsters import AggressionLevels
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.time import TimePartitions
@@ -19,7 +21,7 @@ class Monster(Creature):
 
 		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = "bandit128.png"
-		self.aggression = "vengeful"
+		self.aggression = AggressionLevels.VENGEFUL
 		self.arrival = f"A masked bandit {choice('stealthily|clumsily|quickly|slowly'.split('|'))} " \
 					   f"{choice('walks|saunters|sashays|sneaks'.split('|'))} out of the " \
 					   f"{choice('bushes|rocks|distance|shadows'.split('|'))}."
