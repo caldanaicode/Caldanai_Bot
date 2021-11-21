@@ -749,7 +749,7 @@ class RpgUserCommands(Cog):
 		else:
 			Dispatcher.add(
 				channel, f"{player.name}, you currently have {player.health} / {player.health_max} "
-							  f"health, and {player.health_regen} regeneration per combat avoided."
+							  f"health, and {player.health_regen} regeneration per game-hour."
 			)
 
 	@cooldown(1, 5, BucketType.member)
