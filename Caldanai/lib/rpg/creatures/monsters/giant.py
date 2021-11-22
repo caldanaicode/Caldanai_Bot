@@ -1,10 +1,12 @@
 from typing import Dict, List
 
+from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
-class Monster(Creature):
+class MonsterPlugin(Monster):
 	def __init__(self):
 		super().__init__(
 			name="giant",
@@ -14,8 +16,9 @@ class Monster(Creature):
 			health_max="5d10"
 		)
 
+		self.time_partition = TimePartitions.DIURNAL
 		self.image = None
-		self.aggression = "rampage"
+		self.aggression = AggressionLevels.RAMPAGE
 		self.arrival = "The ground trembles slightly as a giant trudges in."
 		self.flavor = f"This giant would blend in nicely with the surrounding rocks, if {self.pronouns['subject']} " \
 					  f"would stop moving."

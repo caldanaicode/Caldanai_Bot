@@ -3,10 +3,12 @@ from typing import Dict, List
 from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
+from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
 from Caldanai.lib.rpg.creatures import Creature
 
 
-class Monster(Creature):
+class MonsterPlugin(Monster):
 	def __init__(self):
 		super().__init__(
 			name="sheep",
@@ -16,8 +18,9 @@ class Monster(Creature):
 			health_max="2d4"
 		)
 
+		self.time_partition = TimePartitions.DIURNAL
 		self.image = None
-		self.aggression = "neutral"
+		self.aggression = AggressionLevels.PASSIVE
 		self.arrival = f"A fluffy mass of fur {choice('saunters|ambles|prances|skitters|tiptoes|wanders'.split('|'))} " \
 					   f"in from the {get_random_direction()}."
 

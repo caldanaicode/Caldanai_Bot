@@ -179,13 +179,14 @@ class RpgAdminCommands(Cog):
 		if any(v == msg for v in ['1', 'on', 'true', 'enabled']):
 			if not game.use_spawn_timer:
 				game.use_spawn_timer = True
-				game.spawn_check.start()
+				game.game_clock.add_routine(game.do_spawn, 5, True)
 			else:
 				Dispatcher.add(game.channel, "Spawning is already enabled.")
 
 		elif any(v == msg for v in ['0', 'off', 'false', 'disabled']):
 			if game.use_spawn_timer:
 				game.use_spawn_timer = False
+				game.game_clock.remove_routine(game.do_spawn)
 			else:
 				Dispatcher.add(game.channel, "Spawning is already disabled.")
 
@@ -201,8 +202,8 @@ class RpgAdminCommands(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
-			game.get_monster()
-			game.do_combat.start()
+			game.game_clock.remove_routine(game.do_spawn)
+			await game.do_spawn(True)
 			return
 
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
@@ -246,13 +247,13 @@ class RpgAdminCommands(Cog):
 			"Unable to spawn item. Please check the spelling of the plugin name and item type."
 		)
 
-	@group(brief="Displays or sets various ambiance options.")
+	@group(brief="Displays or sets various ambience options.")
 	@guild_only()
 	@has_permissions(manage_guild=True)
 	@cooldown(1, 5, BucketType.guild)
-	async def ambiance(self, ctx):
+	async def ambience(self, ctx):
 		"""
-		Displays or sets various ambiance options.
+		Displays or sets various ambience options.
 		(5-second cool-down server-wide)
 		"""
 
@@ -262,34 +263,35 @@ class RpgAdminCommands(Cog):
 		if ctx.invoked_subcommand is None:
 			guild: Guild = ctx.guild
 			game = self.bot.games[ctx.guild.id]
-			embed = Embed(title="Current Ambiance Settings")
+			embed = Embed(title="Current Ambience Settings")
 			embed.set_thumbnail(url=guild.icon_url)
-			embed.add_field(name="Ambiance Enabled", value=f"{game.use_ambiance}", inline=True)
+			embed.add_field(name="Ambience Enabled", value=f"{game.enable_ambience}", inline=True)
 			Dispatcher.add(ctx, embed=embed)
 
-	@ambiance.command(aliases=['set'], brief="Sets ambiance for a game on or off.")
-	async def ambiance_set(self, ctx, value: str = None):
-		"""Sets ambiance for a game on or off."""
+	@ambience.command(aliases=['set'], brief="Sets ambience for a game on or off.")
+	async def ambience_set(self, ctx, value: str = None):
+		"""Sets ambience for a game on or off."""
 
 		game = self.bot.games[ctx.guild.id]
 		if value is None:
-			Dispatcher.add(game.channel, f"Ambiance is currently {'en' if game.use_ambiance else 'dis'}abled.")
+			Dispatcher.add(game.channel, f"Ambience is currently {'en' if game.enable_ambience else 'dis'}abled.")
 			return
 
 		value = value.lower()
 		if value.lower() in ['1', 'on', 'true', 'enabled']:
-			if not game.use_ambiance:
-				game.use_ambiance = True
-				game.do_ambiance.start()
+			if not game.enable_ambience:
+				game.enable_ambience = True
+				game.game_clock.add_routine(game.do_ambience, 1)
 			else:
-				Dispatcher.add(game.channel, "Ambiance is already enabled.")
+				Dispatcher.add(game.channel, "Ambience is already enabled.")
 				return
 
 		elif value.lower() in ['0', 'off', 'false', 'disabled']:
-			if game.use_ambiance:
-				game.use_ambiance = False
+			if game.enable_ambience:
+				game.enable_ambience = False
+				game.game_clock.remove_routine(game.do_ambience)
 			else:
-				Dispatcher.add(game.channel, "Ambiance is already disabled.")
+				Dispatcher.add(game.channel, "Ambience is already disabled.")
 				return
 
 		else:
@@ -297,7 +299,7 @@ class RpgAdminCommands(Cog):
 			return
 
 		game.save()
-		Dispatcher.add(game.channel, "Ambiance has been set.")
+		Dispatcher.add(game.channel, "Ambience has been set.")
 
 	# Additional maintenance after cog loads.
 	@Cog.listener()

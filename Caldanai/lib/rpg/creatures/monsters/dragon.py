@@ -1,9 +1,12 @@
+from random import choice
 from typing import Dict, List
 
+from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
 from Caldanai.lib.rpg.creatures import Creature
 
 
-class Monster(Creature):
+class MonsterPlugin(Monster):
 	def __init__(self):
 		super().__init__(
 			name="dragon",
@@ -13,10 +16,15 @@ class Monster(Creature):
 			health_max="10d10"
 		)
 
+		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = None
-		self.aggression = "rampage"
+		self.aggression = AggressionLevels.RAMPAGE
 		self.arrival = "A piercing roar rocks the heavens, as a dragon swoops down out of the clouds searching for prey."
-		self.flavor = "A massive red dragon, smelling faintly of cinnamon and charcoal."
+		self.flavor = choice([
+			"A massive red dragon, smelling faintly of cinnamon and charcoal.",
+			"Unconfirmed reports suggests that this dragon may, in fact, have 62 toes. However, no one can get close "
+			"enough to actually count."
+		])
 		self.escape = "The dragon circles the area lazily before taking to the clouds, disappearing from sight."
 		self.death = f"The dragon gives a final bellow of rage and disbelief as {self.pronouns['subject']} falls to " \
 					 f"the ground. {self.pronouns['possessive'].capitalize()} thrashing lasts but a moment, " \

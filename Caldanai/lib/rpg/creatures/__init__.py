@@ -49,7 +49,6 @@ class Creature:
 		self.loot: List[Dict] = []
 		self.gender: Optional[str] = gender or choice(['male', 'female'])
 		self.is_dirty: bool = False
-		self.aggression = None
 
 		if pronouns:
 			s = pronouns.split(',')
@@ -157,7 +156,7 @@ class Creature:
 
 	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
 		"""
-		Performs an attack against the given creature, without modifying the monster's attributes.
+		Performs an attack against the given creature, without modifying its attributes.
 
 		Returns a tuple containing the attack message and the total damage done.
 		"""
