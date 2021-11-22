@@ -126,16 +126,22 @@ class Game:
 				or (not self.monster.flees_from_time and not self.monster.dies_from_time):
 			self.game_clock.remove_routine(self.check_time)
 			return
-
-		out_of_partition = bool(self.monster.time_partition & TimesOfDay[self.game_clock.get_time_of_day().upper()].value)
+		h, m, _ = self.game_clock.get_time_components()
+		tod = self.game_clock.get_time_of_day()
+		out_of_partition = bool(self.monster.time_partition & TimesOfDay[tod.upper()].value)
+		next_tod, next_h, next_m = self.game_clock.get_next_time()
+		msg = ""
 		if out_of_partition and self.monster.dies_from_time:
 			msg = self.monster.time_death
-			if self.monster.is_dead():
-				msg += self.on_monster_death()
-				msgs = Dispatcher.split_message(msg, '```\n', True)
-				for m in msgs:
-					Dispatcher.add(self.channel, m)
-			return
+			msg += self.on_monster_death()
+
+		elif self.monster.flees_from_time:
+			if out_of_partition or (next_h - h < 1 and next_m - m < 10):
+				msg = self.monster.time_flee
+				self.cancel_combat()
+
+		if msg:
+			Dispatcher.add(self.channel, msg)
 
 	def get_monster(self):
 		self.monster = Monster.get_random_monster(self.game_clock)
@@ -163,6 +169,7 @@ class Game:
 		self.combatants.clear()
 		self.loot.clear()
 		self.looters.clear()
+		self.game_clock.remove_routine(self.do_combat)
 		self.game_clock.add_routine(self.do_spawn, 5, True)
 
 	async def loot_expires(self):
@@ -188,6 +195,7 @@ class Game:
 		self.monster = None
 		self.combatants.clear()
 		self.looters.clear()
+		self.game_clock.remove_routine(self.do_combat)
 		if has_loot:
 			self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
 			return f"\nThere might be something to `{self.prefix}loot`..."
@@ -245,8 +253,9 @@ class Game:
 				Dispatcher.add(self.channel, m)
 
 		else:
-			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) and len(
-					self.combatants) > 0:
+			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) \
+				and len(self.combatants) > 0:
+
 				msg += f"\n{self.attack_random_combatant()}"
 				if self.monster.aggression == AggressionLevels.RAMPAGE:
 					Dispatcher.add(self.channel, f"{msg}\n**The {self.monster.name} seems enraged!**")
@@ -254,8 +263,9 @@ class Game:
 					self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
 					return
 
-			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) or len(
-					self.combatants) == 0:
+			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) \
+				or len(self.combatants) == 0:
+
 				Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
 				self.cancel_combat()
 
