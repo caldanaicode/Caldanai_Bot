@@ -1,3 +1,5 @@
+from typing import Optional
+
 from discord import Embed, Guild
 from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType, Context
 from Caldanai.lib.bot import Bot
@@ -197,13 +199,13 @@ class RpgAdminCommands(Cog):
 		Dispatcher.add(game.channel, "Spawning has been set.")
 
 	@spawn.command(brief="Forces a monster to spawn.")
-	async def monster(self, ctx):
+	async def monster(self, ctx, monster: Optional[str] = None):
 		"""Forces a monster to spawn."""
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
 			game.game_clock.remove_routine(game.do_spawn)
-			await game.do_spawn(True)
+			await game.do_spawn(True, monster)
 			return
 
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")

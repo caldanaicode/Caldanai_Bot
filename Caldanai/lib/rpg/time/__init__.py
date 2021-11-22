@@ -1,6 +1,6 @@
 import math
 import asyncio
-from typing import List, Callable, Optional
+from typing import List, Callable, Optional, Dict, Tuple
 
 from discord.ext import tasks
 
@@ -43,8 +43,15 @@ class GameClock:
 		self._seasons_per_year = 4
 		self._tick_routines: List[GameClock._Routine] = []
 		self._tick_run_once: List[GameClock._Routine] = []
+		self._time_map: Dict[str, Tuple[int, int]] = {}
 
 		self.tick_speed = self.time_scale / self._seconds_per_hour
+
+	def __add__(self, other: 'GameClock'):
+		return GameClock(self._hours + other._hours)
+
+	def __sub__(self, other: 'GameClock'):
+		return GameClock(self._hours - other._hours)
 
 	def add_routine(self, routine: Callable, seconds: int, run_once: bool = False) -> None:
 		"""
@@ -126,8 +133,7 @@ class GameClock:
 		if day is None:
 			day = self.get_day()
 
-		# return 35 / 3 + (7 / 3 * math.sin(2 * math.pi * (day - 80) / 360))  # 80 is vernal equinox
-		return 35 / 3 + (7 / 3 * math.sin(2 * math.pi * (day + 80) / 360))  # The vernal equinox is now year start
+		return 35 / 3 + 7 / 3 * math.sin(math.pi * (day + 8.213210701) / 180)  # The vernal equinox is now year start
 
 	def get_night_length(self, day: int = None):
 		"""
@@ -208,31 +214,54 @@ class GameClock:
 		half_daylight = self.get_daylight_length() / 2
 		dawn = GameClock(game_time=hours)
 		dusk = GameClock(game_time=hours)
+		noon = 12.0
 		h, m, s = self.get_time_components(half_daylight)
-		dawn.set_time(12 - h, 60 - m, 60 - s)
-		dusk.set_time(12 + h, 0 + m, 0 + s)
+		dh = noon - h - m / self._minutes_per_hour - s / self._seconds_per_hour
+		dawn.set_time(*self.get_time_components(dh))
+		dh = noon + h + m / self._minutes_per_hour + s / self._seconds_per_hour
+		dusk.set_time(*self.get_time_components(dh))
 		return dawn, dusk
+
+	def update_times_of_day(self) -> None:
+		"""Updates the internal time map dictionary for the current day."""
+
+		sunrise, sunset = self.get_sunrise_and_sunset()
+		srh, srm, srs = sunrise.get_time_components()
+		ssh, ssm, sss = sunset.get_time_components()
+
+		self._time_map = {
+			TimesOfDay.DAWN.name: (srh, srm),
+			TimesOfDay.MORNING.name: (srh + 1, srm),
+			TimesOfDay.NOON.name: (12, 0),
+			TimesOfDay.AFTERNOON.name: (13, 0),
+			TimesOfDay.EVENING.name: (ssh - 2, ssm),
+			TimesOfDay.DUSK.name: (ssh, ssm),
+			TimesOfDay.NIGHT.name: (ssh + 1, ssm)
+		}
+		return
 
 	def get_time_of_day(self) -> str:
 		"""Returns the string form of the current time of day, such as 'night', 'noon', etc."""
-		sunrise, sunset = self.get_sunrise_and_sunset()
-		sr = sunrise.get_time_components()[0]
-		ss = sunset.get_time_components()[0]
-		hr = self.get_time_components()[0]
+		h, m, _ = self.get_time_components()
 
-		if sr <= hr < sr + 1:
-			return TimesOfDay.DAWN.name.lower()
-		if sr + 1 <= hr < 12:
-			return TimesOfDay.MORNING.name.lower()
-		if 12 <= hr < 13:
-			return TimesOfDay.NOON.name.lower()
-		if 13 <= hr < ss - 2:
-			return TimesOfDay.AFTERNOON.name.lower()
-		if ss - 2 <= hr < ss:
-			return TimesOfDay.EVENING.name.lower()
-		if ss <= hr < ss + 1:
-			return TimesOfDay.DUSK.name.lower()
-		return TimesOfDay.NIGHT.name.lower()
+		times = [(k, v) for k, v in self._time_map.items() if v[0] < h or (v[0] == h and v[1] <= m)]
+		if len(times) == 0:
+			max_key = TimesOfDay.NIGHT.name
+		else:
+			max_key = max(times, key=lambda t: t[1])[0]
+		return max_key.lower()
+
+	def get_next_time(self) -> (TimesOfDay, int, int):
+		"""Returns a tuple containing the next time of day after the current time, and the hour and the minute."""
+		h, m, _ = self.get_time_components()
+
+		times = [(k, v) for k, v in self._time_map.items() if v[0] > h or (v[0] == h and v[1] > m)]
+		if len(times) == 0:
+			min_tuple = (TimesOfDay.DAWN.name, *self._time_map[TimesOfDay.DAWN.name])
+		else:
+			min_key = min(times, key=lambda t: t[1])[0]
+			min_tuple = (min_key, *self._time_map[min_key])
+		return min_tuple
 
 	def get_season_string(self, season: int = None) -> str:
 		"""
@@ -274,6 +303,10 @@ class GameClock:
 
 		self._hours += self.tick_speed
 		self._ticks = self._ticks + 1
+
+		h, m, s = self.get_time_components()
+		if self.update_times_of_day() == {} or (h == 0 and m == 0 and s < 8):
+			self.update_times_of_day()
 
 		for i in range(len(self._tick_routines)):
 			routine = self._tick_routines[i]

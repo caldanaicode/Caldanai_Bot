@@ -43,9 +43,7 @@ class Monster(Creature):
 		time = TimesOfDay[clock.get_time_of_day().upper()].value
 
 		while (
-		monster := importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(monsters)}').MonsterPlugin(
-
-		)) \
+		monster := importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(monsters)}').MonsterPlugin()) \
 				and not bool(time & monster.time_partition):
 			continue
 
