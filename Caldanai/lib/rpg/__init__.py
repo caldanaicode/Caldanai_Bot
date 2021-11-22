@@ -1,5 +1,8 @@
+import importlib
 import random
 from asyncio import sleep
+from glob import glob
+from os import path
 
 from discord.ext.commands import Bot
 from discord import Guild, TextChannel
@@ -126,31 +129,43 @@ class Game:
 				or (not self.monster.flees_from_time and not self.monster.dies_from_time):
 			self.game_clock.remove_routine(self.check_time)
 			return
-		h, m, _ = self.game_clock.get_time_components()
+
 		tod = self.game_clock.get_time_of_day()
-		out_of_partition = bool(self.monster.time_partition & TimesOfDay[tod.upper()].value)
+		h, m, _ = self.game_clock.get_time_components()
 		next_tod, next_h, next_m = self.game_clock.get_next_time()
+		flee = not bool(self.monster.time_partition & TimesOfDay[tod.upper()].value)
+		next_flee = not bool(self.monster.time_partition & TimesOfDay[next_tod.upper()].value)
 		msg = ""
-		if out_of_partition and self.monster.dies_from_time:
+
+		if flee and self.monster.dies_from_time:
 			msg = self.monster.time_death
 			msg += self.on_monster_death()
 
 		elif self.monster.flees_from_time:
-			if out_of_partition or (next_h - h < 1 and next_m - m < 10):
+			remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
+			if flee or (next_flee and remaining < 1 / 6):
 				msg = self.monster.time_flee
 				self.cancel_combat()
 
 		if msg:
 			Dispatcher.add(self.channel, msg)
 
-	def get_monster(self):
-		self.monster = Monster.get_random_monster(self.game_clock)
+	def get_monster(self, monster: Optional[str] = None):
+		if monster is None:
+			self.monster = Monster.get_random_monster(self.game_clock)
+		else:
+			monsters = [
+				filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
+			]
+			monsters.remove('__init__')
+			self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{monster}').MonsterPlugin()
+
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
 		if self.monster.dies_from_time or self.monster.flees_from_time:
 			self.game_clock.add_routine(self.check_time, 1)
 
-	async def do_spawn(self, force: bool = False):
+	async def do_spawn(self, force: bool = False, monster: Optional[str] = None):
 		if self.monster:
 			return
 
@@ -160,7 +175,7 @@ class Game:
 			if self.monster:
 				return
 
-		self.get_monster()
+		self.get_monster(monster)
 		self.game_clock.add_routine(self.do_combat, self.spawn_duration, True)
 
 	def cancel_combat(self):

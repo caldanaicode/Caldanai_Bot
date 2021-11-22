@@ -3,19 +3,20 @@ from typing import Dict, List, Tuple
 
 from random import choice
 
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg import Monster
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, TimesOfDay
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
-class Monster(Creature):
+class MonsterPlugin(Monster):
 	def __init__(self):
 		super().__init__(
 			name="vampire",
 			atk="4d4",
 			defense="1d4",
 			dodge="1d10",
-			health_max="10d10"
+			health_max="50d4"
 		)
 
 		self.time_partition = TimePartitions.NOCTURNAL
@@ -72,19 +73,23 @@ class Monster(Creature):
 		amount = random.randint(1, target.health)
 		attempt = Dice.quick_roll("1d20") + 4
 		msg = f"The vampire's eyes darken as {self.pronouns['possessive']} gaze settles upon {target.name}. With a " \
-			  f"burst of unbelievable speed, the vampire's form blurs as it rushes headlong at " \
-			  f"{self.pronouns['possessive']} victim."
+			  f"burst of unbelievable speed, the vampire's form blurs as {self.pronouns['subject']} rushes headlong " \
+			  f"at {self.pronouns['possessive']} victim."
 		if attempt >= target.dodge:
-			msg += f"\n{target.name} stands paralyzed before the vampire, and cries out as fangs plunge into " \
+			msg += f"\n\n{target.name} stands paralyzed before the vampire, and cries out as fangs plunge into " \
 				   f"{target.pronouns['possessive']} throat."
+
 			if m := target.apply_damage(amount):
-				msg += f"\n{m}"
-			msg += f"\nThe vampire licks the blood from {self.pronouns['possessive']} lips, and a wicked smile " \
+				msg += f"\n\n{m}"
+			else:
+				msg += f"\n\n{target.name} is drained of {amount} health!"
+
+			msg += f"\n\nThe vampire licks the blood from {self.pronouns['possessive']} lips, and a wicked smile " \
 				   f"carves a path across {self.pronouns['possessive']} face as wounds begin to mend."
 			self.apply_damage(amount * -2)
 
 		else:
-			msg += f"\nAmazingly, {target.name}'s quick reflexes see {target.pronouns['subject']} safely out of " \
+			msg += f"\n\nAmazingly, {target.name}'s quick reflexes see {target.pronouns['object']} safely out of " \
 				   f"harm's way!"
 
 		return msg

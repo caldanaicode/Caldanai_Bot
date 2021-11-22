@@ -43,7 +43,7 @@ class GameClock:
 		self._seasons_per_year = 4
 		self._tick_routines: List[GameClock._Routine] = []
 		self._tick_run_once: List[GameClock._Routine] = []
-		self._time_map: Dict[TimesOfDay, Tuple[int, int]] = {}
+		self._time_map: Dict[str, Tuple[int, int]] = {}
 
 		self.tick_speed = self.time_scale / self._seconds_per_hour
 
@@ -133,7 +133,7 @@ class GameClock:
 		if day is None:
 			day = self.get_day()
 
-		return 35 / 3 + 7 / 3 * math.sin(math.pi * (day + 8.213) / 180)  # The vernal equinox is now year start
+		return 35 / 3 + 7 / 3 * math.sin(math.pi * (day + 8.213210701) / 180)  # The vernal equinox is now year start
 
 	def get_night_length(self, day: int = None):
 		"""
@@ -230,14 +230,15 @@ class GameClock:
 		ssh, ssm, sss = sunset.get_time_components()
 
 		self._time_map = {
-			TimesOfDay.DAWN: (srh, srm),
-			TimesOfDay.MORNING: (srh + 1, srm),
-			TimesOfDay.NOON: (12, 0),
-			TimesOfDay.AFTERNOON: (13, 0),
-			TimesOfDay.EVENING: (ssh - 2, ssm),
-			TimesOfDay.DUSK: (ssh, ssm),
-			TimesOfDay.NIGHT: (ssh + 1, ssm)
+			TimesOfDay.DAWN.name: (srh, srm),
+			TimesOfDay.MORNING.name: (srh + 1, srm),
+			TimesOfDay.NOON.name: (12, 0),
+			TimesOfDay.AFTERNOON.name: (13, 0),
+			TimesOfDay.EVENING.name: (ssh - 2, ssm),
+			TimesOfDay.DUSK.name: (ssh, ssm),
+			TimesOfDay.NIGHT.name: (ssh + 1, ssm)
 		}
+		return
 
 	def get_time_of_day(self) -> str:
 		"""Returns the string form of the current time of day, such as 'night', 'noon', etc."""
@@ -245,10 +246,10 @@ class GameClock:
 
 		times = [(k, v) for k, v in self._time_map.items() if v[0] < h or (v[0] == h and v[1] <= m)]
 		if len(times) == 0:
-			max_key = TimesOfDay.NIGHT
+			max_key = TimesOfDay.NIGHT.name
 		else:
 			max_key = max(times, key=lambda t: t[1])[0]
-		return max_key.name.lower()
+		return max_key.lower()
 
 	def get_next_time(self) -> (TimesOfDay, int, int):
 		"""Returns a tuple containing the next time of day after the current time, and the hour and the minute."""
@@ -256,9 +257,10 @@ class GameClock:
 
 		times = [(k, v) for k, v in self._time_map.items() if v[0] > h or (v[0] == h and v[1] > m)]
 		if len(times) == 0:
-			min_tuple = (TimesOfDay.DAWN, *self._time_map[TimesOfDay.DAWN])
+			min_tuple = (TimesOfDay.DAWN.name, *self._time_map[TimesOfDay.DAWN.name])
 		else:
-			min_tuple = min(times, key=lambda t: t[1])
+			min_key = min(times, key=lambda t: t[1])[0]
+			min_tuple = (min_key, *self._time_map[min_key])
 		return min_tuple
 
 	def get_season_string(self, season: int = None) -> str:
@@ -303,7 +305,7 @@ class GameClock:
 		self._ticks = self._ticks + 1
 
 		h, m, s = self.get_time_components()
-		if h == 0 and m == 0 and s < 8:
+		if self.update_times_of_day() == {} or (h == 0 and m == 0 and s < 8):
 			self.update_times_of_day()
 
 		for i in range(len(self._tick_routines)):
