@@ -1,5 +1,5 @@
 from queue import Queue
-from typing import Union, Tuple, Dict
+from typing import Union, Tuple
 
 from discord import User, Member, TextChannel, Guild, Embed, File, HTTPException
 from discord.ext import tasks

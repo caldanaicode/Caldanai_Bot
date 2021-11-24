@@ -59,12 +59,15 @@ class MonsterPlugin(Monster):
 		:return: A string indicating the results of the theft.
 		"""
 
-		amount = random.randint(1, int(target.clarks / 10))
-		attempt = Dice.quick_roll("1d20")
-		if attempt >= target.dodge:
-			target.give_clarks(-amount)
-			return f"\n@2's wallet suddenly feels lighter... {amount} clarks were lost!"
-		return "\n@2 easily avoids the bandit's groping fingers."
+		if target.clarks > 0:
+			amount = random.randint(1, int(target.clarks / 10))
+			attempt = Dice.quick_roll("1d20")
+			if attempt >= target.dodge:
+				target.give_clarks(-amount)
+				return f"\n@2's wallet suddenly feels lighter... {amount} clarks were lost!"
+			return "\n@2 easily avoids the bandit's groping fingers."
+		else:
+			return "\nThe @1 sneers in disgust, realizing that @2 has no clarks to steal."
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [

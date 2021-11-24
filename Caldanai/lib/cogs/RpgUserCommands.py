@@ -841,18 +841,16 @@ class RpgUserCommands(Cog):
 		msgs = [
 			"@1 offers a solemn prayer, seeking forgiveness and humility.",
 			"@1 seeks the guidance of the Divine.",
-			"@1 falls to @1p knees in reverence, face lifted to the sky as @1s basks in a divine embrace.",
+			"@1 falls to @1a knees in reverence, face lifted to the sky as @1s basks in a divine embrace.",
 			"@1's eyes turn skyward as @1s entreats the Divine for benevolence.",
 			"@1 proffers words of hope, attempting to sooth the splintered souls of comrades."
 		]
 
 		msg = choice(msgs)
-		heal_msg = ''
 		d20 = Dice.d20()
 		msg += f" (1d{d20.sides} = {d20.value})"
 		player.update_roll_count(d20.sides, d20.value)
 		heal_amount = 0
-		third = 0
 		actors = [player,]
 		if d20.value == 1:
 			msg += "\nSacrifice is demanded for your insolence, @1!\n\nA sudden storm explodes into the area, " \
@@ -881,12 +879,8 @@ class RpgUserCommands(Cog):
 			missing_health = heal_target.health_max - heal_target.health
 			actors.append(heal_target)
 			index = len(actors)
-
-			if missing_health == 0:
-				Dispatcher.add(game.channel, msg)
-				return
-
 			third = math.ceil(missing_health / 3)
+
 			if third > 1:
 				if d20.value == 18:
 					heal_amount = Dice.quick_roll(f"1d{third}")
@@ -906,7 +900,7 @@ class RpgUserCommands(Cog):
 
 			msg += f"\nA warm light suffuses @{index}, "
 
-			if heal_amount > 0:
+			if heal_amount > 0 and missing_health > 0:
 				msg += f"imbuing @{index}o with {heal_amount} points of health!"
 			else:
 				msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
@@ -942,13 +936,11 @@ class RpgUserCommands(Cog):
 		game = await self.utils().get_game(ctx)
 		if game is None:
 			return
-		time = game.game_clock.get_hours()
+		time = game.game_clock.get_seconds()
 		sunrise, sunset = game.game_clock.get_sunrise_and_sunset()
-		srh = sunrise.get_hours()
-		ssh = sunset.get_hours()
 		msg = game.game_clock.get_full_date()
-		msg += f" Sunrise {'is' if time <= srh else 'was'} at {sunrise.get_time()}."
-		msg += f" Sunset {'is' if time <= ssh else 'was'} at {sunset.get_time()}."
+		msg += f" Sunrise {'is' if time <= sunrise else 'was'} at {sunrise.get_time()}."
+		msg += f" Sunset {'is' if time <= sunset else 'was'} at {sunset.get_time()}."
 		Dispatcher.add(game.channel, msg)
 
 	@cooldown(1, 5, BucketType.member)

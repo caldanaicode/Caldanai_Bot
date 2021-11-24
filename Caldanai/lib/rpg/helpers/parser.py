@@ -4,7 +4,7 @@ from typing import Tuple
 
 from Caldanai.lib.rpg.helpers.enums import Pronouns
 
-actorRegex = re.compile(r'@(?P<actor>\d*)(?P<form>\w*)')
+actorRegex = re.compile(r'@(?P<actor>\d+)(?P<form>\w*)')
 casing = {
 	'c': 'capitalize',
 	'l': 'lower',
@@ -26,15 +26,18 @@ def _process(match: Match, actors: Tuple) -> str:
 		return None
 
 	m = match.groupdict()
-	num = int(m['actor']) - 1
-	actor = actors[num]
+	if m['actor']:
+		num = int(m['actor']) - 1
+		actor = actors[num]
+	else:
+		actor = actors[0]
 	form = m['form'].lower() if m['form'] else ''
 	result = actor.name
 	for f in form:
 		if f in forms.keys():
 			result = actor.pronouns[forms[f]]
 		elif f in casing.keys():
-			result = result.__getattribute__(f)()
+			result = result.__getattribute__(casing[f])()
 
 	return result
 

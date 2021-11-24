@@ -1,9 +1,6 @@
 import importlib
 
-from discord import Embed, File
-
 from Caldanai.Logger import stdout
-from Caldanai.db.__init__ import MongoDB
 from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId

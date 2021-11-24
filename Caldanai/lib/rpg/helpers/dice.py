@@ -53,7 +53,7 @@ class Dice:
 			rolls = list(dice.rolls)
 			rolls.sort()
 			return sum(rolls[-keep:])
-		return dice.value
+		return dice.value if dice else None
 
 	@classmethod
 	def from_ndn(cls, ndn: str) -> Union["Dice", None]:
