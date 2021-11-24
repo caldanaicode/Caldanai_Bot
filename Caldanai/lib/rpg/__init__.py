@@ -9,7 +9,9 @@ from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 from random import choice, randint
 
+from .areas import Area
 from .helpers.enums import AggressionLevels, TimesOfDay
+from .helpers.parser import parse
 from .time import GameClock
 from .creatures import Creature
 from .helpers import get_random_direction
@@ -115,6 +117,7 @@ class Game:
 		self.game_clock.tick.start()
 		self.weather = None
 		self._last_ambience_tick = self.game_clock.get_hours()
+		self.room0: Area = None
 
 		# Regen timer is triggered every game hour (15 minutes for default time scale)
 		self.game_clock.add_routine(self.do_health_regen, 3600 / self.game_clock.time_scale)
@@ -148,7 +151,7 @@ class Game:
 				self.cancel_combat()
 
 		if msg:
-			Dispatcher.add(self.channel, msg)
+			Dispatcher.add(self.channel, parse(msg, self.monster))
 
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
@@ -161,7 +164,7 @@ class Game:
 			self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{monster}').MonsterPlugin()
 
 		embed, file = self.monster.get_embed()
-		Dispatcher.add(self.channel, self.monster.arrival, embed=embed, file=file)
+		Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
 		if self.monster.dies_from_time or self.monster.flees_from_time:
 			self.game_clock.add_routine(self.check_time, 1)
 
@@ -262,7 +265,8 @@ class Game:
 
 		msg += self.monster.apply_damage(damage)
 		if self.monster.is_dead():
-			msg += self.on_monster_death()
+			monster = self.monster
+			msg += parse(self.on_monster_death(), monster)
 			msgs = Dispatcher.split_message(msg, '```\n', True)
 			for m in msgs:
 				Dispatcher.add(self.channel, m)
@@ -281,16 +285,17 @@ class Game:
 			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) \
 				or len(self.combatants) == 0:
 
-				Dispatcher.add(self.channel, f"{msg}\n{self.monster.escape}")
+				Dispatcher.add(self.channel, f"{msg}\n{parse(self.monster.escape, self.monster)}")
 				self.cancel_combat()
 
 	def kill_monster(self):
 		"""Cancels combat and forces monster death."""
 
 		self.game_clock.remove_routine(self.do_combat)
+		monster = self.monster
 		msg = self.on_monster_death()
 		if len(msg) > 0:
-			Dispatcher.add(self.channel, msg)
+			Dispatcher.add(self.channel, parse(msg, monster))
 
 	async def do_ambience(self):
 		"""Small chance to display a random ambience message."""

@@ -12,7 +12,7 @@ from ..rpg.creatures.player import Player
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db import MongoDB
-from ..rpg import Game
+from ..rpg import Game, Area
 
 
 class RpgUtilities(Cog):
@@ -50,6 +50,8 @@ class RpgUtilities(Cog):
 		else:
 			game = await Game.from_dict(game, self.bot)
 
+		room0 = Area.from_plugin('0')
+		game.room0 = room0
 		self.bot.games[game.guild.id] = game
 		stdout(f"Game added for guild: {game.guild.name} ({game.guild.id})")
 

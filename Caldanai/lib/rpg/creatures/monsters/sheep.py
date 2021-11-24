@@ -25,16 +25,16 @@ class MonsterPlugin(Monster):
 					   f"in from the {get_random_direction()}."
 
 		self.flavor = choice([
-			"Just a cuddly sheep, searching the lonely fields for hugs.",
-			"Ple-e-e-e-ease don't kill me-e-e-e-e.",
-			f"A sleepy looking sheep, seeking naught but the warmth of {self.pronouns['possessive']} barn."
+			"Just a cuddly @1, searching the lonely fields for hugs.",
+			'"Ple-e-e-e-ease don\'t kill me-e-e-e-e."',
+			f"A sleepy looking @1, seeking naught but the warmth of @1p barn."
 		])
 
-		self.escape = f"The sheep {choice('slips|bounds|wanders'.split('|'))} away merrily, not a care in the world."
+		self.escape = f"The @1 {choice('slips|bounds|wanders'.split('|'))} away merrily, not a care in the world."
 		self.death = choice([
-			"The sheep gurgles out a final, sad, bleating cry, and goes still.",
-			"Eyes rolling wildly in terror and pain, the sheep stumbles and falls to the ground motionless.",
-			"A final wheezing breath escapes slowly, as the sheep collapses to the ground in a twitching heap."
+			"The @1 gurgles out a final, sad, bleating cry, and goes still.",
+			"Eyes rolling wildly in terror and pain, the @1 stumbles and falls to the ground motionless.",
+			"A final wheezing breath escapes slowly, as the @1 collapses to the ground in a twitching heap."
 		])
 
 		self.loot: List[Dict] = [
@@ -45,9 +45,9 @@ class MonsterPlugin(Monster):
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		return choice([
-			f"The sheep glances at {actor.name}, but apparently decides to allow the {invocation}.",
-			f"A soft bleat escapes the sheep as {actor.name} {invocation}s {self.pronouns['object']}.",
-			f"The sheep wuffles happily and leans into {actor.name}'s {invocation}."
+			f"The @1 glances at @2, but apparently decides to allow the {invocation}.",
+			f"A soft bleat escapes the @1 as @2 {invocation}s @1o.",
+			f"The @1 wuffles happily and leans into @2's {invocation}."
 		])
 
 	def apply_damage(self, amount: int) -> str:

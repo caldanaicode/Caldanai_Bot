@@ -3,6 +3,7 @@ from typing import Union, Optional, Dict, Tuple, List
 
 from discord import Embed, File
 
+from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory import Inventory
@@ -73,7 +74,7 @@ class Creature:
 
 		embed = Embed(
 			title=f'{self.name.title()}',
-			description=self.flavor,
+			description=parse(self.flavor, self),
 			color=0xffcc00
 		)
 		file = None
