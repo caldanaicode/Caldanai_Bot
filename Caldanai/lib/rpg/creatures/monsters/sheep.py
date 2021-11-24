@@ -27,7 +27,7 @@ class MonsterPlugin(Monster):
 		self.flavor = choice([
 			"Just a cuddly @1, searching the lonely fields for hugs.",
 			'"Ple-e-e-e-ease don\'t kill me-e-e-e-e."',
-			f"A sleepy looking @1, seeking naught but the warmth of @1p barn."
+			"A sleepy looking @1, seeking naught but the warmth of @1p barn."
 		])
 
 		self.escape = f"The @1 {choice('slips|bounds|wanders'.split('|'))} away merrily, not a care in the world."

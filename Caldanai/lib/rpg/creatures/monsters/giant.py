@@ -19,11 +19,10 @@ class MonsterPlugin(Monster):
 		self.time_partition = TimePartitions.DIURNAL
 		self.image = None
 		self.aggression = AggressionLevels.RAMPAGE
-		self.arrival = "The ground trembles slightly as a giant trudges in."
-		self.flavor = f"This giant would blend in nicely with the surrounding rocks, if {self.pronouns['subject']} " \
-					  f"would stop moving."
-		self.escape = "The giant looks around the area with a wary eye, then lopes off to destinations unknown."
-		self.death = "The giant wobbles unsteadily for a moment, then crashes backward into the earth sending out a " \
+		self.arrival = "The ground trembles slightly as a @1 trudges in."
+		self.flavor = "This @1 would blend in nicely with the surrounding rocks, if @1s would stop moving."
+		self.escape = "The @1 looks around the area with a wary eye, then lopes off to destinations unknown."
+		self.death = "The @1 wobbles unsteadily for a moment, then crashes backward into the earth sending out a " \
 					 "small tremor."
 
 		self.loot: List[Dict] = [
@@ -35,14 +34,13 @@ class MonsterPlugin(Monster):
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		dmg = Dice.quick_roll("1d4")
 		attempt = Dice.quick_roll("1d20")
-		msg = f"*{actor.name} approaches the giant for a {invocation}. The giant flicks {actor.pronouns['object']} " \
-			  f"away with a rumbling chuckle.*"
+		msg = f"*@2 approaches the @1 for a {invocation}. The @1 flicks @2o away with a rumbling chuckle.*"
 		if attempt >= actor.dodge:
-			msg += f" {actor.name} takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
+			msg += f" @2 takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
 			m = actor.apply_damage(dmg)
 			msg += f"\n{m}" if len(m) > 0 else ""
 		else:
-			msg += f"\n*{actor.name} tumbles deftly to avoid taking damage!*"
+			msg += "\n*@2 tumbles deftly to avoid taking damage!*"
 		return msg
 
 	def apply_damage(self, amount: int) -> str:

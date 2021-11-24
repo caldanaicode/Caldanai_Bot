@@ -19,16 +19,15 @@ class MonsterPlugin(Monster):
 		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = None
 		self.aggression = AggressionLevels.RAMPAGE
-		self.arrival = "A piercing roar rocks the heavens, as a dragon swoops down out of the clouds searching for prey."
+		self.arrival = "A piercing roar rocks the heavens, as a @1 swoops down out of the sky searching for prey."
 		self.flavor = choice([
-			"A massive red dragon, smelling faintly of cinnamon and charcoal.",
-			"Unconfirmed reports suggests that this dragon may, in fact, have 62 toes. However, no one can get close "
+			"A massive red @1, smelling faintly of cinnamon and charcoal.",
+			"Unconfirmed reports suggests that this @1 may, in fact, have 62 toes. However, no one can get close "
 			"enough to actually count."
 		])
-		self.escape = "The dragon circles the area lazily before taking to the clouds, disappearing from sight."
-		self.death = f"The dragon gives a final bellow of rage and disbelief as {self.pronouns['subject']} falls to " \
-					 f"the ground. {self.pronouns['possessive'].capitalize()} thrashing lasts but a moment, " \
-					 f"then all is still."
+		self.escape = "The @1 circles the area lazily before taking to the clouds, disappearing from sight."
+		self.death = "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1pc thrashing " \
+			"lasts but a moment, then all is still."
 
 		self.loot: List[Dict] = [
 			{"plugin": "small_gem", "item_type": "Item", "frequency": 0.7},
@@ -41,8 +40,7 @@ class MonsterPlugin(Monster):
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		# TODO: Perhaps attack the hugger in some way.
-		return f"The dragon glowers hungrily at {actor.name}, and sends a wisp of flame in " \
-			   f"{actor.pronouns['possessive']} direction."
+		return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2p direction."
 
 	def apply_damage(self, amount: int) -> str:
 		was_alive = self.health > 0
