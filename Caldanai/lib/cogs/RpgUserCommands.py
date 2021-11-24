@@ -17,7 +17,7 @@ from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.helpers.enums import Directions
+from Caldanai.lib.rpg.helpers.enums import Directions, Pronouns
 from Caldanai.lib.rpg.helpers.parser import parse
 from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.lib.rpg.inventory.weapons import Weapon
@@ -681,7 +681,7 @@ class RpgUserCommands(Cog):
 	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
 	async def pronouns(self, ctx, pronouns: Optional[str] = None):
 		"""
-		Displays or sets the user's pronouns using subject/object/possessive form.
+		Displays or sets the user's pronouns using subject/object/possessive/adjective form.
 
 		(5-second cool-down)
 		"""
@@ -690,22 +690,25 @@ class RpgUserCommands(Cog):
 			return
 
 		if pronouns is None:
-			Dispatcher.add(game.channel, f"{player.name}'s pronouns are currently shown as '"
-										 f"{'/'.join(player.pronouns.values())}'.")
+			Dispatcher.add(
+				game.channel,
+				f"{player.name}'s pronouns are currently shown as '{'/'.join(player.pronouns.values())}'.")
 			return
 
 		if isinstance(pronouns, str):
 			p = pronouns.split('/')
-			if len(p) != 3:
+			if len(p) != 4:
 				Dispatcher.add(
-					game.channel, f"Please enter pronouns in the form of 'subject/object/possessive'. "
-								  f"Example: `{ctx.prefix}pronouns she/her/her` or `{ctx.prefix}pronouns he/him/his`."
+					game.channel, f"Please enter pronouns in the form of 'subject/object/possessive/adjective'. "
+					f"Example: `{ctx.prefix}pronouns she/her/hers/her` or `{ctx.prefix}pronouns he/him/his/his`."
 				)
 				return
 
-			player.pronouns["subject"] = p[0]
-			player.pronouns["object"] = p[1]
-			player.pronouns["possessive"] = p[2]
+			player.pronouns[Pronouns.SUBJECTIVE] = p[0]
+			player.pronouns[Pronouns.OBJECTIVE] = p[1]
+			player.pronouns[Pronouns.POSSESSIVE] = p[2]
+			player.pronouns[Pronouns.ADJECTIVE] = p[3]
+			player.pronouns[Pronouns.REFLEXIVE] = f"{p[1]}self"
 			player.is_dirty = True
 			Dispatcher.add(
 				game.channel, f"{player.name}'s pronouns have been set to '"
@@ -766,6 +769,7 @@ class RpgUserCommands(Cog):
 		(5-second cool-down)
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
+		haunted = None
 
 		if game is None or player is None:
 			return
@@ -775,36 +779,31 @@ class RpgUserCommands(Cog):
 				haunted = game.monster
 			elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
 				haunted = await self.utils().get_player(ctx.message.mentions[0])
-			else:
-				haunted = None
 
 			if haunted is None or not isinstance(haunted, Creature):
 				await self.haunt(ctx)
 				return
 
 			msgs = [
-				f"{'The ' if not isinstance(haunted, Player) else ''}{haunted.name} glances around the area "
-				f"suspiciously as {haunted.pronouns['subject']} senses the unearthly presence of {player.name}.",
-				f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}{haunted.name}'s ears "
-				f"as {player.name}'s spirit toys with {haunted.pronouns['object']}.",
-				f"{'The ' if not isinstance(haunted, Player) else ''}{haunted.name}'s breath suddenly catches as "
-				f"{player.name}'s shade wisps through {haunted.pronouns['object']}."
+				f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
+				f"senses the unearthly presence of @1.",
+				f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2's ears as @1's spirit toys with @2o.",
+				f"{'The ' if not isinstance(haunted, Player) else ''}@2's breath suddenly catches as @1's shade wisps through @2o."
 			]
 
 		else:
 			msgs = [
-				f"The ghostly presence of {player.name} floods into the area briefly before ebbing away.",
-				f"A sudden chill blankets the area as {player.name}'s spirit wafts through.",
-				f"{player.name}'s forlorn lament brings with it a cold, solemn feeling."
+				f"The ghostly presence of @1 floods into the area briefly before ebbing away.",
+				f"A sudden chill blankets the area as @1's spirit wafts through.",
+				f"@1's forlorn lament brings with it a cold, solemn feeling."
 			]
 
 		if player.is_dead():
 			msg = choice(msgs)
 		else:
-			msg = f"{player.name} pretends to float around, making supposedly ghostly noises, but it's not very " \
-				  f"effective."
+			msg = f"@1 pretends to float around, making supposedly ghostly noises, but it's not very effective."
 
-		Dispatcher.add(game.channel, msg)
+		Dispatcher.add(game.channel, parse(msg, player, haunted))
 
 	@cooldown(1, 60, BucketType.member)
 	@command(
@@ -980,14 +979,14 @@ class RpgUserCommands(Cog):
 
 		elif game.monster and target.lower() == game.monster.name:
 			embed, file = game.monster.get_embed()
-			Dispatcher.add(game.channel, msg, embed=embed, file=file)
+			Dispatcher.add(game.channel, embed=embed, file=file)
 			return
 
 		elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
 			p = await self.utils().get_player(ctx.message.mentions[0])
 			if p:
 				embed = p.get_profile(game.guild.name)
-				Dispatcher.add(game.channel, msg, embed=embed)
+				Dispatcher.add(game.channel, embed=embed)
 				return
 
 		Dispatcher.add(game.channel, msg)

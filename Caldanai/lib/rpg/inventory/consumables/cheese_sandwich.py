@@ -1,5 +1,6 @@
 from bson import ObjectId
 
+from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
@@ -26,14 +27,14 @@ class ConsumablePlugin(Consumable):
 	def use(self, target: Creature) -> (str, bool):
 		msg, keep = super().use(target)
 
-		msg += f"{target.name if isinstance(target, Player) else 'The ' + target.name} takes a bite of " \
-			   f"{target.pronouns['possessive']} {self.name}.{'' if keep else ' That was the last of it!'}"
+		msg += f"{'The ' if not isinstance(target, Player) else ''}@2 takes a bite of " \
+			   f"@2a @1.{'' if keep else ' That was the last of it!'}"
 
 		d4 = Dice.d4()
-		msg += f"\n{target.pronouns['subject'].capitalize()} replenishes {d4.value} health!"
+		msg += f"\n@2sc replenishes {d4.value} health!"
 		target.apply_damage(-d4.value)
 
 		if isinstance(target, Player):
 			target.update_roll_count(d4.sides, d4.value)
 
-		return msg, keep
+		return parse(msg, self, target), keep

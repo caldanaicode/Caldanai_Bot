@@ -26,7 +26,7 @@ class MonsterPlugin(Monster):
 			"enough to actually count."
 		])
 		self.escape = "The @1 circles the area lazily before taking to the clouds, disappearing from sight."
-		self.death = "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1pc thrashing " \
+		self.death = "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1ac thrashing " \
 			"lasts but a moment, then all is still."
 
 		self.loot: List[Dict] = [
@@ -40,7 +40,7 @@ class MonsterPlugin(Monster):
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		# TODO: Perhaps attack the hugger in some way.
-		return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2p direction."
+		return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2a direction."
 
 	def apply_damage(self, amount: int) -> str:
 		was_alive = self.health > 0

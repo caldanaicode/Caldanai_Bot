@@ -22,7 +22,7 @@ class MonsterPlugin(Monster):
 		self.aggression = AggressionLevels.VENGEFUL
 		self.arrival = choice([
 			f"With a spluttering snarl, a @1 {choice('bursts|pads|runs'.split('|'))} into the area.",
-			"A screeching laugh shatters the serenity that once lingered here, as a @1 finds @1p way hither."
+			"A screeching laugh shatters the serenity that once lingered here, as a @1 finds @1a way hither."
 		])
 
 		self.flavor = choice([

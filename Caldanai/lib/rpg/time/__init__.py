@@ -222,6 +222,10 @@ class GameClock:
 		dusk.set_time(*self.get_time_components(dh))
 		return dawn, dusk
 
+	def get_moon_phase(self) -> str:
+		"""Returns the moon's current phase as a string."""
+
+
 	def update_times_of_day(self) -> None:
 		"""Updates the internal time map dictionary for the current day."""
 
