@@ -924,14 +924,14 @@ class RpgUserCommands(Cog):
 
 		Dispatcher.add(game.channel, msg)
 
-	@cooldown(1, 60, BucketType.member)
+	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='almanac', brief='Displays the game-day\'s time periods.')
 	async def almanac(self, ctx):
 		"""
 		Displays the game-day's time periods.
 
-		(60-second cool-down)
+		(5-second cool-down)
 		"""
 		game = await self.utils().get_game(ctx)
 		if game is None:
