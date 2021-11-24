@@ -1,6 +1,5 @@
 from typing import List, Union
 
-import discord.channel
 from discord import Member, User
 from discord.ext import tasks
 from discord.ext.commands import Cog, Context
@@ -167,7 +166,7 @@ class RpgUtilities(Cog):
 				) for g in self.bot.games.values()
 			]
 
-			result = MongoDB["games"].bulk_write(games, ordered=False)
+			MongoDB["games"].bulk_write(games, ordered=False)
 
 			dirty = [
 				(p, UpdateOne(

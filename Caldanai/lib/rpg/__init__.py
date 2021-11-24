@@ -116,7 +116,7 @@ class Game:
 		self.game_clock = GameClock(game_time=game_time)
 		self.game_clock.tick.start()
 		self.weather = None
-		self._last_ambience_tick = self.game_clock.get_hours()
+		self._last_ambience_tick = self.game_clock.get_seconds()
 		self.room0: Area = None
 
 		# Regen timer is triggered every game hour (15 minutes for default time scale)
@@ -305,15 +305,15 @@ class Game:
 			self.game_clock.remove_routine(self.do_ambience)
 			return
 
-		game_time = self.game_clock.get_hours()
+		game_time = self.game_clock.get_seconds()
 
 		msg = ""
 
 		sunrise, sunset = self.game_clock.get_sunrise_and_sunset()
 
-		if self._last_ambience_tick < sunrise.get_hours() <= game_time:
+		if self._last_ambience_tick < sunrise <= game_time:
 			msg = "The sky glows softly to the east as night gives way to day."
-		elif self._last_ambience_tick < sunset.get_hours() <= game_time:
+		elif self._last_ambience_tick < sunset <= game_time:
 			msg = "The crimson disc sinks slowly beyond the horizon, and darkness creeps across the land."
 
 		if random.randint(1, 3000) == 3000:
@@ -342,7 +342,7 @@ class Game:
 			'minutes_min'    : self.minutes_min,
 			'prefix'         : self.prefix,
 			'enable_ambience': self.enable_ambience,
-			'game_time'      : self.game_clock.get_hours()
+			'game_time'      : self.game_clock.get_seconds()
 		}
 
 		if self.id is not None:

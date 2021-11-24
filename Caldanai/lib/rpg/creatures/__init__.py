@@ -65,8 +65,8 @@ class Creature:
 			self.pronouns: Dict[Pronouns, str] = {
 				Pronouns.SUBJECTIVE: 'he' if self.gender == 'male' else 'she' if self.gender == 'female' else 'it',
 				Pronouns.OBJECTIVE: 'him' if self.gender == 'male' else 'her' if self.gender == 'female' else 'it',
-				Pronouns.POSSESSIVE: 'his' if self.gender == 'male' else 'her' if self.gender == 'female' else 'its',
-				Pronouns.ADJECTIVE: 'his' if self.gender == 'male' else 'hers' if self.gender == 'female' else 'its',
+				Pronouns.POSSESSIVE: 'his' if self.gender == 'male' else 'hers' if self.gender == 'female' else 'its',
+				Pronouns.ADJECTIVE: 'his' if self.gender == 'male' else 'her' if self.gender == 'female' else 'its',
 				Pronouns.REFLEXIVE: 'himself' if self.gender == 'male' else 'herself' if self.gender == 'female' else 'itself'
 			}
 

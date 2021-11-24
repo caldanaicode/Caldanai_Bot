@@ -29,29 +29,71 @@ class GameClock:
 		def run(self):
 			asyncio.create_task(self.function())
 
-	def __init__(self, game_time: float = 0):
-		self._hours = game_time
+	def __init__(self, game_time: int = 0):
+		self._seconds = game_time
 		self._ticks = 0
 
 		# How many game-hours pass per real hour. 1 = real-time, >1 is faster, (0, 1) is slower. 0 = time paused.
 		self.time_scale = 4  # 4 means 1 real hour = 4 game-hours.
 
+		self._seconds_per_year = 31104000
+		self._seconds_per_season = 7776000
+		self._seconds_per_day = 86400
 		self._seconds_per_hour = 3600
+		self._seconds_per_minute = 60
 		self._minutes_per_hour = 60
 		self._hours_per_day = 24
 		self._days_per_season = 90
+		self._days_per_year = 360
 		self._seasons_per_year = 4
 		self._tick_routines: List[GameClock._Routine] = []
 		self._tick_run_once: List[GameClock._Routine] = []
 		self._time_map: Dict[str, Tuple[int, int]] = {}
 
-		self.tick_speed = self.time_scale / self._seconds_per_hour
+		self.tick_speed = self.time_scale
 
 	def __add__(self, other: 'GameClock'):
-		return GameClock(self._hours + other._hours)
+		return GameClock(self._seconds + other._seconds)
 
 	def __sub__(self, other: 'GameClock'):
-		return GameClock(self._hours - other._hours)
+		return GameClock(self._seconds - other._seconds)
+
+	def __eq__(self, other):
+		if isinstance(other, GameClock):
+			return self._seconds == other._seconds
+
+		if isinstance(other, (int, float, complex)):
+			return self._seconds == other
+
+		raise TypeError(f"Unable to compare GameClock instance with {type(other)}.")
+
+	def __ge__(self, other):
+		if isinstance(other, GameClock):
+			return self._seconds >= other._seconds
+
+		if isinstance(other, (int, float, complex)):
+			return self._seconds >= other
+
+	def __gt__(self, other):
+		if isinstance(other, GameClock):
+			return self._seconds > other._seconds
+
+		if isinstance(other, (int, float, complex)):
+			return self._seconds > other
+
+	def __le__(self, other):
+		if isinstance(other, GameClock):
+			return self._seconds <= other._seconds
+
+		if isinstance(other, (int, float, complex)):
+			return self._seconds <= other
+
+	def __lt__(self, other):
+		if isinstance(other, GameClock):
+			return self._seconds < other._seconds
+
+		if isinstance(other, (int, float, complex)):
+			return self._seconds < other
 
 	def add_routine(self, routine: Callable, seconds: int, run_once: bool = False) -> None:
 		"""
@@ -92,24 +134,24 @@ class GameClock:
 		if lst and i:
 			lst.pop(i)
 
-	def get_time_components(self, hours: float = None) -> (int, int, int):
+	def get_time_components(self, seconds: int = None) -> (int, int, int):
 		"""
 		Gets the hour, minute, and second components of a given time value.
 
-		:param hours: The whole and fractional game hours that have elapsed.
+		:param seconds: The total number of game-seconds elapsed since the clock began.
 		:return: A tuple containing hour, minute, and second values.
 		"""
-		if hours is None:
-			hours = self._hours
+		if seconds is None:
+			seconds = self._seconds
 
-		h = math.floor(hours) % 24
-		m = (hours - math.floor(hours)) * 60
-		s = (m - math.floor(m)) * 60
-		return h, math.floor(m) % 60, math.floor(s) % 60
+		s = seconds % self._seconds_per_minute
+		m = int(seconds / self._seconds_per_minute) % self._minutes_per_hour
+		h = int(seconds / self._seconds_per_hour) % self._hours_per_day
+		return h, m, s
 
 	def get_day(self):
 		"""Returns the game clock's current day of the year."""
-		return math.floor(self._hours / 24) % 360
+		return int(self._seconds / self._seconds_per_day) % self._days_per_year
 
 	def get_day_of_season(self):
 		"""Returns the game clock's current day of the season."""
@@ -117,11 +159,11 @@ class GameClock:
 
 	def get_season(self):
 		"""Returns the game clock's current season as a number."""
-		return math.floor(self._hours / self._hours_per_day / self._days_per_season) % 4
+		return int(self._seconds / self._seconds_per_season) % self._seasons_per_year
 
 	def get_year(self):
 		"""Returns the game clock's current year."""
-		return 1104 + math.floor(self._hours / (self._hours_per_day * self._days_per_season * self._seasons_per_year))
+		return 1104 + int(self._seconds / self._seconds_per_year)
 
 	def get_daylight_length(self, day: int = None) -> float:
 		"""
@@ -147,14 +189,14 @@ class GameClock:
 
 		return 24 - self.get_daylight_length(day)
 
-	def get_hours(
+	def get_seconds(
 			self,
 			year: int = None,
 			day: int = None,
 			hour: int = None,
 			minute: int = None,
 			second: int = None
-	) -> float:
+	) -> int:
 		"""
 		Returns the internal representation of a given time, or the current time if none is provided.
 
@@ -163,18 +205,18 @@ class GameClock:
 		:param hour: The hour component.
 		:param minute: The minute component.
 		:param second: The second component.
-		:return: A whole and fractional value representing the game clock's time.
+		:return: An integer value representing the game clock's time.
 		"""
 
 		if year is not None and day is not None and hour is not None and minute is not None and second is not None:
-			h = (year - 1104) * self._seasons_per_year * self._days_per_season
-			h += day * self._hours_per_day
-			h += hour
-			h += minute / self._minutes_per_hour
-			h += second / self._seconds_per_hour
-			return h
+			s = (year - 1104) * self._seconds_per_year \
+				+ day * self._seconds_per_day \
+				+ hour * self._seconds_per_hour \
+				+ minute * self._seconds_per_minute \
+				+ second
+			return s
 
-		return self._hours
+		return self._seconds
 
 	def set_date_time(self, year: int, day: int, hour: int, minute: int, second: int) -> None:
 		"""
@@ -186,7 +228,7 @@ class GameClock:
 		:param minute: The minute to set.
 		:param second: The second to set.
 		"""
-		self._hours = self.get_hours(year, day, hour, minute, second)
+		self._seconds = self.get_seconds(year, day, hour, minute, second)
 
 	def set_date(self, year: int, day: int) -> None:
 		"""
@@ -210,21 +252,21 @@ class GameClock:
 
 	def get_sunrise_and_sunset(self) -> ('GameClock', 'GameClock'):
 		"""Returns a tuple containing the sunrise and sunset game clocks for the game's current day."""
-		hours = self._hours
-		half_daylight = self.get_daylight_length() / 2
-		dawn = GameClock(game_time=hours)
-		dusk = GameClock(game_time=hours)
-		noon = 12.0
+		seconds = self._seconds
+		half_daylight = int(self._seconds_per_hour * self.get_daylight_length() / 2)
+		dawn = GameClock(game_time=seconds)
+		dusk = GameClock(game_time=seconds)
+		noon = 12 * self._seconds_per_hour
 		h, m, s = self.get_time_components(half_daylight)
-		dh = noon - h - m / self._minutes_per_hour - s / self._seconds_per_hour
-		dawn.set_time(*self.get_time_components(dh))
-		dh = noon + h + m / self._minutes_per_hour + s / self._seconds_per_hour
-		dusk.set_time(*self.get_time_components(dh))
+		ds = noon - h * self._seconds_per_hour - m * self._seconds_per_minute - s
+		dawn.set_time(*self.get_time_components(ds))
+		ds = noon + h * self._seconds_per_hour + m * self._seconds_per_minute + s
+		dusk.set_time(*self.get_time_components(ds))
 		return dawn, dusk
 
 	def get_moon_phase(self) -> str:
 		"""Returns the moon's current phase as a string."""
-
+		return "Not yet implemented"
 
 	def update_times_of_day(self) -> None:
 		"""Updates the internal time map dictionary for the current day."""
@@ -275,8 +317,7 @@ class GameClock:
 		:return: The name of the season.
 		"""
 
-		if season is None:
-			season = self.get_season()
+		season = season or self.get_season()
 
 		return Seasons(season).name.title()
 
@@ -305,8 +346,8 @@ class GameClock:
 	async def tick(self):
 		"""Continuously updates the game clock's internal value and executes any pending tasks."""
 
-		self._hours += self.tick_speed
-		self._ticks = self._ticks + 1
+		self._seconds += self.tick_speed
+		self._ticks += 1
 
 		h, m, s = self.get_time_components()
 		if self.update_times_of_day() == {} or (h == 0 and m == 0 and s < 8):
