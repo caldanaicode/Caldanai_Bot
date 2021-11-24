@@ -1,5 +1,6 @@
 from bson import ObjectId
 
+from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory.consumables import Consumable
@@ -24,7 +25,7 @@ class ConsumablePlugin(Consumable):
 	def use(self, target: Creature) -> (str, bool):
 		msg, keep = super().use(target)
 
-		msg += f"{target.name if isinstance(target, Player) else 'The ' + target.name} tosses a few pieces of " \
-			   f"{self.name} into {target.pronouns['possessive']} mouth.{'' if keep else ' That was the last of it!'}"
+		msg += parse(f"{'The ' if not isinstance(target, Player) else ''}@2 tosses a few pieces of @1 into @2a "
+					 f"mouth.{'' if keep else ' That was the last of it!'}", self, target)
 
 		return msg, keep

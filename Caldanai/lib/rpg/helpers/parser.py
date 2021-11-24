@@ -2,6 +2,7 @@ import re
 from re import Match
 from typing import Tuple
 
+from Caldanai.lib.rpg.helpers.enums import Pronouns
 
 actorRegex = re.compile(r'@(?P<actor>\d*)(?P<form>\w*)')
 casing = {
@@ -11,10 +12,12 @@ casing = {
 	'u': 'upper'
 }
 
-pronouns = {
-	's': 'subject',
-	'o': 'object',
-	'p': 'possessive'
+forms = {
+	's': Pronouns.SUBJECTIVE,
+	'o': Pronouns.OBJECTIVE,
+	'p': Pronouns.POSSESSIVE,
+	'a': Pronouns.ADJECTIVE,
+	'r': Pronouns.REFLEXIVE
 }
 
 
@@ -28,8 +31,8 @@ def _process(match: Match, actors: Tuple) -> str:
 	form = m['form'].lower() if m['form'] else ''
 	result = actor.name
 	for f in form:
-		if f in pronouns.keys():
-			result = actor.pronouns[pronouns[f]]
+		if f in forms.keys():
+			result = actor.pronouns[forms[f]]
 		elif f in casing.keys():
 			result = result.__getattribute__(f)()
 

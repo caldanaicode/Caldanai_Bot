@@ -40,7 +40,7 @@ class MonsterPlugin(Monster):
 		self.death = choice([
 			"The @1 dies, and shall no longer steal from the rich and give to the poor.",
 			"The @1 coughs blood before collapsing to the ground.",
-			'"In another life, you could have been me," the @1 gasps with @1p dying breath.'
+			'"In another life, you could have been me," the @1 gasps with @1a dying breath.'
 		])
 
 		self.loot: List[Dict] = [
@@ -69,7 +69,7 @@ class MonsterPlugin(Monster):
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
 			f"The @1 breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
-			f"The @1 graciously accepts @2's {invocation} while reaching toward @2p wallet...",
+			f"The @1 graciously accepts @2's {invocation} while reaching toward @2a wallet...",
 			f"The @1 sneers at @2's attempt to {invocation} @1o."
 		]
 

@@ -18,6 +18,14 @@ class Directions(IntFlag):
 	SOUTHWEST = SOUTH | WEST
 
 
+class Pronouns(Enum):
+	SUBJECTIVE = 'subjective'
+	OBJECTIVE = 'objective'
+	POSSESSIVE = 'possessive'
+	ADJECTIVE = 'adjective'
+	REFLEXIVE = 'reflexive'
+
+
 class Seasons(Enum):
 	BRIGHTBLOOM = 0
 	SOLSTIME = 1

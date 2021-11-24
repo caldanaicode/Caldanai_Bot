@@ -6,6 +6,8 @@ import pandas
 import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
+
+from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
@@ -410,10 +412,10 @@ class Player(Creature):
 		super().apply_damage(amount)
 		self.is_dirty = True
 		if was_alive and self.is_dead():
-			return f"{self.name} crumples to the ground lifelessly!"
+			return parse("@1 crumples to the ground lifelessly!", self)
 
 		if not was_alive and not self.is_dead():
-			return f"{self.member.mention} suddenly gasps raggedly as life returns to {self.pronouns['object']}!"
+			return parse(f"{self.member.mention} suddenly gasps raggedly as life returns to @1o!", self)
 
 		return ""
 
@@ -437,7 +439,7 @@ class Player(Creature):
 			'rolls': self.rolls,
 			'skills': self.skills,
 			'gender': self.gender,
-			'pronouns': ','.join(list(self.pronouns.values())),
+			'pronouns': ','.join(list(self.pronouns.values())[:-1]),
 			'items': self.inventory.to_list(),
 			'equip_slots': {}
 		}

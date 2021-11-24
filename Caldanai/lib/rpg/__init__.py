@@ -237,7 +237,7 @@ class Game:
 		victim = self.players[choice(self.combatants)]
 		m, d = self.monster.do_attack(victim)
 		if d > 0:
-			m += victim.apply_damage(d)
+			m += parse(victim.apply_damage(d), victim)
 		return m
 
 	async def do_combat(self):
@@ -263,7 +263,7 @@ class Game:
 		msg += f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {self.monster.health:,} " \
 			   f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
 
-		msg += self.monster.apply_damage(damage)
+		msg += parse(self.monster.apply_damage(damage) or "", self.monster)
 		if self.monster.is_dead():
 			monster = self.monster
 			msg += parse(self.on_monster_death(), monster)
@@ -277,7 +277,7 @@ class Game:
 
 				msg += f"\n{self.attack_random_combatant()}"
 				if self.monster.aggression == AggressionLevels.RAMPAGE:
-					Dispatcher.add(self.channel, f"{msg}\n**The {self.monster.name} seems enraged!**")
+					Dispatcher.add(self.channel, parse(msg, self.monster))
 					self.combatants.clear()
 					self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
 					return

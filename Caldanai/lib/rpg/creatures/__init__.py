@@ -5,6 +5,7 @@ from discord import Embed, File
 
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.helpers.enums import Pronouns
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory import Inventory
 
@@ -53,16 +54,20 @@ class Creature:
 
 		if pronouns:
 			s = pronouns.split(',')
-			self.pronouns: Dict[str, str] = {
-				'subject': s[0].strip(),
-				'object': s[1].strip(),
-				'possessive': s[2].strip()
+			self.pronouns: Dict[Pronouns, str] = {
+				Pronouns.SUBJECTIVE: s[0].strip(),
+				Pronouns.OBJECTIVE: s[1].strip(),
+				Pronouns.POSSESSIVE: s[2].strip(),
+				Pronouns.ADJECTIVE: s[3].strip(),
+				Pronouns.REFLEXIVE: s[1].strip() + 'self'
 			}
 		else:
-			self.pronouns: Dict[str, str] = {
-				'subject': 'he' if self.gender == 'male' else 'she' if self.gender == 'female' else 'it',
-				'object': 'him' if self.gender == 'male' else 'her' if self.gender == 'female' else 'it',
-				'possessive': 'his' if self.gender == 'male' else 'her' if self.gender == 'female' else 'its'
+			self.pronouns: Dict[Pronouns, str] = {
+				Pronouns.SUBJECTIVE: 'he' if self.gender == 'male' else 'she' if self.gender == 'female' else 'it',
+				Pronouns.OBJECTIVE: 'him' if self.gender == 'male' else 'her' if self.gender == 'female' else 'it',
+				Pronouns.POSSESSIVE: 'his' if self.gender == 'male' else 'her' if self.gender == 'female' else 'its',
+				Pronouns.ADJECTIVE: 'his' if self.gender == 'male' else 'hers' if self.gender == 'female' else 'its',
+				Pronouns.REFLEXIVE: 'himself' if self.gender == 'male' else 'herself' if self.gender == 'female' else 'itself'
 			}
 
 	def get_embed(self) -> tuple:
@@ -118,8 +123,8 @@ class Creature:
 		:return: A string representing the creature's reaction.
 		"""
 		if self.is_dead():
-			return f"{self.name.capitalize()}'s corpse rolls lifelessly in {actor.name}'s arms."
-		return f"The {self.name} glances at {actor.name} and sidesteps {actor.pronouns['possessive']} hug."
+			return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
+		return parse("The @1 glances at @2 and sidesteps @2p hug.", self, actor)
 
 	# Applies damage (or healing if amount is negative) to the creature's health.
 	def apply_damage(self, amount: int) -> None:

@@ -24,7 +24,7 @@ class MonsterPlugin(Monster):
 			f"with a hungry gaze."
 		self.flavor = "This @1 is abnormally large, its diet primarily consisting of cute, small animals."
 		self.escape = "The @1 barks out a loud croaking noise before leaping off into the distance."
-		self.death = f"The @1 struggles to leap away, but the effort is futile, as @1s collapses onto @1p belly."
+		self.death = f"The @1 struggles to leap away, but the effort is futile, as @1s collapses onto @1a belly."
 
 		self.loot: List[Dict] = [
 			{"plugin": "toad_slime", "item_type": "Item", "frequency": 0.9},

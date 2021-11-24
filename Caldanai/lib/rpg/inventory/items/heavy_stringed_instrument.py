@@ -27,12 +27,12 @@ class ItemPlugin(Item):
 		if target is None:
 			return f"A {self.name} seems to play of its own accord..."
 
-		p_name = f"{target.name if isinstance(target, Player) else 'a' + ('n ' if target.name[0] in 'aeiouh' else ' ') + target.name}"
+		p_name = f"{'the ' if not isinstance(target, Player) else ''}@2"
 		p_name_caps = p_name if isinstance(target, Player) else p_name.capitalize()
 
 		msgs = [
-			f"{p_name_caps} strums the strings of {target.pronouns['possessive']} {self.name}.",
+			f"{p_name_caps} strums the strings of @2a @1.",
 			f"A playful melody erupts from {self.get_full_name()} as {p_name}'s fingers dance along the strings.",
-			f"{p_name_caps} sounds out a few tentative chords on {target.pronouns['possessive']} {self.name}."
+			f"{p_name_caps} sounds out a few tentative chords on @2a @1."
 		]
 		return choice(msgs)
