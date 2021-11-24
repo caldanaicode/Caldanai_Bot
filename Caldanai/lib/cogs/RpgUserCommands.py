@@ -17,6 +17,8 @@ from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.helpers.enums import Directions
+from Caldanai.lib.rpg.helpers.parser import parse
 from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.lib.rpg.inventory.weapons import Weapon
 from Caldanai.db import MongoDB
@@ -369,7 +371,9 @@ class RpgUserCommands(Cog):
 		elif msg is not None and len(msg) > 0:
 			if game.monster is not None and game.monster.name.lower() in msg.lower():
 				if game.monster.on_hugged:
-					Dispatcher.add(game.channel, game.monster.on_hugged(player, ctx.invoked_with))
+					Dispatcher.add(
+						game.channel,
+						parse(game.monster.on_hugged(player, ctx.invoked_with), game.monster, player))
 			else:
 				Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s {msg}*")
 
@@ -939,6 +943,46 @@ class RpgUserCommands(Cog):
 		msg = game.game_clock.get_full_date()
 		msg += f" Sunrise {'is' if time <= srh else 'was'} at {sunrise.get_time()}."
 		msg += f" Sunset {'is' if time <= ssh else 'was'} at {sunset.get_time()}."
+		Dispatcher.add(game.channel, msg)
+
+	@cooldown(1, 5, BucketType.member)
+	@guild_only()
+	@command(name='look', brief='Display\'s information about the area, or more information about a creature.')
+	async def look(self, ctx, target: str = None):
+		"""
+		Display's information about the area, or details about a creature or direction.
+
+		(5-second cool-down)
+		"""
+		game = await self.utils().get_game(ctx)
+		if game is None:
+			return
+
+		msg = ""
+
+		if target is None:
+			if ctx.channel == game.channel:
+				msg = game.room0.verbose
+
+			time = game.game_clock.get_time_of_day()
+			msg += f" It appears to be {time}."
+
+		elif target.upper() in Directions.__members__:
+			direction = Directions[target.upper()]
+			msg += game.room0.get_look_direction(direction)
+
+		elif game.monster and target.lower() == game.monster.name:
+			embed, file = game.monster.get_embed()
+			Dispatcher.add(game.channel, msg, embed=embed, file=file)
+			return
+
+		elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+			p = await self.utils().get_player(ctx.message.mentions[0])
+			if p:
+				embed = p.get_profile(game.guild.name)
+				Dispatcher.add(game.channel, msg, embed=embed)
+				return
+
 		Dispatcher.add(game.channel, msg)
 
 	@Cog.listener()

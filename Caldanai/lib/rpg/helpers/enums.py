@@ -7,6 +7,24 @@ class AggressionLevels(Enum):
 	RAMPAGE = 2			# Attacks until defeated or left alone
 
 
+class Directions(IntFlag):
+	EAST = 0x1
+	NORTH = 0x2
+	WEST = 0x3
+	SOUTH = 0x4
+	NORTHEAST = NORTH | EAST
+	NORTHWEST = NORTH | WEST
+	SOUTHEAST = SOUTH | EAST
+	SOUTHWEST = SOUTH | WEST
+
+
+class Seasons(Enum):
+	BRIGHTBLOOM = 0
+	SOLSTIME = 1
+	LEAFGLOW = 2
+	FROSTFALL = 3
+
+
 class TimesOfDay(IntFlag):
 	DAWN = 0x1
 	MORNING = 0x2
@@ -23,10 +41,3 @@ class TimePartitions(IntFlag):
 	CREPUSCULAR = TimesOfDay.EVENING | TimesOfDay.DUSK
 	NOCTURNAL = TimesOfDay.DUSK | TimesOfDay.NIGHT
 	CATHEMERAL = AURORAL | DIURNAL | CREPUSCULAR | NOCTURNAL
-
-
-class Seasons(Enum):
-	BRIGHTBLOOM = 0
-	SOLSTIME = 1
-	LEAFGLOW = 2
-	FROSTFALL = 3
