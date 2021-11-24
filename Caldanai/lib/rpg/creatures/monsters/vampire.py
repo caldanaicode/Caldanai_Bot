@@ -21,37 +21,32 @@ class MonsterPlugin(Monster):
 
 		self.time_partition = TimePartitions.NOCTURNAL
 		self.dies_from_time = True
-		self.time_death = f"The vampire cries out in unimaginable pain as the light of day rolls over " \
-						  f"{self.pronouns['possessive']} body. Just as the sound becomes unbearable, " \
-						  f"{self.pronouns['subject']} suddenly goes still, and {self.pronouns['possessive']} form " \
-						  f"explodes into a shower of miniature meteorites sailing in all directions."
+		self.time_death = "The @1 cries out in unimaginable pain as the light of day rolls over @1p body. Just as " \
+			"the sound becomes unbearable, @1s suddenly goes still, and @1p form explodes into a shower of miniature " \
+			"meteorites sailing in all directions."
 		self.flees_from_time = True
-		self.time_flee = f"As the light of dawn approaches, the vampire hisses with frustration, clearly unsatisfied " \
-						 f"with the night's hunt. With a final glare, {self.pronouns['subject']} fades into a ball of " \
-						 f"shadow and zips away."
+		self.time_flee = "As the light of dawn approaches, the @1 hisses with frustration, clearly unsatisfied " \
+			"with the night's hunt. With a final glare, @1s fades into a ball of shadow and zips away."
 		self.image = None
 		self.aggression = AggressionLevels.RAMPAGE
-		self.arrival = f"Shadows coalesce into a humanoid shape as a vampire materializes. " \
-					   f"{self.pronouns['possessive'].capitalize()} hungry gaze sweeps the area."
+		self.arrival = "Shadows coalesce into a humanoid shape as a @1 materializes. @1pc hungry gaze sweeps the area."
 
 		self.flavor = choice([
-			"The vampire radiates malevolent hunger.",
-			f"{self.pronouns['possessive'].capitalize()} gaze is as sharp as {self.pronouns['possessive']} teeth.",
-			"The shadows shifting about this vampire produce an aura of cold dread, as if defying the very existence "
-			"of life."
+			"The @1 radiates malevolent hunger.",
+			"@1pc gaze is as sharp as @1p teeth.",
+			"The shadows shifting about this @1 produce an aura of cold dread, as if defying the very existence of life."
 		])
 
 		self.escape = choice([
-			"With nary a sound, the vampire slips back into the darkness.",
-			"The vampire melts into a pool of shadows, vanishing into the night.",
-			"The vampire explodes into a cloud of bats, scattering in all directions."
+			"With nary a sound, the @1 slips back into the darkness.",
+			"The @1 melts into a pool of shadows, vanishing into the night.",
+			"The @1 explodes into a cloud of bats, scattering in all directions."
 		])
 
 		self.death = choice([
-			f"The vampire screeches horribly as {self.pronouns['subject']} bursts into flame. Soon, naught remains "
-			f"but ash.",
-			f"With a final gasp of disbelief, the vampire slows to a halt as dark tendrils spread outward from "
-			f"{self.pronouns['possessive']} chest. After a moment, the husk crumbles and drifts away.",
+			"The @1 screeches horribly as @1s bursts into flame. Soon, naught remains but ash.",
+			"With a final gasp of disbelief, the @1 slows to a halt as dark tendrils spread outward from @1p chest. "
+			"After a moment, the husk crumbles and drifts away.",
 		])
 
 		self.loot: List[Dict] = [
@@ -72,33 +67,32 @@ class MonsterPlugin(Monster):
 
 		amount = random.randint(1, target.health)
 		attempt = Dice.quick_roll("1d20") + 4
-		msg = f"The vampire's eyes darken as {self.pronouns['possessive']} gaze settles upon {target.name}. With a " \
-			  f"burst of unbelievable speed, the vampire's form blurs as {self.pronouns['subject']} rushes headlong " \
-			  f"at {self.pronouns['possessive']} victim."
+		msg = "The @1's eyes darken as @1p gaze settles upon @2. With a burst of unbelievable speed, " \
+			"the @1's form blurs as @1s rushes headlong at @1p victim."
+		
 		if attempt >= target.dodge:
-			msg += f"\n\n{target.name} stands paralyzed before the vampire, and cries out as fangs plunge into " \
-				   f"{target.pronouns['possessive']} throat."
+			msg += "\n\n@2 stands paralyzed before the @1, and cries out as fangs plunge into " \
+				"@2p throat."
 
 			if m := target.apply_damage(amount):
 				msg += f"\n\n{m}"
 			else:
-				msg += f"\n\n{target.name} is drained of {amount} health!"
+				msg += f"\n\n**@2 is drained of {amount} health!**"
 
-			msg += f"\n\nThe vampire licks the blood from {self.pronouns['possessive']} lips, and a wicked smile " \
-				   f"carves a path across {self.pronouns['possessive']} face as wounds begin to mend."
+			msg += "\n\nThe @1 licks the blood from @1p lips, and a wicked smile carves a path across @1p face as " \
+				"wounds begin to mend."
 			self.apply_damage(amount * -2)
 
 		else:
-			msg += f"\n\nAmazingly, {target.name}'s quick reflexes see {target.pronouns['object']} safely out of " \
-				   f"harm's way!"
+			msg += "\n\nAmazingly, @2's quick reflexes see @2o safely out of harm's way!"
 
 		return msg
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
-			f"An overwhelming sense of foreboding roots {actor.name} in place.",
-			f"The hungry, piercing gaze of the vampire paralyzes {actor.name}.",
-			f"The vampire smiles seductively at {actor.name}, encouraging the {invocation}..."
+			"An overwhelming sense of foreboding roots @2 in place.",
+			"The hungry, piercing gaze of the @1 paralyzes @2.",
+			f"The @1 smiles seductively at @2, encouraging the {invocation}..."
 		]
 
 		response = choice(responses)

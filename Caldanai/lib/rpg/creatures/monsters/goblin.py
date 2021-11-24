@@ -21,21 +21,18 @@ class MonsterPlugin(Monster):
 		self.image = None
 		self.aggression = AggressionLevels.VENGEFUL
 		self.arrival = choice([
-			f"With a spluttering snarl, a goblin {choice('bursts|pads|runs'.split('|'))} into the area.",
-			f"A screeching laugh shatters the serenity that once lingered here, as a goblin finds "
-			f"{self.pronouns['possessive']} way hither."
+			f"With a spluttering snarl, a @1 {choice('bursts|pads|runs'.split('|'))} into the area.",
+			"A screeching laugh shatters the serenity that once lingered here, as a @1 finds @1p way hither."
 		])
 
 		self.flavor = choice([
-			f"This goblin is so ugly {self.pronouns['subject']} is almost cute.",
+			"This @1 is so ugly @1s is almost cute.",
 			"A green and gray blob of stupidity."
 		])
 
-		self.escape = f"The goblin snorts, a vacant eye roaming the surroundings before {self.pronouns['subject']} " \
-					  f"trudges off."
-		self.death = f"The goblin's eyes bulge as if {self.pronouns['subject']} only now realized " \
-					 f"{self.pronouns['subject']} was outmatched, and {self.pronouns['subject']} flops onto the " \
-					 f"ground unceremoniously."
+		self.escape = f"The @1 snorts, a vacant eye roaming the surroundings before @1s trudges off."
+		self.death = f"The @1's eyes bulge as if @1s only now realized @1s was outmatched, and @1s flops onto the " \
+			f"ground unceremoniously."
 
 		self.loot: List[Dict] = [
 			{"plugin": "stick", "item_type": "Weapon", "frequency": 0.5},
@@ -45,15 +42,15 @@ class MonsterPlugin(Monster):
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
-		msg = f"The goblin hoots at {actor.name} and backs away, flailing erratically."
+		msg = f"The @1 hoots at @2 and backs away, flailing erratically."
 		attempt = Dice.quick_roll('1d20')
 		if attempt >= actor.dodge:
 			dmg = Dice.quick_roll('1d4')
-			msg += f" {actor.name} is caught off-guard and takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
+			msg += f" @2 is caught off-guard and takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
 			m = actor.apply_damage(dmg)
 			msg += f"\n{m}" if m else ""
 		else:
-			msg += f"\n{actor.name} narrowly avoids the goblin's thrashing!"
+			msg += "\n@2 narrowly avoids the @1's thrashing!"
 
 		return msg
 

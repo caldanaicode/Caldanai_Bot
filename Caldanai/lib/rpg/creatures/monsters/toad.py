@@ -20,15 +20,11 @@ class MonsterPlugin(Monster):
 		self.time_partition = TimePartitions.CREPUSCULAR | TimePartitions.NOCTURNAL
 		self.image = None
 		self.aggression = AggressionLevels.VENGEFUL
-		self.arrival = choice([
-			f"A giant toad {choice('hops|leaps|bounds'.split('|'))} in from the "
-			f"{get_random_direction()}, with a hungry gaze."
-		])
-
-		self.flavor = "This toad is abnormally large, its diet primarily consisting of cute, small animals."
-		self.escape = "The toad barks out a loud croaking noise before leaping off into the distance."
-		self.death = f"The toad struggles to leap away, but the effort is futile, as {self.pronouns['subject']} " \
-					 f"collapses onto {self.pronouns['possessive']} belly."
+		self.arrival = f"A giant @1 {choice('hops|leaps|bounds'.split('|'))} in from the {get_random_direction()}, " \
+			f"with a hungry gaze."
+		self.flavor = "This @1 is abnormally large, its diet primarily consisting of cute, small animals."
+		self.escape = "The @1 barks out a loud croaking noise before leaping off into the distance."
+		self.death = f"The @1 struggles to leap away, but the effort is futile, as @1s collapses onto @1p belly."
 
 		self.loot: List[Dict] = [
 			{"plugin": "toad_slime", "item_type": "Item", "frequency": 0.9},

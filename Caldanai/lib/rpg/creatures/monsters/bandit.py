@@ -22,7 +22,7 @@ class MonsterPlugin(Monster):
 		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = "bandit128.png"
 		self.aggression = AggressionLevels.VENGEFUL
-		self.arrival = f"A masked bandit {choice('stealthily|clumsily|quickly|slowly'.split('|'))} " \
+		self.arrival = f"A masked @1 {choice('stealthily|clumsily|quickly|slowly'.split('|'))} " \
 					   f"{choice('walks|saunters|sashays|sneaks'.split('|'))} out of the " \
 					   f"{choice('bushes|rocks|distance|shadows'.split('|'))}."
 
@@ -33,15 +33,14 @@ class MonsterPlugin(Monster):
 		])
 
 		self.escape = choice([
-			f"The bandit runs off, taking whatever {self.pronouns['subject']} can grab.",
-			"Other horizons call the bandit away."
+			"The @1 runs off, taking whatever @1s can grab.",
+			"Other horizons call the @1 away."
 		])
 
 		self.death = choice([
-			"The bandit dies, and shall no longer steal from the rich and give to the poor.",
-			"The bandit coughs blood before collapsing to the ground.",
-			f'"In another life, you could have been me," the bandit gasps with {self.pronouns["possessive"]} dying '
-			f'breath.'
+			"The @1 dies, and shall no longer steal from the rich and give to the poor.",
+			"The @1 coughs blood before collapsing to the ground.",
+			'"In another life, you could have been me," the @1 gasps with @1p dying breath.'
 		])
 
 		self.loot: List[Dict] = [
@@ -64,15 +63,14 @@ class MonsterPlugin(Monster):
 		attempt = Dice.quick_roll("1d20")
 		if attempt >= target.dodge:
 			target.give_clarks(-amount)
-			return f"\n{target.name}'s wallet suddenly feels lighter... {amount} clarks were lost!"
-		return f"\n{target.name} easily avoids the bandit's groping fingers."
+			return f"\n@2's wallet suddenly feels lighter... {amount} clarks were lost!"
+		return "\n@2 easily avoids the bandit's groping fingers."
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
-			f"The bandit breaks down crying at the first affection {self.pronouns['subject']} has ever known, "
-			f"as {actor.name} {invocation}s {self.pronouns['object']}.",
-			f"The bandit graciously accepts {actor.name}'s {invocation} while reaching toward {actor.pronouns['possessive']} wallet...",
-			f"The bandit sneers at {actor.name}'s attempt to {invocation} {self.pronouns['object']}."
+			f"The @1 breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
+			f"The @1 graciously accepts @2's {invocation} while reaching toward @2p wallet...",
+			f"The @1 sneers at @2's attempt to {invocation} @1o."
 		]
 
 		response = choice(responses)
