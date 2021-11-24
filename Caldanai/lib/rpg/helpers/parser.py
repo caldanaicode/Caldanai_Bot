@@ -4,7 +4,6 @@ from typing import Tuple
 
 
 actorRegex = re.compile(r'@(?P<actor>\d*)(?P<form>\w*)')
-verbRegex = re.compile(r'!(?P<verb>\w+)')
 casing = {
 	'c': 'capitalize',
 	'l': 'lower',
