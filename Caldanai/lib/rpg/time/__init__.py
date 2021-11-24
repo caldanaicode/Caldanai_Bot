@@ -52,11 +52,23 @@ class GameClock:
 
 		self.tick_speed = self.time_scale
 
-	def __add__(self, other: 'GameClock'):
-		return GameClock(self._seconds + other._seconds)
+	def __add__(self, other):
+		if isinstance(other, GameClock):
+			return GameClock(self._seconds + other._seconds)
 
-	def __sub__(self, other: 'GameClock'):
-		return GameClock(self._seconds - other._seconds)
+		if isinstance(other, (int, float, complex)):
+			return GameClock(self._seconds + int(other))
+
+		return None
+
+	def __sub__(self, other):
+		if isinstance(other, GameClock):
+			return GameClock(self._seconds - other._seconds)
+
+		if isinstance(other, (int, float, complex)):
+			return GameClock(self._seconds - int(other))
+
+		return None
 
 	def __eq__(self, other):
 		if isinstance(other, GameClock):
