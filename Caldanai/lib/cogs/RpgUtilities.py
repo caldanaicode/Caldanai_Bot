@@ -136,7 +136,7 @@ class RpgUtilities(Cog):
 					)
 			else:
 				return game.players[ctx.author.id]
-		elif isinstance(ctx, (Member, User)):
+		elif isinstance(ctx, (Member, User)) and ctx.id in game.players.keys():
 			return game.players[ctx.id]
 
 		return None

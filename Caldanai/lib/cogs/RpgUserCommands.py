@@ -353,13 +353,13 @@ class RpgUserCommands(Cog):
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
 	async def hug(self, ctx, *, msg: str = None):
-		"""Hugs, snuggles, and cuddles for all of your needs!
+		"""
+		Hugs, snuggles, and cuddles for all of your needs!
 
-		|
-		| See that monster over there?! It's just angry because it never feels loved!
-		| Want to show your fellows a little appreciation? There's a hug for them too!
-		|
-		| (5-second cool-down)
+		See that monster over there?! It's just angry because it never feels loved!
+		Want to show your fellows a little appreciation? There's a hug for them too!
+
+		(5-second cool-down)
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
 		if game is None or player is None:
@@ -829,24 +829,22 @@ class RpgUserCommands(Cog):
 
 		if player.is_dead():
 			msg = choice([
-				f"Posthumous piety profits particularly poorly, {player.name}.",
-				f"Your prayers can no longer pierce the planes of piety, {player.name}.",
-				f"It seems, {player.name}, that if anyone is listening, they no longer care...",
-				f"The power of prayer eludes the dead, {player.name}.",
-				f"Hideous cackling erupts from unseen places as the spirit of {player.name} seeks salvation.",
-				f"A sense of dread settles over {player.name}'s shade, and {player.pronouns['subject']} cries out "
-				f"forlornly."
+				"Posthumous piety profits particularly poorly, @1.",
+				"Your prayers can no longer pierce the planes of piety, @1.",
+				"It seems, @1, that if anyone is listening, they no longer care...",
+				"The power of prayer eludes the dead, @1.",
+				"Hideous cackling erupts from unseen places as the spirit of @1 seeks salvation.",
+				"A sense of dread settles over @1's shade, and @1s cries out forlornly."
 			])
-			Dispatcher.add(game.channel, msg)
+			Dispatcher.add(game.channel, parse(msg, player))
 			return
 
 		msgs = [
-			f"{player.name} offers a solemn prayer, seeking forgiveness and humility.",
-			f"{player.name} seeks the guidance of the Divine.",
-			f"{player.name} falls to {player.pronouns['possessive']} knees in reverence, face lifted to the sky as "
-			f"{player.pronouns['subject']} basks in a divine embrace.",
-			f"{player.name}'s eyes turn skyward as {player.pronouns['subject']} entreats the Divine for benevolence.",
-			f"{player.name} proffers words of hope, attempting to sooth the splintered souls of comrades."
+			"@1 offers a solemn prayer, seeking forgiveness and humility.",
+			"@1 seeks the guidance of the Divine.",
+			"@1 falls to @1p knees in reverence, face lifted to the sky as @1s basks in a divine embrace.",
+			"@1's eyes turn skyward as @1s entreats the Divine for benevolence.",
+			"@1 proffers words of hope, attempting to sooth the splintered souls of comrades."
 		]
 
 		msg = choice(msgs)
@@ -856,25 +854,34 @@ class RpgUserCommands(Cog):
 		player.update_roll_count(d20.sides, d20.value)
 		heal_amount = 0
 		third = 0
+		actors = [player,]
 		if d20.value == 1:
-			msg += f"\nSacrifice is demanded for your insolence, {player.name}!\n\nA sudden storm explodes into the " \
-				   f"area, as a blinding bolt of lightning envelopes {player.name}. When the light fades, " \
-				   f"nothing remains but a charred husk."
+			msg += "\nSacrifice is demanded for your insolence, @1!\n\nA sudden storm explodes into the area, " \
+				"as a blinding bolt of lightning envelopes @1. When the light fades, nothing remains but a charred husk."
+
 			msg += f"\n\n{player.apply_damage(player.health)}\n\nThe storm calms to a gentle rain..."
+
+			index = 2
 			for p in game.players.values():
 				if p != player and p.health < p.health_max:
-					msg += f"\n{p.name}'s skin glows softly under the touch of the rain. "
+					msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
 					heal_msg = p.apply_damage(p.health - p.health_max)
 					if heal_msg:
 						msg += f"{heal_msg} "
-					msg += f"{p.name}'s health is completely restored!"
+					msg += f"@{index}'s health is completely restored!"
+					actors.append(p)
+					index += 1
 
 		elif d20.value > 17:
 			heal_target: Player = player
+
 			for p in game.players.values():
 				if p.health < heal_target.health:
 					heal_target = p
+
 			missing_health = heal_target.health_max - heal_target.health
+			actors.append(heal_target)
+			index = len(actors)
 
 			if missing_health == 0:
 				Dispatcher.add(game.channel, msg)
@@ -898,14 +905,14 @@ class RpgUserCommands(Cog):
 			if heal_msg:
 				msg += f"\n{heal_msg}"
 
-			msg += f"\nA warm light suffuses {heal_target.name}, "
+			msg += f"\nA warm light suffuses @{index}, "
 
 			if heal_amount > 0:
-				msg += f"imbuing {heal_target.pronouns['object']} with {heal_amount} points of health!"
+				msg += f"imbuing @{index}o with {heal_amount} points of health!"
 			else:
-				msg += f"and a pleasant tingle envelops {heal_target.pronouns['object']} without noticeable effect."
+				msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
 
-		Dispatcher.add(game.channel, msg)
+		Dispatcher.add(game.channel, parse(msg, *actors))
 
 	@cooldown(1, 10, BucketType.member)
 	@guild_only()
@@ -958,7 +965,7 @@ class RpgUserCommands(Cog):
 		if game is None:
 			return
 
-		msg = ""
+		msg = "Nothing to see here, move along!"
 
 		if target is None:
 			if ctx.channel == game.channel:
