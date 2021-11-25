@@ -181,7 +181,7 @@ class RpgAdminCommands(Cog):
 		if any(v == msg for v in ['1', 'on', 'true', 'enabled']):
 			if not game.use_spawn_timer:
 				game.use_spawn_timer = True
-				game.game_clock.add_routine(game.do_spawn, 5, True)
+				game.game_clock.add_routine(game.do_spawn, 5, True, True)
 			else:
 				Dispatcher.add(game.channel, "Spawning is already enabled.")
 
