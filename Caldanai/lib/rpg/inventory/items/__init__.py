@@ -108,7 +108,7 @@ class Item:
 			embed.add_field(name=f, value=v, inline=i)
 		return embed, file
 
-	def use(self) -> str:
+	def use(self, user) -> str:
 		return "There doesn't seem to be a way to do that."
 
 	def to_dict(self) -> dict:

@@ -24,17 +24,17 @@ class ConsumablePlugin(Consumable):
 			plugin='cheese_sandwich'
 		)
 
-	def use(self, target: Creature) -> (str, bool):
-		msg, keep = super().use(target)
+	def use(self, user: Creature) -> (str, bool):
+		msg, keep = super().use(user)
 
-		msg += f"{'The ' if not isinstance(target, Player) else ''}@2 takes a bite of " \
+		msg += f"{'The ' if not isinstance(user, Player) else ''}@2 takes a bite of " \
 			   f"@2a @1.{'' if keep else ' That was the last of it!'}"
 
 		d4 = Dice.d4()
 		msg += f"\n@2sc replenishes {d4.value} health!"
-		target.apply_damage(-d4.value)
+		user.apply_damage(-d4.value)
 
-		if isinstance(target, Player):
-			target.update_roll_count(d4.sides, d4.value)
+		if isinstance(user, Player):
+			user.update_roll_count(d4.sides, d4.value)
 
-		return parse(msg, self, target), keep
+		return parse(msg, self, user), keep

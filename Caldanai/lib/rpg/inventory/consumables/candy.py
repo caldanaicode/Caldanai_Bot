@@ -22,10 +22,10 @@ class ConsumablePlugin(Consumable):
 			uses_left=uses_left
 		)
 
-	def use(self, target: Creature) -> (str, bool):
-		msg, keep = super().use(target)
+	def use(self, user: Creature) -> (str, bool):
+		msg, keep = super().use(user)
 
-		msg += parse(f"{'The ' if not isinstance(target, Player) else ''}@2 tosses a few pieces of @1 into @2a "
-					 f"mouth.{'' if keep else ' That was the last of it!'}", self, target)
+		msg += parse(f"{'The ' if not isinstance(user, Player) else ''}@2 tosses a few pieces of @1 into @2a "
+			f"mouth.{'' if keep else ' That was the last of it!'}", self, user)
 
 		return msg, keep
