@@ -74,7 +74,7 @@ class Game:
 			loot_duration: int = 5,
 			prefix: str = None,
 			enable_ambience: bool = True,
-			game_time: float = 0.0
+			game_time: int = 0
 	):
 		"""
 		Initialize a new Game object.

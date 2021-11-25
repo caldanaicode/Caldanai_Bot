@@ -13,7 +13,7 @@ class GameClock:
 	class _Routine:
 		"""GameClock's internal representation of tasks for use in the tick loop."""
 
-		def __init__(self, time_added: int, function: Callable, seconds: int):
+		def __init__(self, time_added: int, function: Callable, seconds: int, only_instance: bool = False):
 			"""
 			Initialize a new GameClock Routine.
 
@@ -25,6 +25,7 @@ class GameClock:
 			self.seconds = int(max(0, seconds))
 			self.time_added = time_added
 			self.name = self.function.__name__
+			self.only_instance = only_instance
 
 		def run(self):
 			asyncio.create_task(self.function())
@@ -107,19 +108,25 @@ class GameClock:
 		if isinstance(other, (int, float, complex)):
 			return self._seconds < other
 
-	def add_routine(self, routine: Callable, seconds: int, run_once: bool = False) -> None:
+	def add_routine(self, routine: Callable, seconds: int, run_once: bool = False, only_instance: bool = True) -> None:
 		"""
 		Adds a function to the game clock's internal lists.
 
 		:param routine: The function to add.
 		:param seconds: How often the function should run, in seconds.
 		:param run_once: Whether or not the function runs only once.
+		:param only_instance: Whether or not to allow more than one of this routine to coexist. If True, then the new
+			routine will attempt to replace the old routine.
 		"""
 		if seconds > 0:
-			r = GameClock._Routine(self._ticks, routine, seconds)
+			r = GameClock._Routine(self._ticks, routine, seconds, only_instance)
 			if run_once:
+				while only_instance and (match := self.find_routine(r.name)) and match[0] == self._tick_run_once:
+					self._tick_run_once.pop(match[1])
 				self._tick_run_once.append(r)
 			else:
+				while only_instance and (match := self.find_routine(r.name)) and match[0] == self._tick_routines:
+					self._tick_routines.pop(match[1])
 				self._tick_routines.append(r)
 
 	def find_routine(self, name: str) -> (Optional[List['GameClock._Routine']], Optional[int]):
@@ -140,11 +147,13 @@ class GameClock:
 
 		return None, None
 
-	def remove_routine(self, routine: Callable):
+	def remove_routine(self, routine: Callable) -> bool:
 		"""Removes the first instance of a routine from the game clock's internal lists."""
 		lst, i = self.find_routine(routine.__name__)
-		if lst and i:
+		if lst and i >= 0:
 			lst.pop(i)
+			return True
+		return False
 
 	def get_time_components(self, seconds: int = None) -> (int, int, int):
 		"""
