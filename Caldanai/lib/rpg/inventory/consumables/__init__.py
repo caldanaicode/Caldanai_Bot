@@ -1,4 +1,5 @@
 import importlib
+from typing import Tuple
 
 from bson import ObjectId
 from discord import Embed, File
@@ -36,7 +37,7 @@ class Consumable(Item):
 		embed.insert_field_at(0, name="Uses Remaining", value=self.uses_left, inline=True)
 		return embed, file
 
-	def use(self) -> (str, bool):
+	def use(self, user) -> Tuple[str, bool]:
 		"""
 		Uses the consumable item and returns a tuple containing a string intended for display and a boolean value
 		indicating whether or not any uses remain.
