@@ -1,7 +1,8 @@
 from bson import ObjectId
 
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.inventory.rarity import Rarity
-from Caldanai.lib.rpg.inventory.weapons import Weapon
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 class WeaponPlugin(Weapon):
@@ -14,12 +15,13 @@ class WeaponPlugin(Weapon):
 			unit_value=8,
 			image="sledge128.png",
 			rarity=rarity,
+			article="a",
+			slots=EquipmentSlots.TWO_HANDED,
+			plugin="sledgehammer",
 			atk="2d8",
-			is_2handed=True,
 			is_magic=False,
 			is_ranged=False,
 			atk_msg="bashes",
 			bonus=bonus,
-			article="a",
 			dmg_type="bludgeoning"
 		)

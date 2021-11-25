@@ -1,17 +1,16 @@
 from random import choice
-from typing import Tuple
 
 from bson import ObjectId
 
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.inventory.items import Item
+from Caldanai.lib.rpg.inventory import Usable
 from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
-class ItemPlugin(Item):
-	def __init__(self, iid: ObjectId = None, rarity: Rarity = None, count: int = 1):
+class UsablePlugin(Usable):
+	def __init__(self, iid: ObjectId = None, rarity: Rarity = None):
 		super().__init__(
 			iid=iid,
 			name="heavy, stringed instrument",
@@ -21,11 +20,10 @@ class ItemPlugin(Item):
 			image="heavy_stringed_instrument128.png",
 			rarity=rarity,
 			article='a',
-			plugin='heavy_stringed_instrument',
-			count=count
+			plugin='heavy_stringed_instrument'
 		)
 
-	def use(self, user: Creature = None) -> Tuple[str, bool]:
+	def use(self, user: Creature = None) -> str:
 		if user is None:
 			return parse("A @1 seems to play of its own accord...", self)
 
@@ -37,4 +35,4 @@ class ItemPlugin(Item):
 			f"A playful melody erupts from {self.get_full_name()} as {p_name}'s fingers dance along the strings.",
 			f"{p_name_caps} sounds out a few tentative chords on @2a @1."
 		]
-		return parse(choice(msgs), self, user), True
+		return parse(choice(msgs), self, user)

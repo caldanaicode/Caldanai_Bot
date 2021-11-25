@@ -3,7 +3,7 @@ from bson import ObjectId
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.inventory.consumables import Consumable
+from Caldanai.lib.rpg.inventory.usables.consumables import Consumable
 from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 

@@ -4,7 +4,7 @@ from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.inventory.consumables import Consumable
+from Caldanai.lib.rpg.inventory.usables.consumables import Consumable
 from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
@@ -19,9 +19,9 @@ class ConsumablePlugin(Consumable):
 			image="cheese_sammich128.png",
 			rarity=rarity,
 			article="a",
+			plugin='cheese_sandwich',
 			uses_max=uses_max,
-			uses_left=uses_left,
-			plugin='cheese_sandwich'
+			uses_left=uses_left
 		)
 
 	def use(self, user: Creature) -> (str, bool):

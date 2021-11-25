@@ -1,9 +1,11 @@
 from typing import Tuple, Dict, Optional, List, Union
 
-from .armor import Armor
-from .consumables import Consumable
-from .items import Item
-from .weapons import Weapon
+from Caldanai.lib.rpg.inventory.equipment.armor import Armor
+from Caldanai.lib.rpg.inventory.stackables import Stackable
+from Caldanai.lib.rpg.inventory.usables import Usable
+from Caldanai.lib.rpg.inventory.usables.consumables import Consumable
+from Caldanai.lib.rpg.inventory.item import Item
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from bson.objectid import ObjectId
 from math import fsum
 
@@ -11,8 +13,8 @@ from math import fsum
 class Inventory:
 	def __init__(self, contents: list = ()):
 		self.__items: List[Item] = []
-		for item in contents:
-			self.add(item)
+		for _item in contents:
+			self.add(_item)
 
 	def __getitem__(self, _id: Union[str, ObjectId]) -> Optional[Item]:
 		"""
@@ -43,47 +45,47 @@ class Inventory:
 		if _id is None or (isinstance(_id, str) and len(_id) == 0):
 			return None
 
-		item = self[_id]
-		if item:
-			self.__items.remove(item)
-			del item
+		_item = self[_id]
+		if _item:
+			self.__items.remove(_item)
+			del _item
 
 	def __len__(self) -> int:
 		return len(self.__items)
 
-	def add(self, item: Item) -> None:
+	def add(self, _item: Item) -> None:
 		"""
 		Add an item to the inventory.
 
-		:param item: The item to add.
+		:param _item: The item to add.
 		"""
 
 		stacked = False
-		if item.stackable:
-			stack = next((i for i in self.__items if item.can_stack(i)), None)
+		if isinstance(_item, Stackable):
+			stack = next((i for i in self.__items if isinstance(i, Stackable) and _item.can_stack(i)), None)
 			if stack is not None:
-				stack.stack(item)
+				stack.stack(_item)
 				stacked = True
 
 		if not stacked:
-			if item.id is None:
-				item.id = ObjectId()
-			self.__items.append(item)
+			if _item.id is None:
+				_item.id = ObjectId()
+			self.__items.append(_item)
 
-	def remove(self, item: Item, count: int = 1) -> None:
+	def remove(self, _item: Item, count: int = 1) -> None:
 		"""
 		Remove an item from the inventory.
 
-		:param item: The item to remove.
+		:param _item: The item to remove.
 		:param count: The number to remove, if stackable and more than 1 exists.
 		"""
 
-		if not item.stackable or item.count <= 1:
-			del self[item.id]
+		if isinstance(_item, Stackable):
+			_item.count -= max(count, 0)
+			if _item.count <= 0:
+				del self[_item.id]
 		else:
-			self[item.id].count -= max(count, 0)
-			if self[item.id].count <= 0:
-				del self[item.id]
+			del self[_item.id]
 
 	def get_weight(self) -> float:
 		"""Gets the total weight of the inventory."""
@@ -145,17 +147,21 @@ class Inventory:
 
 	@staticmethod
 	def load_plugin(data: Dict) -> Item:
-		item = None
+		_item = None
 		if 'plugin' in data.keys() and 'item_type' in data.keys():
-			if data['item_type'] == 'Armor':
-				item = Armor.from_plugin(data['plugin'], data)
-			elif data['item_type'] == 'Consumable':
-				item = Consumable.from_plugin(data['plugin'], data)
-			elif data['item_type'] == 'Item':
-				item = Item.from_plugin(data['plugin'], data)
-			elif data['item_type'] == 'Weapon':
-				item = Weapon.from_plugin(data['plugin'], data)
-		return item
+			t = data['item_type']
+			p = data['plugin']
+			if t == 'Armor':
+				_item = Armor.from_plugin(p, data)
+			elif t == 'Consumable':
+				_item = Consumable.from_plugin(p, data)
+			elif t == 'Stackable':
+				_item = Stackable.from_plugin(p, data)
+			elif t == 'Usable':
+				_item = Usable.from_plugin(p, data)
+			elif t == 'Weapon':
+				_item = Weapon.from_plugin(p, data)
+		return _item
 
 	@classmethod
 	def from_list(cls, data: List[Dict]):

@@ -1,7 +1,8 @@
 from bson import ObjectId
 
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.inventory.rarity import Rarity
-from Caldanai.lib.rpg.inventory.weapons import Weapon
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 class WeaponPlugin(Weapon):
@@ -14,12 +15,13 @@ class WeaponPlugin(Weapon):
 			unit_value=9,
 			image="mace128.png",
 			rarity=rarity,
+			article="a",
+			slots=EquipmentSlots.EITHER_HELD,
+			plugin="stick",
 			atk="2d6",
-			is_2handed=False,
 			is_magic=False,
 			is_ranged=False,
 			atk_msg="crushes",
 			bonus=bonus,
-			article="a",
 			dmg_type="bludgeoning"
 		)

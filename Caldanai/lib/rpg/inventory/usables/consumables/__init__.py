@@ -5,11 +5,12 @@ from bson import ObjectId
 from discord import Embed, File
 
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.inventory.items import Item
-from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
+from Caldanai.lib.rpg.inventory.usables import Usable
+from Caldanai.lib.rpg.inventory.rarity import Rarity
+from Caldanai.lib.rpg.helpers.enums import Rarities
 
 
-class Consumable(Item):
+class Consumable(Usable):
 	def __init__(
 			self,
 			iid: ObjectId = None,
@@ -20,12 +21,13 @@ class Consumable(Item):
 			image: str = None,
 			rarity: Rarity = None,
 			article: str = None,
+			plugin: str = None,
 			uses_max: int = 1,
-			uses_left: int = 1,
-			plugin: str = None
+			uses_left: int = 1
 	):
-		super().__init__(iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type="Consumable",
-						 plugin=plugin)
+		super().__init__(
+			iid, name, desc, unit_weight, unit_value, image, rarity, article, plugin, "Consumable"
+		)
 		self.uses_max = max(uses_max, 0)
 		self.uses_left = min(max(uses_left, 0), uses_max)
 
@@ -57,20 +59,13 @@ class Consumable(Item):
 		"""Creates a new consumable from a plugin with initial data."""
 
 		try:
-			if 'uses_left' in data.keys():
-				item = importlib.import_module(f'Caldanai.lib.rpg.inventory.consumables.{plugin_name}').ConsumablePlugin(
+			item = importlib.import_module(
+				f'Caldanai.lib.rpg.inventory.usables.consumables.{plugin_name}').ConsumablePlugin(
 					data['_id'] if '_id' in data.keys() else None,
 					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
 					data['uses_max'] if 'uses_max' in data.keys() else None,
 					data['uses_left'] if 'uses_left' in data.keys() else None
-				)
-
-			else:
-				item = importlib.import_module(
-					f'Caldanai.lib.rpg.inventory.consumables.{plugin_name}').ConsumablePlugin(
-					data['_id'] if '_id' in data.keys() else None,
-					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None
-				)
+			)
 
 			return item
 
