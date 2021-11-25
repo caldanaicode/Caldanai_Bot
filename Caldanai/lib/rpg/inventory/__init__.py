@@ -11,7 +11,6 @@ from math import fsum
 class Inventory:
 	def __init__(self, contents: list = ()):
 		self.__items: List[Item] = []
-		self.operations = []
 		for item in contents:
 			self.add(item)
 
@@ -88,13 +87,50 @@ class Inventory:
 
 	def get_weight(self) -> float:
 		"""Gets the total weight of the inventory."""
-
 		return fsum([i.get_weight() for i in self.__items])
 
 	def get_by_index(self, index: int) -> Item:
 		"""Returns an item by index, rather than by key."""
-
 		return self.__items[index]
+
+	def filter_by_name(self, f: str) -> Tuple[Item]:
+		"""Returns a tuple of Items with names containing the provided string."""
+		results = tuple(filter(lambda i: f.lower() in i.name, self.__items))
+		return results
+
+	def filter_by_rarity(self, f: str) -> Tuple[Item]:
+		"""Returns of tuple of Items with rarities matching the provided string."""
+		results = tuple(filter(lambda i: f.lower() == i.rarity.name.lower(), self.__items))
+		return results
+
+	def filter(self, f: str) -> Tuple[Item]:
+		"""
+		Returns a tuple of Items where name or rarity contain the provided string, or a tuple containing a single
+		item if the item.n notation is used.
+		"""
+		if not f:
+			inv = self.all()
+		else:
+			if '.' in f:
+				f, index, *_ = tuple(f.split('.'))
+				index = int(index) - 1
+				if 0 <= index < len(self):
+					inv = (self.get_by_indexed_name(f, index),)
+				else:
+					inv = ()
+			else:
+				by_name = set(self.filter_by_name(f))
+				by_rarity = set(self.filter_by_rarity(f))
+				inv = tuple(by_name | by_rarity)
+
+		return inv
+
+	def get_by_indexed_name(self, name: str, index: int = 0) -> Optional[Item]:
+		"""Returns an item by name and index of item in list of items with similar name."""
+		results = self.filter_by_name(name)
+		if 0 <= index < len(results):
+			return results[index]
+		return None
 
 	def all(self) -> Tuple[Item]:
 		"""Returns a tuple containing all inventory items."""

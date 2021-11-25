@@ -1,4 +1,5 @@
 import importlib
+from typing import Tuple
 
 from discord import Embed, File
 from random import randint
@@ -108,8 +109,8 @@ class Item:
 			embed.add_field(name=f, value=v, inline=i)
 		return embed, file
 
-	def use(self, user) -> str:
-		return "There doesn't seem to be a way to do that."
+	def use(self, user) -> Tuple[str, bool]:
+		return "There doesn't seem to be a way to do that.", True
 
 	def to_dict(self) -> dict:
 		"""Returns the database-friendly dictionary for this item."""

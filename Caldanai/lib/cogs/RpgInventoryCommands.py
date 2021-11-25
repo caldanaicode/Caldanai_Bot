@@ -8,7 +8,6 @@ from Caldanai.Logger import stdout
 from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.inventory import Consumable
 from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.lib.rpg.inventory.weapons import Weapon
 
@@ -108,12 +107,16 @@ class RpgInventoryCommands(Cog):
 		aliases=['inv', 'items', 'bag'],
 		brief='Sends a DM to the player with information about the items they carry.'
 	)
-	@cooldown(1, 10, BucketType.member)
-	async def inventory(self, ctx, game_idx: int = None):
+	@cooldown(1, 5, BucketType.member)
+	async def inventory(self, ctx, filtr: str = None, game_idx: int = None):
 		"""
 		Sends a DM to the player with information about the items they carry.
 
-		(10-second cool-down)
+		(5-second cool-down)
+
+		:param filtr: If provided, filter the items by name or rarity containing the given string. If playing on more than one server and you wish to use this in DM to display all items, specify _ as the filter before specifying the game index.
+
+		:param game_idx: If calling from a DM and playing on more than one server, provide the game's index for which you wish to view inventory. Use the 'games' command to determine the game index.
 		"""
 
 		game: Game = await self.utils().get_game(ctx, game_idx)
@@ -127,19 +130,34 @@ class RpgInventoryCommands(Cog):
 		if ctx.guild is not None:
 			await ctx.message.delete()
 
+		if filtr == '_':
+			filtr = None
+
 		Dispatcher.add(player.member, f'Inventory for {player.name} on {game.guild.name}')
-		inv = Dispatcher.split_message(player.get_inventory(), keep_sep=True)
+		inv = Dispatcher.split_message(player.get_inventory(filtr), keep_sep=True)
 		for msg in inv:
 			Dispatcher.add(player.member, f'```js\n{msg.strip()}```')
 
 	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
-	async def item(self, ctx, index: int, game_idx: int = None):
-		"""
+	async def item(self, ctx, name: str = "", game_idx: int = None):
+		f"""
 		Displays details about an item.
-
+		
 		(2-second cool-down)
+		
+		:param name: The name of the item to display. If you have more than one of that type, the first will be 
+			shown. If you wish to specify another, use .n after the name where n is the number to use. For example, 
+			to display the third stick in your inventory, enter '{self.bot.command_prefix}item stick.3' without the 
+			quotation marks.  
+		:param game_idx: If you are playing on multiple servers and wish to use this from DM, specify the game index to 
+			which you wish to refer. Use '{self.bot.command_prefix}games' to determine the game index for the server you 
+			desire.
 		"""
+
+		if not name:
+			Dispatcher.add(ctx, "Please specify an item.")
+			return
 
 		game: Game = await self.utils().get_game(ctx, game_idx)
 		if game is None:
@@ -151,11 +169,13 @@ class RpgInventoryCommands(Cog):
 
 		channel = game.channel if ctx.guild is not None else ctx
 
-		if 0 <= index < len(player.inventory):
-			embed, file = player.inventory.get_by_index(index).get_embed()
+		item = player.inventory.filter(name)
+		if len(item):
+			embed, file = item[0].get_embed()
 			Dispatcher.add(channel, embed=embed, file=file)
-		else:
-			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+			return
+
+		Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
 
 	@item.error
 	async def item_err(self, ctx, error):
@@ -209,8 +229,10 @@ class RpgInventoryCommands(Cog):
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
 			item = player.inventory.get_by_index(flag)
 			if count and item.stackable and (count < 0 or count > item.count):
-				Dispatcher.add(channel, f'The number of items to sell must be greater than 0 and less than '
-									f'{item.count + 1}')
+				Dispatcher.add(
+					channel,
+					f'The number of items to sell must be greater than 0 and less than {item.count + 1}'
+				)
 				return
 
 			if item.id not in equipped:
@@ -224,7 +246,7 @@ class RpgInventoryCommands(Cog):
 		elif isinstance(flag, str):
 			sell_all = True
 			if flag.lower() == 'all':
-				sell = [i for i in list(player.inventory.all()) if i is not None and i.id not in equipped]
+				sell = [i for i in list(player.inventory.all()) if i.id not in equipped]
 			elif '-' in flag:
 				try:
 					low, high = map(int, flag.split('-'))
@@ -249,8 +271,7 @@ class RpgInventoryCommands(Cog):
 					Dispatcher.add(channel, f"Unable to determine lower and upper indices from {flag}.")
 					return
 			else:
-				sell = [i for i in list(player.inventory.all()) if i is not None and i.rarity.name.lower() ==
-						flag.lower() and i.id not in equipped]
+				sell = [i for i in player.inventory.filter_by_rarity(flag) if i.id not in equipped]
 
 		else:
 			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
@@ -277,7 +298,7 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='use', brief='Attempts to use an item.')
 	@cooldown(1, 5, BucketType.member)
-	async def use(self, ctx, index: int, game_idx: int = None):
+	async def use(self, ctx, item: Union[int, str], game_idx: int = None):
 		"""
 		Attempts to use an item.
 
@@ -298,25 +319,21 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if 0 <= index < len(player.inventory):
-			item = player.inventory.get_by_index(index)
-			if isinstance(item, (Consumable, Item)) and item.use:
-				msg, any_left = item.use(player)
-				if not any_left:
-					player.inventory.remove(item)
-
-				Dispatcher.add(channel, msg)
+		if item.isnumeric():
+			item = int(item)
+			if 0 <= item < len(player.inventory):
+				Dispatcher.add(channel, player.use_item(item))
 			else:
-				Dispatcher.add(channel, f"I'm afraid you can't do that, {player.name}")
+				Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
 		else:
-			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(channel, player.use_item(item))
 
 	@use.error
 	async def use_err(self, ctx, error):
 		if isinstance(error, MissingRequiredArgument):
 			embed = Embed(
 				title=f'Item help',
-				description=f"The item's index is required. To find the index, check `{ctx.prefix}inventory`",
+				description=f"The item's name or index is required. To find the index, check `{ctx.prefix}inventory`",
 				color=0xff0000
 			)
 			Dispatcher.add(ctx, embed=embed)
