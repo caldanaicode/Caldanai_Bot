@@ -1,5 +1,7 @@
 from enum import Enum, IntFlag
 
+from Caldanai.lib.rpg.inventory.rarity import Rarity
+
 
 class AggressionLevels(Enum):
 	PASSIVE = 0			# Never attacks
@@ -63,6 +65,37 @@ class Pronouns(Enum):
 	REFLEXIVE = 'reflexive'
 
 
+class Rarities(Enum):
+	Junk = Rarity.junk()
+	Common = Rarity.common()
+	Uncommon = Rarity.uncommon()
+	Rare = Rarity.rare()
+	Legendary = Rarity.legendary()
+	Unique = Rarity.unique()
+
+	@classmethod
+	def from_scale(cls, value: int, minimum: int = 1, maximum: int = 100) -> Rarity:
+		lb = min(minimum, maximum)
+		ub = max(minimum, maximum)
+		v = lb if value < lb else ub if value > ub else value
+		v_normalized = (v - lb)/(ub - lb)
+		if v_normalized < 0 or v_normalized > 1:
+			raise Exception("The value does not fall within the provided range.")
+
+		rarity = Rarities.Junk.value
+		for x in list(Rarities):
+			if v_normalized <= x.value.frequency:
+				rarity = x.value
+		return rarity
+
+	@classmethod
+	def from_name(cls, name: str):
+		for x in list(Rarities):
+			if x.value.name.lower() == name.lower():
+				return x.value
+		return None
+
+
 class Seasons(Enum):
 	BRIGHTBLOOM = 0
 	SOLSTIME = 1
@@ -86,3 +119,4 @@ class TimePartitions(IntFlag):
 	CREPUSCULAR = TimesOfDay.EVENING | TimesOfDay.DUSK
 	NOCTURNAL = TimesOfDay.DUSK | TimesOfDay.NIGHT
 	CATHEMERAL = AURORAL | DIURNAL | CREPUSCULAR | NOCTURNAL
+
