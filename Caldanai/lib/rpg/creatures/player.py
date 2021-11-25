@@ -1,5 +1,5 @@
 from math import floor
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 from io import BytesIO
 
 import pandas
@@ -11,7 +11,7 @@ from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
-from Caldanai.lib.rpg.inventory import Inventory
+from Caldanai.lib.rpg.inventory import Inventory, Consumable
 from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.lib.rpg.inventory.weapons import Weapon
 from datetime import datetime
@@ -370,17 +370,20 @@ class Player(Creature):
 			return item
 		return None
 
-	def get_inventory(self) -> str:
+	def get_inventory(self, filtr: str = None) -> str:
 		"""Returns a string containing a formatted display of the player's inventory."""
 
 		msg = ''
-		inv = self.inventory.all()
+		inv = self.inventory.filter(filtr)
+
 		for idx, item in enumerate(inv):
 			msg += f"\n{idx}: {item.get_full_name()}" \
 				f"{' [left hand]' if item == self.left_hand else ''}{' [right hand]' if item == self.right_hand else ''}"
 
-		if len(msg) == 0:
+		if len(msg) == 0 and not filtr:
 			msg = '\nYou have no items.'
+		elif len(msg) == 0 and filtr:
+			msg = '\nNo items matched the provided filter.'
 
 		return msg
 
@@ -418,6 +421,19 @@ class Player(Creature):
 			return parse(f"{self.member.mention} suddenly gasps raggedly as life returns to @1o!", self)
 
 		return ""
+
+	def use_item(self, item: Union[int, str]) -> str:
+		if isinstance(item, int):
+			_item = self.inventory.get_by_index(item)
+		else:
+			_item = self.inventory.filter(item)[0]
+
+		if _item and isinstance(_item, (Consumable, Item)) and _item.use:
+			msg, any_left = _item.use(self)
+			if not any_left:
+				self.inventory.remove(_item)
+				self.is_dirty = True
+			return msg
 
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""
