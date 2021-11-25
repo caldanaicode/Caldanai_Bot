@@ -133,25 +133,26 @@ class Game:
 			self.game_clock.remove_routine(self.check_time)
 			return
 
+		monster = self.monster
 		tod = self.game_clock.get_time_of_day()
 		h, m, _ = self.game_clock.get_time_components()
 		next_tod, next_h, next_m = self.game_clock.get_next_time()
-		flee = not bool(self.monster.time_partition & TimesOfDay[tod.upper()].value)
-		next_flee = not bool(self.monster.time_partition & TimesOfDay[next_tod.upper()].value)
+		flee = not bool(monster.time_partition & TimesOfDay[tod.upper()].value)
+		next_flee = not bool(monster.time_partition & TimesOfDay[next_tod.upper()].value)
 		msg = ""
 
-		if flee and self.monster.dies_from_time:
-			msg = self.monster.time_death
+		if flee and monster.dies_from_time:
+			msg = monster.time_death
 			msg += self.on_monster_death()
 
-		elif self.monster.flees_from_time:
+		elif monster.flees_from_time:
 			remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
 			if flee or (next_flee and remaining < 1 / 6):
-				msg = self.monster.time_flee
+				msg = monster.time_flee
 				self.cancel_combat()
 
 		if msg:
-			Dispatcher.add(self.channel, parse(msg, self.monster))
+			Dispatcher.add(self.channel, parse(msg, monster))
 
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
