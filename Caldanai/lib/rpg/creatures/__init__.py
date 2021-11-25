@@ -124,7 +124,7 @@ class Creature:
 		"""
 		if self.is_dead():
 			return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
-		return parse("The @1 glances at @2 and sidesteps @2p hug.", self, actor)
+		return parse("The @1 glances at @2 and sidesteps @2a hug.", self, actor)
 
 	# Applies damage (or healing if amount is negative) to the creature's health.
 	def apply_damage(self, amount: int) -> None:
