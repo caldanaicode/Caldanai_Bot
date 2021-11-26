@@ -35,8 +35,10 @@ class Creature:
 		:param dodge: The creature's dodge ability as an integer or ndn string. Defaults to 1.
 		:param health_max: The creature's max health as an integer or ndn string. Defaults to 1.
 		:param health: The creature's current health as an integer. Defaults to health_max.
-		:param gender: The creature's gender as a string. Will randomly choose between 'male' and 'female' for NPCs	if not provided. For players, the gender can be defined by the player.
-		:param pronouns: The creature's pronouns as a comma-separated string in the format of 'subject, object,	possessive'. For example, a female's pronouns will default to 'she, her, hers' if no pronouns are provided.
+		:param gender: The creature's gender as a string. Will randomly choose between 'male' and 'female' for NPCs	if
+			not provided. For players, the gender can be defined by the player.
+		:param pronouns: The creature's pronouns as a comma-separated string in the format of 'subject, object,
+			possessive'. For example, a female's pronouns will default to 'she, her, hers' if no pronouns are provided.
 		"""
 
 		self.name = name or ''
@@ -169,17 +171,19 @@ class Creature:
 
 		attack = AttackRoll(skill_bonus=0)
 		damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
-		combined = CombinedRoll(attack, damage, creature.dodge)
-		t_dmg = 0 if combined.isMiss else max(1, combined.result - creature.defense)
+		defense = creature.get_defense() if creature.get_defense else creature.defense
+		dodge = creature.get_dodge() if creature.get_dodge else creature.dodge
+		combined = CombinedRoll(attack, damage, dodge)
+		t_dmg = 0 if combined.isMiss else max(1, combined.result - defense)
 
-		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({creature.dodge}): " \
+		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({dodge}): " \
 			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
 
 		if not combined.isMiss:
 			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
 				   f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
 
-			msg += f"\n\nTotal ({combined.result}) vs Defense ({creature.defense}) = {t_dmg}"
+			msg += f"\n\nTotal ({combined.result}) vs Defense ({defense}) = {t_dmg}"
 
 		msg += "```\n"
 		return msg, t_dmg
