@@ -1,3 +1,5 @@
+from glob import glob
+from os import path
 from typing import Tuple, Dict, Optional, List, Union
 
 from Caldanai.lib.rpg.inventory.item import Item
@@ -12,6 +14,36 @@ from math import fsum
 
 
 class Inventory:
+	ITEM_TYPES = {
+		"armor": Armor,
+		"consumable": Consumable,
+		"consumables": Consumable,
+		"stackable": Stackable,
+		"stackables": Stackable,
+		"usable": Usable,
+		"usables": Usable,
+		"weapon": Weapon,
+		"weapons": Weapon
+	}
+
+	ITEMS = {}
+
+	@staticmethod
+	def discover_items():
+		items = [
+			filepath
+			for filepath in glob("./Caldanai/lib/rpg/inventory/*/**/*.py", recursive=True)
+			if not filepath.endswith("__init__.py")
+		]
+
+		for filepath in items:
+			parts = filepath.split(path.sep)[1:]
+			_name = parts[-1][:-3]
+			_type = parts[-2].lower()
+
+			if _name not in Inventory.ITEMS.keys() and _type in Inventory.ITEM_TYPES.keys():
+				Inventory.ITEMS[_name] = Inventory.ITEM_TYPES[_type]
+
 	def __init__(self, contents: list = ()):
 		self.__items: List[Item] = []
 		for _item in contents:
@@ -154,18 +186,12 @@ class Inventory:
 	def load_plugin(data: Dict) -> Item:
 		_item = None
 		if 'plugin' in data.keys() and 'item_type' in data.keys():
-			t = data['item_type']
+			t = data['item_type'].lower()
 			p = data['plugin']
-			if t == 'Armor':
-				_item = Armor.from_plugin(p, data)
-			elif t == 'Consumable':
-				_item = Consumable.from_plugin(p, data)
-			elif t == 'Stackable':
-				_item = Stackable.from_plugin(p, data)
-			elif t == 'Usable':
-				_item = Usable.from_plugin(p, data)
-			elif t == 'Weapon':
-				_item = Weapon.from_plugin(p, data)
+
+			if t in Inventory.ITEM_TYPES.keys():
+				_item = Inventory.ITEM_TYPES[t].from_plugin(p, data)
+
 		return _item
 
 	@classmethod
@@ -179,3 +205,7 @@ class Inventory:
 				items.append(_item)
 
 		return cls(items)
+
+
+if not Inventory.ITEMS:
+	Inventory.discover_items()
