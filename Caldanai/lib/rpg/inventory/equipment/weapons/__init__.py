@@ -1,9 +1,9 @@
 import importlib
 
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Rarities
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.inventory.equipment import Equipment
-from Caldanai.lib.rpg.inventory.rarity import Rarity
+from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
 
 
@@ -18,7 +18,7 @@ class Weapon(Equipment):
 			image: str = None,
 			rarity: Rarity = None,
 			article: str = None,
-			slots: EquipmentSlots = 0,
+			slots: EquipmentSlots = EquipmentSlots.EITHER_HELD,
 			plugin: str = None,
 			atk: str = "1d4",
 			is_magic: bool = False,
@@ -48,7 +48,7 @@ class Weapon(Equipment):
 			("Skill", self.skill.title(), False),
 			("Is Ranged", self.is_ranged, True),
 			("Is Magic", self.is_magic, True),
-			("Is Two-Handed", self.slots & EquipmentSlots.MULTI_SLOT, True),
+			("Is Two-Handed", bool(self.slots & EquipmentSlots.MULTI_SLOT), True),
 			("\u200b", "\u200b", True),
 			("Damage Type", self.damage_type, True),
 			("Attack", f"{self.attack} + {self.bonus}", True)

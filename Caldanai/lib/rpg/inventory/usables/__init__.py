@@ -2,8 +2,7 @@ import importlib
 
 from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.inventory import Item
-from Caldanai.lib.rpg.inventory.rarity import Rarity
-from Caldanai.lib.rpg.helpers.enums import Rarities
+from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
 
 

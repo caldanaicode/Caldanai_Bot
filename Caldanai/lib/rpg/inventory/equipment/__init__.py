@@ -1,9 +1,9 @@
 from bson import ObjectId
 from discord import Embed, File
 
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
-from Caldanai.lib.rpg.inventory.stackables import Item
+from Caldanai.lib.rpg.inventory import Item
 from Caldanai.lib.rpg.inventory.rarity import Rarity
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 
 
 class Equipment(Item):
@@ -18,7 +18,7 @@ class Equipment(Item):
 			rarity: Rarity = None,
 			article: str = None,
 			item_type: str = 'Equipment',
-			slots: EquipmentSlots = 0,
+			slots: EquipmentSlots = EquipmentSlots.NONE,
 			plugin: str = None
 	):
 		super().__init__(
@@ -30,8 +30,8 @@ class Equipment(Item):
 		embed, file = super().get_embed()
 		slots = []
 		for slot in EquipmentSlots:
-			if slot & self.slots:
-				slots.append(slot.name.replace('_', ' ').title())
+			if slot and slot in self.slots and not EquipmentSlots.exclude_from_output(slot.name):
+				slots.append(slot.name)
 
 		embed.insert_field_at(0, name="Slots", value=' | '.join(slots), inline=True)
 		return embed, file

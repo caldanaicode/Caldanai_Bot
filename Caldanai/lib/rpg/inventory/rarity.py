@@ -1,3 +1,6 @@
+from enum import Enum
+
+
 class Rarity:
 	def __init__(self, name: str, color: int, frequency: float, multiplier: float):
 		self.name = name
@@ -48,3 +51,34 @@ class Rarity:
 	@classmethod
 	def unique(cls):
 		return cls('unique', 0xffd700, 0.01, 2.00)  # Gold
+
+
+class Rarities(Enum):
+	Junk = Rarity.junk()
+	Common = Rarity.common()
+	Uncommon = Rarity.uncommon()
+	Rare = Rarity.rare()
+	Legendary = Rarity.legendary()
+	Unique = Rarity.unique()
+
+	@classmethod
+	def from_scale(cls, value: int, minimum: int = 1, maximum: int = 100) -> Rarity:
+		lb = min(minimum, maximum)
+		ub = max(minimum, maximum)
+		v = lb if value < lb else ub if value > ub else value
+		v_normalized = (v - lb)/(ub - lb)
+		if v_normalized < 0 or v_normalized > 1:
+			raise Exception("The value does not fall within the provided range.")
+
+		rarity = Rarities.Junk.value
+		for x in Rarities:
+			if v_normalized <= x.value.frequency:
+				rarity = x.value
+		return rarity
+
+	@classmethod
+	def from_name(cls, name: str):
+		for x in Rarities:
+			if x.name.lower() == name.lower():
+				return x.value
+		return None

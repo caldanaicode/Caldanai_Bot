@@ -1,7 +1,5 @@
 from enum import Enum, IntFlag
 
-from Caldanai.lib.rpg.inventory.rarity import Rarity
-
 
 class AggressionLevels(Enum):
 	PASSIVE = 0			# Never attacks
@@ -21,6 +19,7 @@ class Directions(IntFlag):
 
 
 class EquipmentSlots(IntFlag):
+	NONE = 0x0
 	MULTI_SLOT = 0x1
 	FEET = 0x2
 	SHINS = 0x4
@@ -49,6 +48,14 @@ class EquipmentSlots(IntFlag):
 	RIGHT_SIDE = RIGHT_EAR | RIGHT_RING | RIGHT_HELD
 	EITHER_SIDE = LEFT_SIDE | RIGHT_SIDE
 
+	@classmethod
+	def exclude_from_output(cls, name: str):
+		return name in (
+			EquipmentSlots.MULTI_SLOT.name, EquipmentSlots.NONE.name, EquipmentSlots.RIGHT_SIDE.name,
+			EquipmentSlots.TWO_HANDED.name, EquipmentSlots.LEFT_SIDE.name, EquipmentSlots.EITHER_SIDE.name,
+			EquipmentSlots.EITHER_HELD.name
+		)
+
 
 class InjuryLevels(IntFlag):
 	NONE = 0x0
@@ -63,37 +70,6 @@ class Pronouns(Enum):
 	POSSESSIVE = 'possessive'
 	ADJECTIVE = 'adjective'
 	REFLEXIVE = 'reflexive'
-
-
-class Rarities(Enum):
-	Junk = Rarity.junk()
-	Common = Rarity.common()
-	Uncommon = Rarity.uncommon()
-	Rare = Rarity.rare()
-	Legendary = Rarity.legendary()
-	Unique = Rarity.unique()
-
-	@classmethod
-	def from_scale(cls, value: int, minimum: int = 1, maximum: int = 100) -> Rarity:
-		lb = min(minimum, maximum)
-		ub = max(minimum, maximum)
-		v = lb if value < lb else ub if value > ub else value
-		v_normalized = (v - lb)/(ub - lb)
-		if v_normalized < 0 or v_normalized > 1:
-			raise Exception("The value does not fall within the provided range.")
-
-		rarity = Rarities.Junk.value
-		for x in list(Rarities):
-			if v_normalized <= x.value.frequency:
-				rarity = x.value
-		return rarity
-
-	@classmethod
-	def from_name(cls, name: str):
-		for x in list(Rarities):
-			if x.value.name.lower() == name.lower():
-				return x.value
-		return None
 
 
 class Seasons(Enum):

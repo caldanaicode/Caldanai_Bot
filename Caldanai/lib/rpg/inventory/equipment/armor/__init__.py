@@ -5,9 +5,9 @@ from bson import ObjectId
 from discord import Embed, File
 
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Rarities
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.inventory.equipment import Equipment
-from Caldanai.lib.rpg.inventory.rarity import Rarity
+from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 
 
 class Armor(Equipment):
@@ -21,7 +21,7 @@ class Armor(Equipment):
 			image: str = None,
 			rarity: Rarity = None,
 			article: str = None,
-			slots: EquipmentSlots = 0,
+			slots: EquipmentSlots = EquipmentSlots.NONE,
 			plugin: str = None,
 			bonuses: Dict[str, int] = None
 	):
