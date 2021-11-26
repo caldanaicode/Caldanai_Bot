@@ -27,7 +27,7 @@ class RpgAdminCommands(Cog):
 	@has_permissions(manage_guild=True)
 	async def game_cmd(self, ctx):
 		"""
-		Groups the various game commands for administrators.
+		Groups the various game commands for administrators. This command cannot be used on its own.
 		"""
 
 		if ctx.invoked_subcommand is None:
@@ -38,7 +38,6 @@ class RpgAdminCommands(Cog):
 			Dispatcher.add(ctx, "A game cannot be started or ended from a direct message or a group message.")
 			return
 
-	# Adds a game to the bot
 	@game_cmd.command(brief="Begins an RPG game on the server in the current channel.")
 	async def create(self, ctx) -> bool:
 		"""
@@ -56,7 +55,6 @@ class RpgAdminCommands(Cog):
 
 		return False
 
-	# Removes a game from the bot and the database
 	@game_cmd.command(brief="Removes the RPG game for this server. WARNING: Cannot be undone.")
 	async def remove(self, ctx) -> None:
 		"""
@@ -76,7 +74,8 @@ class RpgAdminCommands(Cog):
 	@cooldown(1, 5, BucketType.guild)
 	async def spawn(self, ctx):
 		"""
-		Displays or sets various spawning options.
+		Used alone, displays the various spawning options. See the subcommands for settings those options.
+
 		(5-second cool-down server-wide)
 		"""
 
@@ -99,7 +98,11 @@ class RpgAdminCommands(Cog):
 		brief="Sets or displays the minimum time between monster spawns for a game, in minutes"
 	)
 	async def minimum(self, ctx, minutes: int = None):
-		"""Sets or displays the minimum time between monster spawns for a game, in minutes"""
+		"""
+		Sets or displays the minimum time between monster spawns for a game, in minutes
+
+		:param minutes: The minimum number of minutes before another monster can spawn after the previous monster is removed.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
@@ -119,7 +122,11 @@ class RpgAdminCommands(Cog):
 		brief="Sets or displays the maximum time between monster spawns for a game, in minutes."
 	)
 	async def maximum(self, ctx, minutes: int = None):
-		"""Sets or displays the maximum time between monster spawns for a game, in minutes."""
+		"""
+		Sets or displays the maximum time between monster spawns for a game, in minutes.
+
+		:param minutes: The maximum number of minutes before another monster can be spawned after the previous is removed.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
@@ -136,7 +143,11 @@ class RpgAdminCommands(Cog):
 
 	@spawn.command(aliases=["dur", "d"], brief="Sets or displays the spawn duration for a game, in minutes.")
 	async def duration(self, ctx, minutes: int = None):
-		"""Sets or displays the spawn duration for a game, in minutes."""
+		"""
+		Sets or displays the spawn duration for a game, in minutes.
+
+		:param minutes: The number of minutes that a monster will wait for combat on the first round. This time is halved for additional rounds of combat.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
@@ -153,7 +164,11 @@ class RpgAdminCommands(Cog):
 
 	@spawn.command(brief="Sets or displays the loot duration for a game, in minutes.")
 	async def loot(self, ctx, minutes: int = None):
-		"""Sets or displays the loot duration, in minutes."""
+		"""
+		Sets or displays the loot duration, in minutes. If a monster has loot after death, the spawn timer does not begin until after the loot timer expires.
+
+		:param minutes: The number of minutes that loot will be available before removal.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
@@ -170,7 +185,11 @@ class RpgAdminCommands(Cog):
 
 	@spawn.command(aliases=['set'], brief="Sets or displays the spawning for a game on or off.")
 	async def spawn_set(self, ctx, msg: str = None):
-		"""Sets or displays the spawning for a game on or off."""
+		"""
+		Sets or displays the spawning for a game on or off.
+
+		:param msg: To enable spawning use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if msg is None:
@@ -200,7 +219,11 @@ class RpgAdminCommands(Cog):
 
 	@spawn.command(brief="Forces a monster to spawn.")
 	async def monster(self, ctx, monster: Optional[str] = None):
-		"""Forces a monster to spawn."""
+		"""
+		Forces a monster to spawn.
+
+		:param monster: the filename of the monster to spawn. If not provided, randomly chooses an available monster.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
@@ -211,9 +234,11 @@ class RpgAdminCommands(Cog):
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
 
 	# Forces a monster to die.
-	@spawn.command(brief="Forces a monster to die.")
+	@spawn.command(brief="Forces the current monster to die.")
 	async def kill(self, ctx):
-		"""Forces a monster to die."""
+		"""
+		Forces the current monster to die.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
@@ -224,7 +249,15 @@ class RpgAdminCommands(Cog):
 
 	@spawn.command(brief="Spawns the requested item to the given player's inventory.")
 	async def item(self, ctx, item_type: str, plugin: str, msg: str = None):
-		"""Spawns the requested item to the given player's inventory."""
+		"""
+		Spawns the requested item to the given player's inventory.
+
+		:param item_type: The item type, such as Item, Consumable, or Weapon.
+
+		:param plugin: The name of the plugin file.
+
+		:param msg: An optional target player, using discord's @ messaging.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		target: Player = None
@@ -272,7 +305,11 @@ class RpgAdminCommands(Cog):
 
 	@ambience.command(aliases=['set'], brief="Sets ambience for a game on or off.")
 	async def ambience_set(self, ctx, value: str = None):
-		"""Sets ambience for a game on or off."""
+		"""
+		Sets ambience for a game on or off. If no setting is supplied, displays the current setting.
+
+		:param value: To enable ambience use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
+		"""
 
 		game = self.bot.games[ctx.guild.id]
 		if value is None:

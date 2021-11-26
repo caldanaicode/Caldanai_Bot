@@ -1,4 +1,4 @@
-from discord.ext.commands import Cog, command, cooldown, BucketType
+from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed
 from typing import Union, List, Optional
@@ -8,8 +8,11 @@ from Caldanai.Logger import stdout
 from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.inventory.items import Item
-from Caldanai.lib.rpg.inventory.weapons import Weapon
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.inventory import Armor, Item
+from Caldanai.lib.rpg.inventory.equipment import Equipment
+from Caldanai.lib.rpg.inventory.stackables import Stackable
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 class RpgInventoryCommands(Cog):
@@ -24,12 +27,19 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
 	@cooldown(1, 5, BucketType.member)
-	async def equip(self, ctx, hand: str, index: int, game_idx: int = None):
+	async def equip(self, ctx, item: Union[str, int], slot: str = None, gid: int = None):
 		"""
-		Equips a weapon to the given hand.
+		Equips an item.
+
 		(5-second cool-down)
+
+		:param item: An item name, item.n, or index to equip. item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory.
+
+		:param slot: If not provided, the item will be auto-equipped to the best slot, if possible. For weapons or other one-hand-equipped items like rings, the slot will be 'left' or 'right'. Most armor can auto-equip, but you may specify the slot such as 'head', 'torso', or 'waist'. For a full list of slots, see your `profile`.
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
-		game: Game = await self.utils().get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -38,41 +48,81 @@ class RpgInventoryCommands(Cog):
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
+		_item: Union[Weapon, Armor, None] = None
 
 		if player.is_dead():
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if hand.lower() not in ('left', 'l', 'right', 'r'):
-			Dispatcher.add(channel, "You must specify to which hand the item will be equipped, left (or l) or "
-										 "right (or r)")
+		if isinstance(item, int):
+			_item = player.inventory.get_by_index(item)
+		elif isinstance(item, str):
+			_item, *_ = player.inventory.filter(item) or (None,)
+		else:
+			_item = None
+
+		if not _item:
+			Dispatcher.add(channel, "You don't seem to have such an item.")
 			return
 
-		if index is None or index < 0 or index >= len(player.inventory):
-			Dispatcher.add(channel, f"Invalid item index. See `{game.prefix}inventory` for a list of your items.")
-			return
-
-		item = player.inventory.get_by_index(index)
-		if not isinstance(item, Weapon):
+		if not isinstance(_item, Equipment):
 			Dispatcher.add(channel, f"That item cannot be equipped.")
 			return
 
-		if hand.lower()[0] == 'l':
-			player.equip_left(item)
-		else:
-			player.equip_right(item)
-		Dispatcher.add(channel, f"{player.name} has equipped {item.get_full_name()}.")
+		if slot:
+			if slot.lower() in ('l', 'left'):
+				_slot = EquipmentSlots.LEFT_SIDE & _item.slots
 
-	@command(name='stow', aliases=['disarm', 'unequip'], brief='Unequips the item in the given hand.')
-	@cooldown(1, 5, BucketType.member)
-	async def stow(self, ctx, hand: str, game_idx: int = None):
+			elif slot.lower() in ('r', 'right'):
+				_slot = EquipmentSlots.RIGHT_SIDE & _item.slots
+
+			else:
+				return Dispatcher.add(channel, f"I don't know how to turn {slot} into a 'left' or 'right'...")
+
+			return Dispatcher.add(channel, player.equip(_item, EquipmentSlots(_slot)))
+
+		return Dispatcher.add(channel, player.equip(_item))
+
+	@command(aliases=['slots'], brief="Shows a player's equipment.")
+	@cooldown(1, 10, BucketType.member)
+	async def equipment(self, ctx, gid: int = None):
 		"""
-		Unequips a weapon from the given hand, or all equipped items.
+		Shows a player's equipment.
+
+		(10-second cool-down)
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
+		"""
+
+		game: Game = await self.utils().get_game(ctx, gid)
+		if game is None:
+			return
+
+		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
+
+		if player is None:
+			return
+
+		channel = game.channel if ctx.guild is not None else ctx
+
+		embed = player.get_equipment(game.guild.name)
+		embed.set_thumbnail(url=game.guild.icon_url)
+		Dispatcher.add(channel, embed=embed)
+
+	@command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
+	@cooldown(1, 5, BucketType.member)
+	async def stow(self, ctx, item_or_slot: Union[str, int], gid: int = None):
+		"""
+		Un-equip an item by name, name.n, index, or slot.
 
 		(5-second cool-down)
+
+		:param item_or_slot: An item name, item.n, index, or slot to un-equip. Item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. Slot indicates the body part on which the item is equipped, such as 'left_hand', 'head', or 'feet'. To see a full list of the slots you are currently using, see the `profile` command.
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -86,19 +136,26 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if hand.lower() not in ('left', 'l', 'right', 'r', 'all'):
-			Dispatcher.add(channel, "You must specify which hand to stow, left (or l) or right (or r) or all.")
+		if not item_or_slot:
+			Dispatcher.add(channel, "You must specify the item or slot which you would like to un-equip.")
 			return
 
-		msg = ''
+		msg = "I'm unable to determine which item you meant."
+		_item: Equipment = None
+		if isinstance(item_or_slot, int):
+			_item = player.inventory.get_by_index(item_or_slot)
 
-		if (hand.lower()[0] == 'l' or hand.lower() == 'all') and player.left_hand is not None:
-			msg += f'\n{player.name} stowed {player.left_hand.get_full_name()}.'
-			player.disarm_left()
+		elif isinstance(item_or_slot, str):
+			for s in EquipmentSlots:
+				if s.name == item_or_slot.replace(' ', '_').upper():
+					_item = player.equip_slots[s.name]
+					break
 
-		if (hand.lower()[0] == 'r' or hand.lower() == 'all') and player.right_hand is not None:
-			msg += f'\n{player.name} stowed {player.right_hand.get_full_name()}.'
-			player.disarm_right()
+			if not _item:
+				_item, *_ = player.inventory.filter(item_or_slot) or (None,)
+
+		if _item:
+			msg = player.remove(_item.slots)
 
 		Dispatcher.add(channel, msg or f'You had nothing equipped, {player.name}!')
 
@@ -108,7 +165,7 @@ class RpgInventoryCommands(Cog):
 		brief='Sends a DM to the player with information about the items they carry.'
 	)
 	@cooldown(1, 5, BucketType.member)
-	async def inventory(self, ctx, filtr: str = None, game_idx: int = None):
+	async def inventory(self, ctx, filtr: str = None, gid: int = None):
 		"""
 		Sends a DM to the player with information about the items they carry.
 
@@ -116,10 +173,10 @@ class RpgInventoryCommands(Cog):
 
 		:param filtr: If provided, filter the items by name or rarity containing the given string. If playing on more than one server and you wish to use this in DM to display all items, specify _ as the filter before specifying the game index.
 
-		:param game_idx: If calling from a DM and playing on more than one server, provide the game's index for which you wish to view inventory. Use the 'games' command to determine the game index.
+		:param gid: If calling from a DM and playing on more than one server, provide the game's index for which you wish to view inventory. Use the 'games' command to determine the game index.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -140,26 +197,22 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
-	async def item(self, ctx, name: str = "", game_idx: int = None):
-		f"""
+	async def item(self, ctx, name: Union[str, int], gid: int = None):
+		"""
 		Displays details about an item.
 		
 		(2-second cool-down)
 		
-		:param name: The name of the item to display. If you have more than one of that type, the first will be 
-			shown. If you wish to specify another, use .n after the name where n is the number to use. For example, 
-			to display the third stick in your inventory, enter '{self.bot.command_prefix}item stick.3' without the 
-			quotation marks.  
-		:param game_idx: If you are playing on multiple servers and wish to use this from DM, specify the game index to 
-			which you wish to refer. Use '{self.bot.command_prefix}games' to determine the game index for the server you 
-			desire.
+		:param name: An item name, item.n, or index to display. Item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory.
+			
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
 		if not name:
 			Dispatcher.add(ctx, "Please specify an item.")
 			return
 
-		game: Game = await self.utils().get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -169,9 +222,13 @@ class RpgInventoryCommands(Cog):
 
 		channel = game.channel if ctx.guild is not None else ctx
 
-		item = player.inventory.filter(name)
-		if len(item):
-			embed, file = item[0].get_embed()
+		if name.isnumeric():
+			item = player.inventory.get_by_index(int(name))
+		else:
+			item, *_ = player.inventory.filter(name) or (None,)
+
+		if item:
+			embed, file = item.get_embed()
 			Dispatcher.add(channel, embed=embed, file=file)
 			return
 
@@ -187,14 +244,69 @@ class RpgInventoryCommands(Cog):
 			)
 			Dispatcher.add(ctx, embed=embed)
 
+	@command(aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
+	@guild_only()
+	@cooldown(1, 10, BucketType.member)
+	async def loot(self, ctx):
+		"""
+		Loots the remains of a recently-felled foe.
+
+		(10-second cool-down)
+		"""
+
+		game, player = await self.utils().get_game_and_player(ctx)
+
+		if game is None or player is None:
+			return
+
+		if game.monster is not None:
+			Dispatcher.add(game.channel, "You should probably kill it before you try to loot it.")
+			return
+
+		if len(game.loot) == 0:
+			Dispatcher.add(game.channel, "There is nothing to loot!")
+			return
+
+		if player.user_id not in game.loot.keys():
+			Dispatcher.add(game.channel, f"{player.name} attempts to loot the corpse, but cannot interact with it.")
+			return
+
+		loot = game.loot[player.user_id]
+		msg = ', '.join([f"{item.get_full_name()}" for item in loot])
+		dropped: List[Item] = []
+		if msg is not None and len(msg) > 0:
+			msg = f"{player.name} found {' and '.join(msg.rsplit(', ', 1))}."
+			for item in loot:
+				if not player.give_item(item):
+					dropped.append(item)
+			if len(dropped) > 0:
+				txt = ', '.join([f'{d.get_full_name()}' for d in dropped]).rsplit(', ', 1)
+				txt = ' and '.join(txt)
+				msg += f" It appears you may have a hoarding problem, though. The following item" \
+					   f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
+		else:
+			msg = f"{player.name} pokes around the corpse, finding nothing useful."
+
+		del game.loot[player.user_id]
+		if len(dropped) > 0:
+			game.loot[player.user_id] = dropped
+
+		Dispatcher.add(game.channel, msg)
+
 	@cooldown(1, 2, BucketType.member)
 	@command(name='sell', brief='Sells an item, range of items, unequipped items, or items having a given rarity.')
 	async def sell(self, ctx, flag: Union[int, str] = None, count: int = None, gid: int = None):
 		"""
-		Sells an item, range of items, all items, or items having a given rarity. Items must be unequipped to be sold.
+		Sells items by name, name.n, index, a range of indices, all items, or items having a given rarity. Items must be unequipped to be sold.
 		When selling an individual item, you may specify a quantity to sell if the item is stackable.
 
 		(2-second cool-down)
+
+		:param flag: An item index, range of indices, rarity, or 'all'.
+
+		:param count: If the given item is stackable, provide the number you wish to sell unless you used the 'all'	flag.
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
 		game: Game = await self.utils().get_game(ctx, gid)
@@ -212,23 +324,21 @@ class RpgInventoryCommands(Cog):
 			return
 
 		if flag is None:
-			Dispatcher.add(channel, "You must specify the item index to sell, the range of indices, a rarity, "
-								"or 'all' to sell anything not equipped.")
+			Dispatcher.add(
+				channel,
+				"You must specify the item name, name.n, index, the range of indices, a rarity, or 'all' to sell "
+				"anything not equipped."
+			)
 			return
 
 		msg = ''
-		equipped = []
+		equipped = ([i.id for s, i in player.equip_slots.items() if i and not EquipmentSlots.exclude_from_output(s)])
 		sell_all = False
-		if player.left_hand:
-			equipped.append(player.left_hand.id)
-		if player.right_hand:
-			equipped.append(player.right_hand.id)
-
 		sell: List[Item] = []
 
 		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
 			item = player.inventory.get_by_index(flag)
-			if count and item.stackable and (count < 0 or count > item.count):
+			if count and isinstance(item, Stackable) and (count < 0 or count > item.count):
 				Dispatcher.add(
 					channel,
 					f'The number of items to sell must be greater than 0 and less than {item.count + 1}'
@@ -240,7 +350,7 @@ class RpgInventoryCommands(Cog):
 				if count is None:
 					sell_all = True
 			else:
-				Dispatcher.add(channel, 'You must unequip items before selling them.')
+				Dispatcher.add(channel, 'You must un-equip items before selling them.')
 				return
 
 		elif isinstance(flag, str):
@@ -272,6 +382,8 @@ class RpgInventoryCommands(Cog):
 					return
 			else:
 				sell = [i for i in player.inventory.filter_by_rarity(flag) if i.id not in equipped]
+				if len(sell) == 0:
+					sell = [i for i in player.inventory.filter(flag) if i.id not in equipped]
 
 		else:
 			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
@@ -298,14 +410,18 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='use', brief='Attempts to use an item.')
 	@cooldown(1, 5, BucketType.member)
-	async def use(self, ctx, item: Union[int, str], game_idx: int = None):
+	async def use(self, ctx, item: Union[int, str], gid: int = None):
 		"""
 		Attempts to use an item.
 
 		(5-second cool-down)
+
+		:param item: An item name, item.n, or index to use. item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory.
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, game_idx)
+		game: Game = await self.utils().get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -319,7 +435,7 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if item.isnumeric():
+		if isinstance(item, int) or (isinstance(item, str) and item.isnumeric()):
 			item = int(item)
 			if 0 <= item < len(player.inventory):
 				Dispatcher.add(channel, player.use_item(item))

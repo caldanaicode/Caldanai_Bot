@@ -30,7 +30,10 @@ class RpgInfoCommands(Cog):
 	async def players(self, ctx, gid: int = None):
 		"""
 		Lists the current players in the game.
-		(10-second cool-down across the server)
+
+		(10-second server-wide cool-down)
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
 		game: Game = await self.utils().get_game(ctx, gid)
@@ -56,7 +59,10 @@ class RpgInfoCommands(Cog):
 	async def profile(self, ctx, gid: int = None):
 		"""
 		Shows a player's profile.
+
 		(10-second cool-down)
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
 		game: Game = await self.utils().get_game(ctx, gid)
@@ -79,7 +85,10 @@ class RpgInfoCommands(Cog):
 	async def skills(self, ctx, gid: int = None):
 		"""
 		Shows a player's skills.
+
 		(10-second cool-down)
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
 		game: Game = await self.utils().get_game(ctx, gid)
@@ -229,6 +238,8 @@ class RpgInfoCommands(Cog):
 		Displays or sets the user's gender.
 
 		(5-second cool-down)
+
+		:param gender: Can be anything you like, but if the gender is not 'male', 'female', or 'non-binary', the pronouns will not be auto-updated by the game.
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
 		if game is None or player is None:
@@ -247,52 +258,51 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
-	async def pronouns(self, ctx, pronouns: Optional[str] = None):
+	async def pronouns(self, ctx, s: str = None, o: str = None, p: str = None, a: str = None):
 		"""
 		Displays or sets the user's pronouns using subject/object/possessive/adjective form.
 
 		(5-second cool-down)
+
+		:param s: The subjective form, such as 'he', 'she', or 'they'. Example usage: 'He hid from the monster.'
+
+		:param o: The objective form, such as 'him', 'her', or 'them'. Example usage: 'The monster bites her playfully.'
+
+		:param p: The possessive form, such as 'his', 'hers', or 'theirs'. Example usage: 'That sword is theirs.'
+
+		:param a: The adjective form, such as 'his', 'her', or 'their'. Example usage: 'Her health has been restored.'
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
 		if game is None or player is None:
 			return
 
-		if pronouns is None:
+		if not s or not o or not p or not a:
 			Dispatcher.add(
 				game.channel,
 				f"{player.name}'s pronouns are currently shown as '{'/'.join(player.pronouns.values())}'.")
 			return
 
-		if isinstance(pronouns, str):
-			p = pronouns.split('/')
-			if len(p) != 4:
-				Dispatcher.add(
-					game.channel, f"Please enter pronouns in the form of 'subject/object/possessive/adjective'. "
-					f"Example: `{ctx.prefix}pronouns she/her/hers/her` or `{ctx.prefix}pronouns he/him/his/his`."
-				)
-				return
-
-			player.pronouns[Pronouns.SUBJECTIVE] = p[0]
-			player.pronouns[Pronouns.OBJECTIVE] = p[1]
-			player.pronouns[Pronouns.POSSESSIVE] = p[2]
-			player.pronouns[Pronouns.ADJECTIVE] = p[3]
-			player.pronouns[Pronouns.REFLEXIVE] = f"{p[1]}self"
-			player.is_dirty = True
-			Dispatcher.add(
-				game.channel, f"{player.name}'s pronouns have been set to '"
-							  f"{'/'.join(player.pronouns.values())}'. You may also wish to set your `"
-							  f"{ctx.prefix}gender`"
-			)
+		player.pronouns[Pronouns.SUBJECTIVE] = s
+		player.pronouns[Pronouns.OBJECTIVE] = o
+		player.pronouns[Pronouns.POSSESSIVE] = p
+		player.pronouns[Pronouns.ADJECTIVE] = a
+		player.pronouns[Pronouns.REFLEXIVE] = f"{o}self"
+		player.is_dirty = True
+		Dispatcher.add(
+			game.channel, f"{player.name}'s pronouns have been set to '"
+						  f"{'/'.join(player.pronouns.values())}'. You may also wish to set your `"
+						  f"{ctx.prefix}gender`"
+		)
 
 	@cooldown(1, 5, BucketType.member)
-	@command(name='health', brief='Displays the player\'s current health and regeneration.')
+	@command(name='health', brief='Displays player health and regeneration.')
 	async def health(self, ctx, flag: str = None):
 		"""
-		Displays the player's current health and regeneration. If the word 'all' is supplied, all players' health are
-		shown without the regeneration message. If the word 'hurt' is supplied, only the players who are not at full
-		health are shown.
+		Displays player health and regeneration.
 
 		(5-second cool-down)
+
+		:param flag: 'all', 'hurt', or 'injured'. If nothing is specified, shows only the calling player's health and regeneration. 'all' shows health for all players. 'hurt' or 'injured' shows health for only those players who are missing health.
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
 
@@ -301,13 +311,13 @@ class RpgInfoCommands(Cog):
 
 		channel = game.channel if ctx.guild is not None else ctx
 
-		if flag and flag.lower() in ('all', 'hurt'):
+		if flag and flag.lower() in ('all', 'hurt', 'injured'):
 			players = sorted(
 				sorted([
 					i for i in game.players.values()
-					if flag == 'all' or (flag == 'hurt' and i.health < i.health_max)
+					if flag == 'all' or (flag in ('hurt', 'injured') and i.health < i.get_health_max())
 				], key=lambda x: x.name.lower())
-				, key=lambda x: x.health / x.health_max
+				, key=lambda x: x.health / x.get_health_max()
 			)
 
 			if players is None or len(players) == 0:
@@ -316,14 +326,15 @@ class RpgInfoCommands(Cog):
 			else:
 				msg = f'```diff'
 				for p in players:
-					msg += f"\n{'-' if p.health < p.health_max else '+'} {p.name}: {p.health} / {p.health_max}"
+					msg += f"\n{'-' if p.health < p.get_health_max() else '+'} {p.name}: {p.health} / " \
+						   f"{p.get_health_max()}"
 				msg += '\n```'
 
 			Dispatcher.add(channel, msg)
 
 		else:
 			Dispatcher.add(
-				channel, f"{player.name}, you currently have {player.health} / {player.health_max} "
+				channel, f"{player.name}, you currently have {player.health} / {player.get_health_max()} "
 							  f"health, and {player.health_regen} regeneration per game-hour."
 			)
 
@@ -346,10 +357,10 @@ class RpgInfoCommands(Cog):
 
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
-	@command(name='almanac', brief='Displays the game-day\'s time periods.')
+	@command(name='almanac', brief='Displays information about the current game-day.')
 	async def almanac(self, ctx):
 		"""
-		Displays the game-day's time periods.
+		Displays information about the current game-day.
 
 		(5-second cool-down)
 		"""
@@ -365,12 +376,14 @@ class RpgInfoCommands(Cog):
 
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
-	@command(name='look', brief='Display\'s information about the area, or more information about a creature.')
+	@command(name='look', brief='Displays information about the area, a direction, or a creature.')
 	async def look(self, ctx, target: str = None):
 		"""
-		Display's information about the area, or details about a creature or direction.
+		Displays information about the area, a direction, or a creature.
 
 		(5-second cool-down)
+
+		:param target: A direction in which to look, or a monster or player at which to look.
 		"""
 		game = await self.utils().get_game(ctx)
 		if game is None:

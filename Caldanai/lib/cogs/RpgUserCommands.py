@@ -2,7 +2,7 @@ import math
 from random import choice
 
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
-from typing import List, Optional
+from typing import Optional
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
@@ -12,7 +12,6 @@ from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.parser import parse
-from Caldanai.lib.rpg.inventory.items import Item
 from Caldanai.db import MongoDB
 from datetime import datetime
 
@@ -33,6 +32,7 @@ class RpgUserCommands(Cog):
 	async def game(self, ctx):
 		"""
 		Requires a subcommand.
+
 		(10-second cool-down)
 		"""
 
@@ -44,8 +44,7 @@ class RpgUserCommands(Cog):
 	@game.command(brief="Adds a player to the RPG system.")
 	async def join(self, ctx):
 		"""
-		Adds a member to the RPG system as a player if they do not already exist in the database. This can only be
-		called by the member trying to participate.
+		Adds a member to the RPG system as a player if they do not already exist in the database. This can only be called by the member trying to participate.
 		"""
 
 		game: Game = await self.utils().get_game(ctx)
@@ -94,6 +93,7 @@ class RpgUserCommands(Cog):
 	async def attack(self, ctx):
 		"""
 		Attacks the critter currently daring to show it's face to intrepid adventurers!
+
 		(10-second cool-down)
 		"""
 
@@ -117,55 +117,6 @@ class RpgUserCommands(Cog):
 		game.combatants.append(player.user_id)
 		Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
 
-	@command(aliases=['spoils', 'pillage', 'plunder'], brief='Loots the remains of a recently-felled foe.')
-	@guild_only()
-	@cooldown(1, 10, BucketType.member)
-	async def loot(self, ctx):
-		"""
-		Loots the remains of a recently-felled foe.
-
-		(10-second cool-down)
-		"""
-
-		game, player = await self.utils().get_game_and_player(ctx)
-
-		if game is None or player is None:
-			return
-
-		if game.monster is not None:
-			Dispatcher.add(game.channel, "You should probably kill it before you try to loot it.")
-			return
-
-		if len(game.loot) == 0:
-			Dispatcher.add(game.channel, "There is nothing to loot!")
-			return
-
-		if player.user_id not in game.loot.keys():
-			Dispatcher.add(game.channel, f"{player.name} attempts to loot the corpse, but cannot interact with it.")
-			return
-
-		loot = game.loot[player.user_id]
-		msg = ', '.join([f"{item.get_full_name()}" for item in loot])
-		dropped: List[Item] = []
-		if msg is not None and len(msg) > 0:
-			msg = f"{player.name} found {' and '.join(msg.rsplit(', ', 1))}."
-			for item in loot:
-				if not player.give_item(item):
-					dropped.append(item)
-			if len(dropped) > 0:
-				txt = ', '.join([f'{d.get_full_name()}' for d in dropped]).rsplit(', ', 1)
-				txt = ' and '.join(txt)
-				msg += f" It appears you may have a hoarding problem, though. The following item" \
-					   f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
-		else:
-			msg = f"{player.name} pokes around the corpse, finding nothing useful."
-
-		del game.loot[player.user_id]
-		if len(dropped) > 0:
-			game.loot[player.user_id] = dropped
-
-		Dispatcher.add(game.channel, msg)
-
 	@command(name='hug', aliases=['snuggle', 'cuddle'], brief='Hugs, snuggles, and cuddles for all of your needs!')
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
@@ -177,6 +128,8 @@ class RpgUserCommands(Cog):
 		Want to show your fellows a little appreciation? There's a hug for them too!
 
 		(5-second cool-down)
+
+		:param msg: A message to include with the hug. This can be a target such as a monster's noun, or an @mention of another player. It can also simply be text in the form of a custom emote, but remember to type in the third-person present participle for best effect.
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
 		if game is None or player is None:
@@ -212,6 +165,8 @@ class RpgUserCommands(Cog):
 		Allows the dead to harass the less-dead. When specifying a target, use the @ symbol to target another player.
 
 		(5-second cool-down)
+
+		:param target: An optional victim of your haunting; either a player using @mentions, or the name of the current monster.
 		"""
 		game, player = await self.utils().get_game_and_player(ctx)
 		haunted = None
@@ -305,9 +260,9 @@ class RpgUserCommands(Cog):
 
 			index = 2
 			for p in game.players.values():
-				if p != player and p.health < p.health_max:
+				if p != player and p.health < p.get_health_max():
 					msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
-					heal_msg = p.apply_damage(p.health - p.health_max)
+					heal_msg = p.apply_damage(p.health - p.get_health_max())
 					if heal_msg:
 						msg += f"{heal_msg} "
 					msg += f"@{index}'s health is completely restored!"
@@ -321,7 +276,7 @@ class RpgUserCommands(Cog):
 				if p.health < heal_target.health:
 					heal_target = p
 
-			missing_health = heal_target.health_max - heal_target.health
+			missing_health = heal_target.get_health_max() - heal_target.health
 			actors.append(heal_target)
 			index = len(actors)
 			third = math.ceil(missing_health / 3)
