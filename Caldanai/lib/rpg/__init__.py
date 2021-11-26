@@ -17,8 +17,8 @@ from .creatures import Creature
 from .helpers import get_random_direction
 from .creatures.monsters import Monster
 from .creatures.player import Player
-from .inventory.items import Item
-from .inventory.weapons import Weapon
+from .inventory.item import Item
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from ...Dispatcher import Dispatcher
 from ...Logger import stdout
 from ...db import MongoDB
@@ -229,7 +229,7 @@ class Game:
 			m = player.apply_damage(-player.health_regen)
 			if m:
 				msg += f"\n{m}"
-			player.health_regen = (player.health_regen + 1) if player.health < player.health_max else 0
+			player.health_regen = (player.health_regen + 1) if player.health < player.get_health_max() else 0
 
 		if msg:
 			Dispatcher.add(self.channel, msg)
