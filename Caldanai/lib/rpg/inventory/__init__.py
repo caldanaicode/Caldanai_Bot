@@ -1,10 +1,11 @@
 from typing import Tuple, Dict, Optional, List, Union
 
+from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.armor import Armor
+from Caldanai.lib.rpg.inventory.rarity import Rarities
 from Caldanai.lib.rpg.inventory.stackables import Stackable
 from Caldanai.lib.rpg.inventory.usables import Usable
 from Caldanai.lib.rpg.inventory.usables.consumables import Consumable
-from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from bson.objectid import ObjectId
 from math import fsum
@@ -105,7 +106,7 @@ class Inventory:
 		results = tuple(filter(lambda i: f.lower() == i.rarity.name.lower(), self.__items))
 		return results
 
-	def filter(self, f: str) -> Tuple[Item]:
+	def filter(self, f: str) -> Tuple[Optional[Item]]:
 		"""
 		Returns a tuple of Items where name or rarity contain the provided string, or a tuple containing a single
 		item if the item.n notation is used.
@@ -113,17 +114,21 @@ class Inventory:
 		if not f:
 			inv = self.all()
 		else:
+			inv = ()
 			if '.' in f:
-				f, index, *_ = tuple(f.split('.'))
-				index = int(index) - 1
-				if 0 <= index < len(self):
-					inv = (self.get_by_indexed_name(f, index),)
-				else:
-					inv = ()
-			else:
-				by_name = set(self.filter_by_name(f))
-				by_rarity = set(self.filter_by_rarity(f))
-				inv = tuple(by_name | by_rarity)
+				result = f.split('.')
+				f, flag, *_ = result if len(result) > 2 else (*result, "", None)
+
+				if flag and flag.isnumeric():
+					index = int(flag) - 1
+					if 0 <= index < len(self):
+						inv = (self.get_by_indexed_name(f, index),)
+
+				elif rarity := Rarities.from_name(flag):
+					inv = ([i for i in self.filter_by_name(f) if i.rarity == rarity])
+
+		if not inv:
+			inv = (set(self.filter_by_name(f)) | set(self.filter_by_rarity(f)))
 
 		return inv
 
@@ -169,8 +174,8 @@ class Inventory:
 
 		items: List[Item] = []
 		for d in data:
-			item = Inventory.load_plugin(d)
-			if item is not None:
-				items.append(item)
+			_item = Inventory.load_plugin(d)
+			if _item is not None:
+				items.append(_item)
 
 		return cls(items)
