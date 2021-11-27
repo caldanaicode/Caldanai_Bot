@@ -9,58 +9,22 @@ from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 from random import choice, randint
 
-from .areas import Area
-from .helpers.enums import AggressionLevels, TimesOfDay
-from .helpers.parser import parse
-from .time import GameClock
-from .creatures import Creature
-from .helpers import get_random_direction
-from .creatures.monsters import Monster
-from .creatures.player import Player
-from .inventory.item import Item
+from Caldanai.lib.rpg.areas import Area
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay
+from Caldanai.lib.rpg.helpers.parser import parse
+from Caldanai.lib.rpg.time import GameClock
+from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.helpers import get_random_direction
+from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
 
 
 class Game:
-	"""
-	Structure for game information.
-
-	Members
-	-------
-	channel: discord.TextChannel
-		The TextChannel to which this game sends public responses.
-	players : Dict[int, Player]
-		The dictionary mapping of user ID to Player mappings.
-	monster : Monster
-		The current monster spawned.
-	combatants : List[int]
-		The list of players attacking the current monster.
-	loot : Dict[int, List[Union[Item, Weapon]]
-		The list of loot from the current monster.
-	use_spawn_timer : bool
-		Whether or not to spawn monsters using the timer.
-	spawn_duration : int
-		Combat duration in minutes
-	loot_duration : int
-		Loot duration in minutes
-	loot_countdown : int
-		Current loot timer counter
-	trigger : int
-		Trigger chance for monster spawn
-	minutes_max : int
-		Maximum minutes between monster spawns
-	minutes_min : int
-		Minimum minutes between monster spawns
-	prefix : str
-		The prefix used by the bot for this game
-	enable_ambience : bool
-		Whether or not to display ambience messages such as weather, day/night cycles, and monster ambience messages
-
-	"""
-
 	def __init__(
 			self,
 			bot: Bot = None,
