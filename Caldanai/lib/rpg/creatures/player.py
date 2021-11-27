@@ -445,12 +445,10 @@ class Player(Creature):
 		msg = ''
 		inv = self.inventory.filter(filtr)
 
-		lh = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
-		rh = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
-
 		for idx, item in enumerate(inv):
-			msg += f"\n{idx}: {item.get_full_name()}" \
-				f"{' [left hand]' if item == lh else ''}{' [right hand]' if item == rh else ''}"
+			msg += f"\n{idx + 1}: {item.get_full_name()}"
+			for s, i in self.equip_slots.items():
+				msg += f"{'[' + s + '] ' if i == item else ''}"
 
 		if len(msg) == 0 and not filtr:
 			msg = '\nYou have no items.'
