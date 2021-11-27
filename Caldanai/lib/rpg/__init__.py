@@ -87,7 +87,7 @@ class Game:
 		self.game_clock.add_routine(self.do_health_regen, 3600 / self.game_clock.time_scale)
 
 		if use_spawn_timer:
-			self.game_clock.add_routine(self.do_spawn, 5, True)
+			self.game_clock.add_routine(self.set_spawn_timer, 5, True)
 		if enable_ambience:
 			self.game_clock.add_routine(self.do_ambience, 1)
 
@@ -107,16 +107,20 @@ class Game:
 
 		if flee and monster.dies_from_time:
 			msg = monster.time_death
-			msg += self.on_monster_death()
+			msg += await self.on_monster_death()
 
 		elif monster.flees_from_time:
 			remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
 			if flee or (next_flee and remaining < 1 / 6):
 				msg = monster.time_flee
-				self.cancel_combat()
+				await self.cancel_combat()
 
 		if msg:
 			Dispatcher.add(self.channel, parse(msg, monster))
+
+	async def set_spawn_timer(self):
+		r = randint(self.minutes_min, self.minutes_max)
+		self.game_clock.add_routine(self.do_spawn, r * 60, True)
 
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
@@ -133,27 +137,21 @@ class Game:
 		if self.monster.dies_from_time or self.monster.flees_from_time:
 			self.game_clock.add_routine(self.check_time, 1)
 
-	async def do_spawn(self, force: bool = False, monster: Optional[str] = None):
+	async def do_spawn(self, monster: Optional[str] = None):
 		if self.monster:
 			return
-
-		if not force:
-			r = randint(self.minutes_min, self.minutes_max)
-			await sleep(r * 60)
-			if self.monster:
-				return
 
 		self.get_monster(monster)
 		self.game_clock.add_routine(self.do_combat, self.spawn_duration, True)
 
-	def cancel_combat(self):
+	async def cancel_combat(self):
 		"""Clears the current monster, combatants, and loot."""
 		self.monster = None
 		self.combatants.clear()
 		self.loot.clear()
 		self.looters.clear()
 		self.game_clock.remove_routine(self.do_combat)
-		self.game_clock.add_routine(self.do_spawn, 5, True)
+		await self.set_spawn_timer()
 
 	async def loot_expires(self):
 		"""Cleans up uncollected loot and restarts spawning after loot expiration and minimum spawn time."""
@@ -163,9 +161,9 @@ class Game:
 				"A swarm of tiny, shadow-clad creatures floods in and makes off with the items on the ground."
 			)
 		self.loot.clear()
-		self.game_clock.add_routine(self.do_spawn, 5, True)
+		await self.set_spawn_timer()
 
-	def on_monster_death(self) -> str:
+	async def on_monster_death(self) -> str:
 		"""Generates loot, shows monster death, and clears combatants."""
 
 		has_loot = False
@@ -183,7 +181,7 @@ class Game:
 			self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
 			return f"\nThere might be something to `{self.prefix}loot`..."
 		else:
-			self.game_clock.add_routine(self.do_spawn, 5, True)
+			await self.set_spawn_timer()
 			return "\nThere does not appear to be anything to loot, this time."
 
 	async def do_health_regen(self):
@@ -210,7 +208,7 @@ class Game:
 
 		if self.monster is None:
 			stdout(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
-			self.game_clock.add_routine(self.do_spawn, 5, True)
+			await self.set_spawn_timer()
 			return
 
 		msg = ""
@@ -231,7 +229,7 @@ class Game:
 		msg += parse(self.monster.apply_damage(damage) or "", self.monster)
 		if self.monster.is_dead():
 			monster = self.monster
-			msg += parse(self.on_monster_death(), monster)
+			msg += parse(await self.on_monster_death(), monster)
 			msgs = Dispatcher.split_message(msg, '```\n', True)
 			for m in msgs:
 				Dispatcher.add(self.channel, m)
@@ -251,14 +249,14 @@ class Game:
 				or len(self.combatants) == 0:
 
 				Dispatcher.add(self.channel, f"{msg}\n{parse(self.monster.escape, self.monster)}")
-				self.cancel_combat()
+				await self.cancel_combat()
 
-	def kill_monster(self):
+	async def kill_monster(self):
 		"""Cancels combat and forces monster death."""
 
 		self.game_clock.remove_routine(self.do_combat)
 		monster = self.monster
-		msg = self.on_monster_death()
+		msg = await self.on_monster_death()
 		if len(msg) > 0:
 			Dispatcher.add(self.channel, parse(msg, monster))
 
