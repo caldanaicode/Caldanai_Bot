@@ -170,11 +170,8 @@ class Inventory:
 					if 0 <= index < len(self):
 						inv = (self.get_by_indexed_name(f, index),)
 
-				elif rarity := Rarities.from_name(flag):
-					inv = ([i for i in self.filter_by_name(f) if i.rarity == rarity])
-
-		if not inv:
-			inv = (set(self.filter_by_name(f)) | set(self.filter_by_rarity(f)))
+				elif _rarity := Rarities.from_name(flag):
+					inv = ([i for i in self.filter_by_name(f) if i.rarity == _rarity])
 
 		return inv
 

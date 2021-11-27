@@ -58,10 +58,11 @@ class Monster(Creature):
 			if name not in Inventory.ITEMS.keys():
 				Inventory.discover_items()
 
-			if name in Inventory.ITEMS.keys() and random() <= freq:
-				item = Inventory.ITEMS[name].from_plugin(name, {})
-				if item:
-					items.append(item)
+			if name in Inventory.ITEMS.keys():
+				if random() <= freq:
+					item = Inventory.ITEMS[name].from_plugin(name, {})
+					if item:
+						items.append(item)
 			else:
 				stdout(f"No such item '{name}' found in the Inventory.ITEMS list.")
 

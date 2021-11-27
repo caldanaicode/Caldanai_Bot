@@ -76,6 +76,9 @@ class RpgInventoryCommands(Cog):
 			elif slot.lower() in ('r', 'right'):
 				_slot = EquipmentSlots.RIGHT_SIDE & _item.slots
 
+			elif slot.lower() == '_':
+				_slot = _item.slots
+
 			else:
 				return Dispatcher.add(channel, f"I don't know how to turn {slot} into a 'left' or 'right'...")
 
