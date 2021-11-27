@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
@@ -26,10 +24,8 @@ class MonsterPlugin(Monster):
 		self.escape = "The @1 barks out a loud croaking noise before leaping off into the distance."
 		self.death = f"The @1 struggles to leap away, but the effort is futile, as @1s collapses onto @1a belly."
 
-		self.loot: List[Dict] = [
-			{"plugin": "toad_slime", "item_type": "Item", "frequency": 0.9},
-			{"plugin": "mushroom_hat", "item_type": "Armor", "frequency": 0.3}
-		]
+		self.loot["toad_slime"] = 0.9
+		self.loot["mushroom_hat"] = 0.3
 
 	def apply_damage(self, amount: int) -> str:
 		was_alive = self.health > 0

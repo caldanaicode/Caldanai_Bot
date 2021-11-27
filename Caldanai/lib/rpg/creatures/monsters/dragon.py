@@ -1,5 +1,4 @@
 from random import choice
-from typing import Dict, List
 
 from Caldanai.lib.rpg.creatures.monsters import Monster
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
@@ -29,13 +28,11 @@ class MonsterPlugin(Monster):
 		self.death = "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1ac thrashing " \
 			"lasts but a moment, then all is still."
 
-		self.loot: List[Dict] = [
-			{"plugin": "small_gem", "item_type": "Item", "frequency": 0.7},
-			{"plugin": "tee_shirt", "item_type": "Armor", "frequency": 0.2},
-			{"plugin": "candy", "item_type": "Consumable", "frequency": 0.3},
-			{"plugin": "heavy_stringed_instrument", "item_type": "Item", "frequency": 0.2},
-			{"plugin": "mace", "item_type": "Weapon", "frequency": 0.3}
-		]
+		self.loot["small_gem"] = 0.7
+		self.loot["tee_shirt"] = 0.2
+		self.loot["candy"] = 0.3
+		self.loot["heavy_stringed_instrument"] = 0.2
+		self.loot["mace"] = 0.3
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:

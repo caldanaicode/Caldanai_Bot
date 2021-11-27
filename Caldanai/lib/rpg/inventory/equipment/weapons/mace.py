@@ -17,7 +17,7 @@ class WeaponPlugin(Weapon):
 			rarity=rarity,
 			article="a",
 			slots=EquipmentSlots.EITHER_HELD,
-			plugin="stick",
+			plugin="mace",
 			atk="2d6",
 			is_magic=False,
 			is_ranged=False,
