@@ -74,7 +74,7 @@ class RpgAdminCommands(Cog):
 	@cooldown(1, 5, BucketType.guild)
 	async def spawn(self, ctx):
 		"""
-		Used alone, displays the various spawning options. See the subcommands for settings those options.
+		Used alone, displays the various spawning options and information. See the subcommands for settings those options.
 
 		(5-second cool-down server-wide)
 		"""
@@ -85,12 +85,20 @@ class RpgAdminCommands(Cog):
 		if ctx.invoked_subcommand is None:
 			guild: Guild = ctx.guild
 			game = self.bot.games[ctx.guild.id]
+			r, i = game.game_clock.find_routine('do_spawn')
+			routine = r[i] if r else None
+
 			embed = Embed(title="Current Spawn Settings")
 			embed.set_thumbnail(url=guild.icon_url)
 			embed.add_field(name="Spawn Timing", value=f"{game.minutes_min} - {game.minutes_max} minutes", inline=True)
-			embed.add_field(name="Spawn Duration", value=f"{game.spawn_duration} minutes", inline=True)
-			embed.add_field(name="Loot Duration", value=f"{game.loot_duration} minutes", inline=True)
+			embed.add_field(name="Spawn Duration", value=f"{int(game.spawn_duration / 60)} minutes", inline=True)
+			embed.add_field(name="Loot Duration", value=f"{int(game.loot_duration / 60)} minutes", inline=True)
 			embed.add_field(name="Spawning Enabled", value=str(game.use_spawn_timer), inline=True)
+
+			if routine:
+				next_spawn = routine.time_added - game.game_clock.get_tick_time() + routine.seconds
+				embed.add_field(name="Next Spawn", value=f"{int(next_spawn / 60)} minutes")
+
 			Dispatcher.add(ctx, embed=embed)
 
 	@spawn.command(
@@ -200,7 +208,7 @@ class RpgAdminCommands(Cog):
 		if any(v == msg for v in ['1', 'on', 'true', 'enabled']):
 			if not game.use_spawn_timer:
 				game.use_spawn_timer = True
-				game.game_clock.add_routine(game.do_spawn, 5, True, True)
+				await game.set_spawn_timer()
 			else:
 				Dispatcher.add(game.channel, "Spawning is already enabled.")
 
@@ -228,7 +236,7 @@ class RpgAdminCommands(Cog):
 		game = self.bot.games[ctx.guild.id]
 		if game.monster is None:
 			game.game_clock.remove_routine(game.do_spawn)
-			await game.do_spawn(True, monster)
+			await game.do_spawn(monster)
 			return
 
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
@@ -245,7 +253,7 @@ class RpgAdminCommands(Cog):
 			Dispatcher.add(game.channel, "There is no monster present!")
 			return
 
-		game.kill_monster()
+		await game.kill_monster()
 
 	@spawn.command(brief="Spawns the requested item to the given player's inventory.")
 	async def item(self, ctx, item_name: str):
