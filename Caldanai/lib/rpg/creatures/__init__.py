@@ -50,7 +50,6 @@ class Creature:
 		self.flavor = ''
 		self.image = None
 		self.clarks = 0
-		self.loot: List[Dict] = []
 		self.gender: Optional[str] = gender or choice(['male', 'female'])
 		self.is_dirty: bool = False
 
@@ -101,20 +100,6 @@ class Creature:
 				v = f"{v:,}"
 			embed.add_field(name=f, value=v, inline=i)
 		return embed, file
-
-	# Returns a list of loot items
-	def get_loot(self) -> list:
-		items = []
-		for data in self.loot:
-			plugin = data['plugin'] if 'plugin' in data.keys() else None
-			item_type = data['item_type'] if 'item_type' in data.keys() else None
-			frequency = data['frequency'] if 'frequency' in data.keys() else -1.0
-			if plugin and item_type and random() <= frequency:
-				item = Inventory.load_plugin(data)
-				if item:
-					items.append(item)
-
-		return items
 
 	def on_hugged(self, actor: "Creature", invocation: str) -> str:
 		"""
