@@ -1,5 +1,5 @@
-from random import random, choice
-from typing import Union, Optional, Dict, Tuple, List
+from random import choice
+from typing import Union, Optional, Dict, Tuple
 
 from discord import Embed, File
 
@@ -7,7 +7,6 @@ from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import Pronouns
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
-from Caldanai.lib.rpg.inventory import Inventory
 
 
 class Creature:
