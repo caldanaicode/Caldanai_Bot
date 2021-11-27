@@ -30,8 +30,8 @@ class Player(Creature):
 			weight_limit: Optional[int] = None,
 			joined: Optional[datetime] = None,
 			clarks: Optional[int] = 0,
-			defense: Optional[int] = 4,
-			dodge: Optional[int] = 4,
+			defense: Optional[int] = 6,
+			dodge: Optional[int] = 6,
 			health: Optional[int] = 20,
 			health_max: Optional[int] = 20,
 			inventory: Optional[Inventory] = None,
@@ -225,8 +225,8 @@ class Player(Creature):
 		Returns a tuple containing the attack message and the total damage done.
 		"""
 
-		lh = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
-		rh = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+		lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
+		rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
 		two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
 		left = self.get_combat_rolls(lh, creature)
 		right: Optional[CombinedRoll] = None if two_handed else self.get_combat_rolls(rh, creature)
@@ -317,14 +317,14 @@ class Player(Creature):
 			color=0x00ffff
 		)
 
-		lh = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
-		rh = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+		lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
+		rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
 
 		fields = [
 			("\u200b", "\u200b", False),
 			("Stats", "---------------------------------------------------", False),
-			("Left Hand", f"{lh.attack} + {lh.bonus}" if lh is not None else "1d4", True),
-			("Right Hand", f"{rh.attack} + {rh.bonus}" if rh is not None else "1d4", True),
+			("Left Hand", f"{lh.attack} + {lh.bonus}" if lh else "1d4", True),
+			("Right Hand", f"{rh.attack} + {rh.bonus}" if rh else "1d4", True),
 			("\u200b", "\u200b", True),
 			("Defense", self.get_defense(), True),
 			("Dodge", self.get_dodge(), True),
