@@ -121,9 +121,10 @@ class HelpCommands(Cog):
 			else:
 				found = False
 				for c in self.bot.commands:
+					s = None
 					if cmd in c.aliases or (isinstance(c, Group) and (s := get(c.commands, name=sub))):
 						found = True
-						await self.cmd_help(ctx, s if s else c)
+						await self.cmd_help(ctx, s or c)
 
 				if not found:
 					Dispatcher.add(ctx, f"No such command exists: {cmd}")
