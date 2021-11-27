@@ -17,7 +17,8 @@ class GameClock:
 			"""
 			Initialize a new GameClock Routine.
 
-			:param time_added: The game clock's time at which this routine is created.
+			:param time_added: The tick-time at which this routine is created. Tick-time is the seconds since the
+				game clock started.
 			:param function: The function to execute upon timeout.
 			:param seconds: The number of seconds before execution.
 			"""
@@ -341,6 +342,10 @@ class GameClock:
 		season = season or self.get_season()
 
 		return Seasons(season).name.title()
+
+	def get_tick_time(self) -> int:
+		"""Returns the number of seconds since the game clock last started."""
+		return self._ticks
 
 	def get_time(self) -> str:
 		"""Returns the game clock's current time in the hh:mm format."""
