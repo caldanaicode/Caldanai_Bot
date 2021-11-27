@@ -248,15 +248,11 @@ class RpgAdminCommands(Cog):
 		game.kill_monster()
 
 	@spawn.command(brief="Spawns the requested item to the given player's inventory.")
-	async def item(self, ctx, item_type: str, plugin: str, msg: str = None):
+	async def item(self, ctx, item_name: str):
 		"""
 		Spawns the requested item to the given player's inventory.
 
-		:param item_type: The item type, such as Item, Consumable, or Weapon.
-
-		:param plugin: The name of the plugin file.
-
-		:param msg: An optional target player, using discord's @ messaging.
+		:param item_name: The item name.
 		"""
 
 		game = self.bot.games[ctx.guild.id]
@@ -268,10 +264,10 @@ class RpgAdminCommands(Cog):
 		if target is None:
 			target = await self.utils().get_player(ctx)
 
-		if target is None or item_type is None or plugin is None:
+		if target is None or item_name is None:
 			return
 
-		item = Inventory.load_plugin({'plugin': plugin, 'item_type': item_type})
+		item = Inventory.load_item(item_name)
 		if item:
 			target.give_item(item)
 			Dispatcher.add(game.channel, f"{item.get_full_name().capitalize()} was given to {target.name}.")
@@ -279,7 +275,7 @@ class RpgAdminCommands(Cog):
 
 		Dispatcher.add(
 			game.channel,
-			"Unable to spawn item. Please check the spelling of the plugin name and item type."
+			"Unable to spawn item. Please check the spelling of the item name."
 		)
 
 	@group(brief="Displays or sets various ambience options.")
