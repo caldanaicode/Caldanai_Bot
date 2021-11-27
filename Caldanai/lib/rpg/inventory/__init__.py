@@ -1,6 +1,6 @@
 from glob import glob
 from os import path
-from typing import Tuple, Dict, Optional, List, Union
+from typing import Tuple, Dict, Optional, List, Union, Type
 
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.armor import Armor
@@ -14,7 +14,7 @@ from math import fsum
 
 
 class Inventory:
-	ITEM_TYPES = {
+	ITEM_TYPES: Dict[str, Type[Union[Usable, Stackable, Weapon, Armor, Consumable]]] = {
 		"armor": Armor,
 		"consumable": Consumable,
 		"consumables": Consumable,
@@ -26,7 +26,7 @@ class Inventory:
 		"weapons": Weapon
 	}
 
-	ITEMS = {}
+	ITEMS: Dict[str, Type[Union[Usable, Stackable, Weapon, Armor, Consumable]]] = {}
 
 	@staticmethod
 	def discover_items():
@@ -38,11 +38,25 @@ class Inventory:
 
 		for filepath in items:
 			parts = filepath.split(path.sep)[1:]
-			_name = parts[-1][:-3]
+			_name = parts[-1][:-3].lower()
 			_type = parts[-2].lower()
 
 			if _name not in Inventory.ITEMS.keys() and _type in Inventory.ITEM_TYPES.keys():
 				Inventory.ITEMS[_name] = Inventory.ITEM_TYPES[_type]
+
+	@staticmethod
+	def load_item(name: Optional[str] = None, data: Optional[dict] = None):
+		if not name and data and 'plugin' in data.keys():
+			name = data['plugin']
+
+		if name:
+			if name not in Inventory.ITEMS.keys():
+				Inventory.discover_items()
+
+			if name in Inventory.ITEMS.keys():
+				return Inventory.ITEMS[name].from_plugin(name, data or {})
+
+		return None
 
 	def __init__(self, contents: list = ()):
 		self.__items: List[Item] = []
@@ -182,25 +196,13 @@ class Inventory:
 		tmp = sorted([i.to_dict() for i in self.__items], key=lambda d: d['plugin'])
 		return tmp
 
-	@staticmethod
-	def load_plugin(data: Dict) -> Item:
-		_item = None
-		if 'plugin' in data.keys() and 'item_type' in data.keys():
-			t = data['item_type'].lower()
-			p = data['plugin']
-
-			if t in Inventory.ITEM_TYPES.keys():
-				_item = Inventory.ITEM_TYPES[t].from_plugin(p, data)
-
-		return _item
-
 	@classmethod
 	def from_list(cls, data: List[Dict]):
 		"""Creates an inventory from a list of data dictionaries."""
 
 		items: List[Item] = []
 		for d in data:
-			_item = Inventory.load_plugin(d)
+			_item = Inventory.load_item(data=d)
 			if _item is not None:
 				items.append(_item)
 
