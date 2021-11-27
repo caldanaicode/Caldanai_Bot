@@ -1,8 +1,7 @@
 from discord import Embed, File
 from random import randint
 
-from Caldanai.lib.rpg.inventory.rarity import Rarity
-from Caldanai.lib.rpg.helpers.enums import Rarities
+from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
 
 
@@ -32,7 +31,7 @@ class Item:
 		self.unit_weight = max(0.0, unit_weight)
 		self.unit_value = round(max(0, unit_value) * self.rarity.multiplier)
 		self.image = image
-		self.plugin = plugin or name.replace(' ', '_').lower()
+		self.plugin = plugin or name.replace(', ', '_').replace(' ', '_').lower()
 		self.item_type = item_type
 
 	def get_weight(self) -> float:
