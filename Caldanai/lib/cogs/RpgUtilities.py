@@ -1,6 +1,4 @@
-from glob import glob
-from os import path
-from typing import List, Union, Dict
+from typing import List, Union
 
 from discord import Member, User
 from discord.ext import tasks
@@ -9,35 +7,17 @@ from pymongo import UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
 from Caldanai.lib.bot import Bot
-from ..rpg.creatures.player import Player
-from ..rpg.inventory.item_meta import ItemMeta
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
-from ..rpg import Game, Area
+from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
+from Caldanai.lib.rpg import Game, Area
 
 
 class RpgUtilities(Cog):
 	def __init__(self, bot: Bot):
 		self.bot: Bot = bot
 		self.bot.games = {}
-		self.item_dict: Dict[str, ItemMeta] = {}
-
-	def discover_items(self):
-		items = [
-			filepath
-			for filepath in glob("./Caldanai/lib/rpg/inventory/*/**/*.py", recursive=True)
-			if not filepath.endswith("__init__.py")
-		]
-		for filepath in items:
-			parts = filepath.split(path.sep)[1:]
-			_name = parts[-1][:-3]
-			_type = parts[-2].capitalize()
-			if _type[-1] == 's':
-				_type = _type[:-1]
-			meta = ItemMeta(_name, '/'.join(parts), _type)
-			if meta.name not in self.item_dict.keys():
-				self.item_dict[meta.name] = meta
 
 	# Checks the given context to see if a game exists for it.
 	async def check_game_exists(self, ctx) -> bool:
@@ -215,7 +195,6 @@ class RpgUtilities(Cog):
 		for g in games:
 			await self.add_game(game=g)
 		self.save_game_data.start()
-		self.discover_items()
 		stdout("RpgUtilities ready.")
 
 
