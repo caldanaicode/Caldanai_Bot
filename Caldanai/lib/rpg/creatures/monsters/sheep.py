@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
@@ -37,11 +35,9 @@ class MonsterPlugin(Monster):
 			"A final wheezing breath escapes slowly, as the @1 collapses to the ground in a twitching heap."
 		])
 
-		self.loot: List[Dict] = [
-			{"plugin": "stick", "item_type": "Weapon", "frequency": 0.5},
-			{"plugin": "wool", "item_type": "Item", "frequency": 0.5},
-			{"plugin": "leather", "item_type": "Item", "frequency": 0.25}
-		]
+		self.loot["stick"] = 0.5
+		self.loot["wool"] = 0.5
+		self.loot["leather"] = 0.25
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		return choice([

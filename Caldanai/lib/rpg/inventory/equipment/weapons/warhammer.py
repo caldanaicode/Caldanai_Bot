@@ -1,25 +1,27 @@
 from bson import ObjectId
 
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.inventory.rarity import Rarity
-from Caldanai.lib.rpg.inventory.weapons import Weapon
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 class WeaponPlugin(Weapon):
 	def __init__(self, iid: ObjectId = None, rarity: Rarity = None, bonus: int = None):
 		super().__init__(
 			iid=iid,
-			name="rock",
-			desc="Simply a rock, that fits in your hand just right.",
+			name="warhammer",
+			desc="An old favorite of many.",
 			unit_weight=2,
-			unit_value=0,
-			image="grey-rock128.png",
+			unit_value=5,
+			image="warhammer128.png",
 			rarity=rarity,
-			atk="1d6",
-			is_2handed=False,
+			article="a",
+			slots=EquipmentSlots.EITHER_HELD,
+			plugin="warhammer",
+			atk="1d10",
 			is_magic=False,
 			is_ranged=False,
-			atk_msg="bashes",
+			atk_msg="bonks",
 			bonus=bonus,
-			article="a",
 			dmg_type="bludgeoning"
 		)

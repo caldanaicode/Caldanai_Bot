@@ -18,6 +18,52 @@ class Directions(IntFlag):
 	SOUTHWEST = SOUTH | WEST
 
 
+class EquipmentSlots(IntFlag):
+	NONE = 0x0
+	MULTI_SLOT = 0x1
+	FEET = 0x2
+	SHINS = 0x4
+	LEGS = 0x8
+	WAIST = 0x10
+	ABDOMEN = 0x20
+	TORSO = 0x40
+	SHOULDERS = 0x80
+	ARMS = 0x100
+	FOREARMS = 0x200
+	GLOVES = 0x400
+	LEFT_HELD = 0x800
+	RIGHT_HELD = 0x1000
+	LEFT_RING = 0x2000
+	RIGHT_RING = 0x4000
+	AMULET = 0x8000
+	CAPE = 0x10000
+	NECK = 0x20000
+	FACE = 0x40000
+	LEFT_EAR = 0x80000
+	RIGHT_EAR = 0x100000
+	HEAD = 0x200000
+	TWO_HANDED = MULTI_SLOT | LEFT_HELD | RIGHT_HELD
+	EITHER_HELD = LEFT_HELD | RIGHT_HELD
+	LEFT_SIDE = LEFT_EAR | LEFT_RING | LEFT_HELD
+	RIGHT_SIDE = RIGHT_EAR | RIGHT_RING | RIGHT_HELD
+	EITHER_SIDE = LEFT_SIDE | RIGHT_SIDE
+
+	@classmethod
+	def exclude_from_output(cls, name: str):
+		return name in (
+			EquipmentSlots.MULTI_SLOT.name, EquipmentSlots.NONE.name, EquipmentSlots.RIGHT_SIDE.name,
+			EquipmentSlots.TWO_HANDED.name, EquipmentSlots.LEFT_SIDE.name, EquipmentSlots.EITHER_SIDE.name,
+			EquipmentSlots.EITHER_HELD.name
+		)
+
+
+class InjuryLevels(IntFlag):
+	NONE = 0x0
+	MINOR = 0x1
+	MODERATE = 0x2
+	SEVERE = 0x4
+
+
 class Pronouns(Enum):
 	SUBJECTIVE = 'subjective'
 	OBJECTIVE = 'objective'
@@ -49,3 +95,4 @@ class TimePartitions(IntFlag):
 	CREPUSCULAR = TimesOfDay.EVENING | TimesOfDay.DUSK
 	NOCTURNAL = TimesOfDay.DUSK | TimesOfDay.NIGHT
 	CATHEMERAL = AURORAL | DIURNAL | CREPUSCULAR | NOCTURNAL
+

@@ -9,58 +9,22 @@ from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 from random import choice, randint
 
-from .areas import Area
-from .helpers.enums import AggressionLevels, TimesOfDay
-from .helpers.parser import parse
-from .time import GameClock
-from .creatures import Creature
-from .helpers import get_random_direction
-from .creatures.monsters import Monster
-from .creatures.player import Player
-from .inventory.items import Item
-from .inventory.weapons import Weapon
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
+from Caldanai.lib.rpg.areas import Area
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay
+from Caldanai.lib.rpg.helpers.parser import parse
+from Caldanai.lib.rpg.time import GameClock
+from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.helpers import get_random_direction
+from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.inventory.item import Item
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
 
 
 class Game:
-	"""
-	Structure for game information.
-
-	Members
-	-------
-	channel: discord.TextChannel
-		The TextChannel to which this game sends public responses.
-	players : Dict[int, Player]
-		The dictionary mapping of user ID to Player mappings.
-	monster : Monster
-		The current monster spawned.
-	combatants : List[int]
-		The list of players attacking the current monster.
-	loot : Dict[int, List[Union[Item, Weapon]]
-		The list of loot from the current monster.
-	use_spawn_timer : bool
-		Whether or not to spawn monsters using the timer.
-	spawn_duration : int
-		Combat duration in minutes
-	loot_duration : int
-		Loot duration in minutes
-	loot_countdown : int
-		Current loot timer counter
-	trigger : int
-		Trigger chance for monster spawn
-	minutes_max : int
-		Maximum minutes between monster spawns
-	minutes_min : int
-		Minimum minutes between monster spawns
-	prefix : str
-		The prefix used by the bot for this game
-	enable_ambience : bool
-		Whether or not to display ambience messages such as weather, day/night cycles, and monster ambience messages
-
-	"""
-
 	def __init__(
 			self,
 			bot: Bot = None,
@@ -133,25 +97,26 @@ class Game:
 			self.game_clock.remove_routine(self.check_time)
 			return
 
+		monster = self.monster
 		tod = self.game_clock.get_time_of_day()
 		h, m, _ = self.game_clock.get_time_components()
 		next_tod, next_h, next_m = self.game_clock.get_next_time()
-		flee = not bool(self.monster.time_partition & TimesOfDay[tod.upper()].value)
-		next_flee = not bool(self.monster.time_partition & TimesOfDay[next_tod.upper()].value)
+		flee = not bool(monster.time_partition & TimesOfDay[tod.upper()].value)
+		next_flee = not bool(monster.time_partition & TimesOfDay[next_tod.upper()].value)
 		msg = ""
 
-		if flee and self.monster.dies_from_time:
-			msg = self.monster.time_death
+		if flee and monster.dies_from_time:
+			msg = monster.time_death
 			msg += self.on_monster_death()
 
-		elif self.monster.flees_from_time:
+		elif monster.flees_from_time:
 			remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
 			if flee or (next_flee and remaining < 1 / 6):
-				msg = self.monster.time_flee
+				msg = monster.time_flee
 				self.cancel_combat()
 
 		if msg:
-			Dispatcher.add(self.channel, parse(msg, self.monster))
+			Dispatcher.add(self.channel, parse(msg, monster))
 
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
@@ -228,7 +193,7 @@ class Game:
 			m = player.apply_damage(-player.health_regen)
 			if m:
 				msg += f"\n{m}"
-			player.health_regen = (player.health_regen + 1) if player.health < player.health_max else 0
+			player.health_regen = (player.health_regen + 1) if player.health < player.get_health_max() else 0
 
 		if msg:
 			Dispatcher.add(self.channel, msg)

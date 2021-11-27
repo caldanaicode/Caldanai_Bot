@@ -1,10 +1,10 @@
 from bson import ObjectId
 
-from Caldanai.lib.rpg.inventory.items import Item
+from Caldanai.lib.rpg.inventory.stackables import Stackable
 from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
-class ItemPlugin(Item):
+class StackablePlugin(Stackable):
 	def __init__(self, iid: ObjectId = None, rarity: Rarity = None, count: int = 1):
 		super().__init__(
 			iid=iid,
@@ -16,6 +16,5 @@ class ItemPlugin(Item):
 			rarity=rarity,
 			article='a',
 			plural='wallets',
-			stackable=True,
 			count=count
 		)

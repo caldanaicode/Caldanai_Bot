@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from Caldanai.lib.rpg.creatures.monsters import Monster
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
 from Caldanai.lib.rpg.creatures import Creature
@@ -25,17 +23,15 @@ class MonsterPlugin(Monster):
 		self.death = "The @1 wobbles unsteadily for a moment, then crashes backward into the earth sending out a " \
 					 "small tremor."
 
-		self.loot: List[Dict] = [
-			{"plugin": "rock", "item_type": "Weapon", "frequency": 0.7},
-			{"plugin": "sledgehammer", "item_type": "Weapon", "frequency": 0.2},
-			{"plugin": "spear", "item_type": "Weapon", "frequency": 0.2},
-		]
+		self.loot["rock"] = 0.7
+		self.loot["sledgehammer"] = 0.2
+		self.loot["spear"] = 0.2
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		dmg = Dice.quick_roll("1d4")
 		attempt = Dice.quick_roll("1d20")
 		msg = f"*@2 approaches the @1 for a {invocation}. The @1 flicks @2o away with a rumbling chuckle.*"
-		if attempt >= actor.dodge:
+		if attempt >= actor.get_dodge():
 			msg += f" @2 takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
 			m = actor.apply_damage(dmg)
 			msg += f"\n{m}" if len(m) > 0 else ""

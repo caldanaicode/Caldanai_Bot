@@ -1,4 +1,4 @@
-from random import choice, randint
+from random import randint
 from typing import Union, Tuple
 
 from discord import Embed
@@ -18,14 +18,6 @@ class GeneralCommands(Cog):
 	async def on_ready(self):
 		stdout("GeneralCommands ready.")
 	
-	@command(name='hello', aliases=['hi', 'hey'], brief="Greets the user.")
-	@cooldown(1, 5, BucketType.member)
-	async def hello(self, ctx):
-		"""Greets the user.
-		"""
-		greeting = f"{choice(('Hello', 'Hi', 'Hey', 'Greetings'))}, {ctx.author.nick or ctx.author.mention}!"
-		Dispatcher.add(ctx, greeting)
-
 	async def check_hilo(self, ctx, count: int, options: tuple) -> Union[int, None]:
 		idx = None
 		hilo = 0
@@ -107,16 +99,13 @@ class GeneralCommands(Cog):
 	@command(name='roll', aliases=['dice'], brief="Rolls dice given in the NdN format.")
 	@cooldown(1, 5, BucketType.member)
 	async def roll(self, ctx, dice: str, *options: str):
-		"""Rolls dice given in the NdN format.
+		"""
+		Rolls dice given in the NdN format.
 
-		Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.
-
-		Specify `hi` or `lo` to keep a number of highest or lowest rolls. Example: ` 4d6 hi 3 ` rolls 4 dice with 6
-		sides each, and keeps the 3 highest.
-
-		The number of rolls to keep must be greater than 0 and less than the number of dice being rolled.
-
-		Specify `verbose` to show all die rolls. Example: ` 3d8 verbose `
+		:param dice: Use the NdN format. Example: `3d6` rolls 3 dice with 6 sides each.
+		:param options: Specify `hi` or `lo` to keep a number of highest or lowest rolls. Example: `4d6 hi 3` rolls 4 dice with 6 sides each, and keeps the 3 highest.
+			The number of rolls to keep must be greater than 0 and less than the number of dice being rolled.
+			Specify `verbose` to show all die rolls. Example: `3d8 verbose`
 		"""
 		count, sides = await self.check_dice(ctx, dice)
 		if count is None or sides is None:

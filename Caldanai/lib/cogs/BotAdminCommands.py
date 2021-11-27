@@ -13,9 +13,10 @@ class BotAdminCommands(Cog):
 	@guild_only()
 	@has_permissions(manage_guild=True)
 	async def change_prefix(self, ctx, prefix: str):
-		"""Changes the bot's prefix for recognizing commands.
+		"""
+		Changes the bot's prefix for recognizing commands. Requires Manage Server permissions.
 
-		To change the prefix requires the user having Manage Server permissions.
+		:param prefix: The new prefix to use.
 		"""
 		if len(prefix) > 5:
 			Dispatcher.add(ctx, "Prefix cannot be longer than 5 characters.")
@@ -36,15 +37,20 @@ class BotAdminCommands(Cog):
 	@has_permissions(manage_guild=True)
 	@command(name='reloadCog', brief='Reloads a cog -- or all cogs if no cog is specified -- on the bot.')
 	async def reload_cog(self, ctx, cog: str = None):
-		"""Reloads a cog -- or all cogs if no cog is specified -- on the bot.
+		"""
+		Reloads a cog -- or all cogs if no cog is specified -- on the bot.
+
+		:param cog: The name of the cog to reload.
 		"""
 		if cog is None:
 			self.bot.reload_all_cogs()
 			Dispatcher.add(ctx, "Cogs reloaded!")
 		else:
-			if cog in self.bot.COGS:
-				self.bot.reload_cog(cog)
-				Dispatcher.add(ctx, f"{cog} cog reloaded!")
+			for c in self.bot.COGS:
+				if c.lower() == cog.lower():
+					self.bot.reload_cog(c)
+					Dispatcher.add(ctx, f"{cog} cog reloaded!")
+					return
 			else:
 				Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 	

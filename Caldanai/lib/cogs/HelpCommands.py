@@ -1,26 +1,25 @@
+import re
 from random import choice
 from typing import Optional
 from discord import Embed
 from discord.utils import get
-from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group
+from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group, HelpCommand
 from discord.ext.menus import MenuPages, ListPageSource
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 
+paramRegex = re.compile(r':param (?P<name>[^:]+):')
 
-def syntax(cmd: Command):
+
+def syntax(cmd: Command, prefix: str, verbose: bool = False):
 	aliases = [*cmd.aliases]
 	aliases.sort()
 	params = []
-	for key, value in cmd.params.items():
+	for key, value in cmd.clean_params.items():
 		if key not in ("self", "ctx"):
 			params.append(f"[{key}]" if "NoneType" in str(value) else f"<{key}>")
 	params = " ".join(params)
-	parents = [p.name for p in cmd.parents]
-	parents.reverse()
-	if len(parents) and parents[0] == cmd.name:
-		parents.pop(0)
 	subs = []
 
 	if isinstance(cmd, Group):
@@ -28,24 +27,30 @@ def syntax(cmd: Command):
 		subs.sort()
 		subs = ', '.join(subs)
 
-	result = f"*Description:* {cmd.brief or 'No description available.'}"
-
-	if len(aliases):
-		result += f"\n\n*Aliases:* {', '.join(aliases)}"
-
-	if len(subs) > 0:
-		result += f"\n\n*Subcommands:* {subs}"
-
-	result += f"\n\n*Usage:* ```\n{' '.join(parents) + ' ' if len(parents) else ''}" \
+	result = f"```\n{prefix}{cmd.full_parent_name + (' ' if cmd.full_parent_name else '')}" \
 			  f"{cmd.name if '_' not in cmd.name or not len(aliases) else choice(aliases)} {params}```"
 
-	return result
+	if not verbose:
+		result += f"\n__Description__\n{cmd.brief.strip() or 'No description available.'}\n"
+
+	if len(aliases):
+		result += f"\n__Aliases__\n{', '.join(aliases)}\n"
+
+	if len(subs) > 0:
+		result += f"\n__Subcommands__\n{subs}\n"
+
+	if verbose:
+		doc = cmd.callback.__doc__
+		while match := paramRegex.search(doc):
+			doc = paramRegex.sub(f"*{match.groups('name')[0]}*\n", doc, 1)
+		result += f"\n__Details__\n{doc.strip()}"
+
+	return result.strip()
 
 
 class HelpMenu(ListPageSource):
 	def __init__(self, ctx, data):
 		self.ctx = ctx
-
 		super().__init__(data, per_page=3)
 	
 	async def write_page(self, menu, fields=()):
@@ -70,9 +75,10 @@ class HelpMenu(ListPageSource):
 		fields = []
 
 		for cmd in commands:
-			fields.append((cmd.name, syntax(cmd)))
-			if cmd != commands[-1]:
-				fields.append(('\u200b', '\u200b'))
+			fields.append((
+				cmd.name,
+				f"{syntax(cmd, self.ctx.prefix)}\n" + ('\u2581' * 20 if cmd != commands[-1] else '')
+			))
 		return await self.write_page(menu, fields)
 
 
@@ -81,18 +87,23 @@ class HelpCommands(Cog):
 		self.bot = bot
 		self.bot.remove_command("help")
 	
-	@command(name="help", brief="Shows this message.")
+	@command(
+		name="help",
+		brief="Shows a help menu if no command is provided, otherwise shows help specific to the given command."
+	)
 	@cooldown(1, 5, BucketType.member)
 	async def show_help(self, ctx, cmd: Optional[str], sub: Optional[str]):
 		"""
-		Shows this message.
+		Shows a help menu if no command is provided, otherwise shows help specific to the given command.
 
-		Providing an optional command will show the help for that command in detail. If a subcommand is also
-		provided, then only the help for the subcommand will be shown.
+		:param cmd: The command for which to show help information.
+
+		:param sub: If provided, shows help specific to the given subcommand.
 		"""
 		if cmd is None:
-			commands = [c for c in self.bot.commands if not c.hidden]
-			commands.sort(key=lambda c: c.name)
+			help_cmd = HelpCommand()
+			help_cmd.context = ctx
+			commands = await help_cmd.filter_commands(self.bot.commands, sort=True)
 			menu = MenuPages(
 				source=HelpMenu(ctx, commands),
 				delete_message_after=True,
@@ -110,9 +121,10 @@ class HelpCommands(Cog):
 			else:
 				found = False
 				for c in self.bot.commands:
+					s = None
 					if cmd in c.aliases or (isinstance(c, Group) and (s := get(c.commands, name=sub))):
 						found = True
-						await self.cmd_help(ctx, s if s else c)
+						await self.cmd_help(ctx, s or c)
 
 				if not found:
 					Dispatcher.add(ctx, f"No such command exists: {cmd}")
@@ -120,7 +132,7 @@ class HelpCommands(Cog):
 	async def cmd_help(self, ctx, cmd: Command):
 		embed = Embed(
 			title=f"Help for `{cmd}`",
-			description=syntax(cmd),
+			description=syntax(cmd, ctx.prefix, True),
 			color=0xff7700
 		)
 		Dispatcher.add(ctx, embed=embed)

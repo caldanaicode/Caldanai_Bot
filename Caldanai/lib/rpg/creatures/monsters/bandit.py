@@ -1,7 +1,4 @@
-import random
-from typing import Dict, List
-
-from random import choice
+from random import choice, randint
 
 from Caldanai.lib.rpg.creatures.monsters import Monster
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
@@ -43,13 +40,11 @@ class MonsterPlugin(Monster):
 			'"In another life, you could have been me," the @1 gasps with @1a dying breath.'
 		])
 
-		self.loot: List[Dict] = [
-			{"plugin": "shortsword", "item_type": "Weapon", "frequency": 0.2},
-			{"plugin": "bandanna", "item_type": "Armor", "frequency": 0.2},
-			{"plugin": "bow", "item_type": "Weapon", "frequency": 0.15},
-			{"plugin": "cheese_sandwich", "item_type": "Consumable", "frequency": 0.2},
-			{"plugin": "wallet", "item_type": "Item", "frequency": 0.25}
-		]
+		self.loot["shortsword"] = 0.2
+		self.loot["bandanna"] = 0.2
+		self.loot["bow"] = 0.15
+		self.loot["cheese_sandwich"] = 0.2
+		self.loot["wallet"] = 0.25
 
 	def steal(self, target: Creature) -> str:
 		"""
@@ -60,9 +55,9 @@ class MonsterPlugin(Monster):
 		"""
 
 		if target.clarks > 0:
-			amount = random.randint(1, int(target.clarks / 10))
+			amount = randint(1, int(target.clarks / 10))
 			attempt = Dice.quick_roll("1d20")
-			if attempt >= target.dodge:
+			if attempt >= target.get_dodge():
 				target.give_clarks(-amount)
 				return f"\n@2's wallet suddenly feels lighter... {amount} clarks were lost!"
 			return "\n@2 easily avoids the bandit's groping fingers."

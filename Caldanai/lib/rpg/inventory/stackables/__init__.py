@@ -1,0 +1,93 @@
+import importlib
+
+from Caldanai.Logger import stdout
+from Caldanai.lib.rpg.inventory import Item
+from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
+from bson.objectid import ObjectId
+
+
+class Stackable(Item):
+	def __init__(
+			self,
+			iid: ObjectId = None,
+			name: str = "",
+			desc: str = "",
+			unit_weight: float = 1.0,
+			unit_value: int = 0,
+			image: str = None,
+			rarity: Rarity = None,
+			article: str = None,
+			plural: str = None,
+			count: int = 1,
+			plugin: str = None,
+			item_type: str = "Stackable"
+	):
+		super().__init__(
+			iid, name, desc, unit_weight, unit_value, image, rarity, article, plugin, item_type
+		)
+		self.plural = plural
+		self.count = count
+
+	def get_weight(self) -> float:
+		return self.unit_weight * self.count
+
+	def get_value(self) -> int:
+		return self.unit_value * self.count
+
+	def can_stack(self, other: "Stackable"):
+		return self.id != other.id \
+			and self.item_type == other.item_type \
+			and self.rarity == other.rarity \
+			and self.plugin == other.plugin
+
+	def stack(self, other: "Stackable") -> bool:
+		if not self.can_stack(other):
+			return False
+
+		self.count += other.count
+		return True
+
+	def get_article_or_count(self, next_word: str = None, count: int = None) -> str:
+		exclusions = ['unique']
+		if next_word is not None \
+			and next_word not in exclusions \
+			and next_word[0] in 'aeiouh' \
+			and self.article == 'a'\
+			and (count == 1 or self.count == 1):
+			return f'an {next_word}'
+
+		if count is not None and count != 1 or self.count != 1:
+			return f'{count if count is not None else self.count} {next_word}'
+
+		return f'{self.article} {next_word}'
+
+	def get_full_name(self, count: int = None) -> str:
+		return f"{self.get_article_or_count(self.rarity.name, count)} {self.name if self.count == 1 else self.plural}"
+
+	def to_dict(self) -> dict:
+		"""Returns the database-friendly dictionary for this item."""
+
+		d = super().to_dict()
+
+		d['count'] = self.count
+
+		if self.id is None:
+			del d['_id']
+		return d
+
+	@classmethod
+	def from_plugin(cls, plugin_name: str, data: dict):
+		"""Creates a new item from a plugin with initial data."""
+
+		try:
+			item = importlib.import_module(f'Caldanai.lib.rpg.inventory.stackables.{plugin_name}').StackablePlugin(
+				data['_id'] if '_id' in data.keys() else None,
+				Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+				data['count'] if 'count' in data.keys() else 1
+			)
+
+			return item
+
+		except:
+			stdout(f"Unable to load StackablePlugin: {data}")
+			return None

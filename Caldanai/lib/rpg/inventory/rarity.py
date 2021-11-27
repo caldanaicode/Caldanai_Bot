@@ -71,14 +71,14 @@ class Rarities(Enum):
 			raise Exception("The value does not fall within the provided range.")
 
 		rarity = Rarities.Junk.value
-		for x in list(Rarities):
+		for x in Rarities:
 			if v_normalized <= x.value.frequency:
 				rarity = x.value
 		return rarity
 
 	@classmethod
 	def from_name(cls, name: str):
-		for x in list(Rarities):
-			if x.value.name.lower() == name.lower():
+		for x in Rarities:
+			if x.name.lower() == name.lower():
 				return x.value
 		return None

@@ -1,6 +1,7 @@
 from bson import ObjectId
 
-from Caldanai.lib.rpg.inventory.armor import Armor
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.inventory.equipment.armor import Armor
 from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
@@ -15,7 +16,7 @@ class ArmorPlugin(Armor):
 			image="bandanna128.png",
 			rarity=rarity,
 			article="a",
-			slot="head",
+			slots=EquipmentSlots.FACE,
 			bonuses={
 				"dodge": 2,
 				"health_max": -1

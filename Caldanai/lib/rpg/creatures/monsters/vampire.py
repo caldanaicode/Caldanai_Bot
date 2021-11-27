@@ -1,5 +1,5 @@
-import random
-from typing import Dict, List, Tuple
+from random import randint
+from typing import Tuple
 
 from random import choice
 
@@ -49,14 +49,6 @@ class MonsterPlugin(Monster):
 			"After a moment, the husk crumbles and drifts away.",
 		])
 
-		self.loot: List[Dict] = [
-			# {"plugin": "shortsword", "item_type": "Weapon", "frequency": 0.2},
-			# {"plugin": "bandanna", "item_type": "Armor", "frequency": 0.2},
-			# {"plugin": "bow", "item_type": "Weapon", "frequency": 0.15},
-			# {"plugin": "cheese_sandwich", "item_type": "Consumable", "frequency": 0.2},
-			# {"plugin": "wallet", "item_type": "Item", "frequency": 0.25}
-		]
-
 	def feed(self, target: Creature) -> str:
 		"""
 		Attempts to feed from a target, regenerating its own health.
@@ -65,12 +57,12 @@ class MonsterPlugin(Monster):
 		:return: A string indicating the results of the feeding
 		"""
 
-		amount = random.randint(1, target.health)
+		amount = randint(1, target.health)
 		attempt = Dice.quick_roll("1d20") + 4
 		msg = "The @1's eyes darken as @1a gaze settles upon @2. With a burst of unbelievable speed, " \
 			"the @1's form blurs as @1s rushes headlong at @1a victim."
 		
-		if attempt >= target.dodge:
+		if attempt >= target.get_dodge():
 			msg += "\n\n@2 stands paralyzed before the @1, and cries out as fangs plunge into " \
 				"@2a throat."
 

@@ -7,11 +7,11 @@ from pymongo import UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
 from Caldanai.lib.bot import Bot
-from ..rpg.creatures.player import Player
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
-from ..rpg import Game, Area
+from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
+from Caldanai.lib.rpg import Game, Area
 
 
 class RpgUtilities(Cog):

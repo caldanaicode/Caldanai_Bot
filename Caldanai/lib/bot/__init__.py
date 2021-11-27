@@ -15,7 +15,7 @@ from ...db import MongoDB
 from Caldanai.environment import OWNER_IDS, TOKEN
 
 
-def get_prefix(bot, message):
+def get_prefix(_bot, message):
 	prefix = None
 	if message.guild is None:
 		prefix = "$"
@@ -26,7 +26,7 @@ def get_prefix(bot, message):
 	if prefix is None and message.guild is not None:
 		prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
 
-	return when_mentioned_or(prefix)(bot, message)
+	return when_mentioned_or(prefix)(_bot, message)
 
 
 class Bot(BotBase):

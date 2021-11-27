@@ -26,7 +26,7 @@ def _process(match: Match, actors: Tuple) -> str:
 		return None
 
 	m = match.groupdict()
-	if m['actor']:
+	if m['actor'] and m['actor'].isnumeric():
 		num = int(m['actor']) - 1
 		actor = actors[num]
 	else:

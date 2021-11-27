@@ -1,11 +1,13 @@
 import importlib
 from glob import glob
 from os import path
-from random import choice
+from random import choice, random
 from typing import Optional, Union, List, Dict
 
+from Caldanai.Logger import stdout
 from Caldanai.lib.rpg import Creature, GameClock
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, TimesOfDay
+from Caldanai.lib.rpg.inventory import Inventory, Item
 
 
 class Monster(Creature):
@@ -32,7 +34,7 @@ class Monster(Creature):
 		self.flavor = ""
 		self.escape = ""
 		self.death = ""
-		self.loot: List[Dict] = []
+		self.loot: Dict[str, float] = {}
 
 	@staticmethod
 	def get_random_monster(clock: GameClock) -> 'Monster':
@@ -43,9 +45,24 @@ class Monster(Creature):
 		time = TimesOfDay[clock.get_time_of_day().upper()].value
 
 		while (
-		monster := importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(monsters)}').MonsterPlugin()) \
-				and not bool(time & monster.time_partition):
+			monster := importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{choice(monsters)}').MonsterPlugin()) \
+			and not bool(time & monster.time_partition):
 			continue
 
 		return monster
 
+	# Returns a list of loot items
+	def get_loot(self) -> list:
+		items: List[Item] = []
+		for name, freq in self.loot.items():
+			if name not in Inventory.ITEMS.keys():
+				Inventory.discover_items()
+
+			if name in Inventory.ITEMS.keys() and random() <= freq:
+				item = Inventory.ITEMS[name].from_plugin(name, {})
+				if item:
+					items.append(item)
+			else:
+				stdout(f"No such item '{name}' found in the Inventory.ITEMS list.")
+
+		return items
