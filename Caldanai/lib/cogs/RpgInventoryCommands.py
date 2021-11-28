@@ -26,7 +26,7 @@ class RpgInventoryCommands(Cog):
 		return self.utilCog
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
-	@cooldown(1, 5, BucketType.member)
+	@cooldown(1, 2, BucketType.member)
 	async def equip(self, ctx, item: Union[str, int], slot: str = None, gid: int = None):
 		"""
 		Equips an item.
@@ -108,7 +108,7 @@ class RpgInventoryCommands(Cog):
 		Dispatcher.add(channel, embed=embed)
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
-	@cooldown(1, 5, BucketType.member)
+	@cooldown(1, 2, BucketType.member)
 	async def stow(self, ctx, item_or_slot: Union[str, int], gid: int = None):
 		"""
 		Un-equip an item by name, name.n, index, or slot.
@@ -153,7 +153,7 @@ class RpgInventoryCommands(Cog):
 				_item, *_ = player.inventory.filter(item_or_slot)
 
 		if _item:
-			msg = player.remove(_item.slots)
+			msg = player.remove(_item)
 
 		Dispatcher.add(channel, msg or f'You had nothing equipped, {player.name}!')
 
@@ -331,7 +331,7 @@ class RpgInventoryCommands(Cog):
 		sell: List[Item] = []
 
 		if isinstance(flag, int) or flag.isnumeric() and 0 <= int(flag) < len(player.inventory):
-			item = player.inventory.filter(flag)
+			item, *_ = player.inventory.filter(flag)
 			if count and isinstance(item, Stackable) and (count < 0 or count > item.count):
 				Dispatcher.add(
 					channel,
@@ -377,7 +377,7 @@ class RpgInventoryCommands(Cog):
 				sell = [i for i in player.inventory.filter(flag) if i.id not in equipped]
 
 		else:
-			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}.")
 			return
 
 		if len(sell) > 0:
@@ -385,7 +385,7 @@ class RpgInventoryCommands(Cog):
 				msg += f"\n{player.sell(item, count or 1, sell_all)}"
 
 		if len(msg) == 0:
-			Dispatcher.add(channel, f'You had no items to sell, {player.name}')
+			Dispatcher.add(channel, f'You had no unequipped items to sell, {player.name}.')
 			return
 		else:
 			msg = f'{player.name} sold the following items: ```\n{msg}```'

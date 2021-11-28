@@ -69,42 +69,26 @@ class Player(Creature):
 	def __eq__(self, o):
 		return isinstance(o, Player) and self.user_id == o.user_id and self.guild_id == o.guild_id
 
-	def remove(self, slots: EquipmentSlots) -> str:
-		"""Removes any items from the given equipment slots, if any are present."""
+	def remove(self, item: Equipment) -> str:
+		"""Removes an item from all slots that it occupies."""
 
 		dirty = False
 		msg = ""
 
-		if not slots:
-			msg = "Unable to remove item: No slots provided."
-
-		else:
-			_slots = [s.name for s in EquipmentSlots if s in slots]
-			if EquipmentSlots.MULTI_SLOT in _slots:
-				removed = []
-				_slots.remove(EquipmentSlots.MULTI_SLOT)
-				for name in _slots:
-					self.equip_slots[name] = None
-					removed.append(name)
-					dirty = True
-
-				if dirty:
-					msg = "Removed multi-slot item from " + '|'.join(removed)
-				else:
-					msg = "Unable to remove multi-slot item: No slots provided with multi-slot flag."
-
-			else:
-				if len(_slots) == 1:
-					self.equip_slots[_slots[0]] = None
-					dirty = True
-					msg = f"Removed single-slot item from {_slots[0]}."
-
-				if not dirty:
-					msg = "Unable to remove single-slot item: Ambiguous slot selection provided."
+		removed = []
+		for s in EquipmentSlots:
+			if not EquipmentSlots.exclude_from_output(s.name) and s & item.slots and self.equip_slots[s.name] == item:
+				self.equip_slots[s.name] = None
+				removed.append(s.name)
+				dirty = True
 
 		if dirty:
+			msg = f"Removed {item.get_full_name()}."
 			self.is_dirty = True
 			self.health = min(self.health, self.get_health_max())
+
+		else:
+			msg = f"{item.get_full_name().capitalize()} does not seem to be equipped."
 
 		return msg
 
@@ -119,32 +103,48 @@ class Player(Creature):
 		"""
 
 		dirty = False
-		msg = parse(f"@1 has equipped {item.get_full_name()}", self)
-
+		msg = ""
 		if item.slots & EquipmentSlots.MULTI_SLOT:
 			for s in EquipmentSlots:
-				if s & item.slots:
+				if s & item.slots and s.name in self.equip_slots:
+					if self.equip_slots[s.name]:
+						msg += self.remove(self.equip_slots[s.name]) + "\n"
 					self.equip_slots[s.name] = item
 					dirty = True
-			if not dirty:
-				msg = "Unable to auto-equip: Multi-slot item matched no equipment slots."
+			if dirty:
+				msg += f"{self.name} has equipped {item.get_full_name()}."
+			else:
+				msg += "Unable to auto-equip: Multi-slot item matched no equipment slots."
 
-		elif slot is None:
+		elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
+			m = None
 			for key, value in self.equip_slots.items():
-				if item.slots & EquipmentSlots[key] and value is None:
+				if item.slots & EquipmentSlots[key]:
+					if self.equip_slots[key]:
+						m = f"replaced {self.equip_slots[key].get_full_name()} with"
+						self.remove(self.equip_slots[key])
 					self.equip_slots[key] = item
 					dirty = True
+					msg += f"{self.name} has {m or 'equipped'} {item.get_full_name()}."
 					break
 			if not dirty:
-				msg = "Unable to auto-equip: Either specify the equipment slot, or un-equip the item from the " \
-					"desired slot."
+				msg += "Unable to auto-equip: None of the slots that the item could fill are empty. Either specify " \
+					   "the slot, or unequip the item from the desired slot."
+
 		else:
 			if slot & item.slots and slot.name:
+				m = None
+				if self.equip_slots[slot.name]:
+					m = f"replaced {self.equip_slots[slot.name].get_full_name()} with"
+					self.remove(self.equip_slots[slot.name])
+
 				self.equip_slots[slot.name] = item
+				msg += f"{self.name} has {m or 'equipped'} {item.get_full_name()}."
 				dirty = True
 
+
 			if not dirty:
-				msg = "Unable to equip: The item does not fit in that slot." \
+				msg = "Unable to equip: The item does not fit that slot." \
 
 		if dirty:
 			self.is_dirty = True
@@ -448,7 +448,7 @@ class Player(Creature):
 		for idx, item in enumerate(inv):
 			msg += f"\n{idx + 1}: {item.get_full_name()}"
 			for s, i in self.equip_slots.items():
-				msg += f"{'[' + s + '] ' if i == item else ''}"
+				msg += f"{' [' + s + ']' if i == item and not EquipmentSlots.exclude_from_output(s) else ''}"
 
 		if len(msg) == 0 and not filtr:
 			msg = '\nYou have no items.'
@@ -497,10 +497,7 @@ class Player(Creature):
 		return ""
 
 	def use_item(self, item: Union[int, str]) -> str:
-		if isinstance(item, int):
-			_item = self.inventory.get_by_index(item)
-		else:
-			_item, *_ = self.inventory.filter(item) or (None,)
+		_item, *_ = self.inventory.filter(item)
 
 		if _item and isinstance(_item, Consumable):
 			msg, any_left = _item.use(self)

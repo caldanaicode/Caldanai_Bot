@@ -49,6 +49,9 @@ class MonsterPlugin(Monster):
 			"After a moment, the husk crumbles and drifts away.",
 		])
 
+		self.loot['cape'] = 0.15
+		self.loot['high-collared_cape'] = 0.05
+
 	def feed(self, target: Creature) -> str:
 		"""
 		Attempts to feed from a target, regenerating its own health.
