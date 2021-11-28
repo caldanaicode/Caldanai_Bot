@@ -12,7 +12,7 @@ from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
-from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor
+from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
 from Caldanai.lib.rpg.inventory.equipment import Equipment
 from Caldanai.lib.rpg.inventory.stackables import Stackable
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
@@ -496,15 +496,18 @@ class Player(Creature):
 
 		return ""
 
-	def use_item(self, item: Union[int, str]) -> str:
-		_item, *_ = self.inventory.filter(item)
-
-		if _item and isinstance(_item, Consumable):
-			msg, any_left = _item.use(self)
+	def use_item(self, item: Union[Usable, Consumable]) -> str:
+		msg = "There does not seem to be a way to do that."
+		if item and isinstance(item, Consumable):
+			msg, any_left = item.use(self)
 			if not any_left:
-				self.inventory.remove(_item)
+				self.inventory.remove(item)
 				self.is_dirty = True
-			return msg
+
+		elif item and isinstance(item, Usable):
+			msg = item.use(self)
+
+		return msg
 
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""
