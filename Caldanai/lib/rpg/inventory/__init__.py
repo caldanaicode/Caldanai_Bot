@@ -138,49 +138,58 @@ class Inventory:
 		"""Gets the total weight of the inventory."""
 		return fsum([i.get_weight() for i in self.__items])
 
-	def get_by_index(self, index: int) -> Item:
+	def _get_by_index(self, index: int) -> Optional[Item]:
 		"""Returns an item by index, rather than by key."""
-		return self.__items[index]
+		if 0 <= index < len(self):
+			return self.__items[index]
+		return None
 
-	def filter_by_name(self, f: str) -> Tuple[Item]:
+	def _filter_by_name(self, f: str) -> Tuple[Item]:
 		"""Returns a tuple of Items with names containing the provided string."""
 		results = tuple(filter(lambda i: f.lower() in i.name, self.__items))
 		return results
 
-	def filter_by_rarity(self, f: str) -> Tuple[Item]:
+	def _filter_by_rarity(self, f: str) -> Tuple[Item]:
 		"""Returns of tuple of Items with rarities matching the provided string."""
 		results = tuple(filter(lambda i: f.lower() == i.rarity.name.lower(), self.__items))
 		return results
 
-	def filter(self, f: str) -> Tuple[Optional[Item]]:
+	def filter(self, f: Union[str, int]) -> Tuple[Optional[Item]]:
 		"""
 		Returns a tuple of Items where name or rarity contain the provided string, or a tuple containing a single
 		item if the item.n notation is used.
 		"""
-		if not f:
-			inv = self.all()
+
+		results: Tuple[Optional[Item]] = None,
+
+		if not f or f == '_':
+			results = self.all()
+
+		elif isinstance(f, int) or f.isnumeric():
+			index = int(f) - 1
+			results = self._get_by_index(index),
+
+		elif _rarity := Rarities.from_name(f):
+			results = *[i for i in self._filter_by_rarity(f)],
+
+		elif '.' in f:
+			f, flag, *_ = f.split('.')
+
+			if flag and flag.isnumeric():
+				r = self._filter_by_name(f)
+				index = int(flag) - 1
+				if 0 <= index < len(r):
+					results = r[index],
+
+			elif _rarity := Rarities.from_name(flag):
+				results = *[i for i in self._filter_by_name(f) if i.rarity == _rarity],
+
 		else:
-			inv = ()
-			if '.' in f:
-				result = f.split('.')
-				f, flag, *_ = result if len(result) > 2 else (*result, "", None)
+			results = *tuple(set(self._filter_by_name(f)) | set(self._filter_by_rarity(f))),
 
-				if flag and flag.isnumeric():
-					index = int(flag) - 1
-					if 0 <= index < len(self):
-						inv = (self.get_by_indexed_name(f, index),)
-
-				elif _rarity := Rarities.from_name(flag):
-					inv = ([i for i in self.filter_by_name(f) if i.rarity == _rarity])
-
-		return inv
-
-	def get_by_indexed_name(self, name: str, index: int = 0) -> Optional[Item]:
-		"""Returns an item by name and index of item in list of items with similar name."""
-		results = self.filter_by_name(name)
-		if 0 <= index < len(results):
-			return results[index]
-		return None
+		if len(results) > 0:
+			return results
+		return None,
 
 	def all(self) -> Tuple[Item]:
 		"""Returns a tuple containing all inventory items."""

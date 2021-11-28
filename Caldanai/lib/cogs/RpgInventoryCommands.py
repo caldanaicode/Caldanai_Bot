@@ -26,14 +26,14 @@ class RpgInventoryCommands(Cog):
 		return self.utilCog
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
-	@cooldown(1, 5, BucketType.member)
+	@cooldown(1, 2, BucketType.member)
 	async def equip(self, ctx, item: Union[str, int], slot: str = None, gid: int = None):
 		"""
 		Equips an item.
 
 		(5-second cool-down)
 
-		:param item: An item name, item.n, or index to equip. item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory.
+		:param item: An item name, item.n, item.rarity, item.rarity.n, or index to equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.rare' or 'spear.rare.1' would grab the first rare spear in your inventory.
 
 		:param slot: If not provided, the item will be auto-equipped to the best slot, if possible. For weapons or other one-hand-equipped items like rings, the slot will be 'left' or 'right'. Most armor can auto-equip, but you may specify the slot such as 'head', 'torso', or 'waist'. For a full list of slots, see your `profile`.
 
@@ -54,12 +54,7 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if isinstance(item, int):
-			_item = player.inventory.get_by_index(item)
-		elif isinstance(item, str):
-			_item, *_ = player.inventory.filter(item) or (None,)
-		else:
-			_item = None
+		_item, *_ = player.inventory.filter(item)
 
 		if not _item:
 			Dispatcher.add(channel, "You don't seem to have such an item.")
@@ -86,7 +81,7 @@ class RpgInventoryCommands(Cog):
 
 		return Dispatcher.add(channel, player.equip(_item))
 
-	@command(aliases=['slots'], brief="Shows a player's equipment.")
+	@command(aliases=['slots', 'gear'], brief="Shows a player's equipment.")
 	@cooldown(1, 10, BucketType.member)
 	async def equipment(self, ctx, gid: int = None):
 		"""
@@ -113,14 +108,14 @@ class RpgInventoryCommands(Cog):
 		Dispatcher.add(channel, embed=embed)
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
-	@cooldown(1, 5, BucketType.member)
+	@cooldown(1, 2, BucketType.member)
 	async def stow(self, ctx, item_or_slot: Union[str, int], gid: int = None):
 		"""
 		Un-equip an item by name, name.n, index, or slot.
 
 		(5-second cool-down)
 
-		:param item_or_slot: An item name, item.n, index, or slot to un-equip. Item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. Slot indicates the body part on which the item is equipped, such as 'left_hand', 'head', or 'feet'. To see a full list of the slots you are currently using, see the `profile` command.
+		:param item_or_slot: An item name, item.n, item.rarity, item.rarity.n, index, or slot to un-equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.rare' or 'spear.rare.1' would grab the first rare spear in your inventory. Slot indicates the body part on which the item is equipped, such as 'left_hand', 'head', or 'feet'. To see a full list of the slots you are currently using, see the `profile` command.
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
@@ -144,9 +139,9 @@ class RpgInventoryCommands(Cog):
 			return
 
 		msg = "I'm unable to determine which item you meant."
-		_item: Equipment = None
+		_item: Optional[Equipment] = None
 		if isinstance(item_or_slot, int):
-			_item = player.inventory.get_by_index(item_or_slot)
+			_item, *_ = player.inventory.filter(item_or_slot)
 
 		elif isinstance(item_or_slot, str):
 			for s in EquipmentSlots:
@@ -155,10 +150,10 @@ class RpgInventoryCommands(Cog):
 					break
 
 			if not _item:
-				_item, *_ = player.inventory.filter(item_or_slot) or (None,)
+				_item, *_ = player.inventory.filter(item_or_slot)
 
 		if _item:
-			msg = player.remove(_item.slots)
+			msg = player.remove(_item)
 
 		Dispatcher.add(channel, msg or f'You had nothing equipped, {player.name}!')
 
@@ -190,11 +185,9 @@ class RpgInventoryCommands(Cog):
 		if ctx.guild is not None:
 			await ctx.message.delete()
 
-		if filtr == '_':
-			filtr = None
-
 		Dispatcher.add(player.member, f'Inventory for {player.name} on {game.guild.name}')
 		inv = Dispatcher.split_message(player.get_inventory(filtr), keep_sep=True)
+
 		for msg in inv:
 			Dispatcher.add(player.member, f'```js\n{msg.strip()}```')
 
@@ -206,7 +199,7 @@ class RpgInventoryCommands(Cog):
 		
 		(2-second cool-down)
 		
-		:param name: An item name, item.n, or index to display. Item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory.
+		:param name: An item name, item.n, item.rarity, item.rarity.n, or index to display. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.rare' or 'spear.rare.1' would grab the first rare spear in your inventory.
 			
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
@@ -225,10 +218,7 @@ class RpgInventoryCommands(Cog):
 
 		channel = game.channel if ctx.guild is not None else ctx
 
-		if name.isnumeric():
-			item = player.inventory.get_by_index(int(name))
-		else:
-			item, *_ = player.inventory.filter(name) or (None,)
+		item, *_ = player.inventory.filter(name)
 
 		if item:
 			embed, file = item.get_embed()
@@ -300,12 +290,13 @@ class RpgInventoryCommands(Cog):
 	@command(name='sell', brief='Sells an item, range of items, unequipped items, or items having a given rarity.')
 	async def sell(self, ctx, flag: Union[int, str] = None, count: int = None, gid: int = None):
 		"""
-		Sells items by name, name.n, index, a range of indices, all items, or items having a given rarity. Items must be unequipped to be sold.
+		Sells items by name, name.n, index, a range of indices, all items, or items having a given rarity.
+		Items must be unequipped to be sold.
 		When selling an individual item, you may specify a quantity to sell if the item is stackable.
 
 		(2-second cool-down)
 
-		:param flag: An item index, range of indices, rarity, or 'all'.
+		:param flag: An item name, name.n, name.rarity, name.rarity.n, index, range of indices, rarity, or 'all'.
 
 		:param count: If the given item is stackable, provide the number you wish to sell unless you used the 'all'	flag.
 
@@ -329,8 +320,8 @@ class RpgInventoryCommands(Cog):
 		if flag is None:
 			Dispatcher.add(
 				channel,
-				"You must specify the item name, name.n, index, the range of indices, a rarity, or 'all' to sell "
-				"anything not equipped."
+				"You must specify the item name, name.n, name.rarity, name.rarity.n, index, the range of indices, "
+				"a rarity, or 'all'."
 			)
 			return
 
@@ -339,8 +330,8 @@ class RpgInventoryCommands(Cog):
 		sell_all = False
 		sell: List[Item] = []
 
-		if isinstance(flag, int) and 0 <= flag < len(player.inventory):
-			item = player.inventory.get_by_index(flag)
+		if isinstance(flag, int) or flag.isnumeric() and 0 <= int(flag) < len(player.inventory):
+			item, *_ = player.inventory.filter(flag)
 			if count and isinstance(item, Stackable) and (count < 0 or count > item.count):
 				Dispatcher.add(
 					channel,
@@ -363,16 +354,15 @@ class RpgInventoryCommands(Cog):
 			elif '-' in flag:
 				try:
 					low, high = map(int, flag.split('-'))
+					low -= 1
+					high -= 1
 					if low > high:
 						tmp = low
 						low = high
 						high = tmp
 
-					if 0 <= low < high <= len(player.inventory):
-						for i in range(high, low - 1, -1):
-							item = player.inventory.get_by_index(i)
-							if item.id not in equipped:
-								sell.append(item)
+					if 0 <= low < high < len(player.inventory):
+						sell = [filter(lambda i: i.id not in equipped, player.inventory.all()[low:high])]
 
 					else:
 						Dispatcher.add(
@@ -384,12 +374,10 @@ class RpgInventoryCommands(Cog):
 					Dispatcher.add(channel, f"Unable to determine lower and upper indices from {flag}.")
 					return
 			else:
-				sell = [i for i in player.inventory.filter_by_rarity(flag) if i.id not in equipped]
-				if len(sell) == 0:
-					sell = [i for i in player.inventory.filter(flag) if i.id not in equipped]
+				sell = [i for i in player.inventory.filter(flag) if i.id not in equipped]
 
 		else:
-			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}.")
 			return
 
 		if len(sell) > 0:
@@ -397,7 +385,7 @@ class RpgInventoryCommands(Cog):
 				msg += f"\n{player.sell(item, count or 1, sell_all)}"
 
 		if len(msg) == 0:
-			Dispatcher.add(channel, f'You had no items to sell, {player.name}')
+			Dispatcher.add(channel, f'You had no unequipped items to sell, {player.name}.')
 			return
 		else:
 			msg = f'{player.name} sold the following items: ```\n{msg}```'
@@ -419,7 +407,7 @@ class RpgInventoryCommands(Cog):
 
 		(5-second cool-down)
 
-		:param item: An item name, item.n, or index to use. item.n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory.
+		:param item: An item name, item.n, item.rarity, item.rarity.n, or index to display. .n indicates to use the nth of item, for example 'candy.2' would grab the second candy in your inventory. 'sandwich.rare' or 'sandwich.rare.1' would grab the first rare sandwich in your inventory.
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
@@ -438,14 +426,13 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if isinstance(item, int) or (isinstance(item, str) and item.isnumeric()):
-			item = int(item)
-			if 0 <= item < len(player.inventory):
-				Dispatcher.add(channel, player.use_item(item))
-			else:
-				Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+		_item, *_ = player.inventory.filter(item)
+
+		if _item:
+			Dispatcher.add(channel, player.use_item(_item))
+
 		else:
-			Dispatcher.add(channel, player.use_item(item))
+			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
 
 	@use.error
 	async def use_err(self, ctx, error):

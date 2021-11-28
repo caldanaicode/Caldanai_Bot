@@ -293,6 +293,7 @@ class RpgUserCommands(Cog):
 			else:
 				heal_amount = Dice.quick_roll(f"1d{missing_health}")
 
+			heal_amount = heal_amount or 0
 			heal_msg = heal_target.apply_damage(-heal_amount)
 
 			if heal_msg:
