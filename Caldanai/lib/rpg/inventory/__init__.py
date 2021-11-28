@@ -169,6 +169,9 @@ class Inventory:
 			index = int(f) - 1
 			results = self._get_by_index(index),
 
+		elif _rarity := Rarities.from_name(f):
+			results = *[i for i in self._filter_by_rarity(f)],
+
 		elif '.' in f:
 			f, flag, *_ = f.split('.')
 
@@ -182,9 +185,11 @@ class Inventory:
 				results = *[i for i in self._filter_by_name(f) if i.rarity == _rarity],
 
 		else:
-			results = *[set(self._filter_by_name(f)) | set(self._filter_by_rarity(f))],
+			results = *tuple(set(self._filter_by_name(f)) | set(self._filter_by_rarity(f))),
 
-		return results
+		if len(results) > 0:
+			return results
+		return None,
 
 	def all(self) -> Tuple[Item]:
 		"""Returns a tuple containing all inventory items."""
