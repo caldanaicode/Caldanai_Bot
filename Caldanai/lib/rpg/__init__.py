@@ -1,16 +1,16 @@
 import importlib
 import random
-from asyncio import sleep
+from datetime import datetime
 from glob import glob
 from os import path
 
 from discord.ext.commands import Bot
-from discord import Guild, TextChannel
+from discord import Guild, TextChannel, Role
 from typing import Dict, List, Union, Optional
 from random import choice, randint
 
 from Caldanai.lib.rpg.areas import Area
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay, Roles
 from Caldanai.lib.rpg.helpers.parser import parse
 from Caldanai.lib.rpg.time import GameClock
 from Caldanai.lib.rpg.creatures import Creature
@@ -82,6 +82,7 @@ class Game:
 		self.weather = None
 		self._last_ambience_tick = self.game_clock.get_seconds()
 		self.room0: Area = None
+		self.roles: Dict[Roles, Optional[Role]] = {}
 
 		# Regen timer is triggered every game hour (15 minutes for default time scale)
 		self.game_clock.add_routine(self.do_health_regen, 3600 / self.game_clock.time_scale)
@@ -321,6 +322,44 @@ class Game:
 		if self.id is None:
 			self.id = result.upserted_id
 
+	async def set_player_active(self, player: Player):
+		"""Updates player's last_active time and changes roles if needed."""
+		player.last_active = datetime.now()
+		player.is_dirty = True
+		if Roles.INACTIVE in self.roles.keys() \
+					and self.roles[Roles.INACTIVE] \
+					and self.roles[Roles.INACTIVE] in player.member.roles:
+			await player.member.remove_roles(self.roles[Roles.INACTIVE], reason='Activity in game.')
+
+		if Roles.ACTIVE in self.roles.keys() \
+					and self.roles[Roles.ACTIVE] \
+					and self.roles[Roles.ACTIVE] not in player.member.roles:
+			await player.member.add_roles(self.roles[Roles.ACTIVE], reason='Activity in game.')
+
+	async def set_player_inactive(self, player: Player):
+		"""Sets a player's role to inactive."""
+		if Roles.ACTIVE in self.roles.keys() \
+					and self.roles[Roles.ACTIVE] \
+					and self.roles[Roles.ACTIVE] in player.member.roles:
+			await player.member.remove_roles(
+				self.roles[Roles.ACTIVE],
+				reason='No activity in game for at least 24 hours.'
+			)
+
+		if Roles.INACTIVE in self.roles.keys() \
+					and self.roles[Roles.INACTIVE] \
+					and self.roles[Roles.INACTIVE] not in player.member.roles:
+			await player.member.add_roles(
+				self.roles[Roles.INACTIVE],
+				reason='No activity in game for at least 24 hours.'
+			)
+
+	async def update_inactive_roles(self):
+		now = datetime.now()
+		for player in self.players.values():
+			if player.last_active is None or (now - player.last_active).days > 0:
+				await self.set_player_inactive(player)
+
 	@classmethod
 	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:
 		"""Returns a game loaded from the database."""
@@ -363,5 +402,13 @@ class Game:
 			player.member = game.guild.get_member(uid) or await game.guild.fetch_member(uid)
 			player.name = player.member.display_name
 			game.players[uid] = player
+
+		roles = game.guild.roles or await game.guild.fetch_roles()
+
+		for r in Roles:
+			matches = list(filter(lambda _r: _r.name == r.value, roles))
+			game.roles[r] = matches[0] if len(matches) > 0 else None
+
+		game.game_clock.add_routine(game.update_inactive_roles, 3600)
 
 		return game
