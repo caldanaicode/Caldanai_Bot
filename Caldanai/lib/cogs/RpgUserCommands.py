@@ -61,7 +61,10 @@ class RpgUserCommands(Cog):
 			game.players[ctx.author.id] = player
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
 			if Roles.ALL in game.roles.keys() and Roles.ACTIVE in game.roles.keys():
-				await player.member.add_roles([game.roles[Roles.ALL], game.roles[Roles.ACTIVE]], "Player joined game.")
+				await player.member.add_roles(
+					game.roles[Roles.ALL], game.roles[Roles.ACTIVE],
+					reason="Player joined game."
+				)
 
 		else:
 			Dispatcher.add(game.channel, f'You are already a player in this RPG, {ctx.author.display_name}!')
