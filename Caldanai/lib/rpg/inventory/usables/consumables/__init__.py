@@ -58,13 +58,21 @@ class Consumable(Usable):
 		"""Creates a new consumable from a plugin with initial data."""
 
 		try:
-			item = importlib.import_module(
-				f'Caldanai.lib.rpg.inventory.usables.consumables.{plugin_name}').ConsumablePlugin(
+			if 'uses_max' in data.keys() and 'uses_left' in data.keys():
+				item = importlib.import_module(
+					f'Caldanai.lib.rpg.inventory.usables.consumables.{plugin_name}').ConsumablePlugin(
+						data['_id'] if '_id' in data.keys() else None,
+						Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+						data['uses_max'],
+						data['uses_left']
+				)
+
+			else:
+				item = importlib.import_module(
+					f'Caldanai.lib.rpg.inventory.usables.consumables.{plugin_name}').ConsumablePlugin(
 					data['_id'] if '_id' in data.keys() else None,
-					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
-					data['uses_max'] if 'uses_max' in data.keys() else None,
-					data['uses_left'] if 'uses_left' in data.keys() else None
-			)
+					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None
+				)
 
 			return item
 
