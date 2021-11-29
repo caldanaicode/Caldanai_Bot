@@ -72,6 +72,12 @@ class Pronouns(Enum):
 	REFLEXIVE = 'reflexive'
 
 
+class Roles(Enum):
+	ACTIVE = 'Active RPG Player'
+	INACTIVE = 'Inactive RPG Player'
+	ALL = 'RPG Player'
+
+
 class Seasons(Enum):
 	BRIGHTBLOOM = 0
 	SOLSTIME = 1

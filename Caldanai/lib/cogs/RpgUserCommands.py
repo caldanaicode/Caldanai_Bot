@@ -8,7 +8,7 @@ from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg import Game
+from Caldanai.lib.rpg import Game, Roles
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.parser import parse
@@ -53,12 +53,15 @@ class RpgUserCommands(Cog):
 
 		player = await self.utils().get_player(ctx, game, False)
 		if player is None:
-			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=datetime.now())
+			joined = datetime.now()
+			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=joined, last_active=joined)
 			player.member = ctx.author
 			player.name = ctx.author.display_name
 			player.is_dirty = True
 			game.players[ctx.author.id] = player
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
+			if Roles.ALL in game.roles.keys() and Roles.ACTIVE in game.roles.keys():
+				await player.member.add_roles([game.roles[Roles.ALL], game.roles[Roles.ACTIVE]], "Player joined game.")
 
 		else:
 			Dispatcher.add(game.channel, f'You are already a player in this RPG, {ctx.author.display_name}!')
@@ -78,6 +81,11 @@ class RpgUserCommands(Cog):
 		player: Player = game.players[ctx.author.id]
 
 		if player is not None:
+			if Roles.ALL in game.roles.keys() and Roles.ACTIVE in game.roles.keys() and Roles.INACTIVE in game.roles.keys():
+				await player.member.remove_roles(
+					[game.roles[Roles.ALL], game.roles[Roles.ACTIVE], game.roles[Roles.INACTIVE]],
+					'Player left game.'
+				)
 			MongoDB.players.delete_one({'guild_id': ctx.guild.id, 'user_id': ctx.author.id})
 			del game.players[ctx.author.id]
 			game.save()

@@ -1,6 +1,6 @@
 from typing import List, Union
 
-from discord import Member, User
+from discord import Member, User, Forbidden, HTTPException
 from discord.ext import tasks
 from discord.ext.commands import Cog, Context
 from pymongo import UpdateOne
@@ -11,7 +11,7 @@ from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.db import MongoDB
-from Caldanai.lib.rpg import Game, Area
+from Caldanai.lib.rpg import Game, Area, Roles
 
 
 class RpgUtilities(Cog):
@@ -29,6 +29,41 @@ class RpgUtilities(Cog):
 			return True
 		return False
 
+	@staticmethod
+	async def create_roles(game: Game):
+		try:
+			for role in Roles:
+				game.roles[role] = await game.guild.create_role(
+					name=role.value,
+					mentionable=True,
+					reason='Created by Caldanai Bot for directing mentions to only active players.'
+				)
+
+			for player in game.players.values():
+				await player.member.add_roles(game.roles[Roles.ALL], reason="Is a player in the Caldanai Bot's game.")
+
+		except Forbidden:
+			stdout(f"No permission to create roles in guild '{game.guild.name}'.")
+
+		except HTTPException as e:
+			stdout("HTTPException while trying to add roles.")
+			raise
+
+	@staticmethod
+	async def delete_roles(game: Game):
+		try:
+			for key, role in game.roles.items():
+				if role:
+					await role.delete(reason="Caldanai Bot's game removed from server")
+					game.roles[key] = None
+
+		except Forbidden:
+			stdout(f"No permission to remove roles in guild '{game.guild.name}'.")
+
+		except HTTPException as e:
+			stdout("HTTPException while trying to remove roles.")
+			raise
+
 	# Adds a game to the bot's list of games
 	async def add_game(
 			self, game: dict = None, gid: int = None, chid: int = None, timer: bool = True,
@@ -44,6 +79,7 @@ class RpgUtilities(Cog):
 					self.bot, None, guild, channel, timer, spawn_mins_max, spawn_mins_min, spawn_duration,
 					loot_duration, prefix
 				)
+				await RpgUtilities.create_roles(game)
 				game.save()
 
 		else:
@@ -55,10 +91,11 @@ class RpgUtilities(Cog):
 		stdout(f"Game added for guild: {game.guild.name} ({game.guild.id})")
 
 	# Removes a game from the bot's list of games
-	def remove_game(self, gid: int):
+	async def remove_game(self, gid: int):
 		if gid in self.bot.games.keys():
 			MongoDB.games.delete_one({'guild_id': gid})
 			MongoDB.players.delete_many({'guild_id': gid})
+			await RpgUtilities.delete_roles(self.bot.games[gid])
 			del self.bot.games[gid]
 
 	# Gets a list of games to which a user belongs.
