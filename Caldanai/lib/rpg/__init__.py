@@ -189,12 +189,13 @@ class Game:
 		"""Applies health regen to players, and increments the health regen amount."""
 		msg = ""
 		for player in self.players.values():
-			if player.health < player.get_health_max():
+			max_health = player.get_health_max()
+			if player.health < max_health:
 				m = player.apply_damage(-player.health_regen)
 				if m:
 					msg += f"\n{m}"
 
-			player.health_regen = (player.health_regen + 1) if player.health < player.get_health_max() else 0
+			player.health_regen = (player.health_regen + 1) if player.health < max_health else 0
 
 		if msg:
 			Dispatcher.add(self.channel, msg)
@@ -243,7 +244,7 @@ class Game:
 
 				msg += f"\n{self.attack_random_combatant()}"
 				if self.monster.aggression == AggressionLevels.RAMPAGE:
-					Dispatcher.add(self.channel, parse(msg, self.monster))
+					Dispatcher.add(self.channel, msg)
 					self.combatants.clear()
 					self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
 					return
