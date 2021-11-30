@@ -189,9 +189,11 @@ class Game:
 		"""Applies health regen to players, and increments the health regen amount."""
 		msg = ""
 		for player in self.players.values():
-			m = player.apply_damage(-player.health_regen)
-			if m:
-				msg += f"\n{m}"
+			if player.health < player.get_health_max():
+				m = player.apply_damage(-player.health_regen)
+				if m:
+					msg += f"\n{m}"
+
 			player.health_regen = (player.health_regen + 1) if player.health < player.get_health_max() else 0
 
 		if msg:
