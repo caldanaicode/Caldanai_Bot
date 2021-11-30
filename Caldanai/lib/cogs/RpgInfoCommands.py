@@ -243,6 +243,7 @@ class RpgInfoCommands(Cog):
 
 		if gender:
 			player.gender = gender.lower()
+			player.update_pronouns()
 			player.is_dirty = True
 			Dispatcher.add(channel, f"{player.name}'s gender has been set to '{player.gender}'. "
 										 f"You may also wish to set your `{ctx.prefix}pronouns`")
