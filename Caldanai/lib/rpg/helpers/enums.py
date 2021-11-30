@@ -7,11 +7,29 @@ class AggressionLevels(Enum):
 	RAMPAGE = 2			# Attacks until defeated or left alone
 
 
+class CombatRanges(IntFlag):
+	PERSONAL = 0x1		# Touch range
+	MELEE = 0x2			# Melee weapon range (disadvantage at personal)
+	RANGED = 0x4		# Thrown or Fired (disadvantage at melee or closer)
+
+
+class DamageTypes(IntFlag):
+	PHYSICAL = 0x1			# General physical damage
+	BLUDGEONING = 0x2		# Better for breaking body parts / mangling limbs / stunning
+	PIERCING = 0x4			# Better for destroying organs
+	SLASHING = 0x8			# Better for causing bleed / poison effects
+	UNASPECTED = 0x10		# General non-elemental magical damage
+	FIRE = 0x20				# Better for inflicting burns and does more damage against burn victims
+	WATER = 0x40			# Better for healing, but can also turn the victims body against itself.
+	EARTH = 0x80			# Better for buffs, but can also be used to petrify and fashion magical + physical weapons
+	AIR = 0x100				# Better for utilities, and various effects when combined with other magics.
+
+
 class Directions(IntFlag):
 	EAST = 0x1
 	NORTH = 0x2
-	WEST = 0x3
-	SOUTH = 0x4
+	WEST = 0x4
+	SOUTH = 0x8
 	NORTHEAST = NORTH | EAST
 	NORTHWEST = NORTH | WEST
 	SOUTHEAST = SOUTH | EAST
@@ -74,6 +92,7 @@ class Pronouns(Enum):
 
 class Roles(Enum):
 	ACTIVE = 'Active RPG Player'
+	COMBAT_MAIN = 'RPG Main Channel Combatant'
 	INACTIVE = 'Inactive RPG Player'
 	ALL = 'RPG Player'
 
@@ -102,3 +121,17 @@ class TimePartitions(IntFlag):
 	NOCTURNAL = TimesOfDay.DUSK | TimesOfDay.NIGHT
 	CATHEMERAL = AURORAL | DIURNAL | CREPUSCULAR | NOCTURNAL
 
+
+class WeatherPatterns(IntFlag):
+	CLEAR = 0x0				# No particular weather effects, nice clear sky
+	CLOUDY = 0x1			# Clouds without precipitation
+	FOG = 0x2				# Extremely low clouds with no wind
+	PRECIPITATION = 0x4		# Rain / Snow, depending on environment and season
+	WIND = 0x8				# Windy
+
+
+class WeatherSeverities(IntFlag):
+	LIGHT = 0x1
+	MODERATE = 0x2
+	HEAVY = 0x4
+	SEVERE = 0x8
