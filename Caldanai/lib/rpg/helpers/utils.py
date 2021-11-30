@@ -33,14 +33,16 @@ class RpgUtilities:
 	async def create_roles(game: Game):
 		try:
 			for role in Roles:
-				game.roles[role] = await game.guild.create_role(
-					name=role.value,
-					mentionable=True,
-					reason='Created by Caldanai Bot for directing mentions to only active players.'
-				)
+				if role not in game.roles.keys() or (role in game.roles.keys() and not game.roles[role]):
+					game.roles[role] = await game.guild.create_role(
+						name=role.value,
+						mentionable=True,
+						reason='Created by Caldanai Bot for directing mentions to only active players.'
+					)
 
 			for player in game.players.values():
-				await player.member.add_roles(game.roles[Roles.ALL], reason="Is a player in the Caldanai Bot's game.")
+				if game.roles[Roles.ALL] not in player.member.roles:
+					await player.member.add_roles(game.roles[Roles.ALL], reason="Is a player in the Caldanai Bot's game.")
 
 		except Forbidden:
 			stdout(f"No permission to create roles in guild '{game.guild.name}'.")
