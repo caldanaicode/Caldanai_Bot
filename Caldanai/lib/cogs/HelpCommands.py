@@ -41,9 +41,10 @@ def syntax(cmd: Command, prefix: str, verbose: bool = False):
 
 	if verbose:
 		doc = cmd.callback.__doc__
-		while match := paramRegex.search(doc):
-			doc = paramRegex.sub(f"*{match.groups('name')[0]}*\n", doc, 1)
-		result += f"\n__Details__\n{doc.strip()}"
+		if doc:
+			while match := paramRegex.search(doc):
+				doc = paramRegex.sub(f"*{match.groups('name')[0]}*\n", doc, 1)
+			result += f"\n__Details__\n{doc.strip()}"
 
 	return result.strip()
 
@@ -115,8 +116,12 @@ class HelpCommands(Cog):
 			if c := get(self.bot.commands, name=cmd):
 				if sub is None or not isinstance(c, Group):
 					await self.cmd_help(ctx, c)
-				elif isinstance(c, Group) and (s := get(c.commands, name=sub)):
-					await self.cmd_help(ctx, s)
+				elif isinstance(c, Group) \
+					and (
+						s := get(c.commands, name=sub)
+						or list(filter(lambda sc: sub in sc.aliases, c.commands))
+				):
+					await self.cmd_help(ctx, s[0] if isinstance(s, list) and len(s) > 0 else s)
 
 			else:
 				found = False
