@@ -12,7 +12,7 @@ from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
-from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor
+from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
 from Caldanai.lib.rpg.inventory.equipment import Equipment
 from Caldanai.lib.rpg.inventory.stackables import Stackable
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
@@ -39,7 +39,8 @@ class Player(Creature):
 			skills: Optional[Dict[str, int]] = None,
 			gender: Optional[str] = None,
 			pronouns: Optional[str] = None,
-			equip_slots: Optional[Dict[str, Item]] = None
+			equip_slots: Optional[Dict[str, Item]] = None,
+			last_active: Optional[datetime] = None
 	):
 		super().__init__(
 			name=None, atk=None, defense=defense, dodge=dodge, health=health,
@@ -51,6 +52,7 @@ class Player(Creature):
 		self.member: Optional[Member] = None
 		self.weight_limit = weight_limit or 100
 		self.joined = joined
+		self.last_active = last_active
 		self.clarks = clarks
 		self.inventory = inventory or Inventory()
 		self.skills = skills or {}
@@ -297,10 +299,6 @@ class Player(Creature):
 
 		for slot, item in self.equip_slots.items():
 			if not EquipmentSlots.exclude_from_output(slot):
-				#if slot == EquipmentSlots.RIGHT_HELD.name \
-				#	or slot == EquipmentSlots.LEFT_HELD.name \
-				#	and EquipmentSlots.MULTI_SLOT in item.slots:
-				#	continue
 				fields.append((slot, item.get_full_name() if item else "None", True))
 
 		for f, v, i in fields:
@@ -496,15 +494,18 @@ class Player(Creature):
 
 		return ""
 
-	def use_item(self, item: Union[int, str]) -> str:
-		_item, *_ = self.inventory.filter(item)
-
-		if _item and isinstance(_item, Consumable):
-			msg, any_left = _item.use(self)
+	def use_item(self, item: Union[Usable, Consumable]) -> str:
+		msg = "There does not seem to be a way to do that."
+		if item and isinstance(item, Consumable):
+			msg, any_left = item.use(self)
 			if not any_left:
-				self.inventory.remove(_item)
+				self.inventory.remove(item)
 				self.is_dirty = True
-			return msg
+
+		elif item and isinstance(item, Usable):
+			msg = item.use(self)
+
+		return msg
 
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""
@@ -526,7 +527,8 @@ class Player(Creature):
 			'gender': self.gender,
 			'pronouns': ','.join(list(self.pronouns.values())[:-1]),
 			'items': self.inventory.to_list(),
-			'equip_slots': {}
+			'equip_slots': {},
+			'last_active': self.last_active
 		}
 
 		for slot, item in self.equip_slots.items():
@@ -559,7 +561,8 @@ class Player(Creature):
 			skills=p['skills'],
 			gender=p['gender'] if 'gender' in p.keys() else None,
 			pronouns=p['pronouns'] if 'pronouns' in p.keys() else None,
-			equip_slots=p['equip_slots'] if 'equip_slots' in p.keys() else None
+			equip_slots=p['equip_slots'] if 'equip_slots' in p.keys() else None,
+			last_active=p['last_active'] if 'last_active' in p.keys() else None
 		)
 
 		left = player.inventory[str(p['equip_slots'][EquipmentSlots.LEFT_HELD.name])]

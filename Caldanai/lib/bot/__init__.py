@@ -8,10 +8,10 @@ from discord.errors import HTTPException, Forbidden
 from glob import glob
 from os import path
 
-from ..rpg import Game
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
+from Caldanai.lib.rpg import Game
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
 from Caldanai.environment import OWNER_IDS, TOKEN
 
 
@@ -88,7 +88,15 @@ class Bot(BotBase):
 	async def on_error(self, err, *args, **kwargs):
 		if err == 'on_command_error':
 			Dispatcher.add(args[0], '*BZZZT* ERROR! DOES NOT COMPUTE!')
+		if owner := self.get_user(self.owner_ids[0]):
+			Dispatcher.add(owner, repr(args[1]))
 		raise
+
+	async def on_command_completion(self, ctx):
+		if guild := ctx.guild:
+			if game := self.games[guild.id]:
+				if ctx.author.id in game.players.keys() and (player := game.players[ctx.author.id]):
+					await game.set_player_active(player)
 
 	async def on_command_error(self, ctx, exc):
 		if isinstance(

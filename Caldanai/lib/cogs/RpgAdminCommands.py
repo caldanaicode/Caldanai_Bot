@@ -1,9 +1,10 @@
 from typing import Optional
 
 from discord import Embed, Guild
-from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
+from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType, command
 from Caldanai.lib.bot import Bot
 from .RpgUtilities import RpgUtilities
+from ..rpg import Roles
 from ..rpg.creatures.player import Player
 from ..rpg.inventory import Inventory
 from ...Dispatcher import Dispatcher
@@ -65,8 +66,41 @@ class RpgAdminCommands(Cog):
 		if not await self.utils().check_game_exists(ctx):
 			return
 
-		self.utils().remove_game(ctx.guild.id)
+		await self.utils().remove_game(ctx.guild.id)
 		Dispatcher.add(ctx, "The game has been removed.")
+
+	@group(brief="Role settings for the game.")
+	@guild_only()
+	@has_permissions(manage_guild=True)
+	@cooldown(1, 5, BucketType.guild)
+	async def roles(self, ctx):
+		pass
+
+	@roles.command(brief='Adds roles for the game, if the bot has the permissions.', aliases=['add'])
+	async def add_roles(self, ctx):
+		if game := await self.utils().get_game(ctx):
+			if game.roles[Roles.ALL] is None:
+				await RpgUtilities.create_roles(game)
+				if game.roles[Roles.ALL]:
+					Dispatcher.add(ctx, "Roles added!")
+				else:
+					Dispatcher.add(ctx, "There was a problem adding the roles. I may not have permission to do that.")
+			else:
+				Dispatcher.add(ctx, "The roles already exist.")
+
+		else:
+			Dispatcher.add(ctx, "There is no game running on this server.")
+
+	@roles.command(brief='Removes roles for the game, if the bot has the permissions.', aliases=['remove'])
+	async def remove_roles(self, ctx):
+		if (game := await self.utils().get_game(ctx)) \
+				and Roles.ALL in game.roles.keys() \
+				and game.roles[Roles.ALL] is not None:
+			await RpgUtilities.delete_roles(game)
+			if game.roles[Roles.ALL]:
+				Dispatcher.add(ctx, "There was a problem removing the roles. I may not have permission to do that.")
+			else:
+				Dispatcher.add(ctx, "Roles removed!")
 
 	@group(brief="Displays or sets various spawning options.")
 	@guild_only()

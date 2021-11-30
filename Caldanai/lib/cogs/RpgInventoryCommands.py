@@ -354,15 +354,14 @@ class RpgInventoryCommands(Cog):
 			elif '-' in flag:
 				try:
 					low, high = map(int, flag.split('-'))
-					low -= 1
-					high -= 1
 					if low > high:
 						tmp = low
 						low = high
 						high = tmp
 
-					if 0 <= low < high < len(player.inventory):
-						sell = [filter(lambda i: i.id not in equipped, player.inventory.all()[low:high])]
+					low -= 1
+					if 0 <= low < high <= len(player.inventory):
+						sell = list(filter(lambda i: i.id not in equipped, player.inventory.all()[low:high]))
 
 					else:
 						Dispatcher.add(
