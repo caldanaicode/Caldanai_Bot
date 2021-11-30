@@ -10,7 +10,7 @@ from discord import Member, Embed, File
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Pronouns
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
 from Caldanai.lib.rpg.inventory.equipment import Equipment
@@ -160,6 +160,29 @@ class Player(Creature):
 		atk = floor(self.get_skill_level(skill) / 2)
 		dmg = floor(self.get_skill_level(skill) / 4)
 		return atk, dmg
+
+	def update_pronouns(self):
+		"""Auto-updates the player's pronouns, if the gender matches a preset."""
+		if self.gender.lower() == 'male':
+			self.pronouns[Pronouns.SUBJECTIVE] = 'he'
+			self.pronouns[Pronouns.OBJECTIVE] = 'him'
+			self.pronouns[Pronouns.POSSESSIVE] = 'his'
+			self.pronouns[Pronouns.ADJECTIVE] = 'his'
+			self.pronouns[Pronouns.REFLEXIVE] = 'himself'
+
+		elif self.gender.lower() == 'female':
+			self.pronouns[Pronouns.SUBJECTIVE] = 'she'
+			self.pronouns[Pronouns.OBJECTIVE] = 'her'
+			self.pronouns[Pronouns.POSSESSIVE] = 'hers'
+			self.pronouns[Pronouns.ADJECTIVE] = 'her'
+			self.pronouns[Pronouns.REFLEXIVE] = 'herself'
+
+		elif self.gender.lower() == 'non-binary':
+			self.pronouns[Pronouns.SUBJECTIVE] = 'they'
+			self.pronouns[Pronouns.OBJECTIVE] = 'them'
+			self.pronouns[Pronouns.POSSESSIVE] = 'theirs'
+			self.pronouns[Pronouns.ADJECTIVE] = 'their'
+			self.pronouns[Pronouns.REFLEXIVE] = 'themself'
 
 	def update_roll_count(self, sides: int, value: int):
 		"""Updates the player's roll count for an individual die roll."""
@@ -484,7 +507,9 @@ class Player(Creature):
 
 	def apply_damage(self, amount: int) -> str:
 		was_alive = self.health > 0
-		super().apply_damage(amount)
+		self.health -= amount
+		self.health = max(0, self.health)
+		self.health = min(self.health, self.get_health_max())
 		self.is_dirty = True
 		if was_alive and self.is_dead():
 			return parse("@1 crumples to the ground lifelessly!", self)
