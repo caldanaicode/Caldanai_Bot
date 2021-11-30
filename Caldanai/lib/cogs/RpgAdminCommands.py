@@ -1,27 +1,20 @@
 from typing import Optional
 
 from discord import Embed, Guild
-from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType, command
+from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
 from Caldanai.lib.bot import Bot
-from .RpgUtilities import RpgUtilities
-from ..rpg import Roles
-from ..rpg.creatures.player import Player
-from ..rpg.inventory import Inventory
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities
+from Caldanai.lib.rpg import Roles
+from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.inventory import Inventory
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
 
 
 class RpgAdminCommands(Cog):
 	def __init__(self, bot: Bot):
 		self.bot: Bot = bot
-		self.bot.games = self.bot.games or {}
-		self.utilCog: RpgUtilities = None
-
-	def utils(self) -> RpgUtilities:
-		if self.utilCog is None:
-			self.utilCog = self.bot.get_cog("RpgUtilities")
-		return self.utilCog
 
 	@group(aliases=["rpg"], brief="Groups the various Game commands.")
 	@guild_only()
@@ -50,7 +43,7 @@ class RpgAdminCommands(Cog):
 
 		else:
 			if MongoDB.games.insert_one({'guild_id': ctx.guild.id, 'channelId': ctx.channel.id}):
-				await self.utils().add_game(gid=ctx.guild.id, chid=ctx.channel.id)
+				await RpgUtilities.add_game(gid=ctx.guild.id, chid=ctx.channel.id)
 				Dispatcher.add(ctx, "A new game has been started in this channel!")
 				return True
 
@@ -63,10 +56,10 @@ class RpgAdminCommands(Cog):
 		Upon removal, a new game may be created but data from the removed game is not recoverable.
 		"""
 
-		if not await self.utils().check_game_exists(ctx):
+		if not await RpgUtilities.check_game_exists(ctx):
 			return
 
-		await self.utils().remove_game(ctx.guild.id)
+		await RpgUtilities.remove_game(ctx.guild.id)
 		Dispatcher.add(ctx, "The game has been removed.")
 
 	@group(brief="Role settings for the game.")
@@ -74,11 +67,20 @@ class RpgAdminCommands(Cog):
 	@has_permissions(manage_guild=True)
 	@cooldown(1, 5, BucketType.guild)
 	async def roles(self, ctx):
+		"""
+		This command cannot be used on its own, and requires a subcommand.
+		"""
 		pass
 
 	@roles.command(brief='Adds roles for the game, if the bot has the permissions.', aliases=['add'])
 	async def add_roles(self, ctx):
-		if game := await self.utils().get_game(ctx):
+		"""
+		Adds roles for the game, if the bot has the permissions.
+
+		This command is only necessary for games which existed before roles were added, or if the bot's permissions
+		have changed to allow the management of roles.
+		"""
+		if game := await RpgUtilities.get_game(ctx):
 			if game.roles[Roles.ALL] is None:
 				await RpgUtilities.create_roles(game)
 				if game.roles[Roles.ALL]:
@@ -93,7 +95,13 @@ class RpgAdminCommands(Cog):
 
 	@roles.command(brief='Removes roles for the game, if the bot has the permissions.', aliases=['remove'])
 	async def remove_roles(self, ctx):
-		if (game := await self.utils().get_game(ctx)) \
+		"""
+		Removes roles for the game, if the bot has the permissions.
+
+		This command is only necessary for games which existed before roles were added, or if the bot's permissions
+		have changed to allow the management of roles.
+		"""
+		if (game := await RpgUtilities.get_game(ctx)) \
 				and Roles.ALL in game.roles.keys() \
 				and game.roles[Roles.ALL] is not None:
 			await RpgUtilities.delete_roles(game)
@@ -113,7 +121,7 @@ class RpgAdminCommands(Cog):
 		(5-second cool-down server-wide)
 		"""
 
-		if not await self.utils().check_game_exists(ctx):
+		if not await RpgUtilities.check_game_exists(ctx):
 			return
 
 		if ctx.invoked_subcommand is None:
@@ -301,10 +309,10 @@ class RpgAdminCommands(Cog):
 		target: Player = None
 
 		if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-			target = await self.utils().get_player(ctx.message.mentions[0])
+			target = await RpgUtilities.get_player(ctx.message.mentions[0])
 
 		if target is None:
-			target = await self.utils().get_player(ctx)
+			target = await RpgUtilities.get_player(ctx)
 
 		if target is None or item_name is None:
 			return
@@ -330,7 +338,7 @@ class RpgAdminCommands(Cog):
 		(5-second cool-down server-wide)
 		"""
 
-		if not await self.utils().check_game_exists(ctx):
+		if not await RpgUtilities.check_game_exists(ctx):
 			return
 
 		if ctx.invoked_subcommand is None:
@@ -381,6 +389,8 @@ class RpgAdminCommands(Cog):
 	# Additional maintenance after cog loads.
 	@Cog.listener()
 	async def on_ready(self):
+		if not RpgUtilities.is_initialized:
+			await RpgUtilities.init(self.bot)
 		stdout("RpgAdminCommands ready.")
 
 
