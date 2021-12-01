@@ -104,6 +104,12 @@ class Seasons(Enum):
 	FROSTFALL = 3
 
 
+class Stats(Enum):
+	DEFENSE = 'defense'
+	DODGE = 'dodge'
+	HEALTH_MAX = 'health_max'
+
+
 class TimesOfDay(IntFlag):
 	DAWN = 0x1
 	MORNING = 0x2
