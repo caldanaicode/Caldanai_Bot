@@ -3,7 +3,7 @@ from typing import Tuple
 
 from random import choice
 
-from Caldanai.lib.rpg import Monster
+from Caldanai.lib.rpg import Monster, parse
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
@@ -49,8 +49,8 @@ class MonsterPlugin(Monster):
 			"After a moment, the husk crumbles and drifts away.",
 		])
 
-		self.loot['cape'] = 0.15
-		self.loot['high-collared_cape'] = 0.05
+		self.loot['cape'] = 0.2
+		self.loot['high-collared_cape'] = 0.1
 
 	def feed(self, target: Creature) -> str:
 		"""
@@ -81,7 +81,7 @@ class MonsterPlugin(Monster):
 		else:
 			msg += "\n\nAmazingly, @2's quick reflexes see @2o safely out of harm's way!"
 
-		return msg
+		return parse(msg, self, target)
 
 	def on_hugged(self, actor: Creature, invocation: str) -> str:
 		responses = [
