@@ -1,12 +1,11 @@
 from bson import ObjectId
 
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
-from Caldanai.lib.rpg.inventory.rarity import Rarity
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 class WeaponPlugin(Weapon):
-	def __init__(self, iid: ObjectId = None, rarity: Rarity = None, bonus: int = None):
+	def __init__(self, iid: ObjectId = None, quality: Qualities = None, bonus: int = None):
 		super().__init__(
 			iid=iid,
 			name="spear",
@@ -14,7 +13,7 @@ class WeaponPlugin(Weapon):
 			unit_weight=3.5,
 			unit_value=15,
 			image="spear128.png",
-			rarity=rarity,
+			quality=quality,
 			article="a",
 			slots=EquipmentSlots.TWO_HANDED,
 			plugin="spear",

@@ -5,7 +5,7 @@ from typing import Union, List, Optional
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
@@ -18,12 +18,6 @@ from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 class RpgInventoryCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
-		self.utilCog: Optional[RpgUtilities] = None
-
-	def utils(self) -> RpgUtilities:
-		if self.utilCog is None:
-			self.utilCog = self.bot.get_cog("RpgUtilities")
-		return self.utilCog
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
 	@cooldown(1, 2, BucketType.member)
@@ -39,11 +33,11 @@ class RpgInventoryCommands(Cog):
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
-		player: Player = await self.utils().get_player(ctx, game)
+		player: Player = await RpgUtilities.get_player(ctx, game)
 		if player is None:
 			return
 
@@ -92,7 +86,7 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -120,11 +114,11 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
-		player: Player = await self.utils().get_player(ctx, game)
+		player: Player = await RpgUtilities.get_player(ctx, game)
 		if player is None:
 			return
 
@@ -174,11 +168,11 @@ class RpgInventoryCommands(Cog):
 		:param gid: If calling from a DM and playing on more than one server, provide the game's index for which you wish to view inventory. Use the 'games' command to determine the game index.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
-		player: Player = await self.utils().get_player(ctx, game)
+		player: Player = await RpgUtilities.get_player(ctx, game)
 		if player is None:
 			return
 
@@ -208,11 +202,11 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(ctx, "Please specify an item.")
 			return
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
-		player = await self.utils().get_player(ctx, game)
+		player = await RpgUtilities.get_player(ctx, game)
 		if player is None:
 			return
 
@@ -247,7 +241,7 @@ class RpgInventoryCommands(Cog):
 		(10-second cool-down)
 		"""
 
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 
 		if game is None or player is None:
 			return
@@ -303,11 +297,11 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
-		player = await self.utils().get_player(ctx, game)
+		player = await RpgUtilities.get_player(ctx, game)
 		if player is None:
 			return
 
@@ -330,7 +324,7 @@ class RpgInventoryCommands(Cog):
 		sell_all = False
 		sell: List[Item] = []
 
-		if isinstance(flag, int) or flag.isnumeric() and 0 <= int(flag) < len(player.inventory):
+		if isinstance(flag, int) or flag.isnumeric() and 1 <= int(flag) <= len(player.inventory):
 			item, *_ = player.inventory.filter(flag)
 			if count and isinstance(item, Stackable) and (count < 0 or count > item.count):
 				Dispatcher.add(
@@ -411,11 +405,11 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
-		player = await self.utils().get_player(ctx, game)
+		player = await RpgUtilities.get_player(ctx, game)
 		if player is None:
 			return
 

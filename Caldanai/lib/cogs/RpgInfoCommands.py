@@ -9,21 +9,15 @@ import matplotlib.pyplot as plt
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.enums import Directions, Pronouns
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 
 
 class RpgInfoCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
-		self.utilCog: Optional[RpgUtilities] = None
-
-	def utils(self) -> RpgUtilities:
-		if self.utilCog is None:
-			self.utilCog = self.bot.get_cog("RpgUtilities")
-		return self.utilCog
 
 	@command(brief="Lists the current players in a game.")
 	@cooldown(1, 10, BucketType.guild)
@@ -36,7 +30,7 @@ class RpgInfoCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -65,7 +59,7 @@ class RpgInfoCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -91,7 +85,7 @@ class RpgInfoCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 		if game is None:
 			return
 
@@ -119,7 +113,7 @@ class RpgInfoCommands(Cog):
 			[all] Compiles data for all players.
 		"""
 
-		game: Game = await self.utils().get_game(ctx)
+		game: Game = await RpgUtilities.get_game(ctx)
 		if game is None:
 			return
 
@@ -223,7 +217,7 @@ class RpgInfoCommands(Cog):
 		"""
 
 		msg = ""
-		games = self.utils().get_games_for_user(ctx.author.id)
+		games = RpgUtilities.get_games_for_user(ctx.author.id)
 		for idx, game in enumerate(games):
 			msg += f'{idx}: {game.guild.name}\n'
 
@@ -241,7 +235,7 @@ class RpgInfoCommands(Cog):
 
 		:param gender: Can be anything you like, but if the gender is not 'male', 'female', or 'non-binary', the pronouns will not be auto-updated by the game.
 		"""
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 		if game is None or player is None:
 			return
 
@@ -249,6 +243,7 @@ class RpgInfoCommands(Cog):
 
 		if gender:
 			player.gender = gender.lower()
+			player.update_pronouns()
 			player.is_dirty = True
 			Dispatcher.add(channel, f"{player.name}'s gender has been set to '{player.gender}'. "
 										 f"You may also wish to set your `{ctx.prefix}pronouns`")
@@ -272,7 +267,7 @@ class RpgInfoCommands(Cog):
 
 		:param a: The adjective form, such as 'his', 'her', or 'their'. Example usage: 'Her health has been restored.'
 		"""
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 		if game is None or player is None:
 			return
 
@@ -304,7 +299,7 @@ class RpgInfoCommands(Cog):
 
 		:param flag: 'all', 'hurt', or 'injured'. If nothing is specified, shows only the calling player's health and regeneration. 'all' shows health for all players. 'hurt' or 'injured' shows health for only those players who are missing health.
 		"""
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 
 		if game is None or player is None:
 			return
@@ -347,7 +342,7 @@ class RpgInfoCommands(Cog):
 
 		(10-second cool-down)
 		"""
-		game = await self.utils().get_game(ctx)
+		game = await RpgUtilities.get_game(ctx)
 		if game is None:
 			return
 
@@ -364,7 +359,7 @@ class RpgInfoCommands(Cog):
 
 		(5-second cool-down)
 		"""
-		game = await self.utils().get_game(ctx)
+		game = await RpgUtilities.get_game(ctx)
 		if game is None:
 			return
 		time = game.game_clock.get_seconds()
@@ -385,7 +380,7 @@ class RpgInfoCommands(Cog):
 
 		:param target: A direction in which to look, or a monster or player at which to look.
 		"""
-		game = await self.utils().get_game(ctx)
+		game = await RpgUtilities.get_game(ctx)
 		if game is None:
 			return
 
@@ -410,7 +405,7 @@ class RpgInfoCommands(Cog):
 			return
 
 		elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-			p = await self.utils().get_player(ctx.message.mentions[0])
+			p = await RpgUtilities.get_player(ctx.message.mentions[0])
 			if p:
 				embed = p.get_profile(game.guild.name)
 				Dispatcher.add(game.channel, embed=embed)

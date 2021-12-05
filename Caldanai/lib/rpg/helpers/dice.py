@@ -25,6 +25,10 @@ class Dice:
 			s += f" = {self.value}"
 		return s
 
+	def __repr__(self):
+		return f"Dice <count={self.count}, sides={self.sides}, value={self.value}, " \
+				f"rolls=[ {', '.join(map(str, self.rolls))} ]>"
+
 	def roll(self) -> Tuple[int]:
 		"""
 		Rolls the dice in this instance and sets the value as the sum. Individual rolls are stored in the rolls
@@ -54,6 +58,9 @@ class Dice:
 			rolls.sort()
 			return sum(rolls[-keep:])
 		return dice.value if dice else None
+
+	def get_ndn(self):
+		return f"{self.count}d{self.sides}"
 
 	@classmethod
 	def from_ndn(cls, ndn: str) -> Union["Dice", None]:

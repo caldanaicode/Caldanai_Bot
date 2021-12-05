@@ -6,7 +6,7 @@ from typing import Optional
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.lib.cogs.RpgUtilities import RpgUtilities
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg import Game, Roles
 from Caldanai.lib.rpg.creatures.player import Player
@@ -19,12 +19,6 @@ from datetime import datetime
 class RpgUserCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
-		self.utilCog: Optional[RpgUtilities] = None
-
-	def utils(self) -> RpgUtilities:
-		if self.utilCog is None:
-			self.utilCog = self.bot.get_cog("RpgUtilities")
-		return self.utilCog
 
 	@group(brief="Groups together various game commands for players.")
 	@guild_only()
@@ -47,11 +41,11 @@ class RpgUserCommands(Cog):
 		Adds a member to the RPG system as a player if they do not already exist in the database. This can only be called by the member trying to participate.
 		"""
 
-		game: Game = await self.utils().get_game(ctx)
+		game: Game = await RpgUtilities.get_game(ctx)
 		if game is None:
 			return
 
-		player = await self.utils().get_player(ctx, game, False)
+		player = await RpgUtilities.get_player(ctx, game, False)
 		if player is None:
 			joined = datetime.now()
 			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=joined, last_active=joined)
@@ -76,7 +70,7 @@ class RpgUserCommands(Cog):
 		Removes an existing player from the game. This can only be called by member withdrawing from participation.
 		"""
 
-		game: Game = await self.utils().get_game(ctx, gid)
+		game: Game = await RpgUtilities.get_game(ctx, gid)
 
 		if game is None:
 			return
@@ -108,7 +102,7 @@ class RpgUserCommands(Cog):
 		(10-second cool-down)
 		"""
 
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 
 		if game is None or player is None:
 			return
@@ -142,7 +136,7 @@ class RpgUserCommands(Cog):
 
 		:param msg: A message to include with the hug. This can be a target such as a monster's noun, or an @mention of another player. It can also simply be text in the form of a custom emote, but remember to type in the third-person present participle for best effect.
 		"""
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 		if game is None or player is None:
 			return
 
@@ -150,7 +144,7 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(game.channel, f"A lonely sigh slips from the corpse of {player.name}.")
 
 		elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-			target = await self.utils().get_player(ctx.message.mentions[0])
+			target = await RpgUtilities.get_player(ctx.message.mentions[0])
 
 			if target is not None:
 				Dispatcher.add(game.channel, parse(target.on_hugged(player, ctx.invoked_with), target, player))
@@ -179,7 +173,7 @@ class RpgUserCommands(Cog):
 
 		:param target: An optional victim of your haunting; either a player using @mentions, or the name of the current monster.
 		"""
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 		haunted = None
 
 		if game is None or player is None:
@@ -189,7 +183,7 @@ class RpgUserCommands(Cog):
 			if game.monster is not None and game.monster.name == target.lower():
 				haunted = game.monster
 			elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-				haunted = await self.utils().get_player(ctx.message.mentions[0])
+				haunted = await RpgUtilities.get_player(ctx.message.mentions[0])
 
 			if haunted is None or not isinstance(haunted, Creature):
 				await self.haunt(ctx)
@@ -228,7 +222,7 @@ class RpgUserCommands(Cog):
 
 		(60-second cool-down)
 		"""
-		game, player = await self.utils().get_game_and_player(ctx)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 
 		if game is None or player is None:
 			return
@@ -280,25 +274,19 @@ class RpgUserCommands(Cog):
 					actors.append(p)
 					index += 1
 
-		elif d20.value > 17:
-			heal_target: Player = player
-
-			for p in game.players.values():
-				if p.health < heal_target.health:
-					heal_target = p
+		elif d20.value > 16:
+			heal_target: Player = min(
+				list(filter(lambda p: p.health < p.get_health_max(), game.players.values())) or [player],
+				key=lambda p: p.health
+			)
 
 			missing_health = heal_target.get_health_max() - heal_target.health
 			actors.append(heal_target)
 			index = len(actors)
-			third = math.ceil(missing_health / 3)
+			quarter = math.ceil(missing_health / 4)
 
-			if third > 1:
-				if d20.value == 18:
-					heal_amount = Dice.quick_roll(f"1d{third}")
-				elif d20.value == 19:
-					heal_amount = Dice.quick_roll(f"1d{third}") + third
-				elif d20.value == 20:
-					heal_amount = Dice.quick_roll(f"1d{third}") + third * 2
+			if quarter > 1:
+				heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
 			elif missing_health == 1:
 				heal_amount = 1
 			else:

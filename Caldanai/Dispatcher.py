@@ -135,7 +135,7 @@ async def send():
 			else:
 				msg += e.text
 
-			stdout(msg)
+			stdout(f"{msg}\n\t{e}")
 		count += 1
 
 

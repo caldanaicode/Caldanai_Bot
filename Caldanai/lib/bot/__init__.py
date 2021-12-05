@@ -127,11 +127,9 @@ class Bot(BotBase):
 		self.online = True
 
 	async def on_disconnect(self):
-		stdout("Bot disconnected.")
 		self.online = False
 
 	async def on_resumed(self):
-		stdout("Bot resumed.")
 		self.online = True
 
 	async def on_guild_join(self, guild: Guild):

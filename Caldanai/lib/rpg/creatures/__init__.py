@@ -23,7 +23,7 @@ class Creature:
 			health_max: Optional[Union[str, int]],
 			health: Optional[int] = None,
 			gender: Optional[str] = None,
-			pronouns: Optional[str] = None
+			pronouns: Optional[str] = None,
 	):
 		"""
 		Creates a new instance of a creature object.
@@ -49,8 +49,9 @@ class Creature:
 		self.flavor = ''
 		self.image = None
 		self.clarks = 0
-		self.gender: Optional[str] = gender or choice(['male', 'female'])
+		self.gender: Optional[str] = gender or choice(['male', 'female', 'non-binary'])
 		self.is_dirty: bool = False
+		self.pronouns: Dict[Pronouns, str] = {}
 
 		if pronouns:
 			s = pronouns.split(',')
@@ -62,13 +63,60 @@ class Creature:
 				Pronouns.REFLEXIVE: s[1].strip() + 'self'
 			}
 		else:
-			self.pronouns: Dict[Pronouns, str] = {
-				Pronouns.SUBJECTIVE: 'he' if self.gender == 'male' else 'she' if self.gender == 'female' else 'it',
-				Pronouns.OBJECTIVE: 'him' if self.gender == 'male' else 'her' if self.gender == 'female' else 'it',
-				Pronouns.POSSESSIVE: 'his' if self.gender == 'male' else 'hers' if self.gender == 'female' else 'its',
-				Pronouns.ADJECTIVE: 'his' if self.gender == 'male' else 'her' if self.gender == 'female' else 'its',
-				Pronouns.REFLEXIVE: 'himself' if self.gender == 'male' else 'herself' if self.gender == 'female' else 'itself'
-			}
+			self.update_pronouns()
+
+		# if stats:
+		# 	for name, value in stats.items():
+		# 		n = name.upper()
+		# 		if n in Stats.__members__.keys():
+		# 			if Stats[n] == Stats.ATTACK:
+		# 				self.stats[Stats.ATTACK] = value or Stats.ATTACK['default']
+		# 			else:
+		# 				self.stats[Stats[n]] = value if isinstance(value, int) else Dice.quick_roll(value)
+		# 				if Stats[n]['min']:
+		# 					self.stats[Stats[n]] = max(self.stats[Stats[n]], Stats[n]['min'])
+		#
+		# for stat in Stats:
+		# 	if stat not in self.stats.keys():
+		#
+		# 		self.stats[stat] = 1
+
+	def apply_damage(self, amount: int) -> None:
+		"""
+		Applies damage (or healing if amount is negative) to the creature's health.
+
+		:param amount: Integer representing the amount by which to adjust health.
+		:return: None
+		"""
+		self.health -= amount
+		self.health = max(0, self.health)
+		self.health = min(self.health, self.get_health_max())
+
+	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
+		"""
+		Calculates an attack against the given creature, without modifying any attributes.
+
+		Returns a tuple containing the attack message and the total damage done.
+		"""
+
+		attack = AttackRoll(skill_bonus=0)
+		damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
+		defense = creature.get_defense()
+		dodge = creature.get_dodge()
+		combined = CombinedRoll(attack, damage, dodge)
+		t_dmg = 0 if combined.isMiss else max(1, combined.result - defense)
+
+		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({dodge}): " \
+			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
+
+		if not combined.isMiss:
+			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
+				   f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
+
+			msg += f"\n\nTotal ({combined.result}) vs Defense ({defense}) = {t_dmg}"
+
+		msg += "```\n"
+		return msg, t_dmg
 
 	def get_embed(self) -> tuple:
 		"""
@@ -100,38 +148,14 @@ class Creature:
 			embed.add_field(name=f, value=v, inline=i)
 		return embed, file
 
-	def on_hugged(self, actor: "Creature", invocation: str) -> str:
-		"""
-		Gets a creature's reaction to being hugged.
+	def get_defense(self) -> int:
+		return self.defense
 
-		:param actor: The Creature object initiating the hug.
-		:param invocation: The calling command, such as 'hug', 'cuddle', or 'snuggle'.
-		:return: A string representing the creature's reaction.
-		"""
-		if self.is_dead():
-			return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
-		return parse("The @1 glances at @2 and sidesteps @2a hug.", self, actor)
+	def get_dodge(self) -> int:
+		return self.dodge
 
-	# Applies damage (or healing if amount is negative) to the creature's health.
-	def apply_damage(self, amount: int) -> None:
-		"""
-		Applies damage (or healing if amount is negative) to the creature's health.
-
-		:param amount: Integer representing the amount by which to adjust health.
-		:return: None
-		"""
-		self.health -= amount
-		self.health = max(0, self.health)
-		self.health = min(self.health, self.health_max)
-
-	# Returns a boolean indicating whether or not the creature's health is depleted.
-	def is_dead(self) -> bool:
-		"""
-		Returns a boolean indicating whether or not the creature's health is depleted.
-
-		:return: True if health <= 0, otherwise False.
-		"""
-		return self.health <= 0
+	def get_health_max(self) -> int:
+		return self.health_max
 
 	def give_clarks(self, amount: int) -> bool:
 		"""
@@ -146,28 +170,46 @@ class Creature:
 			return True
 		return False
 
-	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
+	# Returns a boolean indicating whether or not the creature's health is depleted.
+	def is_dead(self) -> bool:
 		"""
-		Performs an attack against the given creature, without modifying its attributes.
+		Returns a boolean indicating whether or not the creature's health is depleted.
 
-		Returns a tuple containing the attack message and the total damage done.
+		:return: True if health <= 0, otherwise False.
 		"""
+		return self.health <= 0
 
-		attack = AttackRoll(skill_bonus=0)
-		damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
-		defense = creature.get_defense() if creature.get_defense else creature.defense
-		dodge = creature.get_dodge() if creature.get_dodge else creature.dodge
-		combined = CombinedRoll(attack, damage, dodge)
-		t_dmg = 0 if combined.isMiss else max(1, combined.result - defense)
+	def on_hugged(self, actor: "Creature", invocation: str) -> str:
+		"""
+		Gets a creature's reaction to being hugged.
 
-		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({dodge}): " \
-			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
+		:param actor: The Creature object initiating the hug.
+		:param invocation: The calling command, such as 'hug', 'cuddle', or 'snuggle'.
+		:return: A string representing the creature's reaction.
+		"""
+		if self.is_dead():
+			return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
+		return parse("The @1 glances at @2 and sidesteps @2a hug.", self, actor)
 
-		if not combined.isMiss:
-			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
-				   f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
+	def update_pronouns(self):
+		"""Auto-updates the creature's pronouns, if the gender matches a preset."""
+		if self.gender.lower() == 'male':
+			self.pronouns[Pronouns.SUBJECTIVE] = 'he'
+			self.pronouns[Pronouns.OBJECTIVE] = 'him'
+			self.pronouns[Pronouns.POSSESSIVE] = 'his'
+			self.pronouns[Pronouns.ADJECTIVE] = 'his'
+			self.pronouns[Pronouns.REFLEXIVE] = 'himself'
 
-			msg += f"\n\nTotal ({combined.result}) vs Defense ({defense}) = {t_dmg}"
+		elif self.gender.lower() == 'female':
+			self.pronouns[Pronouns.SUBJECTIVE] = 'she'
+			self.pronouns[Pronouns.OBJECTIVE] = 'her'
+			self.pronouns[Pronouns.POSSESSIVE] = 'hers'
+			self.pronouns[Pronouns.ADJECTIVE] = 'her'
+			self.pronouns[Pronouns.REFLEXIVE] = 'herself'
 
-		msg += "```\n"
-		return msg, t_dmg
+		elif self.gender.lower() == 'non-binary':
+			self.pronouns[Pronouns.SUBJECTIVE] = 'they'
+			self.pronouns[Pronouns.OBJECTIVE] = 'them'
+			self.pronouns[Pronouns.POSSESSIVE] = 'theirs'
+			self.pronouns[Pronouns.ADJECTIVE] = 'their'
+			self.pronouns[Pronouns.REFLEXIVE] = 'themself'

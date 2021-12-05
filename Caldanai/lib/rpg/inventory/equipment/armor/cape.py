@@ -1,12 +1,11 @@
 from bson import ObjectId
 
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 from Caldanai.lib.rpg.inventory.equipment.armor import Armor
-from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
 class ArmorPlugin(Armor):
-	def __init__(self, iid: ObjectId = None, rarity: Rarity = None):
+	def __init__(self, iid: ObjectId = None, quality: Qualities = None):
 		super().__init__(
 			iid=iid,
 			name="cape",
@@ -14,7 +13,7 @@ class ArmorPlugin(Armor):
 			unit_weight=1.0,
 			unit_value=1,
 			image=None,
-			rarity=rarity,
+			quality=quality,
 			article="a",
 			slots=EquipmentSlots.CAPE,
 			bonuses={

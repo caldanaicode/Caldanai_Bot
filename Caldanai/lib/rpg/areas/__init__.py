@@ -12,10 +12,14 @@ class Area:
 		self.directions = {}
 
 	def get_look_direction(self, direction: Directions):
-		if direction in self.directions.keys():
+		if direction in self.directions:
 			return self.directions[direction]
 
-		return "There is nothing of note in that direction"
+		filtered = list(filter(lambda d: d & direction, self.directions.keys()))
+		if len(filtered):
+			return self.directions[filtered[0]]
+
+		return "There is nothing of note in that direction."
 
 	@classmethod
 	def from_plugin(cls, plugin_name: str):
@@ -25,6 +29,6 @@ class Area:
 			room = importlib.import_module(f'Caldanai.lib.rpg.areas.{plugin_name}').AreaPlugin()
 			return room
 
-		except:
-			stdout(f"Unable to load AreaPlugin: {plugin_name}")
+		except Exception as e:
+			stdout(f"Unable to load AreaPlugin: {plugin_name}\n\t{e}")
 			raise

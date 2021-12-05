@@ -1,8 +1,8 @@
 from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only
 
-from ...Dispatcher import Dispatcher
-from ...Logger import stdout
-from ...db import MongoDB
+from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Logger import stdout
+from Caldanai.db import MongoDB
 
 
 class BotAdminCommands(Cog):

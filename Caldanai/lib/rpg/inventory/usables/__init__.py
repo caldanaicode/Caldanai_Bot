@@ -1,8 +1,8 @@
 import importlib
 
 from Caldanai.Logger import stdout
+from Caldanai.lib.rpg.helpers.enums import Qualities
 from Caldanai.lib.rpg.inventory import Item
-from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
 
 
@@ -15,13 +15,13 @@ class Usable(Item):
 			unit_weight: float = 1.0,
 			unit_value: int = 0,
 			image: str = None,
-			rarity: Rarity = None,
+			quality: Qualities = None,
 			article: str = None,
 			plugin: str = None,
 			item_type: str = "Usable"
 	):
 		super().__init__(
-			iid, name, desc, unit_weight, unit_value, image, rarity, article, plugin, item_type
+			iid, name, desc, unit_weight, unit_value, image, quality, article, plugin, item_type
 		)
 
 	def use(self, user) -> str:
@@ -40,11 +40,12 @@ class Usable(Item):
 		try:
 			item = importlib.import_module(f'Caldanai.lib.rpg.inventory.usables.{plugin_name}').UsablePlugin(
 				data['_id'] if '_id' in data.keys() else None,
-				Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+				Qualities[data['quality']] if 'quality' in data.keys() and data['quality'] in Qualities.__members__
+				else None
 			)
 
 			return item
 
-		except:
-			stdout(f"Unable to load UsablePlugin: {data}")
+		except Exception as e:
+			stdout(f"Unable to load UsablePlugin: {data}\n\tReason: {e}")
 			return None
