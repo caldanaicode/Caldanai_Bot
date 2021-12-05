@@ -48,7 +48,7 @@ class RpgUtilities:
 			stdout(f"No permission to create roles in guild '{game.guild.name}'.")
 
 		except HTTPException as e:
-			stdout("HTTPException while trying to add roles.")
+			stdout(f"HTTPException while trying to add roles: {e}")
 			raise
 
 	@staticmethod
@@ -63,7 +63,7 @@ class RpgUtilities:
 			stdout(f"No permission to remove roles in guild '{game.guild.name}'.")
 
 		except HTTPException as e:
-			stdout("HTTPException while trying to remove roles.")
+			stdout(f"HTTPException while trying to remove roles: {e}")
 			raise
 
 	# Adds a game to the bot's list of games
@@ -231,8 +231,8 @@ class RpgUtilities:
 				for p, _ in dirty:
 					p.is_dirty = False
 
-		except ServerSelectionTimeoutError:
-			stdout("Unable to connect to DB.")
+		except ServerSelectionTimeoutError as e:
+			stdout(f"Unable to connect to DB: {e}")
 
 	@staticmethod
 	async def init(bot: Bot):
