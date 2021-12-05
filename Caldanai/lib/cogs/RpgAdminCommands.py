@@ -201,14 +201,14 @@ class RpgAdminCommands(Cog):
 
 		game = self.bot.games[ctx.guild.id]
 		if minutes is None:
-			Dispatcher.add(game.channel, f"Spawn duration is {game.spawn_duration} minutes.")
+			Dispatcher.add(game.channel, f"Spawn duration is {int(game.spawn_duration / 60)} minutes.")
 			return
 
 		if minutes <= 1:
 			Dispatcher.add(game.channel, "Spawn duration must be more than 1 minute.")
 			return
 
-		game.spawn_duration = minutes
+		game.spawn_duration = minutes * 60
 		game.save()
 		Dispatcher.add(game.channel, "Spawn duration has been set.")
 
