@@ -274,25 +274,19 @@ class RpgUserCommands(Cog):
 					actors.append(p)
 					index += 1
 
-		elif d20.value > 17:
-			heal_target: Player = player
-
-			for p in game.players.values():
-				if p.health < heal_target.health:
-					heal_target = p
+		elif d20.value > 16:
+			heal_target: Player = min(
+				list(filter(lambda p: p.health < p.get_health_max(), game.players.values())) or [player],
+				key=lambda p: p.health
+			)
 
 			missing_health = heal_target.get_health_max() - heal_target.health
 			actors.append(heal_target)
 			index = len(actors)
-			third = math.ceil(missing_health / 3)
+			quarter = math.ceil(missing_health / 4)
 
-			if third > 1:
-				if d20.value == 18:
-					heal_amount = Dice.quick_roll(f"1d{third}")
-				elif d20.value == 19:
-					heal_amount = Dice.quick_roll(f"1d{third}") + third
-				elif d20.value == 20:
-					heal_amount = Dice.quick_roll(f"1d{third}") + third * 2
+			if quarter > 1:
+				heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
 			elif missing_health == 1:
 				heal_amount = 1
 			else:
