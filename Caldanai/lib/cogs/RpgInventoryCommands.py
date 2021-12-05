@@ -324,7 +324,7 @@ class RpgInventoryCommands(Cog):
 		sell_all = False
 		sell: List[Item] = []
 
-		if isinstance(flag, int) or flag.isnumeric() and 0 <= int(flag) < len(player.inventory):
+		if isinstance(flag, int) or flag.isnumeric() and 1 <= int(flag) <= len(player.inventory):
 			item, *_ = player.inventory.filter(flag)
 			if count and isinstance(item, Stackable) and (count < 0 or count > item.count):
 				Dispatcher.add(
