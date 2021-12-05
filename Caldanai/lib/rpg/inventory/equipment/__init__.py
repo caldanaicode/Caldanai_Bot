@@ -2,8 +2,7 @@ from bson import ObjectId
 from discord import Embed, File
 
 from Caldanai.lib.rpg.inventory import Item
-from Caldanai.lib.rpg.inventory.rarity import Rarity
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 
 
 class Equipment(Item):
@@ -15,14 +14,14 @@ class Equipment(Item):
 			unit_weight: float = 1.0,
 			unit_value: int = 0,
 			image: str = None,
-			rarity: Rarity = None,
+			quality: Qualities = None,
 			article: str = None,
 			item_type: str = 'Equipment',
-			slots: EquipmentSlots = EquipmentSlots.NONE,
+			slots: EquipmentSlots = None,
 			plugin: str = None
 	):
 		super().__init__(
-			iid, name, desc, unit_weight, unit_value, image, rarity, article, item_type=item_type, plugin=plugin
+			iid, name, desc, unit_weight, unit_value, image, quality, article, item_type=item_type, plugin=plugin
 		)
 		self.slots: EquipmentSlots = slots
 

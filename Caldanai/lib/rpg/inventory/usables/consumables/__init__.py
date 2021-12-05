@@ -5,8 +5,8 @@ from bson import ObjectId
 from discord import Embed, File
 
 from Caldanai.Logger import stdout
+from Caldanai.lib.rpg.helpers.enums import Qualities
 from Caldanai.lib.rpg.inventory.usables import Usable
-from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 
 
 class Consumable(Usable):
@@ -18,14 +18,14 @@ class Consumable(Usable):
 			unit_weight: float = 1.0,
 			unit_value: int = 0,
 			image: str = None,
-			rarity: Rarity = None,
+			quality: Qualities = None,
 			article: str = None,
 			plugin: str = None,
 			uses_max: int = 1,
 			uses_left: int = 1
 	):
 		super().__init__(
-			iid, name, desc, unit_weight, unit_value, image, rarity, article, plugin, "Consumable"
+			iid, name, desc, unit_weight, unit_value, image, quality, article, plugin, "Consumable"
 		)
 		self.uses_max = max(uses_max, 0)
 		self.uses_left = min(max(uses_left, 0), uses_max)
@@ -62,7 +62,8 @@ class Consumable(Usable):
 				item = importlib.import_module(
 					f'Caldanai.lib.rpg.inventory.usables.consumables.{plugin_name}').ConsumablePlugin(
 						data['_id'] if '_id' in data.keys() else None,
-						Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+						Qualities[data['quality']] if 'quality' in data.keys() and data['quality'] in Qualities.__members__
+						else None,
 						data['uses_max'],
 						data['uses_left']
 				)
@@ -71,11 +72,12 @@ class Consumable(Usable):
 				item = importlib.import_module(
 					f'Caldanai.lib.rpg.inventory.usables.consumables.{plugin_name}').ConsumablePlugin(
 					data['_id'] if '_id' in data.keys() else None,
-					Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None
+					Qualities[data['quality']] if 'quality' in data.keys() and data['quality'] in Qualities.__members__
+					else None
 				)
 
 			return item
 
-		except:
-			stdout(f"Unable to load ConsumablePlugin: {data}")
+		except Exception as e:
+			stdout(f"Unable to load ConsumablePlugin: {data}\n\tReason: {e}")
 			return None

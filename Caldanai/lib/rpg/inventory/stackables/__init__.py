@@ -1,8 +1,8 @@
 import importlib
 
 from Caldanai.Logger import stdout
+from Caldanai.lib.rpg.helpers.enums import Qualities
 from Caldanai.lib.rpg.inventory import Item
-from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
 
 
@@ -15,7 +15,7 @@ class Stackable(Item):
 			unit_weight: float = 1.0,
 			unit_value: int = 0,
 			image: str = None,
-			rarity: Rarity = None,
+			quality: Qualities = None,
 			article: str = None,
 			plural: str = None,
 			count: int = 1,
@@ -23,7 +23,7 @@ class Stackable(Item):
 			item_type: str = "Stackable"
 	):
 		super().__init__(
-			iid, name, desc, unit_weight, unit_value, image, rarity, article, plugin, item_type
+			iid, name, desc, unit_weight, unit_value, image, quality, article, plugin, item_type
 		)
 		self.plural = plural
 		self.count = count
@@ -37,7 +37,7 @@ class Stackable(Item):
 	def can_stack(self, other: "Stackable"):
 		return self.id != other.id \
 			and self.item_type == other.item_type \
-			and self.rarity == other.rarity \
+			and self.quality == other.quality \
 			and self.plugin == other.plugin
 
 	def stack(self, other: "Stackable") -> bool:
@@ -48,7 +48,7 @@ class Stackable(Item):
 		return True
 
 	def get_article_or_count(self, next_word: str = None, count: int = None) -> str:
-		exclusions = ['unique']
+		exclusions = ('unique')
 		if next_word is not None \
 			and next_word not in exclusions \
 			and next_word[0] in 'aeiouh' \
@@ -62,7 +62,8 @@ class Stackable(Item):
 		return f'{self.article} {next_word}'
 
 	def get_full_name(self, count: int = None) -> str:
-		return f"{self.get_article_or_count(self.rarity.name, count)} {self.name if self.count == 1 else self.plural}"
+		return f"{self.get_article_or_count(self.quality.name.lower(), count)}" \
+			   f" {self.name if self.count == 1 else self.plural}"
 
 	def to_dict(self) -> dict:
 		"""Returns the database-friendly dictionary for this item."""
@@ -82,12 +83,13 @@ class Stackable(Item):
 		try:
 			item = importlib.import_module(f'Caldanai.lib.rpg.inventory.stackables.{plugin_name}').StackablePlugin(
 				data['_id'] if '_id' in data.keys() else None,
-				Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+				Qualities[data['quality']] if 'quality' in data.keys() and data['quality'] in Qualities.__members__
+				else None,
 				data['count'] if 'count' in data.keys() else 1
 			)
 
 			return item
 
-		except:
-			stdout(f"Unable to load StackablePlugin: {data}")
+		except Exception as e:
+			stdout(f"Unable to load StackablePlugin: {data}\n\tReason: {e}")
 			return None

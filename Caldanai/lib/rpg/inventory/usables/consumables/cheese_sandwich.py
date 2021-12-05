@@ -4,12 +4,14 @@ from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.helpers.enums import Qualities
 from Caldanai.lib.rpg.inventory.usables.consumables import Consumable
-from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
 class ConsumablePlugin(Consumable):
-	def __init__(self, iid: ObjectId = None, rarity: Rarity = None, uses_max: int = 5, uses_left: int = 5):
+	def __init__(
+			self, iid: ObjectId = None, quality: Qualities = None, uses_max: int = 5, uses_left: int = 5
+	):
 		super().__init__(
 			iid=iid,
 			name="cheese sandwich",
@@ -17,7 +19,7 @@ class ConsumablePlugin(Consumable):
 			unit_weight=0.4,
 			unit_value=1,
 			image="cheese_sammich128.png",
-			rarity=rarity,
+			quality=quality,
 			article="a",
 			plugin='cheese_sandwich',
 			uses_max=uses_max,
@@ -28,7 +30,7 @@ class ConsumablePlugin(Consumable):
 		msg, keep = super().use(user)
 
 		msg += f"{'The ' if not isinstance(user, Player) else ''}@2 takes a bite of " \
-			   f"@2a @1.{'' if keep else ' That was the last of it!'}"
+			f"@2a @1.{'' if keep else ' That was the last of it!'}"
 
 		d4 = Dice.d4()
 		msg += f"\n@2sc replenishes {d4.value} health!"

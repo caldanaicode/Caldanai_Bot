@@ -5,12 +5,12 @@ from bson import ObjectId
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.helpers.enums import Qualities
 from Caldanai.lib.rpg.inventory import Usable
-from Caldanai.lib.rpg.inventory.rarity import Rarity
 
 
 class UsablePlugin(Usable):
-	def __init__(self, iid: ObjectId = None, rarity: Rarity = None):
+	def __init__(self, iid: ObjectId = None, quality: Qualities = None):
 		super().__init__(
 			iid=iid,
 			name="heavy, stringed instrument",
@@ -18,7 +18,7 @@ class UsablePlugin(Usable):
 			unit_weight=10.0,
 			unit_value=8,
 			image="heavy_stringed_instrument128.png",
-			rarity=rarity,
+			quality=quality,
 			article='a',
 			plugin='heavy_stringed_instrument'
 		)

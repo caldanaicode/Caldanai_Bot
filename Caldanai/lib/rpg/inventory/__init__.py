@@ -4,11 +4,11 @@ from typing import Tuple, Dict, Optional, List, Union, Type
 
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.armor import Armor
-from Caldanai.lib.rpg.inventory.rarity import Rarities
 from Caldanai.lib.rpg.inventory.stackables import Stackable
 from Caldanai.lib.rpg.inventory.usables import Usable
 from Caldanai.lib.rpg.inventory.usables.consumables import Consumable
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+from Caldanai.lib.rpg.helpers.enums import Qualities
 from bson.objectid import ObjectId
 from math import fsum
 
@@ -149,14 +149,14 @@ class Inventory:
 		results = tuple(filter(lambda i: f.lower() in i.name, self.__items))
 		return results
 
-	def _filter_by_rarity(self, f: str) -> Tuple[Item]:
-		"""Returns of tuple of Items with rarities matching the provided string."""
-		results = tuple(filter(lambda i: f.lower() == i.rarity.name.lower(), self.__items))
+	def _filter_by_quality(self, f: str) -> Tuple[Item]:
+		"""Returns of tuple of Items with qualities matching the provided string."""
+		results = tuple(filter(lambda i: f.lower() == i.quality.name.lower(), self.__items))
 		return results
 
 	def filter(self, f: Union[str, int]) -> Tuple[Optional[Item]]:
 		"""
-		Returns a tuple of Items where name or rarity contain the provided string, or a tuple containing a single
+		Returns a tuple of Items where name or quality contain the provided string, or a tuple containing a single
 		item if the item.n notation is used.
 		"""
 
@@ -169,8 +169,8 @@ class Inventory:
 			index = int(f) - 1
 			results = self._get_by_index(index),
 
-		elif _rarity := Rarities.from_name(f):
-			results = *[i for i in self._filter_by_rarity(f)],
+		elif f.upper() in Qualities.__members__:
+			results = *[i for i in self._filter_by_quality(f)],
 
 		elif '.' in f:
 			f, flag, *_ = f.split('.')
@@ -181,11 +181,11 @@ class Inventory:
 				if 0 <= index < len(r):
 					results = r[index],
 
-			elif _rarity := Rarities.from_name(flag):
-				results = *[i for i in self._filter_by_name(f) if i.rarity == _rarity],
+			elif flag.upper() in Qualities.__members__:
+				results = *[i for i in self._filter_by_name(f) if i.quality == Qualities[flag.upper()]],
 
 		else:
-			results = *tuple(set(self._filter_by_name(f)) | set(self._filter_by_rarity(f))),
+			results = *tuple(set(self._filter_by_name(f)) | set(self._filter_by_quality(f))),
 
 		if len(results) > 0:
 			return results

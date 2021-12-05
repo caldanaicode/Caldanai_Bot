@@ -1,9 +1,8 @@
 import importlib
 
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 from Caldanai.lib.rpg.inventory.equipment import Equipment
-from Caldanai.lib.rpg.inventory.rarity import Rarity, Rarities
 from bson.objectid import ObjectId
 
 
@@ -16,7 +15,7 @@ class Weapon(Equipment):
 			unit_weight: float = 1.0,
 			unit_value: int = 0,
 			image: str = None,
-			rarity: Rarity = None,
+			quality: Qualities = None,
 			article: str = None,
 			slots: EquipmentSlots = EquipmentSlots.EITHER_HELD,
 			plugin: str = None,
@@ -28,7 +27,7 @@ class Weapon(Equipment):
 			dmg_type: str = None,
 	):
 		super().__init__(
-			iid, name, desc, unit_weight, unit_value, image, rarity, article, "Weapon", slots, plugin
+			iid, name, desc, unit_weight, unit_value, image, quality, article, "Weapon", slots, plugin
 		)
 		self.attack = atk.lower()
 		self.is_magic = is_magic
@@ -39,7 +38,7 @@ class Weapon(Equipment):
 			f"{'magic ' if is_magic else ''}{'ranged ' if is_ranged else ''}{dmg_type}"
 
 		dice = int(self.attack.split('d')[0])
-		self.bonus = bonus or (round(dice * self.rarity.multiplier) if self.rarity.name != 'junk' else 0)
+		self.bonus = bonus or int(dice * self.quality.value['multiplier'])
 
 	def get_embed(self) -> tuple:
 		embed, file = super().get_embed()
@@ -65,12 +64,13 @@ class Weapon(Equipment):
 		try:
 			item = importlib.import_module(f'Caldanai.lib.rpg.inventory.equipment.weapons.{plugin_name}').WeaponPlugin(
 				data['_id'] if '_id' in data.keys() else None,
-				Rarities.from_name(data['rarity']) if 'rarity' in data.keys() else None,
+				Qualities[data['quality']] if 'quality' in data.keys() and data['quality'] in Qualities.__members__
+				else None,
 				data['bonus'] if 'bonus' in data.keys() else None
 			)
 
 			return item
 
-		except:
-			stdout(f"Unable to load WeaponPlugin: {data}")
+		except Exception as e:
+			stdout(f"Unable to load WeaponPlugin: {data}\n\tReason: {e}")
 			return None
