@@ -80,6 +80,7 @@ class InjuryLevels(IntFlag):
 	MINOR = 0x1
 	MODERATE = 0x2
 	SEVERE = 0x4
+	USELESS = 0x8
 
 
 class Pronouns(Enum):
