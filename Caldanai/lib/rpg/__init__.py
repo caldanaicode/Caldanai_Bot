@@ -217,18 +217,21 @@ class Game:
 
 		msg = ""
 		damage = 0
-		for pid in self.combatants:
+		for i in range(len(self.combatants)-1, -1, -1):
+			pid = self.combatants[i]
 			player = self.players[pid]
-			player.health_regen = 0
 			if not player.is_dead():
+				player.health_regen = 0
 				if pid not in self.looters:
 					self.looters.append(pid)
 				m, d = player.do_attack(self.monster)
 				msg += m
 				damage += d
+			else:
+				self.combatants.pop(i)
 
 		msg += f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {self.monster.health:,} " \
-			   f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
+			f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
 
 		msg += parse(self.monster.apply_damage(damage) or "", self.monster)
 		if self.monster.is_dead():
@@ -300,16 +303,16 @@ class Game:
 		"""Returns the database friendly dictionary for this game."""
 
 		d = {
-			'guild_id'       : self.guild.id,
-			'channelId'      : self.channel.id,
+			'guild_id': self.guild.id,
+			'channelId': self.channel.id,
 			'use_spawn_timer': self.use_spawn_timer,
-			'spawn_duration' : int(self.spawn_duration / 60),
-			'loot_duration'  : int(self.loot_duration / 60),
-			'minutes_max'    : self.minutes_max,
-			'minutes_min'    : self.minutes_min,
-			'prefix'         : self.prefix,
+			'spawn_duration': int(self.spawn_duration / 60),
+			'loot_duration': int(self.loot_duration / 60),
+			'minutes_max': self.minutes_max,
+			'minutes_min': self.minutes_min,
+			'prefix': self.prefix,
 			'enable_ambience': self.enable_ambience,
-			'game_time'      : self.game_clock.get_seconds()
+			'game_time': self.game_clock.get_seconds()
 		}
 
 		if self.id is not None:
