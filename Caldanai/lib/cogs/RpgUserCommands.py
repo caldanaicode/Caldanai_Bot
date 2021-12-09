@@ -274,6 +274,9 @@ class RpgUserCommands(Cog):
 					actors.append(p)
 					index += 1
 
+			if player in game.combatants:
+				game.combatants.remove(player)
+
 		elif d20.value > 16:
 			heal_target: Player = min(
 				list(filter(lambda p: p.health < p.get_health_max(), game.players.values())) or [player],
