@@ -4,8 +4,9 @@ from typing import Union, Optional, Dict, Tuple
 from discord import Embed, File
 
 from Caldanai.lib.rpg import parse
+from Caldanai.lib.rpg.creatures.body_part import BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.helpers.enums import Pronouns
+from Caldanai.lib.rpg.helpers.enums import Pronouns, DamageTypes
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 
 
@@ -24,6 +25,8 @@ class Creature:
 			health: Optional[int] = None,
 			gender: Optional[str] = None,
 			pronouns: Optional[str] = None,
+			body_parts: Optional[Tuple[BodyPart]] = (),
+			attacks: Optional[Dict[BodyPart, Union[str, int]]] = ()
 	):
 		"""
 		Creates a new instance of a creature object.
@@ -38,6 +41,8 @@ class Creature:
 			not provided. For players, the gender can be defined by the player.
 		:param pronouns: The creature's pronouns as a comma-separated string in the format of 'subject, object,
 			possessive'. For example, a female's pronouns will default to 'she, her, hers' if no pronouns are provided.
+		:param body_parts: The creature's body parts as a tuple.
+		:param attacks: The creature's BodyPart to attack mapping.
 		"""
 
 		self.name = name or ''
@@ -49,9 +54,11 @@ class Creature:
 		self.flavor = ''
 		self.image = None
 		self.clarks = 0
-		self.gender: Optional[str] = gender or choice(['male', 'female', 'non-binary'])
+		self.gender: Optional[str] = gender or choice(['male', 'female'])
 		self.is_dirty: bool = False
 		self.pronouns: Dict[Pronouns, str] = {}
+		self.body_parts = body_parts
+		self.attacks = attacks
 
 		if pronouns:
 			s = pronouns.split(',')
@@ -81,18 +88,38 @@ class Creature:
 		#
 		# 		self.stats[stat] = 1
 
-	def apply_damage(self, amount: int) -> None:
+	def apply_damage(self, amount: int, target: str = '', dmg_type: DamageTypes = None) -> None:
 		"""
 		Applies damage (or healing if amount is negative) to the creature's health.
 
 		:param amount: Integer representing the amount by which to adjust health.
+		:param target: The body part being targeted for damage, if any.
+		:param dmg_type: The damage type to apply.
 		:return: None
 		"""
-		self.health -= amount
-		self.health = max(0, self.health)
-		self.health = min(self.health, self.get_health_max())
 
-	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
+		part = None
+
+		if not target and len(self.body_parts) > 0:
+			part = choice(self.body_parts)
+
+		elif target and len(self.body_parts) > 0:
+			part = next((p for p in self.body_parts if p.name == target), None)
+
+		if part:
+			part.apply_damage(amount, dmg_type)
+
+		else:
+			self.health -= amount
+			self.health = max(0, self.health)
+			self.health = min(self.health, self.get_health_max())
+
+	def do_attack(
+			self,
+			creature: "Creature",
+			target: BodyPart = None,
+			attack: Tuple[DamageTypes, Union[str, int]] = None
+	) -> Tuple[str, int]:
 		"""
 		Calculates an attack against the given creature, without modifying any attributes.
 
@@ -111,7 +138,7 @@ class Creature:
 
 		if not combined.isMiss:
 			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
-				   f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
+				f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
 
 			msg += f"\n\nTotal ({combined.result}) vs Defense ({defense}) = {t_dmg}"
 
