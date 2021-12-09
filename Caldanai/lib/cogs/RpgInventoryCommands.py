@@ -367,7 +367,7 @@ class RpgInventoryCommands(Cog):
 					Dispatcher.add(channel, f"Unable to determine lower and upper indices from {flag}.")
 					return
 			else:
-				sell = [i for i in player.inventory.filter(flag) if i.id not in equipped]
+				sell = [i for i in player.inventory.filter(flag) if i and i.id not in equipped]
 
 		else:
 			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}.")
