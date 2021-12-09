@@ -27,9 +27,9 @@ class RpgInventoryCommands(Cog):
 
 		(5-second cool-down)
 
-		:param item: An item name, item.n, item.rarity, item.rarity.n, or index to equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.rare' or 'spear.rare.1' would grab the first rare spear in your inventory.
+		:param item: An item name, item.n, item.quality, item.quality.n, or index to equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory.
 
-		:param slot: If not provided, the item will be auto-equipped to the best slot, if possible. For weapons or other one-hand-equipped items like rings, the slot will be 'left' or 'right'. Most armor can auto-equip, but you may specify the slot such as 'head', 'torso', or 'waist'. For a full list of slots, see your `profile`.
+		:param slot: If not provided, the item will be auto-equipped to the best slot, if possible. For weapons or other one-hand-equipped items like rings, the slot will be 'left' or 'right'. Most armor can auto-equip, but you may specify the slot such as 'head', 'torso', or 'waist'. For a full list of slots, see your `gear`.
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
@@ -109,7 +109,7 @@ class RpgInventoryCommands(Cog):
 
 		(5-second cool-down)
 
-		:param item_or_slot: An item name, item.n, item.rarity, item.rarity.n, index, or slot to un-equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.rare' or 'spear.rare.1' would grab the first rare spear in your inventory. Slot indicates the body part on which the item is equipped, such as 'left_hand', 'head', or 'feet'. To see a full list of the slots you are currently using, see the `profile` command.
+		:param item_or_slot: An item name, item.n, item.quality, item.quality.n, index, or slot to un-equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory. Slot indicates the body part on which the item is equipped, such as 'left_held', 'head', or 'feet'. To see a full list of the slots you are currently using, see the `gear` command.
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
@@ -163,7 +163,7 @@ class RpgInventoryCommands(Cog):
 
 		(5-second cool-down)
 
-		:param filtr: If provided, filter the items by name or rarity containing the given string. If playing on more than one server and you wish to use this in DM to display all items, specify _ as the filter before specifying the game index.
+		:param filtr: If provided, filter the items by name or quality containing the given string. If playing on more than one server and you wish to use this in DM to display all items, specify _ as the filter before specifying the game index.
 
 		:param gid: If calling from a DM and playing on more than one server, provide the game's index for which you wish to view inventory. Use the 'games' command to determine the game index.
 		"""
@@ -193,7 +193,7 @@ class RpgInventoryCommands(Cog):
 		
 		(2-second cool-down)
 		
-		:param name: An item name, item.n, item.rarity, item.rarity.n, or index to display. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.rare' or 'spear.rare.1' would grab the first rare spear in your inventory.
+		:param name: An item name, item.n, item.quality, item.quality.n, or index to display. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.masterwork' or 'spear.masterwork.1' would grab the first masterwork spear in your inventory.
 			
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
@@ -290,7 +290,7 @@ class RpgInventoryCommands(Cog):
 
 		(2-second cool-down)
 
-		:param flag: An item name, name.n, name.rarity, name.rarity.n, index, range of indices, rarity, or 'all'.
+		:param flag: An item name, name.n, name.quality, name.quality.n, index, range of indices, quality, or 'all'.
 
 		:param count: If the given item is stackable, provide the number you wish to sell unless you used the 'all'	flag.
 
@@ -314,7 +314,7 @@ class RpgInventoryCommands(Cog):
 		if flag is None:
 			Dispatcher.add(
 				channel,
-				"You must specify the item name, name.n, name.rarity, name.rarity.n, index, the range of indices, "
+				"You must specify the item name, name.n, name.quality, name.quality.n, index, the range of indices, "
 				"a rarity, or 'all'."
 			)
 			return
@@ -400,7 +400,7 @@ class RpgInventoryCommands(Cog):
 
 		(5-second cool-down)
 
-		:param item: An item name, item.n, item.rarity, item.rarity.n, or index to display. .n indicates to use the nth of item, for example 'candy.2' would grab the second candy in your inventory. 'sandwich.rare' or 'sandwich.rare.1' would grab the first rare sandwich in your inventory.
+		:param item: An item name, item.n, item.quality, item.quality.n, or index to display. .n indicates to use the nth of item, for example 'candy.2' would grab the second candy in your inventory. 'sandwich.fine' or 'sandwich.fine.1' would grab the first fine sandwich in your inventory.
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
