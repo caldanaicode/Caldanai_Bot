@@ -1,10 +1,10 @@
 from typing import Optional
 
 from discord import Embed, Guild
-from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType
+from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType, command, Context
 from Caldanai.lib.bot import Bot
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
-from Caldanai.lib.rpg import Roles
+from Caldanai.lib.rpg import Roles, parse
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory import Inventory
 from Caldanai.Dispatcher import Dispatcher
@@ -109,6 +109,63 @@ class RpgAdminCommands(Cog):
 				Dispatcher.add(ctx, "There was a problem removing the roles. I may not have permission to do that.")
 			else:
 				Dispatcher.add(ctx, "Roles removed!")
+
+	@command(brief="Pass in a mention to call down the wrath of the Divine upon some hapless player.")
+	@guild_only()
+	@has_permissions(manage_guild=True)
+	@cooldown(1, 5, BucketType.guild)
+	async def smite(self, ctx: Context):
+		"""
+		Pass in a mention to call down the wrath of the Divine upon some hapless player.
+
+		(5-second cool-down server-wide)
+		"""
+		if game := await RpgUtilities.get_game(ctx):
+			if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+				msg = "An angry scar tears across the sky and an ominous red light pours out. Fire begins to rain " \
+					  "upon the land, burning everything it touches..."
+
+				for mention in ctx.message.mentions:
+					target = await RpgUtilities.get_player(mention)
+					if target:
+						target.apply_damage(target.health)
+						msg += parse(
+							"\n\n@1 cannot escape the righteous fire, and an enormous ball of molten lava consumes "
+							"@1o. @1ac screams last but a moment, before all that remains is a burnt skeleton, "
+							"and cinders lapping away at the cracks.",
+							target
+						)
+
+				msg += "\n\nThe hole in the sky vanishes, and the strange light with it."
+				msgs = Dispatcher.split_message(msg)
+				for m in msgs:
+					Dispatcher.add(game.channel, m)
+
+	@command(brief="Resurrects a dead player, because maybe someone feels guilty.")
+	@guild_only()
+	@has_permissions(manage_guild=True)
+	@cooldown(1, 5, BucketType.guild)
+	async def unsmite(self, ctx: Context):
+		"""
+		Resurrects a dead player, because maybe someone feels guilty.
+
+		(5-second cool-down server-wide)
+		"""
+		if game := await RpgUtilities.get_game(ctx):
+			if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+				msg = f"A radiant light bursts forth from the bod{'ies' if len(ctx.message.mentions) > 1 else 'y'} " \
+					f"of "
+
+				corpses = []
+				for mention in ctx.message.mentions:
+					target = await RpgUtilities.get_player(mention)
+					if target and target.health < target.get_health_max():
+						target.apply_damage(-target.get_health_max())
+						corpses.append(target.name)
+
+				c = ", ".join(corpses).replace(f", {corpses[-1]}", f" and {corpses[-1]}")
+				msg += f"{c}, who now appear{'' if len(corpses) > 1 else 's'} whole."
+				Dispatcher.add(game.channel, msg)
 
 	@group(brief="Displays or sets various spawning options.")
 	@guild_only()
