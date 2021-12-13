@@ -123,8 +123,8 @@ class RpgAdminCommands(Cog):
 		if game := await RpgUtilities.get_game(ctx):
 			if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
 				msg = "An angry scar tears across the sky and an ominous red light pours out. Fire begins to rain " \
-					  "upon the land, burning everything it touches..."
-
+					"upon the land, burning everything it touches..."
+				
 				for mention in ctx.message.mentions:
 					target = await RpgUtilities.get_player(mention)
 					if target:
@@ -169,7 +169,6 @@ class RpgAdminCommands(Cog):
 
 	@group(brief="Displays or sets various spawning options.")
 	@guild_only()
-	@has_permissions(manage_guild=True)
 	@cooldown(1, 5, BucketType.guild)
 	async def spawn(self, ctx):
 		"""
@@ -200,6 +199,7 @@ class RpgAdminCommands(Cog):
 
 			Dispatcher.add(ctx, embed=embed)
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(
 		aliases=["min"],
 		brief="Sets or displays the minimum time between monster spawns for a game, in minutes"
@@ -224,6 +224,7 @@ class RpgAdminCommands(Cog):
 		game.save()
 		Dispatcher.add(game.channel, "Minimum spawn time has been set.")
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(
 		aliases=["max"],
 		brief="Sets or displays the maximum time between monster spawns for a game, in minutes."
@@ -248,6 +249,7 @@ class RpgAdminCommands(Cog):
 		game.save()
 		Dispatcher.add(game.channel, "Maximum spawn time has been set.")
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(aliases=["dur", "d"], brief="Sets or displays the spawn duration for a game, in minutes.")
 	async def duration(self, ctx, minutes: int = None):
 		"""
@@ -269,6 +271,7 @@ class RpgAdminCommands(Cog):
 		game.save()
 		Dispatcher.add(game.channel, "Spawn duration has been set.")
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(brief="Sets or displays the loot duration for a game, in minutes.")
 	async def loot(self, ctx, minutes: int = None):
 		"""
@@ -290,6 +293,7 @@ class RpgAdminCommands(Cog):
 		game.save()
 		Dispatcher.add(game.channel, "Loot duration has been set.")
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(aliases=['set'], brief="Sets or displays the spawning for a game on or off.")
 	async def spawn_set(self, ctx, msg: str = None):
 		"""
@@ -324,6 +328,7 @@ class RpgAdminCommands(Cog):
 		game.save()
 		Dispatcher.add(game.channel, "Spawning has been set.")
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(brief="Forces a monster to spawn.")
 	async def monster(self, ctx, monster: Optional[str] = None):
 		"""
@@ -340,7 +345,7 @@ class RpgAdminCommands(Cog):
 
 		Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
 
-	# Forces a monster to die.
+	@has_permissions(manage_guild=True)
 	@spawn.command(brief="Forces the current monster to die.")
 	async def kill(self, ctx):
 		"""
@@ -354,6 +359,7 @@ class RpgAdminCommands(Cog):
 
 		await game.kill_monster()
 
+	@has_permissions(manage_guild=True)
 	@spawn.command(brief="Spawns the requested item to the given player's inventory.")
 	async def item(self, ctx, item_name: str):
 		"""
