@@ -204,7 +204,10 @@ class RpgUserCommands(Cog):
 			]
 
 		if player.is_dead():
-			msg = choice(msgs)
+			if haunted and isinstance(haunted, Player) and haunted.member == player.member:
+				msg = f"@1's spirit tries to fuse back into @1a body, but merely passes right through it."
+			else:
+				msg = choice(msgs)
 		else:
 			msg = f"@1 pretends to float around, making supposedly ghostly noises, but it's not very effective."
 

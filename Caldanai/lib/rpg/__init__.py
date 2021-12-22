@@ -162,7 +162,6 @@ class Game:
 				"A swarm of tiny, shadow-clad creatures floods in and makes off with the items on the ground."
 			)
 		self.loot.clear()
-		await self.set_spawn_timer()
 
 	async def on_monster_death(self) -> str:
 		"""Generates loot, shows monster death, and clears combatants."""
@@ -180,6 +179,7 @@ class Game:
 		self.game_clock.remove_routine(self.do_combat)
 		if has_loot:
 			self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
+			await self.set_spawn_timer()
 			return f"\nThere might be something to `{self.prefix}loot`..."
 		else:
 			await self.set_spawn_timer()

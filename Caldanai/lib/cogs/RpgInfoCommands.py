@@ -101,6 +101,24 @@ class RpgInfoCommands(Cog):
 		Dispatcher.add(channel, embed=embed)
 
 	@guild_only()
+	@cooldown(1, 5, BucketType.guild)
+	@command(aliases=["stimer"], brief="Shows the amount of time until the next monster spawn.")
+	async def spawn_timer(self, ctx):
+		"""Shows the amount of time until the next monster spawn."""
+		game: Game = await RpgUtilities.get_game(ctx)
+		if game is None:
+			return
+
+		r, i = game.game_clock.find_routine('do_spawn')
+		routine = r[i] if r else None
+
+		if routine:
+			next_spawn = routine.time_added - game.game_clock.get_tick_time() + routine.seconds
+			Dispatcher.add(ctx, f"Next spawn in approximately {int(next_spawn / 60)} minutes.")
+		else:
+			Dispatcher.add(ctx, "Next spawn is not yet determined... try again later!")
+
+	@guild_only()
 	@cooldown(1, 5, BucketType.member)
 	@command(brief="Generates a chart using the specified options")
 	async def chart(self, ctx, *options: str):
