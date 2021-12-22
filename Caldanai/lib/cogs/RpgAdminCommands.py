@@ -169,6 +169,7 @@ class RpgAdminCommands(Cog):
 
 	@group(brief="Displays or sets various spawning options.")
 	@guild_only()
+	@has_permissions(manage_guild=True)
 	@cooldown(1, 5, BucketType.guild)
 	async def spawn(self, ctx):
 		"""
