@@ -2,11 +2,12 @@ from typing import Dict
 
 from discord.ext.commands import Bot as BotBase
 from discord.ext.commands import CommandNotFound, BadArgument, CommandOnCooldown, MissingRequiredArgument, \
-	when_mentioned_or, MissingPermissions, NoPrivateMessage
+	when_mentioned_or, MissingPermissions, NoPrivateMessage, Context
 from discord import Intents, Guild
 from discord.errors import HTTPException, Forbidden
 from glob import glob
 from os import path
+from random import choice
 
 from Caldanai.lib.rpg import Game
 from Caldanai.Dispatcher import Dispatcher
@@ -98,6 +99,19 @@ class Bot(BotBase):
 				if ctx.author.id in game.players.keys() and (player := game.players[ctx.author.id]):
 					await game.set_player_active(player)
 
+	@staticmethod
+	async def get_forbidden_response(ctx: Context) -> str:
+		return choice([
+			f"I'm afraid I can't do that, {ctx.author.mention}.",
+			f"Perhaps, one day, you shall hold that kind of power over me, {ctx.author.mention}. But today is not "
+			f"that day.",
+			f"You're not the boss of me, {ctx.author.mention}! Just who do you think you are?!",
+			f"Unable to comply, {ctx.author.mention}, please elevate status and try again.",
+			"```\nOne of these days\nI'm gonna love me.\nOne of these days\nI'll rise above me.\nOne of these "
+			"days...```",
+			"We're sorry. the number you have dialed is no longer in service. Please hang up, and try your call again."
+		])
+
 	async def on_command_error(self, ctx, exc):
 		if isinstance(
 				exc,
@@ -109,7 +123,7 @@ class Bot(BotBase):
 			pass
 
 		elif isinstance(exc, (Forbidden, MissingPermissions, NoPrivateMessage)):
-			Dispatcher.add(ctx, f"I'm afraid I can't do that, {ctx.author.mention}.")
+			Dispatcher.add(ctx, await Bot.get_forbidden_response(ctx))
 
 		elif hasattr(exc, 'original'):
 			raise exc.original
