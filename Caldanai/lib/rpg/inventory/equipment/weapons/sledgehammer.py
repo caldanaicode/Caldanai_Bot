@@ -1,6 +1,6 @@
 from bson import ObjectId
 
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities, DamageTypes
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
@@ -18,9 +18,7 @@ class WeaponPlugin(Weapon):
 			slots=EquipmentSlots.TWO_HANDED,
 			plugin="sledgehammer",
 			atk="2d8",
-			is_magic=False,
-			is_ranged=False,
 			atk_msg="bashes",
 			bonus=bonus,
-			dmg_type="bludgeoning"
+			dmg_type=DamageTypes.BLUDGEONING
 		)

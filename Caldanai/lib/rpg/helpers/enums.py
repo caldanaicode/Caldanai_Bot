@@ -15,15 +15,49 @@ class CombatRanges(IntFlag):
 
 class DamageTypes(IntFlag):
 	COMBINED = 0x1			# Determines whether combined flags represent doing all types of damage provided.
-	PHYSICAL = 0x2			# General physical damage
-	BLUDGEONING = 0x4		# Better for breaking body parts / mangling limbs / stunning
-	PIERCING = 0x8			# Better for destroying organs
-	SLASHING = 0x10			# Better for causing bleed / poison effects
-	UNASPECTED = 0x20		# General non-elemental magical damage
-	FIRE = 0x40				# Better for inflicting burns and does more damage against burn victims
-	WATER = 0x80			# Better for healing, but can also turn the victims body against itself.
-	EARTH = 0x100			# Better for buffs, but can also be used to petrify and fashion magical + physical weapons
-	AIR = 0x200				# Better for utilities, and various effects when combined with other magics.
+	RANGED = 0x2			# Whether damage counts as ranged
+	MAGICAL = 0x4			# Whether damage counts as magical
+
+	BLUDGEONING = 0x10		# Better for breaking body parts / mangling limbs / stunning
+	PIERCING = 0x20			# Better for destroying organs
+	SLASHING = 0x40			# Better for causing bleed / poison effects
+
+	DARK = 0x100			# Darkness-based damage, can invert elements, and useful against light-based critters
+	LIGHT = 0x200			# Light-based damage, useful against dark-based critters
+	FIRE = 0x400			# Better for inflicting burns and does more damage against burn victims
+	WATER = 0x800			# Better for healing, but can also turn the victims body against itself
+	EARTH = 0x1000			# Better for buffs, but can also be used to petrify and fashion magical + physical weapons
+	AIR = 0x2000			# Better for utilities, and various effects when combined with other magics
+
+	# Combinations
+	ALL = RANGED | MAGICAL | BLUDGEONING | PIERCING | SLASHING | DARK | LIGHT | FIRE | WATER | EARTH | AIR
+
+	def __str__(self):
+		result = []
+
+		if self == DamageTypes.ALL:
+			return "all"
+
+		if self != 0 and (self & (self - 1)) == 0:
+			return self.name.lower()
+
+		if self & DamageTypes.RANGED:
+			result.append("ranged")
+
+		if self & DamageTypes.MAGICAL:
+			result.append("magical")
+
+		for t in DamageTypes:
+			if t in (DamageTypes.ALL, DamageTypes.COMBINED, DamageTypes.MAGICAL, DamageTypes.RANGED):
+				continue
+
+			if self & t:
+				if t & DamageTypes.COMBINED and self != t:
+					continue
+
+				result.append(t.name.lower())
+
+		return ' '.join(result)
 
 
 class Directions(IntFlag):

@@ -1,7 +1,7 @@
 from random import choice, randint
 
 from Caldanai.lib.rpg.creatures.monsters import Monster
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
@@ -39,6 +39,10 @@ class MonsterPlugin(Monster):
 			"The @1 coughs blood before collapsing to the ground.",
 			'"In another life, you could have been me," the @1 gasps with @1a dying breath.'
 		])
+
+		self.traits[DamageTypes.RANGED] = 1.00
+		self.traits[DamageTypes.MAGICAL] = 1.50
+		self.traits[DamageTypes.ALL ^ (DamageTypes.RANGED | DamageTypes.MAGICAL)] = 0.75
 
 		self.loot["shortsword"] = 0.2
 		self.loot["bandanna"] = 0.2
