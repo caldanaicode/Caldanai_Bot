@@ -1,7 +1,7 @@
 from random import choice
 
 from Caldanai.lib.rpg.creatures.monsters import Monster
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -21,12 +21,17 @@ class MonsterPlugin(Monster):
 		self.arrival = "A piercing roar rocks the heavens, as a @1 swoops down out of the sky searching for prey."
 		self.flavor = choice([
 			"A massive red @1, smelling faintly of cinnamon and charcoal.",
-			"Unconfirmed reports suggests that this @1 may, in fact, have 62 toes. However, no one can get close "
+			"Unconfirmed reports suggest that this @1 may, in fact, have 62 toes. However, no one can get close "
 			"enough to actually count."
 		])
 		self.escape = "The @1 circles the area lazily before taking to the clouds, disappearing from sight."
 		self.death = "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1ac thrashing " \
 			"lasts but a moment, then all is still."
+
+		self.traits[DamageTypes.RANGED] = 1.00
+		self.traits[DamageTypes.PIERCING] = 0.75
+		self.traits[DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED] = 1.50
+		self.traits[DamageTypes.ALL ^ (DamageTypes.RANGED | DamageTypes.PIERCING)] = 0.5
 
 		self.loot["small_gem"] = 0.7
 		self.loot["tee_shirt"] = 0.2
@@ -39,9 +44,9 @@ class MonsterPlugin(Monster):
 		# TODO: Perhaps attack the hugger in some way.
 		return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2a direction."
 
-	def apply_damage(self, amount: int) -> str:
+	def apply_damage(self, amount: int, target: str = '', dmg_type: DamageTypes = None) -> str:
 		was_alive = self.health > 0
-		super().apply_damage(amount)
+		super().apply_damage(amount, target, dmg_type)
 		if was_alive and self.is_dead():
 			return self.death
 

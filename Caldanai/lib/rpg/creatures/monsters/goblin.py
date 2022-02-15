@@ -1,6 +1,6 @@
 from random import choice
 from Caldanai.lib.rpg.creatures.monsters import Monster
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
@@ -31,6 +31,10 @@ class MonsterPlugin(Monster):
 		self.escape = f"The @1 snorts, a vacant eye roaming the surroundings before @1s trudges off."
 		self.death = f"The @1's eyes bulge as if @1s only now realized @1s was outmatched, and @1s flops onto the " \
 			f"ground unceremoniously."
+
+		self.traits[DamageTypes.BLUDGEONING] = 1.50
+		self.traits[DamageTypes.PIERCING | DamageTypes.SLASHING] = 0.75
+		self.traits[DamageTypes.MAGICAL] = 0.5
 
 		self.loot["stick"] = 0.5
 		self.loot["rock"] = 0.5

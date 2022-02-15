@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 from discord import Member, Embed, File
 
 from Caldanai.lib.rpg import parse
-from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.creatures import Creature, BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
 from Caldanai.lib.rpg.inventory.equipment import Equipment
@@ -83,7 +83,7 @@ class Player(Creature):
 
 		return ""
 
-	def do_attack(self, creature: Creature) -> Tuple[str, int]:
+	def do_attack(self, creature: Creature, target: BodyPart = None, dmg_type: DamageTypes = None) -> Tuple[str, int]:
 		"""
 		Performs an attack against the given creature, without modifying the monster's attributes.
 
@@ -94,8 +94,14 @@ class Player(Creature):
 		rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
 		two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
 		left = self.get_combat_rolls(lh, creature)
-		right: Optional[CombinedRoll] = None if two_handed else self.get_combat_rolls(rh, creature)
-		raw_dmg = left.result + (right.result if right else 0)
+		l_multiplier = creature.get_trait_multiplier(lh.damage_type)
+		l_sub = int(left.result * l_multiplier)
+		raw_dmg = l_sub
+		if right := None if two_handed else self.get_combat_rolls(rh, creature):
+			r_multiplier = creature.get_trait_multiplier(rh.damage_type)
+			r_sub = int(right.result * r_multiplier)
+			raw_dmg += r_sub
+
 		t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - creature.defense)
 
 		msg = f"{self.member.mention}'s attack:```diff\nAttack vs Dodge ({creature.dodge}): " \
@@ -104,10 +110,14 @@ class Player(Creature):
 		msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
 
 		if not left.isMiss or (right and not right.isMiss):
-			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}:" \
-				f" {left.damage} * {'0' if left.isMiss else '2' if left.isCritical else '1'} = {left.result}"
-			msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.damage} * " \
-				f"{'0' if right.isMiss else '2' if right.isCritical else '1'} = {right.result}" if right else ""
+			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'} " \
+				   f"({str(lh.damage_type).title()}): {left.damage} *" \
+				   f" {'0' if left.isMiss else '2' if left.isCritical else '1'} = {left.result} * {l_multiplier} =" \
+				   f" {l_sub}"
+			if right:
+				msg += f"\n{'-' if right.isMiss else '+'}    Right ({str(rh.damage_type).title()}): {right.damage} * " \
+					f"{'0' if right.isMiss else '2' if right.isCritical else '1'} = {right.result} * {r_multiplier} = " \
+					f"{r_sub}"
 
 			if not left.isMiss:
 				self.gain_skill_experience(lh.skill if lh else "unarmed")

@@ -4,7 +4,7 @@ from typing import Tuple
 from random import choice
 
 from Caldanai.lib.rpg import Monster, parse
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
@@ -49,6 +49,10 @@ class MonsterPlugin(Monster):
 			"After a moment, the husk crumbles and drifts away.",
 		])
 
+		self.traits[DamageTypes.ALL ^ (DamageTypes.FIRE | DamageTypes.LIGHT)] = 0.35
+		self.traits[DamageTypes.LIGHT] = 2.0
+		self.traits[DamageTypes.FIRE] = 1.5
+
 		self.loot['cape'] = 0.2
 		self.loot['high-collared_cape'] = 0.1
 
@@ -69,10 +73,10 @@ class MonsterPlugin(Monster):
 			msg += "\n\n@2 stands paralyzed before the @1, and cries out as fangs plunge into " \
 				"@2a throat."
 
+			msg += f"\n\n**@2 is drained of {amount} health!**"
+
 			if m := target.apply_damage(amount):
 				msg += f"\n\n{m}"
-			else:
-				msg += f"\n\n**@2 is drained of {amount} health!**"
 
 			msg += "\n\nThe @1 licks the blood from @1a lips, and a wicked smile carves a path across @1a face as " \
 				"wounds begin to mend."

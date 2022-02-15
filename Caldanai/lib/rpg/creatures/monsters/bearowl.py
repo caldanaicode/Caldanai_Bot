@@ -2,7 +2,7 @@ from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures.monsters import Monster
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -35,6 +35,10 @@ class MonsterPlugin(Monster):
 			"After a last-ditch effort to escape your fury, the @1 collapses into lifelessness.",
 			"The abomination of nature will no more threaten your sense of reason."
 		])
+
+		self.traits[DamageTypes.RANGED] = 1.50
+		self.traits[DamageTypes.PIERCING | DamageTypes.SLASHING] = 1.25
+		self.traits[DamageTypes.BLUDGEONING] = 0.5
 
 	# Reacts to hugs.
 	def on_hugged(self, actor: Creature, invocation: str) -> str:

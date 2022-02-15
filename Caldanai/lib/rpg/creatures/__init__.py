@@ -26,7 +26,8 @@ class Creature:
 			gender: Optional[str] = None,
 			pronouns: Optional[str] = None,
 			body_parts: Optional[Tuple[BodyPart]] = (),
-			attacks: Optional[Dict[BodyPart, Union[str, int]]] = ()
+			attacks: Optional[Dict[BodyPart, Union[str, int]]] = (),
+			traits: Optional[Dict[DamageTypes, float]] = ()
 	):
 		"""
 		Creates a new instance of a creature object.
@@ -43,6 +44,7 @@ class Creature:
 			possessive'. For example, a female's pronouns will default to 'she, her, hers' if no pronouns are provided.
 		:param body_parts: The creature's body parts as a tuple.
 		:param attacks: The creature's BodyPart to attack mapping.
+		:param traits: Damage types and effectiveness against this creature.
 		"""
 
 		self.name = name or ''
@@ -59,6 +61,7 @@ class Creature:
 		self.pronouns: Dict[Pronouns, str] = {}
 		self.body_parts = body_parts
 		self.attacks = attacks
+		self.traits: Dict[DamageTypes, float] = traits or {}
 
 		if pronouns:
 			s = pronouns.split(',')
@@ -87,6 +90,26 @@ class Creature:
 		# 	if stat not in self.stats.keys():
 		#
 		# 		self.stats[stat] = 1
+
+	def get_trait_multiplier(self, dmg_type: DamageTypes) -> float:
+		if not dmg_type:
+			return 1.0
+
+		if dmg_type in self.traits:
+			return self.traits[dmg_type]
+
+		highest = 0.0
+		for trait in self.traits:
+			if trait & DamageTypes.COMBINED:
+				if not dmg_type & DamageTypes.COMBINED:
+					continue
+				if dmg_type & trait == trait:
+					highest = max(self.traits[trait], highest)
+
+			elif dmg_type & trait:
+				highest = max(self.traits[trait], highest)
+
+		return highest
 
 	def apply_damage(self, amount: int, target: str = '', dmg_type: DamageTypes = None) -> None:
 		"""
@@ -118,7 +141,7 @@ class Creature:
 			self,
 			creature: "Creature",
 			target: BodyPart = None,
-			attack: Tuple[DamageTypes, Union[str, int]] = None
+			dmg_type: DamageTypes = None
 	) -> Tuple[str, int]:
 		"""
 		Calculates an attack against the given creature, without modifying any attributes.
@@ -131,16 +154,19 @@ class Creature:
 		defense = creature.get_defense()
 		dodge = creature.get_dodge()
 		combined = CombinedRoll(attack, damage, dodge)
-		t_dmg = 0 if combined.isMiss else max(1, combined.result - defense)
+		multiplier = self.get_trait_multiplier(dmg_type)
+		sub_dmg = int(multiplier * combined.result)
+		t_dmg = 0 if combined.isMiss else max(1, sub_dmg - defense)
 
 		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({dodge}): " \
 			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
 
 		if not combined.isMiss:
-			msg += f"\n\nDamage:\n{'-' if combined.isMiss else '+'}    {combined.damage} * " \
-				f"{'0' if combined.isMiss else '2' if combined.isCritical else '1'} = {combined.result}"
+			msg += f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}   " \
+				f" {combined.damage} * {'0' if combined.isMiss else '2' if combined.isCritical else '1'} =" \
+				f" {combined.result} * {multiplier} = {sub_dmg}"
 
-			msg += f"\n\nTotal ({combined.result}) vs Defense ({defense}) = {t_dmg}"
+			msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
 
 		msg += "```\n"
 		return msg, t_dmg

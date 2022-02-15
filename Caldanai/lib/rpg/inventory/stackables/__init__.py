@@ -49,21 +49,19 @@ class Stackable(Item):
 
 	def get_article_or_count(self, next_word: str = None, count: int = None) -> str:
 		exclusions = ('unique')
-		if next_word is not None \
+		count = count or self.count
+		if self.article == 'a' \
+			and count == 1 \
+			and next_word is not None \
 			and next_word not in exclusions \
-			and next_word[0] in 'aeiouh' \
-			and self.article == 'a'\
-			and (count == 1 or self.count == 1):
+			and next_word[0] in 'aeiouh':
 			return f'an {next_word}'
 
-		if count is not None and count != 1 or self.count != 1:
-			return f'{count if count is not None else self.count} {next_word}'
-
-		return f'{self.article} {next_word}'
+		return f'{count if count != 1 else self.article} {next_word}'
 
 	def get_full_name(self, count: int = None) -> str:
 		return f"{self.get_article_or_count(self.quality.name.lower(), count)}" \
-			   f" {self.name if self.count == 1 else self.plural}"
+			f" {self.name if (count == 1 or (count is None and self.count == 1)) else self.plural}"
 
 	def to_dict(self) -> dict:
 		"""Returns the database-friendly dictionary for this item."""

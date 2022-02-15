@@ -2,7 +2,7 @@ from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures.monsters import Monster
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -34,6 +34,10 @@ class MonsterPlugin(Monster):
 			"Eyes rolling wildly in terror and pain, the @1 stumbles and falls to the ground motionless.",
 			"A final wheezing breath escapes slowly, as the @1 collapses to the ground in a twitching heap."
 		])
+
+		self.traits[DamageTypes.BLUDGEONING] = 1.25
+		self.traits[DamageTypes.PIERCING] = 1.50
+		self.traits[DamageTypes.SLASHING] = 0.75
 
 		self.loot["stick"] = 0.5
 		self.loot["wool"] = 0.5

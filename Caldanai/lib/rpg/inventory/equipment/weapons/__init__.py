@@ -1,7 +1,7 @@
 import importlib
 
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities, DamageTypes
 from Caldanai.lib.rpg.inventory.equipment import Equipment
 from bson.objectid import ObjectId
 
@@ -20,22 +20,18 @@ class Weapon(Equipment):
 			slots: EquipmentSlots = EquipmentSlots.EITHER_HELD,
 			plugin: str = None,
 			atk: str = "1d4",
-			is_magic: bool = False,
-			is_ranged: bool = False,
 			atk_msg: str = None,
 			bonus: int = None,
-			dmg_type: str = None,
+			dmg_type: DamageTypes = None
 	):
 		super().__init__(
 			iid, name, desc, unit_weight, unit_value, image, quality, article, "Weapon", slots, plugin
 		)
 		self.attack = atk.lower()
-		self.is_magic = is_magic
-		self.is_ranged = is_ranged
 		self.damage_type = dmg_type
 		self.attack_msg = atk_msg
 		self.skill: str = f"{'two-handed ' if slots & EquipmentSlots.MULTI_SLOT else 'one-handed '}" \
-			f"{'magic ' if is_magic else ''}{'ranged ' if is_ranged else ''}{dmg_type}"
+			f"{str(self.damage_type) or ''}".strip()
 
 		dice = int(self.attack.split('d')[0])
 		self.bonus = bonus or int(dice * self.quality.value['multiplier'])
@@ -45,11 +41,9 @@ class Weapon(Equipment):
 
 		fields = (
 			("Skill", self.skill.title(), False),
-			("Is Ranged", self.is_ranged, True),
-			("Is Magic", self.is_magic, True),
 			("Is Two-Handed", bool(self.slots & EquipmentSlots.MULTI_SLOT), True),
 			("\u200b", "\u200b", True),
-			("Damage Type", self.damage_type, True),
+			("Damage Type", str(self.damage_type), True),
 			("Attack", f"{self.attack} + {self.bonus}", True)
 		)
 		for f, v, i in fields:

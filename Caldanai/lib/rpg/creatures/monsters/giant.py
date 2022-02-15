@@ -1,5 +1,5 @@
 from Caldanai.lib.rpg.creatures.monsters import Monster
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
@@ -22,6 +22,13 @@ class MonsterPlugin(Monster):
 		self.escape = "The @1 looks around the area with a wary eye, then lopes off to destinations unknown."
 		self.death = "The @1 wobbles unsteadily for a moment, then crashes backward into the earth sending out a " \
 					 "small tremor."
+
+		self.traits[DamageTypes.RANGED] = 0.75
+		self.traits[DamageTypes.PIERCING | DamageTypes.SLASHING] = 1.0
+		self.traits[DamageTypes.MAGICAL] = 1.50
+		self.traits[DamageTypes.ALL ^ (
+				DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.SLASHING | DamageTypes.MAGICAL
+		)] = 0.5
 
 		self.loot["rock"] = 0.7
 		self.loot["sledgehammer"] = 0.2
