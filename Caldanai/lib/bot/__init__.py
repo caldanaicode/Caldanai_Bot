@@ -103,13 +103,11 @@ class Bot(BotBase):
 	async def get_forbidden_response(ctx: Context) -> str:
 		return choice([
 			f"I'm afraid I can't do that, {ctx.author.mention}.",
-			f"Perhaps, one day, you shall hold that kind of power over me, {ctx.author.mention}. But today is not "
-			f"that day.",
+			f"Perhaps, one day, you shall hold that kind of power over me, {ctx.author.mention}. But today is not that day.",
 			f"You're not the boss of me, {ctx.author.mention}! Just who do you think you are?!",
 			f"Unable to comply, {ctx.author.mention}, please elevate status and try again.",
-			"```\nOne of these days\nI'm gonna love me.\nOne of these days\nI'll rise above me.\nOne of these "
-			"days...```",
-			"We're sorry. the number you have dialed is no longer in service. Please hang up, and try your call again."
+			"```\nOne of these days\nI'm gonna love me.\nOne of these days\nI'll rise above me.\nOne of these days...```",
+			"We're sorry. The number you have dialed is no longer in service. Please hang up, and try your call again."
 		])
 
 	async def on_command_error(self, ctx, exc):
