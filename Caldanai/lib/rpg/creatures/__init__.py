@@ -163,8 +163,8 @@ class Creature:
 
 		if not combined.isMiss:
 			msg += f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}   " \
-				f" {combined.damage} * {'0' if combined.isMiss else '2' if combined.isCritical else '1'} =" \
-				f" {combined.result} * {multiplier} = {sub_dmg}"
+				f" {combined.damage} * {'0' if combined.isMiss else '2' if combined.isCritical else '1'}  * " \
+				f"{multiplier} = {sub_dmg}"
 
 			msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
 

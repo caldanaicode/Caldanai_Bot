@@ -111,13 +111,11 @@ class Player(Creature):
 
 		if not left.isMiss or (right and not right.isMiss):
 			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'} " \
-				   f"({str(lh.damage_type).title()}): {left.damage} *" \
-				   f" {'0' if left.isMiss else '2' if left.isCritical else '1'} = {left.result} * {l_multiplier} =" \
-				   f" {l_sub}"
+				f"({str(lh.damage_type).title()}): {left.damage} *" \
+				f" {'0' if left.isMiss else '2' if left.isCritical else '1'} * {l_multiplier} = {l_sub}"
 			if right:
 				msg += f"\n{'-' if right.isMiss else '+'}    Right ({str(rh.damage_type).title()}): {right.damage} * " \
-					f"{'0' if right.isMiss else '2' if right.isCritical else '1'} = {right.result} * {r_multiplier} = " \
-					f"{r_sub}"
+					f"{'0' if right.isMiss else '2' if right.isCritical else '1'} * {r_multiplier} = {r_sub}"
 
 			if not left.isMiss:
 				self.gain_skill_experience(lh.skill if lh else "unarmed")
