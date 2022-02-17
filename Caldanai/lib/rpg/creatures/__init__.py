@@ -162,9 +162,9 @@ class Creature:
 			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
 
 		if not combined.isMiss:
-			msg += f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}   " \
-				f" {combined.damage} * {'0' if combined.isMiss else '2' if combined.isCritical else '1'}  * " \
-				f"{multiplier} = {sub_dmg}"
+			msg += f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}" \
+				f"    {combined.damage}{' * 0' if combined.isMiss else ' * 2' if combined.isCritical else ''}" \
+				f"{' * ' + str(multiplier) if multiplier != 1 else ''} = {sub_dmg}"
 
 			msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
 

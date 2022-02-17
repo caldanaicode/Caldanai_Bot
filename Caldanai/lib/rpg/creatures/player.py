@@ -110,12 +110,14 @@ class Player(Creature):
 		msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
 
 		if not left.isMiss or (right and not right.isMiss):
-			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'} " \
-				f"({str(lh.damage_type).title()}): {left.damage} *" \
-				f" {'0' if left.isMiss else '2' if left.isCritical else '1'} * {l_multiplier} = {l_sub}"
+			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {'Left' if right else 'Two-Handed'} " \
+				f"({str(lh.damage_type).title()}):\n        {left.damage}" \
+				f"{' * 0' if left.isMiss else ' * 2' if left.isCritical else ''}" \
+				f"{' * ' + str(l_multiplier) if l_multiplier != 1 else ''} = {l_sub}"
 			if right:
-				msg += f"\n{'-' if right.isMiss else '+'}    Right ({str(rh.damage_type).title()}): {right.damage} * " \
-					f"{'0' if right.isMiss else '2' if right.isCritical else '1'} * {r_multiplier} = {r_sub}"
+				msg += f"\n{'-' if right.isMiss else '+'}    Right ({str(rh.damage_type).title()}):" \
+					f"\n        {right.damage}{' * 0' if right.isMiss else ' * 2' if right.isCritical else ''}" \
+					f"{' * ' + str(r_multiplier) if r_multiplier != 1 else ''} = {r_sub}"
 
 			if not left.isMiss:
 				self.gain_skill_experience(lh.skill if lh else "unarmed")
