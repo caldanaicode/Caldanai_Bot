@@ -270,7 +270,7 @@ class RpgInventoryCommands(Cog):
 				txt = ', '.join([f'{d.get_full_name()}' for d in dropped]).rsplit(', ', 1)
 				txt = ' and '.join(txt)
 				msg += f" It appears you may have a hoarding problem, though. The following item" \
-					   f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
+					f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
 		else:
 			msg = f"{player.name} pokes around the corpse, finding nothing useful."
 
