@@ -115,11 +115,11 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
 			return
 
-		if any(player.user_id == pid for pid in game.combatants):
+		if any(player.id == p.id for p in game.combatants):
 			Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
 			return
 
-		game.combatants.append(player.user_id)
+		game.combatants.append(player)
 		Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
 
 	@command(name='hug', aliases=['snuggle', 'cuddle'], brief='Hugs, snuggles, and cuddles for all of your needs!')
