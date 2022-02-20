@@ -1,6 +1,9 @@
-from random import choice
+from random import choice, sample, random
+from typing import List
 
+from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures.monsters import Monster
+from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
 
@@ -44,10 +47,34 @@ class MonsterPlugin(Monster):
 		# TODO: Perhaps attack the hugger in some way.
 		return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2a direction."
 
-	def apply_damage(self, amount: int, target: str = '', dmg_type: DamageTypes = None) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount, target, dmg_type)
-		if was_alive and self.is_dead():
-			return self.death
+	def breath_attack(self, combatants) -> str:
+		msg = parse(
+			"The base of @1's throat glows brightly, @1a head drawing back slightly as @1s breathes in deeply. With a "
+			"deafening roar, @1s looses a mighty column of liquid flame, blanketing the entire area.\n```diff",	self
+		)
+		post = ""
+		for victim in combatants:
+			raw = Dice.quick_roll("6d6")
+			df = victim.get_defense()
+			dmg = raw - df
+			msg += parse(f"\n- @1 takes [{raw} - {df}] = {dmg} fire damage!", victim)
+			if p := victim.apply_damage(dmg):
+				post += f"{p}\n"
 
-		return ""
+		return f"{msg}```{post}"
+
+	def attack_random(self, combatants: list, count=1) -> str:
+		if combatants and 0 < count <= len(combatants):
+			if random() < 0.2:
+				return self.breath_attack(combatants)
+
+			victims = sample(combatants, count)
+			m = None
+			for victim in victims:
+				m, d = self.do_attack(victim)
+				if d > 0:
+					m += parse(victim.apply_damage(d), victim)
+
+			return m
+
+		return None

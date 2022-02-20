@@ -1,5 +1,5 @@
 from random import randint
-from typing import Tuple
+from typing import Tuple, Optional
 
 from random import choice
 
@@ -100,15 +100,7 @@ class MonsterPlugin(Monster):
 
 		return response
 
-	def apply_damage(self, amount: int) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount)
-		if was_alive and self.is_dead():
-			return self.death
-
-		return ""
-
-	def do_attack(self, creature: "Creature") -> Tuple[str, int]:
+	def do_attack(self, creature: "Creature", dmg_type: Optional[DamageTypes] = None) -> Tuple[str, int]:
 		if self.health / self.health_max <= 0.5:
 			return self.feed(creature), 0
 		return super().do_attack(creature)

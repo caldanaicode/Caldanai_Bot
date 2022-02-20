@@ -27,17 +27,10 @@ class MonsterPlugin(Monster):
 		self.traits[DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.COMBINED] = 1.50
 		self.traits[DamageTypes.FIRE] = 2.00
 		self.traits[DamageTypes.BLUDGEONING] = 0.75
+		self.traits[DamageTypes.PIERCING] = 1.00
 		self.traits[DamageTypes.ALL ^ (
 				DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.FIRE | DamageTypes.BLUDGEONING
 		)] = 0.5
 
 		self.loot["toad_slime"] = 0.9
 		self.loot["mushroom_hat"] = 0.3
-
-	def apply_damage(self, amount: int) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount)
-		if was_alive and self.is_dead():
-			return self.death
-
-		return ""
