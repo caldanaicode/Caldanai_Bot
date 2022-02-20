@@ -1,11 +1,11 @@
 import importlib
 from glob import glob
 from os import path
-from random import choice, random
+from random import choice, random, sample
 from typing import Optional, Union, List, Dict
 
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg import Creature, GameClock
+from Caldanai.lib.rpg import Creature, GameClock, parse
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, TimesOfDay
 from Caldanai.lib.rpg.inventory import Inventory, Item
 
@@ -35,6 +35,14 @@ class Monster(Creature):
 		self.escape = ""
 		self.death = ""
 		self.loot: Dict[str, float] = {}
+
+	def apply_damage(self, amount: int) -> str:
+		was_alive = self.health > 0
+		super().apply_damage(amount)
+		if was_alive and self.is_dead():
+			return self.death
+
+		return ""
 
 	@staticmethod
 	def get_random_monster(clock: GameClock) -> 'Monster':
@@ -67,3 +75,16 @@ class Monster(Creature):
 				stdout(f"No such item '{name}' found in the Inventory.ITEMS list.")
 
 		return items
+
+	def attack_random(self, combatants: list, count=1) -> str:
+		if combatants and 0 < count <= len(combatants):
+			victims = sample(combatants, count)
+			m = None
+			for victim in victims:
+				m, d = self.do_attack(victim)
+				if d > 0:
+					m += parse(victim.apply_damage(d), victim)
+
+			return m
+
+		return None
