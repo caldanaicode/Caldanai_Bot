@@ -65,8 +65,8 @@ class Game:
 		self.players: Dict[int, Player] = {}
 		self.monster: Optional[Monster] = None
 		self.monsters: List[str] = []
-		self.combatants: List[int] = []
-		self.looters: List[int] = []
+		self.combatants: List[Player] = []
+		self.looters: List[Player] = []
 		self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
 		self.use_spawn_timer = use_spawn_timer
 		self.spawn_duration = spawn_duration * 60
@@ -167,11 +167,11 @@ class Game:
 		"""Generates loot, shows monster death, and clears combatants."""
 
 		has_loot = False
-		for pid in self.looters:
+		for player in self.looters:
 			loot = self.monster.get_loot()
 			if len(loot) > 0:
 				has_loot = True
-			self.loot[pid] = loot
+			self.loot[player.user_id] = loot
 
 		self.monster = None
 		self.combatants.clear()
@@ -200,13 +200,6 @@ class Game:
 		if msg:
 			Dispatcher.add(self.channel, msg)
 
-	def attack_random_combatant(self) -> str:
-		victim = self.players[choice(self.combatants)]
-		m, d = self.monster.do_attack(victim)
-		if d > 0:
-			m += parse(victim.apply_damage(d), victim)
-		return m
-
 	async def do_combat(self):
 		"""Tallies and displays combat results."""
 
@@ -218,12 +211,11 @@ class Game:
 		msg = ""
 		damage = 0
 		for i in range(len(self.combatants)-1, -1, -1):
-			pid = self.combatants[i]
-			player = self.players[pid]
+			player = self.combatants[i]
 			if not player.is_dead():
 				player.health_regen = 0
-				if pid not in self.looters:
-					self.looters.append(pid)
+				if player not in self.looters:
+					self.looters.append(player)
 				m, d = player.do_attack(self.monster)
 				msg += m
 				damage += d
@@ -245,7 +237,7 @@ class Game:
 			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) \
 				and len(self.combatants) > 0:
 
-				msg += f"\n{self.attack_random_combatant()}"
+				msg += f"\n{self.monster.attack_random(self.combatants)}"
 				if self.monster.aggression == AggressionLevels.RAMPAGE:
 					Dispatcher.add(self.channel, msg)
 					self.combatants.clear()
