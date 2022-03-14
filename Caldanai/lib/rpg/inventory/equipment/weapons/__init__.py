@@ -1,4 +1,5 @@
 import importlib
+from typing import Dict, Tuple
 
 from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities, DamageTypes
@@ -27,6 +28,7 @@ class Weapon(Equipment):
 		super().__init__(
 			iid, name, desc, unit_weight, unit_value, image, quality, article, "Weapon", slots, plugin
 		)
+		self.attacks: Dict[str, Tuple[DamageTypes, str, str, float]] = {}
 		self.attack = atk.lower()
 		self.damage_type = dmg_type
 		self.attack_msg = atk_msg
