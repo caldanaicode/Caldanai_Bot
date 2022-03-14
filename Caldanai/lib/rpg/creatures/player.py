@@ -94,11 +94,11 @@ class Player(Creature):
 		rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
 		two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
 		left = self.get_combat_rolls(lh, creature)
-		l_multiplier = creature.get_trait_multiplier(lh.damage_type)
+		l_multiplier = creature.get_trait_multiplier(lh.damage_type if lh else DamageTypes.BLUDGEONING)
 		l_sub = int(left.result * l_multiplier)
 		raw_dmg = l_sub
 		if right := None if two_handed else self.get_combat_rolls(rh, creature):
-			r_multiplier = creature.get_trait_multiplier(rh.damage_type)
+			r_multiplier = creature.get_trait_multiplier(rh.damage_type if rh else DamageTypes.BLUDGEONING)
 			r_sub = int(right.result * r_multiplier)
 			raw_dmg += r_sub
 
@@ -111,12 +111,13 @@ class Player(Creature):
 
 		if not left.isMiss or (right and not right.isMiss):
 			msg += f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {'Left' if right else 'Two-Handed'} " \
-				f"({str(lh.damage_type).title()}):\n        {left.damage}" \
+				f"({str(lh.damage_type if lh else DamageTypes.BLUDGEONING).title()}):\n        {left.damage}" \
 				f"{' * 0' if left.isMiss else ' * 2' if left.isCritical else ''}" \
 				f"{' * ' + str(l_multiplier) if l_multiplier != 1 else ''} = {l_sub}"
 			if right:
-				msg += f"\n{'-' if right.isMiss else '+'}    Right ({str(rh.damage_type).title()}):" \
-					f"\n        {right.damage}{' * 0' if right.isMiss else ' * 2' if right.isCritical else ''}" \
+				msg += f"\n{'-' if right.isMiss else '+'}    Right (" \
+					f"{str(rh.damage_type if rh else DamageTypes.BLUDGEONING).title()}):\n        {right.damage}" \
+					f"{' * 0' if right.isMiss else ' * 2' if right.isCritical else ''}" \
 					f"{' * ' + str(r_multiplier) if r_multiplier != 1 else ''} = {r_sub}"
 
 			if not left.isMiss:
