@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.lib.rpg import Game
-from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.enums import Directions, Pronouns
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 
@@ -34,8 +33,8 @@ class RpgInfoCommands(Cog):
 		if game is None:
 			return
 
-		length = len(game.players)
-		s = list(game.players.values())
+		length = len(game.player_manager.players)
+		s = list(game.player_manager.players.values())
 		s.sort(key=lambda p: p.member.display_name)
 		msg = "```\n"
 		for idx, player in enumerate(s):
@@ -59,17 +58,11 @@ class RpgInfoCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
-
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
-
 		embed = player.get_profile(game.guild.name)
 		embed.set_thumbnail(url=game.guild.icon_url)
 		Dispatcher.add(channel, embed=embed)
@@ -85,17 +78,11 @@ class RpgInfoCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
-
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
-
 		embed = player.get_skill_display()
 		embed.set_thumbnail(url=game.guild.icon_url)
 		Dispatcher.add(channel, embed=embed)
@@ -128,15 +115,15 @@ class RpgInfoCommands(Cog):
 		:param options: Options for the display of the chart and data.
 			[d4, d6, d8, d10, d12, d20] The dice rolls for which to show data. Default is d20.
 			[bar, barh, area, line] The type of chart to show. Default is bar.
+			[wN, hN] The size of the chart in inches. Default is auto-sized for "all" charts, and w8 h4 for individual charts.
 			[all] Compiles data for all players.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx)
-		if game is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx)
+		if game is None or player is None:
 			return
 
 		data_types = ('d4', 'd6', 'd8', 'd10', 'd12', 'd20')
-
 		plot_types = {
 			# 'hexbin': {'x': 'index', 'y': ''},
 			'bar' : {'options': {'stacked': True}, 'labels': ('Rolls', 'Count')},
@@ -155,17 +142,26 @@ class RpgInfoCommands(Cog):
 		tcolor = (0., 1., 0.7, 1.)
 		dtype = 'd20'
 		dsize = 20
+		width = 8
+		height = 4
+		autosize = True
 
 		for option in options:
 			opt = option.lower()
 			if opt in plot_types.keys():
 				kind = opt
-			if opt in data_types:
+			elif opt in data_types:
 				dtype = opt
 				dsize = int(opt.split('d')[1])
+			elif opt[0] == 'w' and opt[1:].isnumeric() and (w := int(opt[1:])) >= 1:
+				width = w
+				autosize = False
+			elif opt[0] == 'h' and opt[1:].isnumeric() and (h := int(opt[1:])) >= 1:
+				height = h
+				autosize = False
 
 		if 'all' in options:
-			data = {p.name: p.rolls[dtype] for p in game.players.values() if any(p.rolls[dtype])}
+			data = {p.name: p.rolls[dtype] for p in game.player_manager.players.values() if any(p.rolls[dtype])}
 			if len(data) == 0:
 				data = {'None': (0,) * dsize}
 			df = pandas.DataFrame(data, index=range(1, dsize + 1), dtype='int')
@@ -175,7 +171,11 @@ class RpgInfoCommands(Cog):
 					total += (idx + 1) * count
 
 			mean = total / rolls if rolls > 0 else 0
-			ax = df.plot(kind=f'{kind}', **plot_types[kind]['options'])
+			if autosize:
+				ax = df.plot(kind=f'{kind}', fontsize=14, **plot_types[kind]['options'])
+			else:
+				ax = df.plot(kind=f'{kind}', fontsize=14, figsize=(width, height), **plot_types[kind]['options'])
+
 			ax.legend(
 				bbox_to_anchor=(1, 1),
 				loc="upper left",
@@ -186,18 +186,19 @@ class RpgInfoCommands(Cog):
 			)
 
 		else:
-			player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
-			if player is None:
-				return
-
 			data = player.rolls[dtype]
 			df = pandas.DataFrame(data, index=range(1, dsize + 1), dtype='int')
 			for idx, count in enumerate(data):
+				i = idx + 1
 				rolls += count
-				total += (idx + 1) * count
+				total += i * count
+				df.rename(index={i: f"{i} [ {count:,} ]"}, inplace=True)
 
 			mean = total / rolls if rolls > 0 else 0
-			ax = df.plot(kind=f'{kind}', legend=False, **plot_types[kind]['options'])
+			if autosize:
+				ax = df.plot(kind=f'{kind}', legend=False, figsize=(8, 4), fontsize=16, **plot_types[kind]['options'])
+			else:
+				ax = df.plot(kind=f'{kind}', legend=False, figsize=(width, height), fontsize=16, **plot_types[kind]['options'])
 
 		try:
 			ax.set_xlabel(plot_types[kind]['labels'][0])
@@ -245,15 +246,18 @@ class RpgInfoCommands(Cog):
 
 	@cooldown(1, 5, BucketType.member)
 	@command(name='gender', brief='Displays or sets the user\'s gender.')
-	async def gender(self, ctx, gender: Optional[str] = None):
+	async def gender(self, ctx, gender: Optional[str] = None, gid: Optional[int] = None):
 		"""
 		Displays or sets the user's gender.
 
 		(5-second cool-down)
 
 		:param gender: Can be anything you like, but if the gender is not 'male', 'female', or 'non-binary', the pronouns will not be auto-updated by the game.
+
+		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
-		game, player = await RpgUtilities.get_game_and_player(ctx)
+
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
 		if game is None or player is None:
 			return
 
@@ -263,8 +267,11 @@ class RpgInfoCommands(Cog):
 			player.gender = gender.lower()
 			player.update_pronouns()
 			player.is_dirty = True
-			Dispatcher.add(channel, f"{player.name}'s gender has been set to '{player.gender}'. "
-										 f"You may also wish to set your `{ctx.prefix}pronouns`")
+			Dispatcher.add(
+				channel,
+				f"{player.name}'s gender has been set to '{player.gender}'. "
+				f"You may also wish to set your `{ctx.prefix}pronouns`"
+			)
 		else:
 			Dispatcher.add(channel, f"{player.name}'s gender is currently shown as '{player.gender}'.")
 
@@ -285,6 +292,7 @@ class RpgInfoCommands(Cog):
 
 		:param a: The adjective form, such as 'his', 'her', or 'their'. Example usage: 'Her health has been restored.'
 		"""
+
 		game, player = await RpgUtilities.get_game_and_player(ctx)
 		if game is None or player is None:
 			return
@@ -308,6 +316,7 @@ class RpgInfoCommands(Cog):
 		)
 
 	@cooldown(1, 5, BucketType.member)
+	@guild_only()
 	@command(name='health', brief='Displays player health and regeneration.')
 	async def health(self, ctx, flag: str = None):
 		"""
@@ -327,7 +336,7 @@ class RpgInfoCommands(Cog):
 		if flag and flag.lower() in ('all', 'hurt', 'injured'):
 			players = sorted(
 				sorted([
-					i for i in game.players.values()
+					i for i in game.player_manager.players.values()
 					if flag == 'all' or (flag in ('hurt', 'injured') and i.health < i.get_health_max())
 				], key=lambda x: x.name.lower())
 				, key=lambda x: x.health / x.get_health_max()

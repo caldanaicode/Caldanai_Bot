@@ -46,7 +46,9 @@ class Inventory:
 
 	@staticmethod
 	def load_item(name: Optional[str] = None, data: Optional[dict] = None):
-		if not name and data and 'plugin' in data.keys():
+		if name and not data:
+			data = {'plugin': name}
+		elif not name and data and 'plugin' in data.keys():
 			name = data['plugin']
 
 		if name:
@@ -185,7 +187,10 @@ class Inventory:
 				results = *[i for i in self._filter_by_name(f) if i.quality == Qualities[flag.upper()]],
 
 		else:
-			results = *tuple(set(self._filter_by_name(f)) | set(self._filter_by_quality(f))),
+			if f.upper() in Qualities.__members__:
+				results = self._filter_by_quality(f)
+			else:
+				results = self._filter_by_name(f)
 
 		if len(results) > 0:
 			return results

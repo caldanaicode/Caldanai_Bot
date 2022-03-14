@@ -23,3 +23,9 @@ class WeaponPlugin(Weapon):
 			bonus=bonus,
 			dmg_type=DamageTypes.PIERCING
 		)
+
+		self.attacks = {
+			# Command: DamageType, Damage Roll, Strike Verb, Frequency
+			"swing": (DamageTypes.BLUDGEONING, "1d4", "smacks", 0.5),
+			"thrust": (DamageTypes.PIERCING, "1d4", "pokes", 0.5)
+		}

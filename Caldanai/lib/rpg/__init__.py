@@ -1,11 +1,10 @@
 import importlib
 import random
-from datetime import datetime
 from glob import glob
 from os import path
 
 from discord.ext.commands import Bot
-from discord import Guild, TextChannel, Role
+from discord import Guild, TextChannel
 from typing import Dict, List, Union, Optional
 from random import choice, randint
 
@@ -17,6 +16,7 @@ from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers import get_random_direction
 from Caldanai.lib.rpg.creatures.monsters import Monster
 from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.lib.rpg.PlayerManager import PlayerManager
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from Caldanai.Dispatcher import Dispatcher
@@ -45,28 +45,26 @@ class Game:
 
 		:param bot: The bot that owns this game.
 		:param game_id: The game's database ID.
-		:param guild: The guild (a.k.a server) that hosts this game.
+		:param guild: The guild (a.k.a. server) that hosts this game.
 		:param channel: The channel to which this game sends most responses.
-		:param use_spawn_timer: Whether or not to allow periodic monster spawns.
+		:param use_spawn_timer: Whether to allow periodic monster spawns.
 		:param spawn_max: Maximum minutes between monster spawns.
 		:param spawn_min: Minimum minutes between monster spawns.
-		:param spawn_duration: Number of minutes before first combat triggers. Additional rounds occur at half this
-		time.
+		:param spawn_duration: Number of minutes before first combat triggers. Additional rounds occur at half this time.
 		:param loot_duration: Number of minutes before loot expires.
 		:param prefix: The game's command prefix.
-		:param enable_ambience: Whether or not to display ambience messages such as weather, day/night cycles,
-		and monster ambience messages.
+		:param enable_ambience: Whether to display ambience messages such as weather, day/night cycles,	and monster ambience messages.
 		:param game_time: The game's internal time value.
 		"""
 		self.bot = bot
 		self.id = game_id
 		self.guild = guild
 		self.channel = channel
-		self.players: Dict[int, Player] = {}
+		self.player_manager: PlayerManager = PlayerManager()
 		self.monster: Optional[Monster] = None
 		self.monsters: List[str] = []
-		self.combatants: List[int] = []
-		self.looters: List[int] = []
+		self.combatants: List[Player] = []
+		self.looters: List[Player] = []
 		self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
 		self.use_spawn_timer = use_spawn_timer
 		self.spawn_duration = spawn_duration * 60
@@ -76,13 +74,15 @@ class Game:
 		self.minutes_min = spawn_min
 		self.prefix = prefix
 		self.enable_ambience = enable_ambience
-
 		self.game_clock = GameClock(game_time=game_time)
 		self.game_clock.tick.start()
 		self.weather = None
 		self._last_ambience_tick = self.game_clock.get_seconds()
 		self.room0: Area = None
-		self.roles: Dict[Roles, Optional[Role]] = {}
+
+		if guild:
+			self.player_manager.load_players(guild)
+			self.game_clock.add_routine(self.player_manager.update_inactive_roles, 3600)
 
 		# Regen timer is triggered every game hour (15 minutes for default time scale)
 		self.game_clock.add_routine(self.do_health_regen, 3600 / self.game_clock.time_scale)
@@ -167,16 +167,17 @@ class Game:
 		"""Generates loot, shows monster death, and clears combatants."""
 
 		has_loot = False
-		for pid in self.looters:
+		for player in self.looters:
 			loot = self.monster.get_loot()
 			if len(loot) > 0:
 				has_loot = True
-			self.loot[pid] = loot
+			self.loot[player.user_id] = loot
 
 		self.monster = None
 		self.combatants.clear()
 		self.looters.clear()
 		self.game_clock.remove_routine(self.do_combat)
+
 		if has_loot:
 			self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
 			await self.set_spawn_timer()
@@ -188,7 +189,7 @@ class Game:
 	async def do_health_regen(self):
 		"""Applies health regen to players, and increments the health regen amount."""
 		msg = ""
-		for player in self.players.values():
+		for player in self.player_manager.players.values():
 			max_health = player.get_health_max()
 			if player.health < max_health:
 				m = player.apply_damage(-player.health_regen)
@@ -199,13 +200,6 @@ class Game:
 
 		if msg:
 			Dispatcher.add(self.channel, msg)
-
-	def attack_random_combatant(self) -> str:
-		victim = self.players[choice(self.combatants)]
-		m, d = self.monster.do_attack(victim)
-		if d > 0:
-			m += parse(victim.apply_damage(d), victim)
-		return m
 
 	async def do_combat(self):
 		"""Tallies and displays combat results."""
@@ -218,12 +212,11 @@ class Game:
 		msg = ""
 		damage = 0
 		for i in range(len(self.combatants)-1, -1, -1):
-			pid = self.combatants[i]
-			player = self.players[pid]
+			player = self.combatants[i]
 			if not player.is_dead():
 				player.health_regen = 0
-				if pid not in self.looters:
-					self.looters.append(pid)
+				if player not in self.looters:
+					self.looters.append(player)
 				m, d = player.do_attack(self.monster)
 				msg += m
 				damage += d
@@ -245,7 +238,7 @@ class Game:
 			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) \
 				and len(self.combatants) > 0:
 
-				msg += f"\n{self.attack_random_combatant()}"
+				msg += f"\n{self.monster.attack_random(self.combatants)}"
 				if self.monster.aggression == AggressionLevels.RAMPAGE:
 					Dispatcher.add(self.channel, msg)
 					self.combatants.clear()
@@ -328,44 +321,6 @@ class Game:
 		if self.id is None:
 			self.id = result.upserted_id
 
-	async def set_player_active(self, player: Player):
-		"""Updates player's last_active time and changes roles if needed."""
-		player.last_active = datetime.now()
-		player.is_dirty = True
-		if Roles.INACTIVE in self.roles.keys() \
-					and self.roles[Roles.INACTIVE] \
-					and self.roles[Roles.INACTIVE] in player.member.roles:
-			await player.member.remove_roles(self.roles[Roles.INACTIVE], reason='Activity in game.')
-
-		if Roles.ACTIVE in self.roles.keys() \
-					and self.roles[Roles.ACTIVE] \
-					and self.roles[Roles.ACTIVE] not in player.member.roles:
-			await player.member.add_roles(self.roles[Roles.ACTIVE], reason='Activity in game.')
-
-	async def set_player_inactive(self, player: Player):
-		"""Sets a player's role to inactive."""
-		if Roles.ACTIVE in self.roles.keys() \
-					and self.roles[Roles.ACTIVE] \
-					and self.roles[Roles.ACTIVE] in player.member.roles:
-			await player.member.remove_roles(
-				self.roles[Roles.ACTIVE],
-				reason='No activity in game for at least 24 hours.'
-			)
-
-		if Roles.INACTIVE in self.roles.keys() \
-					and self.roles[Roles.INACTIVE] \
-					and self.roles[Roles.INACTIVE] not in player.member.roles:
-			await player.member.add_roles(
-				self.roles[Roles.INACTIVE],
-				reason='No activity in game for at least 24 hours.'
-			)
-
-	async def update_inactive_roles(self):
-		now = datetime.now()
-		for player in self.players.values():
-			if player.last_active is None or (now - player.last_active).days > 0:
-				await self.set_player_inactive(player)
-
 	@classmethod
 	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:
 		"""Returns a game loaded from the database."""
@@ -401,20 +356,7 @@ class Game:
 
 		game.guild = bot.get_guild(d['guild_id'])
 		game.channel = bot.get_channel(d['channel_id'])
-
-		for p in MongoDB.players.find({'guild_id': game.guild.id}):
-			uid = p['user_id']
-			player = Player.from_dict(p)
-			player.member = game.guild.get_member(uid) or await game.guild.fetch_member(uid)
-			player.name = player.member.display_name
-			game.players[uid] = player
-
-		roles = game.guild.roles or await game.guild.fetch_roles()
-
-		for r in Roles:
-			matches = list(filter(lambda _r: _r.name == r.value, roles))
-			game.roles[r] = matches[0] if len(matches) > 0 else None
-
-		game.game_clock.add_routine(game.update_inactive_roles, 3600)
+		await game.player_manager.load_players(game.guild)
+		game.game_clock.add_routine(game.player_manager.update_inactive_roles, 3600)
 
 		return game

@@ -25,7 +25,7 @@ class MonsterPlugin(Monster):
 
 		self.flavor = choice([
 			"Legally distinct from any similarly-named creatures.",
-			"Hoo.  Hoo.  A frickin' @1, that's who.",
+			"Hoo. Hoo. A frickin' @1, that's who.",
 			"Trust me, you don't want to know."
 		])
 
@@ -47,11 +47,3 @@ class MonsterPlugin(Monster):
 			f"The @1 looks at @2 suspiciously before accepting the {invocation}.",
 			f"{invocation.capitalize()}s do not work on @1, @2."
 		])
-
-	def apply_damage(self, amount: int) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount)
-		if was_alive and self.is_dead():
-			return self.death
-
-		return ""

@@ -49,11 +49,3 @@ class MonsterPlugin(Monster):
 			f"A soft bleat escapes the @1 as @2 {invocation}s @1o.",
 			f"The @1 wuffles happily and leans into @2's {invocation}."
 		])
-
-	def apply_damage(self, amount: int) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount)
-		if was_alive and self.is_dead():
-			return self.death
-
-		return ""

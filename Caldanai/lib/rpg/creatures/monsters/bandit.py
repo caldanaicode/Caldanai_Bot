@@ -80,11 +80,3 @@ class MonsterPlugin(Monster):
 			response += f"\n{self.steal(actor)}"
 
 		return response
-
-	def apply_damage(self, amount: int) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount)
-		if was_alive and self.is_dead():
-			return self.death
-
-		return ""

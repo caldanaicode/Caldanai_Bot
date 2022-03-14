@@ -2,18 +2,15 @@ import math
 from random import choice
 
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
-from typing import Optional
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg import Game, Roles
+from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.parser import parse
-from Caldanai.db import MongoDB
-from datetime import datetime
 
 
 class RpgUserCommands(Cog):
@@ -45,20 +42,8 @@ class RpgUserCommands(Cog):
 		if game is None:
 			return
 
-		player = await RpgUtilities.get_player(ctx, game, False)
-		if player is None:
-			joined = datetime.now()
-			player = Player(gid=ctx.guild.id, uid=ctx.author.id, joined=joined, last_active=joined)
-			player.member = ctx.author
-			player.name = ctx.author.display_name
-			player.is_dirty = True
-			game.players[ctx.author.id] = player
+		if game.player_manager.add_player(ctx):
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
-			if Roles.ALL in game.roles.keys() and Roles.ACTIVE in game.roles.keys():
-				await player.member.add_roles(
-					game.roles[Roles.ALL], game.roles[Roles.ACTIVE],
-					reason="Player joined game."
-				)
 
 		else:
 			Dispatcher.add(game.channel, f'You are already a player in this RPG, {ctx.author.display_name}!')
@@ -70,23 +55,14 @@ class RpgUserCommands(Cog):
 		Removes an existing player from the game. This can only be called by member withdrawing from participation.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
 
-		if game is None:
+		if game is None or player is None:
 			return
 
-		player: Player = game.players[ctx.author.id]
-
-		if player is not None:
-			if Roles.ALL in game.roles.keys() and Roles.ACTIVE in game.roles.keys() and Roles.INACTIVE in game.roles.keys():
-				await player.member.remove_roles(
-					[game.roles[Roles.ALL], game.roles[Roles.ACTIVE], game.roles[Roles.INACTIVE]],
-					'Player left game.'
-				)
-			MongoDB.players.delete_one({'guild_id': ctx.guild.id, 'user_id': ctx.author.id})
-			del game.players[ctx.author.id]
-			game.save()
-			Dispatcher.add(game.channel, f'You have been removed from the game, {ctx.author.display_name}!')
+		await game.player_manager.remove_player(ctx.author.id, game.guild.id)
+		game.save()
+		Dispatcher.add(game.channel, f'You have been removed from the game, {ctx.author.display_name}!')
 
 	@command(
 		name='attack',
@@ -97,7 +73,7 @@ class RpgUserCommands(Cog):
 	@cooldown(1, 10, BucketType.member)
 	async def attack(self, ctx):
 		"""
-		Attacks the critter currently daring to show it's face to intrepid adventurers!
+		Attacks the critter currently daring to show its face to intrepid adventurers!
 
 		(10-second cool-down)
 		"""
@@ -115,11 +91,11 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
 			return
 
-		if any(player.user_id == pid for pid in game.combatants):
+		if any(player.id == p.id for p in game.combatants):
 			Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
 			return
 
-		game.combatants.append(player.user_id)
+		game.combatants.append(player)
 		Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
 
 	@command(name='hug', aliases=['snuggle', 'cuddle'], brief='Hugs, snuggles, and cuddles for all of your needs!')
@@ -134,7 +110,7 @@ class RpgUserCommands(Cog):
 
 		(5-second cool-down)
 
-		:param msg: A message to include with the hug. This can be a target such as a monster's noun, or an @mention of another player. It can also simply be text in the form of a custom emote, but remember to type in the third-person present participle for best effect.
+		:param msg: A message to include with the hug. This can be a target such as a monster's noun, or a @mention of another player. It can also simply be text in the form of a custom emote, but remember to type in the third-person present participle for best effect.
 		"""
 		game, player = await RpgUtilities.get_game_and_player(ctx)
 		if game is None or player is None:
@@ -180,10 +156,10 @@ class RpgUserCommands(Cog):
 			return
 
 		if target is not None:
-			if game.monster is not None and game.monster.name == target.lower():
-				haunted = game.monster
-			elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+			if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
 				haunted = await RpgUtilities.get_player(ctx.message.mentions[0])
+			elif game.monster is not None and game.monster.name == target.lower():
+				haunted = game.monster
 
 			if haunted is None or not isinstance(haunted, Creature):
 				await self.haunt(ctx)
@@ -225,13 +201,14 @@ class RpgUserCommands(Cog):
 
 		(60-second cool-down)
 		"""
-		game, player = await RpgUtilities.get_game_and_player(ctx)
-
-		if game is None or player is None:
-			return
 
 		if ctx.guild is None:
 			Dispatcher.add(ctx, f"I see you're interested in a little private reflection...")
+			return
+
+		game, player = await RpgUtilities.get_game_and_player(ctx)
+
+		if game is None or player is None:
 			return
 
 		if player.is_dead():
@@ -259,7 +236,7 @@ class RpgUserCommands(Cog):
 		msg += f" (1d{d20.sides} = {d20.value})"
 		player.update_roll_count(d20.sides, d20.value)
 		heal_amount = 0
-		actors = [player,]
+		actors = [player, ]
 		if d20.value == 1:
 			msg += "\nSacrifice is demanded for your insolence, @1!\n\nA sudden storm explodes into the area, " \
 				"as a blinding bolt of lightning envelopes @1. When the light fades, nothing remains but a charred husk."
@@ -267,7 +244,7 @@ class RpgUserCommands(Cog):
 			msg += f"\n\n{player.apply_damage(player.health)}\n\nThe storm calms to a gentle rain..."
 
 			index = 2
-			for p in game.players.values():
+			for p in game.player_manager.players.values():
 				if p != player and p.health < p.get_health_max():
 					msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
 					heal_msg = p.apply_damage(p.health - p.get_health_max())
@@ -282,8 +259,11 @@ class RpgUserCommands(Cog):
 
 		elif d20.value > 16:
 			heal_target: Player = min(
-				list(filter(lambda p: p.health < p.get_health_max(), game.players.values())) or [player],
-				key=lambda p: p.health
+				list(
+					filter(
+						lambda p: p.health < p.get_health_max(), game.player_manager.players.values()
+					)
+				) or [player], key=lambda p: p.health
 			)
 
 			missing_health = heal_target.get_health_max() - heal_target.health

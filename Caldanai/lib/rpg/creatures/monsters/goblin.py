@@ -38,6 +38,7 @@ class MonsterPlugin(Monster):
 
 		self.loot["stick"] = 0.5
 		self.loot["rock"] = 0.5
+		self.loot["torch"] = 0.3
 		self.loot["spear"] = 0.1
 
 	# Reacts to hugs.
@@ -53,11 +54,3 @@ class MonsterPlugin(Monster):
 			msg += "\n@2 narrowly avoids the @1's thrashing!"
 
 		return msg
-
-	def apply_damage(self, amount: int) -> str:
-		was_alive = self.health > 0
-		super().apply_damage(amount)
-		if was_alive and self.is_dead():
-			return self.death
-
-		return ""
