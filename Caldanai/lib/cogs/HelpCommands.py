@@ -28,7 +28,7 @@ def syntax(cmd: Command, prefix: str, verbose: bool = False):
 		subs = ', '.join(subs)
 
 	result = f"```\n{prefix}{cmd.full_parent_name + (' ' if cmd.full_parent_name else '')}" \
-			  f"{cmd.name if '_' not in cmd.name or not len(aliases) else choice(aliases)} {params}```"
+		f"{cmd.name if '_' not in cmd.name or not len(aliases) else choice(aliases)} {params}```"
 
 	if not verbose:
 		result += f"\n__Description__\n{cmd.brief.strip() or 'No description available.'}\n"
@@ -98,7 +98,6 @@ class HelpCommands(Cog):
 		Shows a help menu if no command is provided, otherwise shows help specific to the given command.
 
 		:param cmd: The command for which to show help information.
-
 		:param sub: If provided, shows help specific to the given subcommand.
 		"""
 		if cmd is None:
@@ -133,8 +132,9 @@ class HelpCommands(Cog):
 
 				if not found:
 					Dispatcher.add(ctx, f"No such command exists: {cmd}")
-	
-	async def cmd_help(self, ctx, cmd: Command):
+
+	@staticmethod
+	async def cmd_help(ctx, cmd: Command):
 		embed = Embed(
 			title=f"Help for `{cmd}`",
 			description=syntax(cmd, ctx.prefix, True),
