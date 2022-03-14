@@ -48,7 +48,7 @@ class Stackable(Item):
 		return True
 
 	def get_article_or_count(self, next_word: str = None, count: int = None) -> str:
-		exclusions = ('unique')
+		exclusions = ('unique',)
 		count = count or self.count
 		if self.article == 'a' \
 			and count == 1 \
