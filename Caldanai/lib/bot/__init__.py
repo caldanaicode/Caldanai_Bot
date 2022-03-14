@@ -96,8 +96,9 @@ class Bot(BotBase):
 	async def on_command_completion(self, ctx):
 		if guild := ctx.guild:
 			if game := self.games[guild.id]:
-				if ctx.author.id in game.players.keys() and (player := game.players[ctx.author.id]):
-					await game.set_player_active(player)
+				if ctx.author.id in game.player_manager.players.keys() \
+						and (player := game.player_manager.players[ctx.author.id]):
+					await game.player_manager.set_player_active(player)
 
 	@staticmethod
 	async def get_forbidden_response(ctx: Context) -> str:

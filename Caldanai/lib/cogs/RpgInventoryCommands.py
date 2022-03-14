@@ -33,12 +33,8 @@ class RpgInventoryCommands(Cog):
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player: Player = await RpgUtilities.get_player(ctx, game)
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
@@ -85,18 +81,12 @@ class RpgInventoryCommands(Cog):
 
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player: Player = game.players[ctx.author.id] if ctx.author.id in game.players.keys() else None
-
-		if player is None:
+		if not game or not player:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
-
 		embed = player.get_equipment(game.guild.name)
 		embed.set_thumbnail(url=game.guild.icon_url)
 		Dispatcher.add(channel, embed=embed)
@@ -114,12 +104,8 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player: Player = await RpgUtilities.get_player(ctx, game)
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
@@ -168,12 +154,8 @@ class RpgInventoryCommands(Cog):
 		:param gid: If calling from a DM and playing on more than one server, provide the game's index for which you wish to view inventory. Use the 'games' command to determine the game index.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player: Player = await RpgUtilities.get_player(ctx, game)
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		if ctx.guild is not None:
@@ -198,20 +180,15 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
+			return
+
 		if not name:
 			Dispatcher.add(ctx, "Please specify an item.")
 			return
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player = await RpgUtilities.get_player(ctx, game)
-		if player is None:
-			return
-
 		channel = game.channel if ctx.guild is not None else ctx
-
 		item, *_ = player.inventory.filter(name)
 
 		if item:
@@ -297,12 +274,8 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player = await RpgUtilities.get_player(ctx, game)
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx
@@ -405,12 +378,8 @@ class RpgInventoryCommands(Cog):
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx, gid)
-		if game is None:
-			return
-
-		player = await RpgUtilities.get_player(ctx, game)
-		if player is None:
+		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		if game is None or player is None:
 			return
 
 		channel = game.channel if ctx.guild is not None else ctx

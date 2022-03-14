@@ -81,9 +81,9 @@ class RpgAdminCommands(Cog):
 		have changed to allow the management of roles.
 		"""
 		if game := await RpgUtilities.get_game(ctx):
-			if game.roles[Roles.ALL] is None:
+			if game.player_manager.roles[Roles.ALL] is None:
 				await RpgUtilities.create_roles(game)
-				if game.roles[Roles.ALL]:
+				if game.player_manager.roles[Roles.ALL]:
 					Dispatcher.add(ctx, "Roles added!")
 				else:
 					Dispatcher.add(ctx, "There was a problem adding the roles. I may not have permission to do that.")
@@ -102,10 +102,10 @@ class RpgAdminCommands(Cog):
 		have changed to allow the management of roles.
 		"""
 		if (game := await RpgUtilities.get_game(ctx)) \
-				and Roles.ALL in game.roles.keys() \
-				and game.roles[Roles.ALL] is not None:
+				and Roles.ALL in game.player_manager.roles.keys() \
+				and game.player_manager.roles[Roles.ALL] is not None:
 			await RpgUtilities.delete_roles(game)
-			if game.roles[Roles.ALL]:
+			if game.player_manager.roles[Roles.ALL]:
 				Dispatcher.add(ctx, "There was a problem removing the roles. I may not have permission to do that.")
 			else:
 				Dispatcher.add(ctx, "Roles removed!")
