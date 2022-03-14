@@ -12,7 +12,7 @@ class WeaponPlugin(Weapon):
 			desc="This handy stick lets you feel less scared in the dark.",
 			unit_weight=0.3,
 			unit_value=1,
-			image="",
+			image=None,
 			quality=quality,
 			article="a",
 			slots=EquipmentSlots.EITHER_HELD,
