@@ -1,8 +1,7 @@
 from typing import List, Union
 
-from discord import Member, User, Forbidden, HTTPException
+from discord import Forbidden, HTTPException
 from discord.ext import tasks
-from discord.ext.commands import Context
 from pymongo import UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
@@ -32,17 +31,20 @@ class RpgUtilities:
 	@staticmethod
 	async def create_roles(game: Game):
 		try:
+			pmgr = game.player_manager
 			for role in Roles:
-				if role not in game.roles.keys() or (role in game.roles.keys() and not game.roles[role]):
-					game.roles[role] = await game.guild.create_role(
+				if role not in pmgr.roles.keys() or (role in pmgr.roles.keys() and not pmgr.roles[role]):
+					pmgr.roles[role] = await game.guild.create_role(
 						name=role.value,
 						mentionable=True,
 						reason='Created by Caldanai Bot for directing mentions to only active players.'
 					)
 
-			for player in game.players.values():
-				if game.roles[Roles.ALL] not in player.member.roles:
-					await player.member.add_roles(game.roles[Roles.ALL], reason="Is a player in the Caldanai Bot's game.")
+			for player in pmgr.players.values():
+				if pmgr.roles[Roles.ALL] not in player.member.roles:
+					await player.member.add_roles(
+						pmgr.roles[Roles.ALL], reason="Is a player in the Caldanai Bot's game."
+					)
 
 		except Forbidden:
 			stdout(f"No permission to create roles in guild '{game.guild.name}'.")
@@ -54,10 +56,10 @@ class RpgUtilities:
 	@staticmethod
 	async def delete_roles(game: Game):
 		try:
-			for key, role in game.roles.items():
+			for key, role in game.player_manager.roles.items():
 				if role:
 					await role.delete(reason="Caldanai Bot's game removed from server")
-					game.roles[key] = None
+					game.player_manager.roles[key] = None
 
 		except Forbidden:
 			stdout(f"No permission to remove roles in guild '{game.guild.name}'.")
@@ -120,7 +122,7 @@ class RpgUtilities:
 
 		return games
 
-	# Get the game associated with a context, it if exists.
+	# Get the game associated with a context, if it exists.
 	@staticmethod
 	async def get_game(ctx, game_idx: int = None) -> Union[Game, None]:
 		"""
@@ -136,7 +138,6 @@ class RpgUtilities:
 
 		if len(games) == 0 and game is None:
 			Dispatcher.add(ctx, f"You are not a member of any games at this time.")
-			return None
 
 		if game is None:
 			if len(games) > 1 and game_idx is None:
@@ -148,12 +149,11 @@ class RpgUtilities:
 				)
 				return None
 			elif len(games) > 1 and len(games) > game_idx >= 0:
-				game = games[game_idx]
+				return games[game_idx]
 			elif len(games) == 1:
-				game = games[0]
+				return games[0]
 			else:
-				Dispatcher.add(ctx, "No such game exists.")
-				return None
+				Dispatcher.add(ctx, f'The game is a lie! (No seriously... there seems to be no game available.)')
 
 		return game
 
@@ -164,34 +164,27 @@ class RpgUtilities:
 		"""
 
 		if game is None or not isinstance(game, Game):
-			game: Game = await RpgUtilities.get_game(ctx)
+			if (game := await RpgUtilities.get_game(ctx)) is None:
+				return None
 
-		if game is None:
-			return None
+		if player := await game.player_manager.get_player(ctx):
+			return player
 
-		if isinstance(ctx, Context):
-			if ctx.author.id not in game.players.keys():
-				if notify:
-					Dispatcher.add(
-						game.channel,
-						f'Why, {ctx.author.display_name}! You are not even playing the game! Try `{ctx.prefix}game '
-						f'join`'
-					)
-			else:
-				return game.players[ctx.author.id]
-		elif isinstance(ctx, (Member, User)) and ctx.id in game.players.keys():
-			return game.players[ctx.id]
-
+		if notify:
+			Dispatcher.add(
+				game.channel,
+				f'Why, {ctx.author.display_name}! You are not even playing the game! Try `{ctx.prefix}game join`'
+			)
 		return None
 
 	# Returns a tuple containing (game, player) if both exist.
 	@staticmethod
-	async def get_game_and_player(ctx, notify: bool = True) -> (Game, Player):
+	async def get_game_and_player(ctx, game_idx: int = None, notify: bool = True) -> (Game, Player):
 		"""
 		Returns a tuple containing a Game and Player if they exist, or None for one or both upon failure.
 		"""
 
-		game: Game = await RpgUtilities.get_game(ctx)
+		game: Game = await RpgUtilities.get_game(ctx, game_idx)
 		if game is None:
 			return None, None
 
@@ -219,7 +212,7 @@ class RpgUtilities:
 					{"guild_id": p.guild_id, "user_id": p.user_id},
 					{"$set": p.to_dict()},
 					upsert=True
-				)) for g in RpgUtilities.bot.games.values() for p in g.players.values() if p.is_dirty
+				)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
 			]
 
 			if len(dirty) > 0:
@@ -244,5 +237,6 @@ class RpgUtilities:
 			RpgUtilities.save_game_data.start()
 			RpgUtilities.is_initialized = True
 
-		except:
+		except Exception as e:
+			stdout(f"Error initializing RpgUtilities: {e}")
 			RpgUtilities.is_initialized = False
