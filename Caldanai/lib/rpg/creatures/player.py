@@ -11,6 +11,7 @@ from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature, BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes
+from Caldanai.lib.rpg.helpers.parser import item_list_to_string
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
 from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
 from Caldanai.lib.rpg.inventory.equipment import Equipment
@@ -132,56 +133,76 @@ class Player(Creature):
 		self.update_roll_counts(left, right)
 		return msg, t_dmg
 
-	def equip(self, item: Equipment, slot: EquipmentSlots = None) -> str:
+	def replace_equipment(self, item: Equipment, slot_name: str) -> Tuple[bool, Equipment]:
+		"""
+		Replaces the item in the given slot with the provided item.
+
+		:param item: The item to equip.
+		:param slot_name: The slot name to which it should equip.
+		:return: A tuple containing a boolean for success/fail and the item replaced, if any.
+		"""
+		replaced = None
+		if self.equip_slots[slot_name]:
+			replaced = self.equip_slots[slot_name]
+			self.remove(self.equip_slots[slot_name])
+		self.equip_slots[slot_name] = item
+		return True, replaced
+
+	def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
 		"""
 		Attempts to auto-equip an item to a slot if no slot is provided, otherwise attempts to equip to the
 		provided slot.
 
 		:param item: The item to equip.
 		:param slot: The slot(s) to which it should equip.
-		:return: A string indicating the result of the attempt.
+		:return: A tuple containing a boolean for success/fail and a string indicating items replaced or error message.
 		"""
 
 		dirty = False
 		msg = ""
+
+		# First ensure the item is not already equipped.
+		for i in self.equip_slots.values():
+			if i == item:
+				return False, "Item already equipped."
+
+		# Equip to all possible slots if multi-slot is flagged.
 		if item.slots & EquipmentSlots.MULTI_SLOT:
+			removed = []
 			for s in EquipmentSlots:
 				if s & item.slots and s.name in self.equip_slots:
-					if self.equip_slots[s.name]:
-						msg += self.remove(self.equip_slots[s.name]) + "\n"
-					self.equip_slots[s.name] = item
-					dirty = True
-			if dirty:
-				msg += f"{self.name} has equipped {item.get_full_name()}."
-			else:
-				msg += "Unable to auto-equip: Multi-slot item matched no equipment slots."
+					d, replaced = self.replace_equipment(item, s.name)
+					if d:
+						dirty = True
 
+					if replaced:
+						removed.append(replaced)
+
+			if dirty and removed:
+				msg = item_list_to_string(removed)
+
+			else:
+				msg = "Unable to auto-equip: Multi-slot item matched no equipment slots."
+
+		# Equip to the first possible slot, if no slot was specified.
 		elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
-			m = None
 			for key, value in self.equip_slots.items():
 				if item.slots & EquipmentSlots[key]:
-					if self.equip_slots[key]:
-						m = f"replaced {self.equip_slots[key].get_full_name()} with"
-						self.remove(self.equip_slots[key])
-					self.equip_slots[key] = item
-					dirty = True
-					msg += f"{self.name} has {m or 'equipped'} {item.get_full_name()}."
+					dirty, replaced = self.replace_equipment(item, key)
+					if replaced:
+						msg = replaced.get_full_name()
 					break
-			if not dirty:
-				msg += "Unable to auto-equip: None of the slots that the item could fill are empty. Either specify " \
-					   "the slot, or unequip the item from the desired slot."
 
+			if not dirty:
+				msg = "Unable to auto-equip: None of the slots that the item could fill are empty. Either specify " \
+					"the slot, or unequip the item occupying the desired slot."
+
+		# Equip to the specified slot.
 		else:
 			if slot & item.slots and slot.name:
-				m = None
-				if self.equip_slots[slot.name]:
-					m = f"replaced {self.equip_slots[slot.name].get_full_name()} with"
-					self.remove(self.equip_slots[slot.name])
-
-				self.equip_slots[slot.name] = item
-				msg += f"{self.name} has {m or 'equipped'} {item.get_full_name()}."
-				dirty = True
-
+				dirty, replaced = self.replace_equipment(item, slot.name)
+				if replaced:
+					msg = replaced.get_full_name()
 
 			if not dirty:
 				msg = "Unable to equip: The item does not fit that slot." \
@@ -190,7 +211,7 @@ class Player(Creature):
 			self.is_dirty = True
 			self.health = min(self.health, self.get_health_max())
 
-		return msg
+		return dirty, msg
 
 	@classmethod
 	def from_dict(cls, p: dict) -> Optional["Player"]:
@@ -475,12 +496,20 @@ class Player(Creature):
 		return True
 
 	def remove(self, item: Equipment) -> str:
-		"""Removes an item from all slots that it occupies."""
+		"""
+		Removes an item from all slots that it occupies.
+
+		:param item: The item to remove.
+		:return: A string representing the result of the removal.
+		"""
 
 		dirty = False
 		msg = ""
-
 		removed = []
+
+		if item is None:
+			return "Nothing to remove."
+
 		for s in EquipmentSlots:
 			if not EquipmentSlots.exclude_from_output(s.name) and s & item.slots and self.equip_slots[s.name] == item:
 				self.equip_slots[s.name] = None

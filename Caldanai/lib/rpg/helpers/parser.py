@@ -1,6 +1,6 @@
 import re
 from re import Match
-from typing import Tuple
+from typing import Tuple, List
 
 from Caldanai.lib.rpg.helpers.enums import Pronouns
 
@@ -56,3 +56,18 @@ def parse(msg: str, *actors) -> str:
 		result = actorRegex.sub(_process(match, actors), result, 1)
 
 	return result
+
+
+def item_list_to_string(items: List) -> str:
+	"""
+	Takes a list of items and returns a comma-separated, English-appropriate string.
+
+	:param items: The list of items to stringify.
+	:return: The text representation.
+	"""
+
+	m = ', '.join((last := i.get_full_name()) for i in items if i is not None)
+	if len(items) > 1 and last is not None and last != '':
+		m = m.replace(f", {last}", f" and {last}")
+
+	return m

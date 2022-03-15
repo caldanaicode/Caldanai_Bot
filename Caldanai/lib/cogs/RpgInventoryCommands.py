@@ -5,9 +5,8 @@ from typing import Union, List, Optional
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
+from Caldanai.lib.rpg.helpers.parser import item_list_to_string
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
-from Caldanai.lib.rpg import Game
-from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from Caldanai.lib.rpg.inventory import Armor, Item
 from Caldanai.lib.rpg.inventory.equipment import Equipment
@@ -45,6 +44,7 @@ class RpgInventoryCommands(Cog):
 			return
 
 		_item, *_ = player.inventory.filter(item)
+		_slot = None
 
 		if not _item:
 			Dispatcher.add(channel, "You don't seem to have such an item.")
@@ -61,15 +61,22 @@ class RpgInventoryCommands(Cog):
 			elif slot.lower() in ('r', 'right'):
 				_slot = EquipmentSlots.RIGHT_SIDE & _item.slots
 
-			elif slot.lower() == '_':
+			elif slot == '_':
 				_slot = _item.slots
 
 			else:
-				return Dispatcher.add(channel, f"I don't know how to turn {slot} into a 'left' or 'right'...")
+				return Dispatcher.add(channel, f"I don't know how to turn *{slot}* into a **left** or **right**...")
 
-			return Dispatcher.add(channel, player.equip(_item, EquipmentSlots(_slot)))
+		result = player.equip(_item, EquipmentSlots(_slot) if _slot else None)
 
-		return Dispatcher.add(channel, player.equip(_item))
+		if result[0]:
+			if result[1]:
+				Dispatcher.add(channel, f"{player.name} equipped {_item.get_full_name()}, replacing {result[1]}.")
+			else:
+				Dispatcher.add(channel, f"{player.name} equipped {_item.get_full_name()}.")
+
+		else:
+			Dispatcher.add(channel, result[1])
 
 	@command(aliases=['slots', 'gear'], brief="Shows a player's equipment.")
 	@cooldown(1, 10, BucketType.member)
@@ -236,16 +243,15 @@ class RpgInventoryCommands(Cog):
 			return
 
 		loot = game.loot[player.user_id]
-		msg = ', '.join([f"{item.get_full_name()}" for item in loot])
+		msg = item_list_to_string(loot)
 		dropped: List[Item] = []
 		if msg is not None and len(msg) > 0:
-			msg = f"{player.name} found {' and '.join(msg.rsplit(', ', 1))}."
+			msg = f"{player.name} found {msg}."
 			for item in loot:
 				if not player.give_item(item):
 					dropped.append(item)
 			if len(dropped) > 0:
-				txt = ', '.join([f'{d.get_full_name()}' for d in dropped]).rsplit(', ', 1)
-				txt = ' and '.join(txt)
+				txt = item_list_to_string(dropped)
 				msg += f" It appears you may have a hoarding problem, though. The following item" \
 					f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
 		else:
