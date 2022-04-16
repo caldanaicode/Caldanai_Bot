@@ -64,11 +64,18 @@ class GeneralCommands(Cog):
 				return None
 
 		return hilo
+
+	@staticmethod
+	def __int__(s: str):
+		try:
+			return 1 if s == '' else int(s)
+		except Exception as e:
+			stdout(e)
+			return 0
 	
 	async def check_dice(self, ctx, dice: str) -> Tuple[Union[int, None], Union[int, None]]:
-		try:
-			count, sides = map(int, dice.split('d'))
-		except Exception as e:
+		count, sides = map(self.__int__, dice.split('d'))
+		if count < 1:
 			embed = Embed(
 				title=f'Dice Roll for {ctx.author.nick or ctx.author.name}',
 				description="Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.",
