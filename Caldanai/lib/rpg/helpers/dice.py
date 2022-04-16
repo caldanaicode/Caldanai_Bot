@@ -62,7 +62,8 @@ class Dice:
 	def get_ndn(self):
 		return f"{self.count}d{self.sides}"
 
-	def __int__(self, s: str):
+	@staticmethod
+	def __int__(s: str):
 		try:
 			return 1 if s == '' else int(s)
 		except Exception as e:
@@ -77,7 +78,7 @@ class Dice:
 		:param ndn: The number of dice and the sides per dice, such as "1d6" or "2d10"
 		:return: The Dice instance created.
 		"""
-		count, sides = map(cls.__int__, ndn.lower().split('d'))
+		count, sides = map(Dice.__int__, ndn.lower().split('d'))
 
 		if count < 1 or sides < 2:
 			return None

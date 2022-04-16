@@ -65,7 +65,8 @@ class GeneralCommands(Cog):
 
 		return hilo
 
-	def __int__(self, s: str):
+	@staticmethod
+	def __int__(s: str):
 		try:
 			return 1 if s == '' else int(s)
 		except Exception as e:
