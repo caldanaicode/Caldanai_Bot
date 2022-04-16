@@ -337,7 +337,7 @@ class RpgInfoCommands(Cog):
 			players = sorted(
 				sorted([
 					i for i in game.player_manager.players.values()
-					if flag == 'all' or (flag in ('hurt', 'injured') and i.health < i.get_health_max())
+					if flag == 'all' or (flag.lower() in ('hurt', 'injured') and i.health < i.get_health_max())
 				], key=lambda x: x.name.lower())
 				, key=lambda x: x.health / x.get_health_max()
 			)

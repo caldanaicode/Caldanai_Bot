@@ -173,7 +173,8 @@ class RpgUtilities:
 		if notify:
 			Dispatcher.add(
 				game.channel,
-				f'Why, {ctx.author.display_name}! You are not even playing the game! Try `{ctx.prefix}game join`'
+				f'Why, {ctx.author.display_name if ctx.author else ctx.display_name}! You are not even playing the '
+				f'game! Try `{ctx.prefix}game join`'
 			)
 		return None
 

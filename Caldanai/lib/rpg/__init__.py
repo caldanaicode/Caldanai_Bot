@@ -282,9 +282,27 @@ class Game:
 		if random.randint(1, 3000) == 3000:
 			msg += choice([
 				"A squirrel bounds across the ground, and up a nearby tree.",
+
 				"A bush rustles as something skitters unseen within.",
+
 				f"A lonesome howl floats in from the {get_random_direction()}.",
-				"Happy warbling resounds as a songbird flits across the area."
+
+				"Happy warbling resounds as a songbird flits across the area.",
+
+				f"A pack of wolves serenades from the {get_random_direction()}.",
+
+				"At the edge of the wood-line, a bear trundles about curiously for a moment before disappearing into"
+				" the trees.",
+
+				"The ground trembles slightly for a moment, though whether from earthquake or monstrosity is"
+				" impossible to determine.",
+
+				"A choir of insectile sound rises, thousands of tiny voices calling out to each other.",
+
+				f"A {choice('gentle|strong|slow|light|moderate'.split('|'))} breeze stirs the area, bringing the"
+				f" scent of {choice('the sea|dust|pine|animal musk|death'.split('|'))} with it.",
+
+				"Some unknown creature blazes a trail throughout the tall grasses nearby."
 			])
 
 		if msg:

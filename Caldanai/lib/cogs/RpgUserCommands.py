@@ -155,6 +155,8 @@ class RpgUserCommands(Cog):
 		if game is None or player is None:
 			return
 
+		msgs = []
+
 		if target is not None:
 			if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
 				haunted = await RpgUtilities.get_player(ctx.message.mentions[0])
@@ -165,12 +167,21 @@ class RpgUserCommands(Cog):
 				await self.haunt(ctx)
 				return
 
-			msgs = [
-				f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
-				f"senses the unearthly presence of @1.",
-				f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2's ears as @1's spirit toys with @2o.",
-				f"{'The ' if not isinstance(haunted, Player) else ''}@2's breath suddenly catches as @1's shade wisps through @2o."
-			]
+			if haunted.is_dead():
+				msgs = [
+					f"The spirit of @1 attempts to bond with that of @2, but a slight burst of pressure repels @1o.",
+					f"@1's shade investigates the remains of @2.",
+					f"As @1's ghostly form approaches the remains of @2, @1 flickers rapidly before suddenly "
+					f"teleporting back to @1a own corpse."
+				]
+
+			else:
+				msgs = [
+					f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
+					f"senses the unearthly presence of @1.",
+					f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2's ears as @1's spirit toys with @2o.",
+					f"{'The ' if not isinstance(haunted, Player) else ''}@2's breath suddenly catches as @1's shade wisps through @2o."
+				]
 
 		else:
 			msgs = [
