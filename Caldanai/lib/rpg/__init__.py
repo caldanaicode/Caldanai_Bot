@@ -122,6 +122,7 @@ class Game:
 	async def set_spawn_timer(self):
 		r = randint(self.minutes_min, self.minutes_max)
 		self.game_clock.add_routine(self.do_spawn, r * 60, True)
+		await self.player_manager.clear_combat_roles()
 
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
@@ -181,10 +182,12 @@ class Game:
 		if has_loot:
 			self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
 			await self.set_spawn_timer()
-			return f"\nThere might be something to `{self.prefix}loot`..."
+			msg = f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\nThere might be something to " \
+				f"`{self.prefix}loot`..."
 		else:
 			await self.set_spawn_timer()
-			return "\nThere does not appear to be anything to loot, this time."
+			msg = "\nThere does not appear to be anything to loot, this time."
+		return msg
 
 	async def do_health_regen(self):
 		"""Applies health regen to players, and increments the health regen amount."""
@@ -216,6 +219,7 @@ class Game:
 			if not player.is_dead():
 				player.health_regen = 0
 				if player not in self.looters:
+					await self.player_manager.set_player_combatant(player)
 					self.looters.append(player)
 				m, d = player.do_attack(self.monster)
 				msg += m
@@ -228,8 +232,7 @@ class Game:
 
 		msg += parse(self.monster.apply_damage(damage) or "", self.monster)
 		if self.monster.is_dead():
-			monster = self.monster
-			msg += parse(await self.on_monster_death(), monster)
+			msg += parse(await self.on_monster_death(), self.monster)
 			msgs = Dispatcher.split_message(msg, '```\n', True)
 			for m in msgs:
 				Dispatcher.add(self.channel, m)

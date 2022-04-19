@@ -80,6 +80,37 @@ class PlayerManager:
 			if player.last_active is None or (now - player.last_active).days > 0:
 				await self.set_player_inactive(player)
 
+	async def set_player_combatant(self, player: Player):
+		"""Sets a player's role as a combatant."""
+		reason = 'Participating in combat.'
+		if Roles.COMBAT_MAIN in self.roles.keys() \
+					and self.roles[Roles.COMBAT_MAIN] \
+					and self.roles[Roles.COMBAT_MAIN] not in player.member.roles:
+			await player.member.add_roles(
+				self.roles[Roles.COMBAT_MAIN],
+				reason=reason
+			)
+
+	async def remove_player_combatant(self, player: Player):
+		"""Removes a player's role as a combatant."""
+		reason = 'Combat terminated.'
+		if Roles.COMBAT_MAIN in self.roles.keys() \
+					and self.roles[Roles.COMBAT_MAIN] \
+					and self.roles[Roles.COMBAT_MAIN] in player.member.roles:
+			await player.member.remove_roles(
+				self.roles[Roles.COMBAT_MAIN],
+				reason=reason
+			)
+
+	async def clear_combat_roles(self):
+		"""Clears all combatant roles."""
+		if Roles.COMBAT_MAIN in self.roles.keys():
+			combatants = (
+				player for player in self.players.values() if self.roles[Roles.COMBAT_MAIN] in player.member.roles
+			)
+			for player in combatants:
+				await self.remove_player_combatant(player)
+
 	async def get_player(self, ctx) -> Union[Player, None]:
 		"""
 		Returns a Player associated with a context, or None if the Player does not exist.

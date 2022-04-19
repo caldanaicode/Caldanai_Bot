@@ -148,7 +148,7 @@ class Qualities(Enum):
 
 class Roles(Enum):
 	ACTIVE = 'Active RPG Player'
-	COMBAT_MAIN = 'RPG Main Channel Combatant'
+	COMBAT_MAIN = 'RPG Combatant'
 	INACTIVE = 'Inactive RPG Player'
 	ALL = 'RPG Player'
 
