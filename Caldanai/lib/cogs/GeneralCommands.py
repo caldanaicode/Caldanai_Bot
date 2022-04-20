@@ -1,4 +1,4 @@
-from random import randint
+from random import randint, choice
 from typing import Union, Tuple
 
 from discord import Embed
@@ -148,9 +148,19 @@ class GeneralCommands(Cog):
 		shorten = False
 
 		if verbose:
-			msg = f"```\n[ {' + '.join([str(r) for r in rolls])} ] = {total:,}"
+			counts = {}
+			drops = {}
+			for r in rolls:
+				counts[r] = 1 + (counts[r] if r in counts else 0)
+
+			for d in dropped:
+				drops[d] = 1 + (drops[d] if d in drops else 0)
+
+			msg = str('\n').join([f"{n:3d} * {c}" for n, c in counts.items()])
+			msg = f"```\n{msg}\n = {total:,}"
 			if dropped is not None and len(dropped) > 0:
-				msg += f"\n\nDropped: [ {', '.join([str(d) for d in dropped])} ]"
+				msg += "\n\nDropped: [ "
+				msg += ', '.join([f"{n} * {c}" for n, c in drops.items()]) + " ]"
 			msg += "```"
 		
 		if len(msg) > 2048:
@@ -162,7 +172,7 @@ class GeneralCommands(Cog):
 		
 		embed = Embed(
 			title=f"{ctx.author.nick or ctx.author.name}'s roll",
-			description = msg if len(msg) < 2048 else "The result is too large to display.",
+			description=msg if len(msg) < 2048 else "The result is too large to display.",
 			color=0x00ff00
 		)
 
@@ -186,6 +196,37 @@ class GeneralCommands(Cog):
 				color=0xff0000
 			)
 			Dispatcher.add(ctx, embed=embed)
+
+	@command(brief="Ask the bot for a prediction.")
+	@cooldown(1, 5, BucketType.member)
+	async def ask(self, ctx):
+		"""
+		Ask the bot a question and receive the questionable wisdom of a possible future.
+		"""
+		choices = [
+			"It is certain.",
+			"It is decidedly so.",
+			"Without a doubt.",
+			"Yes, definitely.",
+			"You may rely on it.",
+			"As I see it, yes.",
+			"Most likely.",
+			"Outlook good.",
+			"Yes.",
+			"Signs point to yes.",
+			"Reply hazy, try again.",
+			"Ask again later.",
+			"Better not tell you now.",
+			"Cannot predict now.",
+			"Concentrate and ask again.",
+			"Don't count on it.",
+			"My reply is no.",
+			"My sources say no.",
+			"Outlook not so good.",
+			"Very doubtful."
+		]
+
+		Dispatcher.add(ctx, choice(choices))
 
 
 def setup(bot):
