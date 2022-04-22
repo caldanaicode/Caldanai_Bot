@@ -120,6 +120,15 @@ class RpgUserCommands(Cog):
 			Dispatcher.add(game.channel, f"A lonely sigh slips from the corpse of {player.name}.")
 
 		elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+			if self.bot.user in ctx.message.mentions:
+				Dispatcher.add(game.channel, choice([
+					"Get your filthy paws off me, you damned dirty ape!",
+					"*The only response is a slowly pulsating, ominous red light.*",
+					"You cannot hug me, for I exist only in the ether.",
+					"One does not simply hug the AI, mortal."
+				]))
+				return
+
 			target = await RpgUtilities.get_player(ctx.message.mentions[0])
 
 			if target is not None:
@@ -159,6 +168,9 @@ class RpgUserCommands(Cog):
 
 		if target is not None:
 			if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+				if self.bot.user in ctx.message.mentions:
+					Dispatcher.add(game.channel, parse("You cannot haunt a figment of your imagination, @1.", player))
+					return
 				haunted = await RpgUtilities.get_player(ctx.message.mentions[0])
 			elif game.monster is not None and game.monster.name == target.lower():
 				haunted = game.monster
