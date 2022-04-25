@@ -490,8 +490,9 @@ class RpgInfoCommands(Cog):
 		a = r / t if t > 0 else 0
 		rolls = {player.name: (r, t, a)}
 		name_len = len(player.name)
-		roll_len = len(str(r))
-		sum_len = len(str(t))
+		roll_len = len(f"{r:,}")
+		sum_len = len(f"{t:,}")
+
 		for m in ctx.message.mentions:
 			if p := await RpgUtilities.get_player(m, game, False):
 				r = p.rolls[dtype][roll]
@@ -499,8 +500,8 @@ class RpgInfoCommands(Cog):
 				a = r / t if t > 0 else 0
 				rolls[p.name] = (r, t, a)
 				name_len = max(name_len, len(p.name))
-				roll_len = max(roll_len, len(str(r)))
-				sum_len = max(sum_len, len(str(t)))
+				roll_len = max(roll_len, len(f"{r:,}"))
+				sum_len = max(sum_len, len(f"{t:,}"))
 
 		if len(rolls) < 2:
 			Dispatcher.add(ctx, "You must mention other players for comparison.")
