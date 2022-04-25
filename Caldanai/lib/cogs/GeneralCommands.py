@@ -1,5 +1,5 @@
 from random import randint, choice
-from typing import Union, Tuple
+from typing import Union, Tuple, Dict
 
 from discord import Embed
 from discord.embeds import EmptyEmbed
@@ -148,8 +148,8 @@ class GeneralCommands(Cog):
 		shorten = False
 
 		if verbose:
-			counts = {}
-			drops = {}
+			counts: Dict[int, int] = {}
+			drops: Dict[int, int] = {}
 			for r in rolls:
 				counts[r] = 1 + (counts[r] if r in counts else 0)
 
