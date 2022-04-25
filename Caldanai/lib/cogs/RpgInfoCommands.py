@@ -440,6 +440,79 @@ class RpgInfoCommands(Cog):
 
 		Dispatcher.add(game.channel, msg)
 
+	@cooldown(1, 5, BucketType.member)
+	@guild_only()
+	@command(aliases=['cmproll'], brief='Compares the given options for the calling player and mentioned players.')
+	async def compare_roll(self, ctx, *options: str):
+		"""
+		Compares the given options for the calling player and mentioned players.
+
+		:param options: This may be "fumbles", "crits", or a die-type such as "d6" followed by the value to compare.
+		:return:
+		"""
+		game, player = await RpgUtilities.get_game_and_player(ctx)
+		if game is None or player is None:
+			return
+
+		if ctx.message.mentions is None:
+			Dispatcher.add(ctx, "You must include someone for comparison by @mentioning them.")
+			return
+
+		if player.member in ctx.message.mentions:
+			Dispatcher.add(ctx, "If you need to compare yourself to yourself, then please make use of a mirror.")
+			return
+
+		if self.bot.user in ctx.message.mentions:
+			Dispatcher.add(ctx, "Comparing yourself to the AI will only leave you feeling inadequate.")
+			return
+
+		opt0 = options[0].lower()
+		dice = ('d4', 'd6', 'd8', 'd10', 'd12', 'd20')
+		dtype = 'd20' if opt0 in ('fumbles', 'crits') \
+			else opt0 if opt0 in dice \
+			else None
+
+		roll = 0 if opt0 == 'fumbles' \
+			else 19 if opt0 == 'crits' \
+			else int(options[1]) - 1 if len(options) > 1 and options[1].isnumeric() \
+			else None
+
+		if dtype is None or roll is None:
+			Dispatcher.add(ctx, f"Invalid options. See `{ctx.prefix}help cmproll` for more information.")
+			return
+
+		if roll < 0 or roll > int(dtype[1:]) - 1:
+			Dispatcher.add(ctx, "The provided roll value is invalid for the selected die type.")
+			return
+
+		r = player.rolls[dtype][roll]
+		t = sum(player.rolls[dtype])
+		a = r / t if t > 0 else 0
+		rolls = {player.name: (r, t, a)}
+		name_len = len(player.name)
+		roll_len = len(str(r))
+		sum_len = len(str(t))
+		for m in ctx.message.mentions:
+			if p := await RpgUtilities.get_player(m, game, False):
+				r = p.rolls[dtype][roll]
+				t = sum(p.rolls[dtype])
+				a = r / t if t > 0 else 0
+				rolls[p.name] = (r, t, a)
+				name_len = max(name_len, len(p.name))
+				roll_len = max(roll_len, len(str(r)))
+				sum_len = max(sum_len, len(str(t)))
+
+		if len(rolls) < 2:
+			Dispatcher.add(ctx, "You must mention other players for comparison.")
+			return
+
+		msg = f"Comparison of {roll + 1} on a {dtype}:\n```"
+		for p, v in rolls.items():
+			(r, t, a) = v
+			msg += f"\n{p:>{name_len}}: {r:{roll_len},} / {t:{sum_len},} = {a:.2%}"
+
+		Dispatcher.add(ctx, msg + '```')
+
 	@Cog.listener()
 	async def on_ready(self):
 		stdout("RpgInfoCommands ready.")

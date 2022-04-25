@@ -80,12 +80,13 @@ class RpgInventoryCommands(Cog):
 
 	@command(aliases=['slots', 'gear'], brief="Shows a player's equipment.")
 	@cooldown(1, 10, BucketType.member)
-	async def equipment(self, ctx, gid: int = None):
+	async def equipment(self, ctx, options: str = None, gid: int = None):
 		"""
 		Shows a player's equipment.
 
 		(10-second cool-down)
 
+		:param options: Specify the word 'all' if you want to show all inventory slots, even if empty.
 		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
 		"""
 		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
@@ -93,8 +94,9 @@ class RpgInventoryCommands(Cog):
 		if not game or not player:
 			return
 
+		show_all = bool(options and options.lower() == 'all')
 		channel = game.channel if ctx.guild is not None else ctx
-		embed = player.get_equipment(game.guild.name)
+		embed = player.get_equipment(game.guild.name, show_all)
 		embed.set_thumbnail(url=game.guild.icon_url)
 		Dispatcher.add(channel, embed=embed)
 

@@ -364,7 +364,7 @@ class Player(Creature):
 			return max(0, d['health_max'] + self.health_max)
 		return self.health_max
 
-	def get_equipment(self, guild_name: str) -> Embed:
+	def get_equipment(self, guild_name: str, show_all: bool = False) -> Embed:
 		"""Returns a discord embed for the player's equipment slots."""
 		embed = Embed(
 			title=f"Player Equipment",
@@ -378,7 +378,11 @@ class Player(Creature):
 
 		for slot, item in self.equip_slots.items():
 			if not EquipmentSlots.exclude_from_output(slot):
-				fields.append((slot, item.get_full_name() if item else "None", True))
+				if item is None:
+					if show_all:
+						fields.append((slot, "None", True))
+				else:
+					fields.append((slot, item.get_full_name(), True))
 
 		for f, v, i in fields:
 			embed.add_field(name=f, value=v, inline=i)
