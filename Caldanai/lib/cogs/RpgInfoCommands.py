@@ -490,8 +490,11 @@ class RpgInfoCommands(Cog):
 		a = r / t if t > 0 else 0
 		rolls = {player.name: (r, t, a)}
 		name_len = len(player.name)
-		roll_len = len(str(r))
-		sum_len = len(str(t))
+		roll_len = len(f"{r:,}")
+		sum_len = len(f"{t:,}")
+		high_avg = a
+		low_avg = a
+
 		for m in ctx.message.mentions:
 			if p := await RpgUtilities.get_player(m, game, False):
 				r = p.rolls[dtype][roll]
@@ -499,16 +502,21 @@ class RpgInfoCommands(Cog):
 				a = r / t if t > 0 else 0
 				rolls[p.name] = (r, t, a)
 				name_len = max(name_len, len(p.name))
-				roll_len = max(roll_len, len(str(r)))
-				sum_len = max(sum_len, len(str(t)))
+				roll_len = max(roll_len, len(f"{r:,}"))
+				sum_len = max(sum_len, len(f"{t:,}"))
+				high_avg = max(high_avg, a)
+				low_avg = min(low_avg, a)
 
 		if len(rolls) < 2:
 			Dispatcher.add(ctx, "You must mention other players for comparison.")
 			return
 
+		s = sorted(rolls.items(), key=lambda i: i[1][2])
+		s.reverse()
+		rolls = dict(s)
+
 		msg = f"Comparison of {roll + 1} on a {dtype}:\n```"
-		for p, v in rolls.items():
-			(r, t, a) = v
+		for p, (r, t, a) in rolls.items():
 			msg += f"\n{p:>{name_len}}: {r:{roll_len},} / {t:{sum_len},} = {a:.2%}"
 
 		Dispatcher.add(ctx, msg + '```')
