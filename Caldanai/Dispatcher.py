@@ -62,14 +62,15 @@ class Dispatcher:
 		:param embed: Optional Embed to send.
 		:param file: Optional File to send.
 		"""
-		if isinstance(channel, Context):
-			m = cls.Message(channel.channel, text, embed, file)
-		elif isinstance(channel, (User, Member, TextChannel, Guild)):
-			m = cls.Message(channel, text, embed, file)
-		else:
+		ch = channel if isinstance(channel, (User, Member, TextChannel, Guild)) \
+			else channel.channel if isinstance(channel, Context) \
+			else None
+
+		if ch is None:
 			stdout(f"Unrecognized channel type: {type(channel)}")
 			return
-		cls.add_message(m)
+
+		cls.add_message(cls.Message(ch, text, embed, file))
 
 	@staticmethod
 	def split_message(message: str, sep: str = '\n', keep_sep: bool = False, limit: int = 1900) -> Tuple[str]:
@@ -78,7 +79,7 @@ class Dispatcher:
 
 		:param message: The string to split.
 		:param sep: The separator to split on. Default is a new line character.
-		:param keep_sep: Specifies whether or not to add the separator back into the split string after splitting.
+		:param keep_sep: Specifies whether to add the separator back into the split string after splitting.
 		:param limit: The maximum number of characters to allow per split.
 		:return: A tuple of strings.
 		"""
@@ -111,7 +112,6 @@ async def send():
 	count = 0
 	while not Dispatcher.queue.empty() and count < 10:
 		message: Dispatcher.Message = Dispatcher.queue.get()
-		# context, message, embed, file = Dispatcher.queue.get()
 		try:
 			if isinstance(message.text, (str, Tuple)) or message.text is None:
 				if message.text is None or len(message.text) <= 2000:
@@ -132,6 +132,8 @@ async def send():
 
 			elif e.code == 400:
 				msg += f' -- Message returned a bad format error.'
+			elif e.code == 524:
+				msg += ' -- Cloudflare Error 524.'
 			else:
 				msg += e.text
 
