@@ -1,6 +1,7 @@
 import math
-from random import choice
+from random import choice, randint
 
+from discord import File
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 
 from Caldanai.Dispatcher import Dispatcher
@@ -121,12 +122,16 @@ class RpgUserCommands(Cog):
 
 		elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
 			if self.bot.user in ctx.message.mentions:
-				Dispatcher.add(game.channel, choice([
+				responses = [
 					"Get your filthy paws off me, you damned dirty ape!",
-					"*The only response is a slowly pulsating, ominous red light.*",
 					"You cannot hug me, for I exist only in the ether.",
 					"One does not simply hug the AI, mortal."
-				]))
+				]
+				if c := randint(0, 3) == 3:
+					file = File(f"./site/static/images/hal9000.gif", filename='hal9000.gif')
+					Dispatcher.add(game.channel, file=file)
+				else:
+					Dispatcher.add(game.channel, responses[c])
 				return
 
 			target = await RpgUtilities.get_player(ctx.message.mentions[0])
