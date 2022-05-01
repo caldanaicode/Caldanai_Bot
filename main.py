@@ -1,4 +1,4 @@
-from logging import getLogger, DEBUG, Formatter
+from logging import getLogger, Formatter, DEBUG, INFO
 from Caldanai.Logger import MongoHandler
 from Caldanai.db.__init__ import MongoDB
 from Caldanai.lib.bot import bot
@@ -34,7 +34,7 @@ def run():
 
 
 logger = getLogger('discord')
-logger.setLevel(DEBUG)
+logger.setLevel(INFO)  # logger.setLevel(DEBUG)
 f = Formatter('%(asctime)23s | %(levelname)-8s | %(name)-20s | %(message)s')
 
 # DB logging
