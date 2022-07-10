@@ -3,6 +3,7 @@ from typing import Union, Tuple, Dict
 
 from discord import Embed
 from discord.embeds import EmptyEmbed
+from discord.ext import tasks
 from discord.ext.commands import Cog, command, cooldown, BucketType
 from discord.ext.commands.errors import MissingRequiredArgument
 
@@ -13,6 +14,13 @@ from Caldanai.Logger import stdout
 class GeneralCommands(Cog):
 	def __init__(self, bot):
 		self.bot = bot
+		self.reminders = {}
+		self.reminder_loop.start()
+
+	class Reminder:
+		def __init__(self, seconds: int, message: str = ''):
+			self.seconds = seconds
+			self.message = message
 	
 	@Cog.listener()
 	async def on_ready(self):
@@ -66,9 +74,9 @@ class GeneralCommands(Cog):
 		return hilo
 
 	@staticmethod
-	def __int__(s: str):
+	def __int__(s: str, fault: int = 1):
 		try:
-			return 1 if s == '' else int(s)
+			return fault if (isinstance(s, str) and not s.isnumeric()) else int(s)
 		except Exception as e:
 			stdout(e)
 			return 0
@@ -102,7 +110,70 @@ class GeneralCommands(Cog):
 			Dispatcher.add(ctx, embed=embed)
 			return None, None
 		return count, sides
-	
+
+	@command(name='reminder', brief="Tells the bot to send you a DM as a reminder for something.")
+	@cooldown(1, 5, BucketType.user)
+	async def reminder_command(self, ctx, timespan: Union[int, str], *message) -> None:
+		"""
+		Sets a timespan at which the bot will send a DM to the invoker. Using this command again before a reminder has expired will overwrite the existing reminder. Note: Do not use this for very important reminders, as there is no guarantee the bot will available at the desired time. Reminders are not persistent, meaning that should the bot go offline (for restart, power outage, etc), then any reminders will be lost.
+
+		:param timespan: A timespan in the format of [d:][h:][m:]s. Examples: `1:30` is 1 minute, 30 seconds. `1:2:34:56` is 1 day 2 hours 34 minutes 56 seconds. `600` is 600 seconds or 10 minutes.
+		:param message: The message the bot will deliver with the reminder.
+		"""
+
+		if timespan is None or timespan == '':
+			Dispatcher.add(ctx, 'You must specify the timespan to use.')
+			return
+
+		seconds = abs(timespan) if isinstance(timespan, int) else 0
+
+		if isinstance(timespan, str):
+			parts = tuple(map(abs, map(lambda x: self.__int__(x, 0), timespan.split(':'))))
+			count = len(parts)
+			seconds = parts[-1] \
+				+ abs(self.__int__(parts[-2] or 0 if count > 1 else 0) * 60) \
+				+ abs(self.__int__(parts[-3] or 0 if count > 2 else 0) * 3600) \
+				+ abs(self.__int__(parts[-4] or 0 if count > 3 else 0) * 86400)
+
+		if seconds <= 0:
+			Dispatcher.add(ctx, 'The timespan provided was invalid, or 0.')
+			return
+
+		self.reminders[ctx.author] = self.Reminder(seconds, str.join(' ', message))
+		Dispatcher.add(ctx, f"Reminder has been set for {seconds} seconds.")
+
+	@reminder_command.error
+	async def reminder_error(self, ctx, exc):
+		if isinstance(exc, MissingRequiredArgument):
+			if ctx.author in self.reminders.keys():
+				r = self.reminders[ctx.author]
+				embed = Embed(
+					title=f'Approximately {r.seconds:,} seconds remain.',
+					description=r.message or "No message provided.",
+					color=0x00ffff
+				)
+
+			else:
+				embed = Embed(
+					title=f'No reminder available.',
+					description="You have no reminder set at this time.",
+					color=0xff0000
+				)
+
+			Dispatcher.add(ctx, embed=embed)
+
+	@tasks.loop(seconds=1)
+	async def reminder_loop(self):
+		remove = ()
+		for user, reminder in self.reminders.items():
+			if reminder.seconds == 0:
+				Dispatcher.add(user, f"Reminder: ```\n{reminder.message}```")
+				remove += user,
+			reminder.seconds -= 1
+
+		for user in remove:
+			del self.reminders[user]
+
 	@command(name='roll', aliases=['dice'], brief="Rolls dice given in the NdN format.")
 	@cooldown(1, 5, BucketType.member)
 	async def roll(self, ctx, dice: str, *options: str):
