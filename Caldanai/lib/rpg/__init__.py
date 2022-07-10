@@ -120,9 +120,9 @@ class Game:
 			Dispatcher.add(self.channel, parse(msg, monster))
 
 	async def set_spawn_timer(self):
+		await self.player_manager.clear_combat_roles()
 		r = randint(self.minutes_min, self.minutes_max)
 		self.game_clock.add_routine(self.do_spawn, r * 60, True)
-		await self.player_manager.clear_combat_roles()
 
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
@@ -338,9 +338,12 @@ class Game:
 	def save(self) -> None:
 		"""Adds or updates a game object in the database."""
 
-		result = MongoDB["games"].update_one({'guild_id': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
-		if self.id is None:
-			self.id = result.upserted_id
+		try:
+			result = MongoDB["games"].update_one({'guild_id': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
+			if self.id is None:
+				self.id = result.upserted_id
+		except Exception as e:
+			stdout(e)
 
 	@classmethod
 	async def load(cls, guild_id: int, bot: Bot) -> Optional["Game"]:
@@ -349,11 +352,16 @@ class Game:
 		if guild_id is None:
 			return None
 
-		g = await MongoDB.games.find_one({'guild_id': guild_id})
-		if g is None or bot is None:
-			return None
+		try:
+			g = await MongoDB.games.find_one({'guild_id': guild_id})
+			if g is None or bot is None:
+				return None
 
-		return await Game.from_dict(g, bot)
+			return await Game.from_dict(g, bot)
+
+		except Exception as e:
+			stdout(e)
+			return None
 
 	@classmethod
 	async def from_dict(cls, d: dict, bot: Bot) -> Optional["Game"]:

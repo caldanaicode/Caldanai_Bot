@@ -43,7 +43,7 @@ class RpgUserCommands(Cog):
 		if game is None:
 			return
 
-		if game.player_manager.add_player(ctx):
+		if await game.player_manager.add_player(ctx):
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
 
 		else:

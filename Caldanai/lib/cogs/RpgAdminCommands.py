@@ -38,14 +38,18 @@ class RpgAdminCommands(Cog):
 		Begins an RPG game on the server in the current channel. Only a single game per server is supported.
 		"""
 
-		if MongoDB.games.find_one({'guild_id': ctx.guild.id}) is not None:
-			Dispatcher.add(ctx, "Only a single game per server is supported.")
+		try:
+			if MongoDB.games.find_one({'guild_id': ctx.guild.id}) is not None:
+				Dispatcher.add(ctx, "Only a single game per server is supported.")
 
-		else:
-			if MongoDB.games.insert_one({'guild_id': ctx.guild.id, 'channelId': ctx.channel.id}):
-				await RpgUtilities.add_game(gid=ctx.guild.id, chid=ctx.channel.id)
-				Dispatcher.add(ctx, "A new game has been started in this channel!")
-				return True
+			else:
+				if MongoDB.games.insert_one({'guild_id': ctx.guild.id, 'channelId': ctx.channel.id}):
+					await RpgUtilities.add_game(gid=ctx.guild.id, chid=ctx.channel.id)
+					Dispatcher.add(ctx, "A new game has been started in this channel!")
+					return True
+		except Exception as e:
+			Dispatcher.add(ctx, "There appears to be an error with the database connection. Please try again later.")
+			stdout(e)
 
 		return False
 

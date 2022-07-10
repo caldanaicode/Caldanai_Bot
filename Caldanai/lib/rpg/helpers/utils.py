@@ -77,7 +77,12 @@ class RpgUtilities:
 		if gid is not None and chid is not None:
 			guild = RpgUtilities.bot.get_guild(gid) or await RpgUtilities.bot.fetch_guild(gid)
 			channel = RpgUtilities.bot.get_channel(chid) or await RpgUtilities.bot.fetch_channel(chid)
-			prefix = MongoDB.servers.find_one({'guild_id': gid})['prefix']
+
+			try:
+				prefix = MongoDB.servers.find_one({'guild_id': gid})['prefix']
+			except Exception as e:
+				stdout(e)
+				return
 
 			if game is None:
 				game = Game(
@@ -99,10 +104,14 @@ class RpgUtilities:
 	@staticmethod
 	async def remove_game(gid: int):
 		if gid in RpgUtilities.bot.games.keys():
-			MongoDB.games.delete_one({'guild_id': gid})
-			MongoDB.players.delete_many({'guild_id': gid})
-			await RpgUtilities.delete_roles(RpgUtilities.bot.games[gid])
-			del RpgUtilities.bot.games[gid]
+			try:
+				MongoDB.games.delete_one({'guild_id': gid})
+				MongoDB.players.delete_many({'guild_id': gid})
+				await RpgUtilities.delete_roles(RpgUtilities.bot.games[gid])
+				del RpgUtilities.bot.games[gid]
+
+			except Exception as e:
+				stdout(e)
 
 	# Gets a list of games to which a user belongs.
 	@staticmethod
@@ -114,13 +123,17 @@ class RpgUtilities:
 		games = []
 		if uid is None:
 			return games
+		try:
+			players = MongoDB.players.find({'user_id': uid})
+			for player in players:
+				game = RpgUtilities.bot.games[player['guild_id']]
+				games.append(game)
 
-		players = MongoDB.players.find({'user_id': uid})
-		for player in players:
-			game = RpgUtilities.bot.games[player['guild_id']]
-			games.append(game)
+			return games
 
-		return games
+		except Exception as e:
+			stdout(e)
+			return []
 
 	# Get the game associated with a context, if it exists.
 	@staticmethod
@@ -227,6 +240,9 @@ class RpgUtilities:
 
 		except ServerSelectionTimeoutError as e:
 			stdout(f"Unable to connect to DB: {e}")
+
+		except Exception as e:
+			stdout(e)
 
 	@staticmethod
 	async def init(bot: Bot):

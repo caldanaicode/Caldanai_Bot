@@ -18,14 +18,17 @@ from Caldanai.environment import OWNER_IDS, TOKEN
 
 def get_prefix(_bot, message):
 	prefix = None
-	if message.guild is None:
-		prefix = "$"
+	try:
+		if message.guild is None:
+			prefix = "$"
 
-	elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
-		MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
+		elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
+			MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
 
-	if prefix is None and message.guild is not None:
-		prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
+		if prefix is None and message.guild is not None:
+			prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
+	except Exception as e:
+		stdout(e)
 
 	return when_mentioned_or(prefix)(_bot, message)
 
@@ -146,14 +149,22 @@ class Bot(BotBase):
 		self.online = True
 
 	async def on_guild_join(self, guild: Guild):
-		MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
-		stdout(f"Guild joined: {guild.name} ({guild.id})")
+		try:
+			MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
+			stdout(f"Guild joined: {guild.name} ({guild.id})")
+		except Exception as e:
+			stdout(f"Unable to add guild {guild.id} due to database error.")
+			stdout(e)
 
 	async def on_guild_remove(self, guild: Guild):
-		MongoDB.servers.delete_one({'guild_id': guild.id})
-		MongoDB.games.delete_many({'guild_id': guild.id})
-		MongoDB.players.delete_many({'guild_id': guild.id})
-		stdout(f"Guild left: {guild.name} ({guild.id})")
+		try:
+			MongoDB.servers.delete_one({'guild_id': guild.id})
+			MongoDB.games.delete_many({'guild_id': guild.id})
+			MongoDB.players.delete_many({'guild_id': guild.id})
+			stdout(f"Guild left: {guild.name} ({guild.id})")
+		except Exception as e:
+			stdout(f"Unable to remove guild {guild.id} due to database error.")
+			stdout(e)
 
 	async def on_ready(self):
 		if not self.ready:

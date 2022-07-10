@@ -22,13 +22,21 @@ class BotAdminCommands(Cog):
 			Dispatcher.add(ctx, "Prefix cannot be longer than 5 characters.")
 
 		else:
-			if MongoDB.servers.find_one({'guild_id': ctx.guild.id}) is None:
-				MongoDB.servers.insert_one({'guild_id': ctx.guild.id, 'prefix': prefix})
-			else:
-				MongoDB.servers.update_one({'guild_id': ctx.guild.id}, {'$set': {'prefix': prefix}})
-			
-			Dispatcher.add(ctx, f"Prefix set to {prefix}.")
-		
+			try:
+				if MongoDB.servers.find_one({'guild_id': ctx.guild.id}) is None:
+					MongoDB.servers.insert_one({'guild_id': ctx.guild.id, 'prefix': prefix})
+				else:
+					MongoDB.servers.update_one({'guild_id': ctx.guild.id}, {'$set': {'prefix': prefix}})
+
+				Dispatcher.add(ctx, f"Prefix set to {prefix}.")
+
+			except Exception as e:
+				stdout(e)
+				Dispatcher.add(
+					ctx,
+					"There appears to be an issue with the database at the moment. Please try again later."
+				)
+
 	@change_prefix.error
 	async def change_prefix_error(self, ctx, exc):
 		if isinstance(exc, CheckFailure):

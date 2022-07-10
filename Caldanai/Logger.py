@@ -10,19 +10,22 @@ class MongoHandler(logging.Handler):
 		self.ignored = ignored or ()
 
 	def emit(self, record: logging.LogRecord):
-		self.format(record)
+		try:
+			self.format(record)
 
-		if any(record.message.startswith(msg) for msg in self.ignored):
-			return
+			if any(record.message.startswith(msg) for msg in self.ignored):
+				return
 
-		entry = {
-			'asctime': record.asctime,
-			'level'  : record.levelname,
-			'name'   : record.name,
-			'message': record.message
-		}
+			entry = {
+				'asctime': record.asctime,
+				'level'  : record.levelname,
+				'name'   : record.name,
+				'message': record.message
+			}
 
-		self.collection.insert_one(entry)
+			self.collection.insert_one(entry)
+		except Exception as e:
+			stdout(e)
 
 
 def stdout(msg):
