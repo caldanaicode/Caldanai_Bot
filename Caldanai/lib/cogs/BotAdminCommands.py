@@ -1,8 +1,11 @@
+from discord.ext import tasks
 from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.db import MongoDB
+
+from time import sleep
 
 
 class BotAdminCommands(Cog):
@@ -61,11 +64,49 @@ class BotAdminCommands(Cog):
 					return
 			else:
 				Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
-	
+
+	async def wait_to_close(self, seconds=5):
+		sleep(5)
+		await self.bot.close()
+
+	@has_permissions(administrator=True)
+	@command(name='shutdown', brief='Shuts down the bot with an optional message.')
+	async def reload_cog(self, ctx, *msg: str):
+		"""
+		Shuts down the bot with an optional message to be sent to servers that the bot is running on.
+
+		:param msg: The message to announce.
+		"""
+
+		if msg:
+			try:
+				games = list(MongoDB.games.find())
+				for game in games:
+					Dispatcher.add(self.bot.get_channel(game["channel_id"]), ' '.join(msg))
+
+				Dispatcher.flush = True
+				flush_dispatcher.start(self.bot)
+				await self.bot.wait_for('disconnect')
+
+			except Exception as e:
+				stdout(e)
+
+			finally:
+				exit(0)
+
 	@Cog.listener()
 	async def on_ready(self):
 		stdout("BotAdminCommands ready.")
 
 
-def setup(bot):
-	bot.add_cog(BotAdminCommands(bot))
+async def setup(bot):
+	await bot.add_cog(BotAdminCommands(bot))
+
+
+@tasks.loop(seconds=1)
+async def flush_dispatcher(bot):
+	if Dispatcher.queue.empty():
+		flush_dispatcher.stop()
+		Dispatcher.flush = False
+		await bot.close()
+		stdout("Connection closed by shutdown command.")

@@ -97,7 +97,7 @@ class RpgInventoryCommands(Cog):
 		show_all = bool(options and options.lower() == 'all')
 		channel = game.channel if ctx.guild is not None else ctx
 		embed = player.get_equipment(game.guild.name, show_all)
-		embed.set_thumbnail(url=game.guild.icon_url)
+		embed.set_thumbnail(url=game.guild.icon.url)
 		Dispatcher.add(channel, embed=embed)
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
@@ -395,5 +395,5 @@ class RpgInventoryCommands(Cog):
 		stdout("RpgInventoryCommands ready.")
 
 
-def setup(bot):
-	bot.add_cog(RpgInventoryCommands(bot))
+async def setup(bot):
+	await bot.add_cog(RpgInventoryCommands(bot))

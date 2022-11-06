@@ -1,3 +1,8 @@
+import smtplib
+import textwrap
+
+from datetime import datetime
+from email.message import EmailMessage
 from typing import List, Union
 
 from discord import Forbidden, HTTPException
@@ -11,6 +16,51 @@ from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
 from Caldanai.db import MongoDB
 from Caldanai.lib.rpg import Game, Area, Roles
+
+
+def generate_report(
+		author_id,
+		author_display_name,
+		message: str,
+		player_name=None,
+		guild_id=None,
+		channel_id=None,
+	):
+	auth_rec = MongoDB['auth'].find_one()
+	if not auth_rec:
+		stdout('Reporting error: unable to retrieve authentication information from database.')
+		return False
+
+	msg = EmailMessage()
+	msg['Subject'] = "Problem report from Caldanai Bot."
+	msg['From'] = auth_rec['DEV_EMAIL']
+	msg['To'] = auth_rec['DEV_EMAIL']
+	msg.set_content(
+		textwrap.dedent(
+			f"""\
+			Timestamp: {datetime.now().isoformat()}
+			Author: {author_id} ({author_display_name} / {player_name})
+			Guild ID: {guild_id}
+			Channel ID: {channel_id}
+			Details:
+			{message}
+			"""
+		)
+	)
+
+	# Send full email
+	with smtplib.SMTP('smtp.gmail.com', 587) as s:
+		s.starttls()
+		s.login(auth_rec['SMTP_USER'], auth_rec['SMTP_PASSWORD'])
+		s.send_message(msg)
+
+		# Send text alert
+		msg.set_content("A new alert has been received. Please check your email.")
+		del msg['To']
+		msg['To'] = auth_rec['SMS_EMAIL']
+		s.send_message(msg)
+		s.quit()
+		return True
 
 
 class RpgUtilities:
@@ -99,19 +149,6 @@ class RpgUtilities:
 		game.room0 = room0
 		RpgUtilities.bot.games[game.guild.id] = game
 		stdout(f"Game added for guild: {game.guild.name} ({game.guild.id})")
-
-	# Removes a game from the bot's list of games
-	@staticmethod
-	async def remove_game(gid: int):
-		if gid in RpgUtilities.bot.games.keys():
-			try:
-				MongoDB.games.delete_one({'guild_id': gid})
-				MongoDB.players.delete_many({'guild_id': gid})
-				await RpgUtilities.delete_roles(RpgUtilities.bot.games[gid])
-				del RpgUtilities.bot.games[gid]
-
-			except Exception as e:
-				stdout(e)
 
 	# Gets a list of games to which a user belongs.
 	@staticmethod
@@ -206,45 +243,6 @@ class RpgUtilities:
 		return game, player
 
 	@staticmethod
-	@tasks.loop(minutes=1)
-	async def save_game_data():
-		"""Database loop to save player and game data."""
-
-		try:
-
-			games = [
-				UpdateOne(
-					{'guild_id': g.guild.id},
-					{'$set': g.to_dict()}
-				) for g in RpgUtilities.bot.games.values()
-			]
-
-			MongoDB["games"].bulk_write(games, ordered=False)
-
-			dirty = [
-				(p, UpdateOne(
-					{"guild_id": p.guild_id, "user_id": p.user_id},
-					{"$set": p.to_dict()},
-					upsert=True
-				)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
-			]
-
-			if len(dirty) > 0:
-				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
-
-				for idx, _id in result.upserted_ids.items():
-					dirty[idx][0].id = _id
-
-				for p, _ in dirty:
-					p.is_dirty = False
-
-		except ServerSelectionTimeoutError as e:
-			stdout(f"Unable to connect to DB: {e}")
-
-		except Exception as e:
-			stdout(e)
-
-	@staticmethod
 	async def init(bot: Bot):
 		try:
 			RpgUtilities.bot = bot
@@ -257,3 +255,87 @@ class RpgUtilities:
 		except Exception as e:
 			stdout(f"Error initializing RpgUtilities: {e}")
 			RpgUtilities.is_initialized = False
+
+	# Removes a game from the bot's list of games
+	@staticmethod
+	async def remove_game(gid: int):
+		if gid in RpgUtilities.bot.games.keys():
+			try:
+				MongoDB.games.delete_one({'guild_id': gid})
+				MongoDB.players.delete_many({'guild_id': gid})
+				await RpgUtilities.delete_roles(RpgUtilities.bot.games[gid])
+				del RpgUtilities.bot.games[gid]
+
+			except Exception as e:
+				stdout(e)
+
+	@staticmethod
+	@tasks.loop(minutes=1)
+	async def save_game_data():
+		"""Database loop to save player and game data."""
+
+		try:
+			RpgUtilities.update_games()
+			RpgUtilities.update_statics()
+			RpgUtilities.update_players()
+
+		except ServerSelectionTimeoutError as e:
+			stdout(f"Unable to connect to DB: {e}")
+
+		except Exception as e:
+			stdout(e)
+
+	@staticmethod
+	def update_games():
+		games = [
+			UpdateOne(
+				{'guild_id': g.guild.id},
+				{'$set': g.to_dict()}
+			) for g in RpgUtilities.bot.games.values()
+		]
+
+		if games:
+			MongoDB["games"].bulk_write(games, ordered=False)
+
+	@staticmethod
+	def update_statics():
+		statics = [
+			UpdateOne(
+				{'guild_id': key1},
+				{'$inc': {f'commands.{key2}': count, 'total': count}},
+				upsert=True
+			) for key1, d in RpgUtilities.bot.command_usage.items() for key2, count in d.items()
+		]
+		RpgUtilities.bot.command_usage.clear()
+
+		for g in RpgUtilities.bot.games.values():
+			statics += [
+				UpdateOne(
+					{'guild_id': g.guild.id},
+					{'$inc': {f'monsters.{key}': count}},
+					upsert=True
+				) for key, count in g.monster_statics.items()
+			]
+			g.monster_statics.clear()
+
+		if statics:
+			MongoDB["statics"].bulk_write(statics, ordered=False)
+
+	@staticmethod
+	def update_players():
+		dirty = [
+			(p, UpdateOne(
+				{"guild_id": p.guild_id, "user_id": p.user_id},
+				{"$set": p.to_dict()},
+				upsert=True
+			)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
+		]
+
+		if dirty:
+			result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
+
+			for idx, _id in result.upserted_ids.items():
+				dirty[idx][0].id = _id
+
+			for p, _ in dirty:
+				p.is_dirty = False

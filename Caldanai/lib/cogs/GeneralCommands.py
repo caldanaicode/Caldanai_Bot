@@ -2,7 +2,6 @@ from random import randint, choice
 from typing import Union, Tuple, Dict
 
 from discord import Embed
-from discord.embeds import EmptyEmbed
 from discord.ext import tasks
 from discord.ext.commands import Cog, command, cooldown, BucketType
 from discord.ext.commands.errors import MissingRequiredArgument
@@ -111,7 +110,7 @@ class GeneralCommands(Cog):
 			return None, None
 		return count, sides
 
-	@command(name='reminder', brief="Tells the bot to send you a DM as a reminder for something.")
+	@command(name='reminder', aliases=['remind'], brief="Tells the bot to send you a DM as a reminder for something.")
 	@cooldown(1, 5, BucketType.user)
 	async def reminder_command(self, ctx, timespan: Union[int, str], *message) -> None:
 		"""
@@ -247,7 +246,7 @@ class GeneralCommands(Cog):
 			color=0x00ff00
 		)
 
-		footer = EmptyEmbed
+		footer = ""
 		if verbose and not shorten:
 			footer = f"[ TL;DR ] {count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else ''}" \
 				f" = {total:,}"
@@ -300,5 +299,5 @@ class GeneralCommands(Cog):
 		Dispatcher.add(ctx, choice(choices))
 
 
-def setup(bot):
-	bot.add_cog(GeneralCommands(bot))
+async def setup(bot):
+	await bot.add_cog(GeneralCommands(bot))

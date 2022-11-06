@@ -79,6 +79,7 @@ class Game:
 		self.weather = None
 		self._last_ambience_tick = self.game_clock.get_seconds()
 		self.room0: Area = None
+		self.monster_statics: Dict[str, int] = {}
 
 		if guild:
 			self.player_manager.load_players(guild)
@@ -114,6 +115,8 @@ class Game:
 			remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
 			if flee or (next_flee and remaining < 1 / 6):
 				msg = monster.time_flee
+				key = f'{self.monster.name}.fled'
+				self.monster_statics[key] = 1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
 				await self.cancel_combat()
 
 		if msg:
@@ -212,6 +215,7 @@ class Game:
 			await self.set_spawn_timer()
 			return
 
+		monster = self.monster
 		msg = ""
 		damage = 0
 		for i in range(len(self.combatants)-1, -1, -1):
@@ -227,31 +231,42 @@ class Game:
 			else:
 				self.combatants.pop(i)
 
-		msg += f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {self.monster.health:,} " \
-			f"= **{max(self.monster.health - damage, 0)} health remaining.**\n"
+		msg += f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {monster.health:,} " \
+			f"= **{max(monster.health - damage, 0)} health remaining.**\n"
 
-		msg += parse(self.monster.apply_damage(damage) or "", self.monster)
-		if self.monster.is_dead():
-			msg += parse(await self.on_monster_death(), self.monster)
+		msg += parse(monster.apply_damage(damage) or "", monster)
+		if monster.is_dead():
+			key = f'{monster.name}.killed'
+			self.monster_statics[key] = 1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
+			msg += parse(await self.on_monster_death(), monster)
 			msgs = Dispatcher.split_message(msg, '```\n', True)
 			for m in msgs:
 				Dispatcher.add(self.channel, m)
 
 		else:
-			if self.monster.aggression in (AggressionLevels.RAMPAGE, AggressionLevels.VENGEFUL) \
-				and len(self.combatants) > 0:
+			if self.combatants and (
+				monster.aggression & (
+					AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE
+				)):
 
-				msg += f"\n{self.monster.attack_random(self.combatants)}"
-				if self.monster.aggression == AggressionLevels.RAMPAGE:
+				msg += f"\n{monster.attack_random(self.combatants)}"
+
+				if monster.aggression & AggressionLevels.RAMPAGE \
+					or (
+						monster.aggression & AggressionLevels.SURVIVE
+						and monster.get_health_scale() > 0.1
+					):
 					Dispatcher.add(self.channel, msg)
 					self.combatants.clear()
 					self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
 					return
 
-			if self.monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) \
-				or len(self.combatants) == 0:
-
-				Dispatcher.add(self.channel, f"{msg}\n{parse(self.monster.escape, self.monster)}")
+			if not self.combatants \
+						or monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE) \
+						or (monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() <= 0.1):
+				key = f'{monster.name}.escaped'
+				self.monster_statics[key] = 1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
+				Dispatcher.add(self.channel, f"{msg}\n{parse(monster.escape, monster)}")
 				await self.cancel_combat()
 
 	async def kill_monster(self):

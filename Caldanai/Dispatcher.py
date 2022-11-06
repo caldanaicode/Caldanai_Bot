@@ -10,6 +10,7 @@ from Caldanai.Logger import stdout
 
 class Dispatcher:
 	queue: Queue = Queue(-1)
+	flush = False
 
 	class Message:
 		"""
@@ -35,6 +36,9 @@ class Dispatcher:
 
 		:param message: Message object to send.
 		"""
+		if cls.flush:
+			return
+
 		if not cls.queue.empty():
 			last_msg: cls.Message = cls.queue.queue[-1]
 			if isinstance(last_msg.channel, type(message.channel)) and last_msg.channel.id == message.channel.id and \
@@ -62,6 +66,9 @@ class Dispatcher:
 		:param embed: Optional Embed to send.
 		:param file: Optional File to send.
 		"""
+		if cls.flush:
+			return
+
 		ch = channel if isinstance(channel, (User, Member, TextChannel, Guild)) \
 			else channel.channel if isinstance(channel, Context) \
 			else None
@@ -139,6 +146,3 @@ async def send():
 
 			stdout(f"{msg}\n\tError Code: {e.code}\n\tError Status: {e.status}")
 		count += 1
-
-
-send.start()

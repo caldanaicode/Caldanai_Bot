@@ -63,7 +63,7 @@ class HelpMenu(ListPageSource):
 			description="Caldanai Bot's very own help dialog.",
 			color=0xff7700
 		)
-		thumb = self.ctx.guild.me.avatar_url if self.ctx.guild is not None else self.ctx.me.avatar_url
+		thumb = self.ctx.guild.me.avatar.url if self.ctx.guild is not None else self.ctx.me.avatar.url
 		embed.set_thumbnail(url=thumb)
 		embed.set_footer(text=f"{offset:,} - {min(length, offset+self.per_page-1):,} of {length:,} commands")
 
@@ -147,5 +147,5 @@ class HelpCommands(Cog):
 		stdout("HelpCommands ready.")
 
 
-def setup(bot):
-	bot.add_cog(HelpCommands(bot))
+async def setup(bot):
+	await bot.add_cog(HelpCommands(bot))
