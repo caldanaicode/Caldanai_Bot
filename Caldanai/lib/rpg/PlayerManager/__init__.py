@@ -25,7 +25,13 @@ class PlayerManager:
 			matches = list(filter(lambda _r: _r.name == r.value, roles))
 			self.roles[r] = matches[0] if len(matches) > 0 else None
 
-		for p in MongoDB.players.find({'guild_id': guild.id}):
+		try:
+			players = (p for p in MongoDB.players.find({'guild_id': guild.id}))
+		except Exception as e:
+			stdout(e)
+			return
+
+		for p in players:
 			uid = p['user_id']
 			player = Player.from_dict(p)
 			try:
@@ -91,25 +97,13 @@ class PlayerManager:
 				reason=reason
 			)
 
-	async def remove_player_combatant(self, player: Player):
-		"""Removes a player's role as a combatant."""
-		reason = 'Combat terminated.'
-		if Roles.COMBAT_MAIN in self.roles.keys() \
-					and self.roles[Roles.COMBAT_MAIN] \
-					and self.roles[Roles.COMBAT_MAIN] in player.member.roles:
-			await player.member.remove_roles(
-				self.roles[Roles.COMBAT_MAIN],
-				reason=reason
-			)
-
 	async def clear_combat_roles(self):
 		"""Clears all combatant roles."""
 		if Roles.COMBAT_MAIN in self.roles.keys():
-			combatants = (
-				player for player in self.players.values() if self.roles[Roles.COMBAT_MAIN] in player.member.roles
-			)
-			for player in combatants:
-				await self.remove_player_combatant(player)
+			reason = 'Combat terminated.'
+			for p in self.players.values():
+				if self.roles[Roles.COMBAT_MAIN] in p.member.roles:
+					await p.member.remove_roles(self.roles[Roles.COMBAT_MAIN], reason=reason)
 
 	async def get_player(self, ctx) -> Union[Player, None]:
 		"""

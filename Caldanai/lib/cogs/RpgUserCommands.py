@@ -1,12 +1,12 @@
 import math
 from random import choice, randint
 
-from discord import File
+from discord import File, TextChannel
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.helpers.utils import RpgUtilities
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities, generate_report
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.creatures.player import Player
@@ -43,7 +43,7 @@ class RpgUserCommands(Cog):
 		if game is None:
 			return
 
-		if game.player_manager.add_player(ctx):
+		if await game.player_manager.add_player(ctx):
 			Dispatcher.add(game.channel, f'Welcome, {ctx.author.display_name}')
 
 		else:
@@ -321,10 +321,38 @@ class RpgUserCommands(Cog):
 
 		Dispatcher.add(game.channel, parse(msg, *actors))
 
+	@cooldown(1, 60, BucketType.user)
+	@command(aliases=['report'], brief='Reports an error or issue to the logs and developer.')
+	async def report_problem(self, ctx, *, msg: str):
+		"""
+		Reports an error or issue to the logs and developer. 1-minute cooldown.
+
+		:param msg: A description of the problem with as much detail as possible.
+		:return:
+		"""
+		game, player = await RpgUtilities.get_game_and_player(ctx, notify=False)
+
+		result = generate_report(
+			ctx.author.id,
+			ctx.author.display_name,
+			msg,
+			player.name if player else "None",
+			ctx.guild.id if ctx.guild else "None",
+			ctx.channel.id if ctx.channel else "None"
+		)
+
+		m = f"{ctx.author.display_name}, "
+		if result:
+			m += "your message has been logged and relayed. Thank you for helping improve me!"
+		else:
+			m += "there was an unexpected error while delivering your report. Please ping the developer!"
+
+		Dispatcher.add(ctx, m)
+
 	@Cog.listener()
 	async def on_ready(self):
 		stdout("RpgUserCommands ready.")
 
 
-def setup(bot):
-	bot.add_cog(RpgUserCommands(bot))
+async def setup(bot):
+	await bot.add_cog(RpgUserCommands(bot))

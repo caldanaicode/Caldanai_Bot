@@ -1,8 +1,6 @@
-from dotenv import load_dotenv
 from os import getenv
+from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_CONNECTION = getenv("DBCONNECTION")
-OWNER_IDS = getenv('OWNERIDS').split(',')
-TOKEN = getenv("TOKEN")
+DB_CONNECTION = getenv("DB_CONNECTION")

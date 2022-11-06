@@ -119,7 +119,7 @@ class Creature:
 
 	def do_attack(
 			self,
-			creature: "Creature",
+			target: "Creature",
 			dmg_type: DamageTypes = None
 	) -> Tuple[str, int]:
 		"""
@@ -127,28 +127,10 @@ class Creature:
 
 		Returns a tuple containing the attack message and the total damage done.
 		"""
-
 		attack = AttackRoll(skill_bonus=0)
 		damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
-		defense = creature.get_defense()
-		dodge = creature.get_dodge()
-		combined = CombinedRoll(attack, damage, dodge)
-		multiplier = self.get_trait_multiplier(dmg_type)
-		sub_dmg = int(multiplier * combined.result)
-		t_dmg = 0 if combined.isMiss else max(1, sub_dmg - defense)
-
-		msg = f"**{self.name.capitalize()} attacks {creature.name}:**```diff\nAttack vs Dodge ({dodge}): " \
-			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
-
-		if not combined.isMiss:
-			msg += f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}" \
-				f"    {combined.damage}{' * 0' if combined.isMiss else ' * 2' if combined.isCritical else ''}" \
-				f"{' * ' + str(multiplier) if multiplier != 1 else ''} = {sub_dmg}"
-
-			msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
-
-		msg += "```\n"
-		return msg, t_dmg
+		msg, dmg = target.on_attacked(self, attack, damage, dmg_type)
+		return msg, dmg
 
 	def get_embed(self) -> tuple:
 		"""
@@ -189,6 +171,9 @@ class Creature:
 	def get_health_max(self) -> int:
 		return self.health_max
 
+	def get_health_scale(self) -> float:
+		return self.health / self.get_health_max()
+
 	def give_clarks(self, amount: int) -> bool:
 		"""
 		Gives (or removes, if negative amount is passed) clarks to the creature.
@@ -202,14 +187,50 @@ class Creature:
 			return True
 		return False
 
-	# Returns a boolean indicating whether or not the creature's health is depleted.
+	# Returns a boolean indicating whether the creature's health is depleted.
 	def is_dead(self) -> bool:
 		"""
-		Returns a boolean indicating whether or not the creature's health is depleted.
+		Returns a boolean indicating whether the creature's health is depleted.
 
 		:return: True if health <= 0, otherwise False.
 		"""
 		return self.health <= 0
+
+	def on_attacked(
+			self,
+			actor: "Creature",
+			atk_roll: AttackRoll,
+			dmg_roll: DamageRoll,
+			dmg_type: DamageTypes = None
+	) -> Tuple[str, int]:
+		"""
+		Gets a creature's reaction to being attacked.
+
+		:param actor: The creature performing the attack.
+		:param atk_roll: The actor's attack roll.
+		:param dmg_roll: The actor's damage roll.
+		:param dmg_type: The incoming damage type.
+		:return: A tuple containing a string representing this creature's reaction, and the total damage done.
+		"""
+		defense = self.get_defense()
+		dodge = self.get_dodge()
+		combined = CombinedRoll(atk_roll, dmg_roll, dodge)
+		multiplier = self.get_trait_multiplier(dmg_type)
+		sub_dmg = int(multiplier * combined.result)
+		t_dmg = 0 if combined.isMiss else max(1, sub_dmg - defense)
+
+		msg = f"**{actor.name.capitalize()} attacks {self.name}:**```diff\nAttack vs Dodge ({dodge}): " \
+			f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
+
+		if not combined.isMiss:
+			msg += f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}" \
+				f"    {combined.damage}{' * 0' if combined.isMiss else ' * 2' if combined.isCritical else ''}" \
+				f"{' * ' + str(multiplier) if multiplier != 1 else ''} = {sub_dmg}"
+
+			msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
+
+		msg += "```\n"
+		return msg, t_dmg
 
 	def on_hugged(self, actor: "Creature", invocation: str) -> str:
 		"""

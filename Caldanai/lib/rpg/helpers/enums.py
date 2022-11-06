@@ -1,10 +1,12 @@
 from enum import Enum, IntFlag
 
 
-class AggressionLevels(Enum):
+class AggressionLevels(IntFlag):
 	PASSIVE = 0			# Never attacks
 	VENGEFUL = 1		# Hit & run
 	RAMPAGE = 2			# Attacks until defeated or left alone
+	SURVIVE = 4			# Attacks until low health, then flees
+	RANDOM = 8			# Might flee or attack with every turn
 
 
 class CombatRanges(IntFlag):

@@ -68,13 +68,6 @@ class MonsterPlugin(Monster):
 			if random() < 0.2:
 				return self.breath_attack(combatants)
 
-			victims = sample(combatants, count)
-			m = None
-			for victim in victims:
-				m, d = self.do_attack(victim)
-				if d > 0:
-					m += parse(victim.apply_damage(d), victim)
-
-			return m
+			return super().attack_random(combatants, count)
 
 		return None

@@ -44,7 +44,7 @@ class RpgInfoCommands(Cog):
 			title=f"There {'is' if length == 1 else 'are'} currently {length:,} player{'' if length == 1 else 's'}.",
 			description=msg.strip() + '```' if len(msg) > 4 else None
 		)
-		embed.set_thumbnail(url=game.guild.icon_url)
+		embed.set_thumbnail(url=game.guild.icon.url)
 		Dispatcher.add(game.channel, embed=embed)
 
 	@command(brief="Shows a player's profile.")
@@ -64,7 +64,7 @@ class RpgInfoCommands(Cog):
 
 		channel = game.channel if ctx.guild is not None else ctx
 		embed = player.get_profile(game.guild.name)
-		embed.set_thumbnail(url=game.guild.icon_url)
+		embed.set_thumbnail(url=game.guild.icon.url)
 		Dispatcher.add(channel, embed=embed)
 
 	@command(brief="Shows a player's skills.")
@@ -84,7 +84,7 @@ class RpgInfoCommands(Cog):
 
 		channel = game.channel if ctx.guild is not None else ctx
 		embed = player.get_skill_display()
-		embed.set_thumbnail(url=game.guild.icon_url)
+		embed.set_thumbnail(url=game.guild.icon.url)
 		Dispatcher.add(channel, embed=embed)
 
 	@guild_only()
@@ -339,7 +339,7 @@ class RpgInfoCommands(Cog):
 					i for i in game.player_manager.players.values()
 					if flag == 'all' or (flag.lower() in ('hurt', 'injured') and i.health < i.get_health_max())
 				], key=lambda x: x.name.lower())
-				, key=lambda x: x.health / x.get_health_max()
+				, key=lambda x: x.get_health_scale()
 			)
 
 			if players is None or len(players) == 0:
@@ -526,5 +526,5 @@ class RpgInfoCommands(Cog):
 		stdout("RpgInfoCommands ready.")
 
 
-def setup(bot):
-	bot.add_cog(RpgInfoCommands(bot))
+async def setup(bot):
+	await bot.add_cog(RpgInfoCommands(bot))

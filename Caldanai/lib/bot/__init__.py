@@ -10,29 +10,31 @@ from os import path
 from random import choice
 
 from Caldanai.lib.rpg import Game
-from Caldanai.Dispatcher import Dispatcher
+from Caldanai.Dispatcher import Dispatcher, send
 from Caldanai.Logger import stdout
 from Caldanai.db import MongoDB
-from Caldanai.environment import OWNER_IDS, TOKEN
 
 
 def get_prefix(_bot, message):
 	prefix = None
-	if message.guild is None:
-		prefix = "$"
+	try:
+		if message.guild is None:
+			prefix = "$"
 
-	elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
-		MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
+		elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
+			MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
 
-	if prefix is None and message.guild is not None:
-		prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
+		if prefix is None and message.guild is not None:
+			prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
+	except Exception as e:
+		stdout(e)
 
 	return when_mentioned_or(prefix)(_bot, message)
 
 
 class Bot(BotBase):
 	def __init__(self):
-		self.TOKEN = None
+		self.TOKEN = MongoDB['auth'].find_one()['TOKEN'] or None
 		self.COGS = None
 		self.IMAGES = None
 		self.ready = False
@@ -40,20 +42,21 @@ class Bot(BotBase):
 		self.stdout = None
 		self.retry = 0
 		self.games: Dict[int, Game] = {}
+		self.command_usage: Dict[str, Dict[str, int]] = {}
 		intents = Intents.default()
 		intents.members = True
 		super().__init__(
 			command_prefix=get_prefix,
-			owner_ids=OWNER_IDS,
+			owner_ids=MongoDB['auth'].find_one()['OWNER_IDS'] or None,
 			intents=intents,
 			case_insensitive=True
 		)
 
-	def setup(self):
+	async def setup(self):
 		stdout("Loading cogs...")
 		self.discover_cogs()
 		for cog in self.COGS:
-			self.load_extension(f'Caldanai.lib.cogs.{cog}')
+			await self.load_extension(f'Caldanai.lib.cogs.{cog}')
 		stdout("Cogs loaded. Bot is setup.")
 
 	def discover_cogs(self):
@@ -74,24 +77,17 @@ class Bot(BotBase):
 		for cog in self.COGS:
 			self.reload_cog(cog)
 
-	def run(self):
-		self.TOKEN = TOKEN
-		self.setup()
-		self.retry = 0
-		try:
-			stdout(f"Running bot...")
-			super().run(self.TOKEN, bot=True, reconnect=True)
-		except HTTPException as e:
-			stdout(e)
-			if 'Retry-After' in e.response.headers.keys():
-				stdout(f"Retry After {e.response.headers['Retry-After']} seconds")
+	async def on_command(self, ctx):
+		# Track by user id and guild id
+		key1 = ctx.guild.id if ctx.guild else "dm"
+		key2 = f'{ctx.command.qualified_name}.{ctx.invoked_with}'
+		if key1 not in self.command_usage.keys():
+			self.command_usage[key1] = {}
 
-	async def on_error(self, err, *args, **kwargs):
-		if err == 'on_command_error':
-			Dispatcher.add(args[0], '*BZZZT* ERROR! DOES NOT COMPUTE!')
-		if owner := self.get_user(self.owner_ids[0]):
-			Dispatcher.add(owner, repr(args[1]))
-		raise
+		if key2 not in self.command_usage[key1].keys():
+			self.command_usage[key1][key2] = 1
+		else:
+			self.command_usage[key1][key2] += 1
 
 	async def on_command_completion(self, ctx):
 		if guild := ctx.guild:
@@ -99,6 +95,13 @@ class Bot(BotBase):
 				if ctx.author.id in game.player_manager.players.keys() \
 						and (player := game.player_manager.players[ctx.author.id]):
 					await game.player_manager.set_player_active(player)
+
+	async def on_error(self, err, *args, **kwargs):
+		if err == 'on_command_error':
+			Dispatcher.add(args[0], '*BZZZT* ERROR! DOES NOT COMPUTE!')
+		if owner := self.get_user(self.owner_ids[0]):
+			Dispatcher.add(owner, repr(args[1]))
+		raise
 
 	@staticmethod
 	async def get_forbidden_response(ctx: Context) -> str:
@@ -146,22 +149,28 @@ class Bot(BotBase):
 		self.online = True
 
 	async def on_guild_join(self, guild: Guild):
-		MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
-		stdout(f"Guild joined: {guild.name} ({guild.id})")
+		try:
+			MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
+			stdout(f"Guild joined: {guild.name} ({guild.id})")
+		except Exception as e:
+			stdout(f"Unable to add guild {guild.id} due to database error.")
+			stdout(e)
 
 	async def on_guild_remove(self, guild: Guild):
-		MongoDB.servers.delete_one({'guild_id': guild.id})
-		MongoDB.games.delete_many({'guild_id': guild.id})
-		MongoDB.players.delete_many({'guild_id': guild.id})
-		stdout(f"Guild left: {guild.name} ({guild.id})")
+		try:
+			MongoDB.servers.delete_one({'guild_id': guild.id})
+			MongoDB.games.delete_many({'guild_id': guild.id})
+			MongoDB.players.delete_many({'guild_id': guild.id})
+			stdout(f"Guild left: {guild.name} ({guild.id})")
+		except Exception as e:
+			stdout(f"Unable to remove guild {guild.id} due to database error.")
+			stdout(e)
 
 	async def on_ready(self):
 		if not self.ready:
-			stdout(f'Logged in as {bot.user.name}, {bot.user.id}')
+			stdout(f'Logged in as {self.user.name}, {self.user.id}')
 			self.ready = True
+			send.start()
 		else:
 			stdout('Bot reconnected')
 		self.online = True
-
-
-bot = Bot()

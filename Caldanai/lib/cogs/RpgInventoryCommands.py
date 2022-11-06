@@ -97,7 +97,7 @@ class RpgInventoryCommands(Cog):
 		show_all = bool(options and options.lower() == 'all')
 		channel = game.channel if ctx.guild is not None else ctx
 		embed = player.get_equipment(game.guild.name, show_all)
-		embed.set_thumbnail(url=game.guild.icon_url)
+		embed.set_thumbnail(url=game.guild.icon.url)
 		Dispatcher.add(channel, embed=embed)
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
@@ -266,23 +266,20 @@ class RpgInventoryCommands(Cog):
 		Dispatcher.add(game.channel, msg)
 
 	@cooldown(1, 2, BucketType.member)
+	@guild_only()
 	@command(name='sell', brief='Sells an item, range of items, unequipped items, or items having a given rarity.')
-	async def sell(self, ctx, flag: Union[int, str] = None, count: int = None, gid: int = None):
+	async def sell(self, ctx, *items: Union[int, str]):
 		"""
 		Sells items by name, name.n, index, a range of indices, all items, or items having a given rarity.
 		Items must be unequipped to be sold.
-		When selling an individual item, you may specify a quantity to sell if the item is stackable.
 
 		(2-second cool-down)
 
-		:param flag: An item name, name.n, name.quality, name.quality.n, index, range of indices, quality, or 'all'.
-
-		:param count: If the given item is stackable, provide the number you wish to sell unless you used the 'all'	flag.
-
-		:param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
+		:param items: An item name, name.n, name.quality, name.quality.n, index, range of indices, quality,
+		or 'all'. You may also specify multiple items with a space between them (i.e. 'stick rock spear.junk')
 		"""
 
-		game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+		game, player = await RpgUtilities.get_game_and_player(ctx)
 		if game is None or player is None:
 			return
 
@@ -292,78 +289,57 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
 			return
 
-		if flag is None:
-			Dispatcher.add(
-				channel,
-				"You must specify the item name, name.n, name.quality, name.quality.n, index, the range of indices, "
-				"a rarity, or 'all'."
-			)
+		if items is None or len(items) == 0:
+			Dispatcher.add(channel, "You must specify something to sell.")
 			return
 
 		msg = ''
 		equipped = ([i.id for s, i in player.equip_slots.items() if i and not EquipmentSlots.exclude_from_output(s)])
-		sell_all = False
 		sell: List[Item] = []
+		total = 0
 
-		if (isinstance(flag, int) or flag.isnumeric()) and 1 <= int(flag) <= len(player.inventory):
-			item, *_ = player.inventory.filter(flag)
-			if count and isinstance(item, Stackable) and (count < 0 or count > item.count):
-				Dispatcher.add(
-					channel,
-					f'The number of items to sell must be greater than 0 and less than {item.count + 1}'
-				)
-				return
+		for _item in items:
+			if (isinstance(_item, int) or _item.isnumeric()) and 1 <= int(_item) <= len(player.inventory):
+				item, *_ = player.inventory.filter(_item)
 
-			if item and item.id not in equipped:
-				sell.append(item)
-				if count is None:
-					sell_all = True
+				if item and item.id not in equipped:
+					sell.append(item)
+				else:
+					msg += f'\nYou must un-equip {item.get_full_name()} before selling them.'
+
+			elif isinstance(_item, str):
+				if _item.lower() == 'all':
+					sell += [i for i in list(player.inventory.all()) if i.id not in equipped]
+				elif '-' in _item:
+					try:
+						low, high = map(int, _item.split('-'))
+						if low > high:
+							tmp = low
+							low = high
+							high = tmp
+
+						low -= 1
+						if 0 <= low <= high <= len(player.inventory):
+							sell += list(filter(lambda i: i.id not in equipped, player.inventory.all()[low:high]))
+
+						else:
+							msg += f"\nIndex range invalid."
+
+					except ValueError:
+						msg += f"\nUnable to determine lower and upper indices from {_item}."
+				else:
+					sell += [i for i in player.inventory.filter(_item) if i and i.id not in equipped]
+
 			else:
-				Dispatcher.add(channel, 'You must un-equip items before selling them.')
-				return
-
-		elif isinstance(flag, str):
-			sell_all = True
-			if flag.lower() == 'all':
-				sell = [i for i in list(player.inventory.all()) if i.id not in equipped]
-			elif '-' in flag:
-				try:
-					low, high = map(int, flag.split('-'))
-					if low > high:
-						tmp = low
-						low = high
-						high = tmp
-
-					low -= 1
-					if 0 <= low < high <= len(player.inventory):
-						sell = list(filter(lambda i: i.id not in equipped, player.inventory.all()[low:high]))
-
-					else:
-						Dispatcher.add(
-							channel, f"I'm afraid I can't do that, {player.name}. You may want to check your numbers."
-						)
-						return
-
-				except ValueError:
-					Dispatcher.add(channel, f"Unable to determine lower and upper indices from {flag}.")
-					return
-			else:
-				sell = [i for i in player.inventory.filter(flag) if i and i.id not in equipped]
-
-		else:
-			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}.")
-			return
+				msg += f"\nI'm afraid you don't have any {_item}."
 
 		if len(sell) > 0:
 			for item in sell:
-				msg += f"\n{player.sell(item, count or 1, sell_all)}"
+				m, v = player.sell(item, 1, True)
+				msg += f"\n{m}"
+				total += v
 
-		if len(msg) == 0:
-			Dispatcher.add(channel, f'You had no unequipped items to sell, {player.name}.')
-			return
-		else:
-			msg = f'{player.name} sold the following items: ```\n{msg}```'
-
+		msg = f'{player.name} sold the following items for a total of {total:,} clarks: ```\n{msg}```'
 		msgs = Dispatcher.split_message(msg, 'clarks.', True)
 		count = 0
 		for m in msgs:
@@ -419,5 +395,5 @@ class RpgInventoryCommands(Cog):
 		stdout("RpgInventoryCommands ready.")
 
 
-def setup(bot):
-	bot.add_cog(RpgInventoryCommands(bot))
+async def setup(bot):
+	await bot.add_cog(RpgInventoryCommands(bot))

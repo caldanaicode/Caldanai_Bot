@@ -17,7 +17,7 @@ class MonsterPlugin(Monster):
 
 		self.time_partition = TimePartitions.CATHEMERAL
 		self.image = None
-		self.aggression = AggressionLevels.VENGEFUL
+		self.aggression = AggressionLevels.SURVIVE
 		self.arrival = choice([
 			f"With a spluttering snarl, a @1 {choice('bursts|pads|runs'.split('|'))} into the area.",
 			"A screeching laugh shatters the serenity that once lingered here, as a @1 finds @1a way hither."

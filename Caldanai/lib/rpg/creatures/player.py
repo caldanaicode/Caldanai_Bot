@@ -530,13 +530,13 @@ class Player(Creature):
 
 		return msg
 
-	def sell(self, item: Item, count: int = 1, _all: bool = False) -> str:
+	def sell(self, item: Item, count: int = 1, _all: bool = False) -> Tuple[str, int]:
 		"""
 		Sells the given item if the player has it.
 		"""
 
 		if item is None:
-			return "No item was specified."
+			return "No item was specified.", 0
 
 		sold = False
 		value = 0
@@ -559,9 +559,9 @@ class Player(Creature):
 
 		if sold:
 			self.clarks += value
-			return f"You sold {name} for {value} clark{'s' if value != 1 else ''}."
+			return f"You sold {name} for {value} clark{'s' if value != 1 else ''}.", value
 
-		return f"Item not found."
+		return f"Item not found", 0
 
 	def take_item(self, item: Item, count: int = 1) -> Optional[Item]:
 		"""
@@ -575,6 +575,18 @@ class Player(Creature):
 			self.is_dirty = True
 			return item
 		return None
+
+	def on_hugged(self, actor: Creature, invocation: str) -> str:
+		"""
+		Gets a creature's reaction to being hugged.
+
+		:param actor: The Creature object initiating the hug.
+		:param invocation: The calling command, such as 'hug', 'cuddle', or 'snuggle'.
+		:return: A string representing the creature's reaction.
+		"""
+		if self.is_dead():
+			return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
+		return parse("@1 glances at @2 and sidesteps @2a hug.", self, actor)
 
 	def to_dict(self) -> dict:
 		"""Returns a dictionary of the player's attributes."""

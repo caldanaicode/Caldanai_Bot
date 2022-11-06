@@ -13,10 +13,10 @@ class MonsterPlugin(Monster):
 	def __init__(self):
 		super().__init__(
 			name="vampire",
-			atk="4d4",
+			atk="8d4",
 			defense="1d4",
-			dodge="1d10",
-			health_max="50d4"
+			dodge="3d10",
+			health_max="10d8"
 		)
 
 		self.time_partition = TimePartitions.NOCTURNAL
@@ -49,7 +49,7 @@ class MonsterPlugin(Monster):
 			"After a moment, the husk crumbles and drifts away.",
 		])
 
-		self.traits[DamageTypes.ALL ^ (DamageTypes.FIRE | DamageTypes.LIGHT)] = 0.35
+		self.traits[DamageTypes.ALL ^ (DamageTypes.FIRE | DamageTypes.LIGHT)] = 0.5
 		self.traits[DamageTypes.LIGHT] = 2.0
 		self.traits[DamageTypes.FIRE] = 1.5
 
