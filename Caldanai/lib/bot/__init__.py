@@ -45,6 +45,7 @@ class Bot(BotBase):
 		self.command_usage: Dict[str, Dict[str, int]] = {}
 		intents = Intents.default()
 		intents.members = True
+		intents.message_content = True
 		super().__init__(
 			command_prefix=get_prefix,
 			owner_ids=MongoDB['auth'].find_one()['OWNER_IDS'] or None,
@@ -99,7 +100,8 @@ class Bot(BotBase):
 	async def on_error(self, err, *args, **kwargs):
 		if err == 'on_command_error':
 			Dispatcher.add(args[0], '*BZZZT* ERROR! DOES NOT COMPUTE!')
-		if owner := self.get_user(self.owner_ids[0]):
+		for oid in self.owner_ids:
+			owner = self.get_user(oid)
 			Dispatcher.add(owner, repr(args[1]))
 		raise
 
