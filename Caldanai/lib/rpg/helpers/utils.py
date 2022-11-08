@@ -85,7 +85,7 @@ class RpgUtilities:
 			for role in Roles:
 				if role not in pmgr.roles.keys() or (role in pmgr.roles.keys() and not pmgr.roles[role]):
 					pmgr.roles[role] = await game.guild.create_role(
-						name=role.value,
+						name=f"{role.value}",
 						mentionable=True,
 						reason='Created by Caldanai Bot for directing mentions to only active players.'
 					)
@@ -149,6 +149,7 @@ class RpgUtilities:
 		game.room0 = room0
 		RpgUtilities.bot.games[game.guild.id] = game
 		stdout(f"Game added for guild: {game.guild.name} ({game.guild.id})")
+		Dispatcher.add(game.channel, "Caldanai Bot has just started!")
 
 	# Gets a list of games to which a user belongs.
 	@staticmethod
