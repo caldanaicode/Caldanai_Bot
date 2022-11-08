@@ -2,6 +2,7 @@ import re
 from re import Match
 from typing import Tuple, List
 
+from Caldanai.Logger import stdout
 from Caldanai.lib.rpg.helpers.enums import Pronouns
 
 actorRegex = re.compile(r'@(?P<actor>\d+)(?P<form>\w*)')
@@ -25,9 +26,12 @@ def _process(match: Match, actors: Tuple) -> str:
 	if match is None:
 		return None
 
+	if len(actors) == 0:
+		stdout(f"Error parsing message for actors. No actors were supplied. {match.groupdict()}")
+		return None
+
 	m = match.groupdict()
-	if m['actor'] and m['actor'].isnumeric():
-		num = int(m['actor']) - 1
+	if m['actor'] and m['actor'].isnumeric() and 0 <= (num := int(m['actor']) - 1) < len(actors):
 		actor = actors[num]
 	else:
 		actor = actors[0]
