@@ -103,7 +103,7 @@ class GeneralCommands(Cog):
 		if count > 1000000:
 			embed = Embed(
 				title=f'Dice Roll for {ctx.author.nick or ctx.author.name}',
-				description=f"Don't be absurd, {ctx.author.mention}! Go roll your own {count:,} dice!",
+				description=f"Don't be absurd, <@!{ctx.author.id}>! Go roll your own {count:,} dice!",
 				color=0xff0000
 			)
 			Dispatcher.add(ctx, embed=embed)
