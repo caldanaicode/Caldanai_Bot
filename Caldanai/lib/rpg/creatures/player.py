@@ -80,7 +80,7 @@ class Player(Creature):
 			return parse("@1 crumples to the ground lifelessly!", self)
 
 		if not was_alive and not self.is_dead():
-			return parse(f"{self.member.mention} suddenly gasps raggedly as life returns to @1o!", self)
+			return parse(f"<@!{self.member.id}> suddenly gasps raggedly as life returns to @1o!", self)
 
 		return ""
 
@@ -105,7 +105,7 @@ class Player(Creature):
 
 		t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - creature.defense)
 
-		msg = f"{self.member.mention}'s attack:```diff\nAttack vs Dodge ({creature.dodge}): " \
+		msg = f"<@!{self.member.id}>'s attack:```diff\nAttack vs Dodge ({creature.dodge}): " \
 			f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} " \
 			f"({left.get_hit_string()})"
 		msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
