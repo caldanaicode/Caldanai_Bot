@@ -19,7 +19,7 @@ class RpgAdminCommands(Cog):
 
 	@group(aliases=["rpg"], brief="Groups the various Game commands.")
 	@guild_only()
-	@has_permissions(manage_guild=True, is_owner=True)
+	@check_any(is_owner(), has_permissions(manage_guild=True))
 	async def game_cmd(self, ctx):
 		"""
 		Groups the various game commands for administrators. This command cannot be used on its own.
@@ -69,7 +69,7 @@ class RpgAdminCommands(Cog):
 
 	@group(brief="Role settings for the game.")
 	@guild_only()
-	@has_permissions(manage_guild=True)
+	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@cooldown(1, 5, BucketType.guild)
 	async def roles(self, ctx):
 		"""
