@@ -48,6 +48,7 @@ async def main():
 		'Dispatching event socket_response',
 		'Dispatching event socket_raw_receive',
 		'For Shard ID None: WebSocket Event: {\'t\': None, \'s\': None, \'op\': 11',
+		'Shard ID None has successfully RESUMED session',
 		'Dispatching event message',
 		'Dispatching event typing',
 		'Dispatching event socket_raw_send',
