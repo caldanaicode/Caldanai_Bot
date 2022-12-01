@@ -6,6 +6,7 @@ from pymongo import DESCENDING
 
 from Caldanai.Logger import MongoHandler, stdout
 from Caldanai.db.__init__ import MongoDB
+from Caldanai.environment import FLASK_PORT
 from Caldanai.lib.bot import Bot
 
 app = Flask(__name__, static_folder='site/static', template_folder='site/templates')
@@ -32,7 +33,7 @@ def logviewer() -> list:
 
 
 def run():
-	app.run(host='0.0.0.0', port=8080)
+	app.run(host='0.0.0.0', port=FLASK_PORT)
 
 
 bot = Bot()
