@@ -5,8 +5,9 @@ from datetime import datetime
 from email.message import EmailMessage
 from typing import List, Union
 
-from discord import Forbidden, HTTPException
+from discord import Forbidden, HTTPException, Member, User, File
 from discord.ext import tasks
+from discord.ext.commands import Context
 from pymongo import UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
@@ -222,6 +223,11 @@ class RpgUtilities:
 			return player
 
 		if notify:
+			if isinstance(ctx, (Member, User)) and ctx.bot:
+				file = File(f"./site/static/images/hal9000.gif", filename='hal9000.gif')
+				Dispatcher.add(game.channel, file=file)
+				return None
+
 			Dispatcher.add(
 				game.channel,
 				f'Why, {ctx.author.display_name if ctx.author else ctx.display_name}! You are not even playing the '
