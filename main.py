@@ -2,7 +2,7 @@ import asyncio
 from logging import getLogger, Formatter, INFO
 from threading import Thread
 from flask import Flask, render_template
-from pymongo import DESCENDING
+# from pymongo import DESCENDING
 
 from Caldanai.Logger import MongoHandler, stdout
 from Caldanai.db.__init__ import MongoDB
@@ -17,23 +17,23 @@ def main_web():
 	return render_template('main.html', content='Caldanai Bot is alive and breathing heavily, staring hungrily at you.')
 
 
-@app.route('/formatter')
-def formatter():
-	return render_template('formatter.html')
+# @app.route('/formatter')
+# def formatter():
+# 	return render_template('formatter.html')
 
 
-@app.route('/logviewer')
-def logviewer() -> list:
-	entries = ()
-	headers = ('When', 'Level', 'Module', 'Message')
-	results = MongoDB.logs_discord.find().sort('_id', DESCENDING).limit(200)
-	if results is not None:
-		entries = ((e['asctime'], e['level'], e['name'], e['message']) for e in results)
-	return render_template('logviewer.html', headers=headers, entries=entries)
+# @app.route('/logviewer')
+# def logviewer() -> list:
+# 	entries = ()
+# 	headers = ('When', 'Level', 'Module', 'Message')
+# 	results = MongoDB.logs_discord.find().sort('_id', DESCENDING).limit(200)
+# 	if results is not None:
+# 		entries = ((e['asctime'], e['level'], e['name'], e['message']) for e in results)
+# 	return render_template('logviewer.html', headers=headers, entries=entries)
 
 
 def run():
-	app.run(host=FLASK_HOST, port=FLASK_PORT)
+	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
 
 
 bot = Bot()
@@ -53,7 +53,8 @@ async def main():
 		'Dispatching event message',
 		'Dispatching event typing',
 		'Dispatching event socket_raw_send',
-		'Keeping shard ID None websocket alive'
+		'Keeping shard ID None websocket alive',
+		'Shard ID None has successfully RESUMED session'
 	)
 	mHandler = MongoHandler(MongoDB.logs_discord, ignore)
 	mHandler.setFormatter(f)
