@@ -1,15 +1,18 @@
 import asyncio
+import sys
 from logging import getLogger, Formatter, INFO
 from threading import Thread
 from flask import Flask, render_template
 # from pymongo import DESCENDING
 
 from Caldanai.Logger import MongoHandler, stdout
-from Caldanai.db.__init__ import MongoDB
+from Caldanai.db.__init__ import MongoDB, close_db_connection
 from Caldanai.environment import FLASK_PORT, FLASK_HOST
 from Caldanai.lib.bot import Bot
+from Caldanai.Dispatcher import Dispatcher
 
 app = Flask(__name__, static_folder='site/static', template_folder='site/templates')
+logger = getLogger('discord')
 
 
 @app.route('/')
@@ -36,11 +39,9 @@ def run():
 	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
 
 
-bot = Bot()
-
-
-async def main():
-	logger = getLogger('discord')
+def setup_logging():
+	stdout("Setting up logging...")
+	global logger
 	logger.setLevel(INFO)  # logger.setLevel(DEBUG)
 	f = Formatter('%(asctime)23s | %(levelname)-8s | %(name)-20s | %(message)s')
 
@@ -58,12 +59,81 @@ async def main():
 	mHandler = MongoHandler(MongoDB.logs_discord, ignore)
 	mHandler.setFormatter(f)
 	logger.addHandler(mHandler)
+	stdout("Logging setup complete.")
 
-	stdout("Setting up bot...")
+
+def notify_servers(bot: Bot, message: str):
+	if bot.is_closed():
+		stdout("Unable to notify servers: bot is shut down.")
+		return
+
+	if isinstance(message, list):
+		message = ' '.join(message)
+
+	stdout(f"Sending '{message}' to all servers.")
+	for game in bot.games.values():
+		Dispatcher.add(game.channel, message)
+
+
+async def shutdown(bot: Bot, message):
+	if bot.is_closed():
+		stdout("Bot is already shut down.")
+		return
+
+	stdout("Shutting down bot.")
+	if message:
+		notify_servers(bot, message)
+	Dispatcher.flush = True
+	while not Dispatcher.queue.empty():
+		await asyncio.sleep(1.0)
+
+	await bot.close()
+
+
+commands = {
+	'shutdown': shutdown,
+	'notify': notify_servers
+}
+
+
+async def main():
+	setup_logging()
+	stdout("Running web server.")
+	srv_thread = Thread(target=run)
+	srv_thread.start()
+	stdout("Setting up bot.")
+	bot = Bot()
 	await bot.setup()
+	stdout("Running bot.")
+	bot_thread = bot.start(bot.TOKEN, reconnect=True)
+	stdout("Running console loop...")
+	for line in sys.stdin:
+		cmd, *arg = line.strip().split(' ')
+		cmd = cmd.lower()
+		if len(cmd) == 0:
+			continue
 
-srv_thread = Thread(target=run)
-srv_thread.start()
-asyncio.run(main())
-stdout(f"Running bot...")
-bot.run(bot.TOKEN, reconnect=True)
+		if cmd == 'exit':
+			bot_thread.close()
+			global logger
+			logger.handlers.clear()
+			close_db_connection()
+			break
+
+		if cmd in commands.keys():
+			if asyncio.iscoroutinefunction(commands[cmd]):
+				await commands[cmd](bot, arg)
+			else:
+				commands[cmd](bot, arg)
+
+	stdout("Console loop has ended.")
+
+
+if __name__ == "__main__":
+	loop = asyncio.get_event_loop()
+	loop.run_until_complete(main())
+	stdout("Main has ended.")
+	loop.close()
+	stdout("Loop closed.")
+
+sys.exit()
