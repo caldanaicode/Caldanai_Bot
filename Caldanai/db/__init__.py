@@ -4,3 +4,7 @@ from Caldanai.environment import DB_CONNECTION
 
 mongoClient = MongoClient(DB_CONNECTION)
 MongoDB: Database = mongoClient.caldanaiDB
+
+
+def close_db_connection():
+	mongoClient.close()
