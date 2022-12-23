@@ -13,6 +13,8 @@ from Caldanai.Dispatcher import Dispatcher
 
 app = Flask(__name__, static_folder='site/static', template_folder='site/templates')
 logger = getLogger('discord')
+bot = Bot()
+bot_thread = None
 
 
 @app.route('/')
@@ -41,7 +43,6 @@ def run():
 
 def setup_logging():
 	stdout("Setting up logging...")
-	global logger
 	logger.setLevel(INFO)  # logger.setLevel(DEBUG)
 	f = Formatter('%(asctime)23s | %(levelname)-8s | %(name)-20s | %(message)s')
 
@@ -62,7 +63,7 @@ def setup_logging():
 	stdout("Logging setup complete.")
 
 
-def notify_servers(bot: Bot, message: str):
+def notify_servers(message: str):
 	if bot.is_closed():
 		stdout("Unable to notify servers: bot is shut down.")
 		return
@@ -71,18 +72,21 @@ def notify_servers(bot: Bot, message: str):
 		message = ' '.join(message)
 
 	stdout(f"Sending '{message}' to all servers.")
+	msg = []
 	for game in bot.games.values():
 		Dispatcher.add(game.channel, message)
+		msg.append(f'Channel {game.channel.name}')
+	stdout(f"Queued for {', '.join(msg)}")
 
 
-async def shutdown(bot: Bot, message):
+async def shutdown(message):
 	if bot.is_closed():
 		stdout("Bot is already shut down.")
 		return
 
 	stdout("Shutting down bot.")
 	if message:
-		notify_servers(bot, message)
+		notify_servers(message)
 	Dispatcher.flush = True
 	while not Dispatcher.queue.empty():
 		await asyncio.sleep(1.0)
@@ -96,44 +100,48 @@ commands = {
 }
 
 
-async def main():
+async def console_loop():
+	stdout("Running console loop...")
+	while (line := sys.stdin.readline().strip()).lower() != 'exit':
+		cmd, *arg = line.split(' ')
+		cmd = cmd.lower()
+		if len(cmd) == 0:
+			continue
+
+		if cmd in commands.keys():
+			if asyncio.iscoroutinefunction(commands[cmd]):
+				await commands[cmd](arg)
+			else:
+				commands[cmd](arg)
+		await asyncio.sleep(0.25)
+
+	stdout("Console loop has ended.")
+	loop.close()
+
+
+async def setup():
 	setup_logging()
 	stdout("Running web server.")
 	srv_thread = Thread(target=run)
 	srv_thread.start()
 	stdout("Setting up bot.")
-	bot = Bot()
 	await bot.setup()
-	stdout("Running bot.")
-	bot_thread = bot.start(bot.TOKEN, reconnect=True)
-	stdout("Running console loop...")
-	for line in sys.stdin:
-		cmd, *arg = line.strip().split(' ')
-		cmd = cmd.lower()
-		if len(cmd) == 0:
-			continue
-
-		if cmd == 'exit':
-			bot_thread.close()
-			global logger
-			logger.handlers.clear()
-			close_db_connection()
-			break
-
-		if cmd in commands.keys():
-			if asyncio.iscoroutinefunction(commands[cmd]):
-				await commands[cmd](bot, arg)
-			else:
-				commands[cmd](bot, arg)
-
-	stdout("Console loop has ended.")
 
 
 if __name__ == "__main__":
 	loop = asyncio.get_event_loop()
-	loop.run_until_complete(main())
-	stdout("Main has ended.")
-	loop.close()
-	stdout("Loop closed.")
+	loop.run_until_complete(setup())
+
+	# TODO: Need to figure out a non-blocking solution for reading from command line.
+	# stdout("Running input loop.")
+	# loop.create_task(console_loop())
+
+	stdout("Running bot.")
+	loop.run_until_complete(bot.start(bot.TOKEN, reconnect=True))
+
+	loop.run_forever()
+
+	logger.handlers.clear()
+	close_db_connection()
 
 sys.exit()
