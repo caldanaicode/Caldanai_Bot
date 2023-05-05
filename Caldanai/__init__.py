@@ -39,6 +39,7 @@ def debug_print(func):
 		globals_dict = func.__globals__.copy()
 		globals_dict['set_and_print'] = set_and_print
 		locals_dict = {}
+		stdout(f"Debug printing {func.__name__}")
 		exec(modified, globals_dict, locals_dict)
 		return func(*args, **kwargs, **locals_dict)
 	return wrapper
