@@ -320,7 +320,7 @@ class RpgUtilities:
 				g[cmd] = (g.get(cmd) or 0) + 1
 				command_totals[entry['guild_id']] = g
 				stdout(f'\tcommand_totals[{entry["guild_id"]}] = {command_totals[{entry["guild_id"]}]}')
-				server_totals[entry['guild_id']] = c + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
+				server_totals[entry['guild_id']] = g[cmd] + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
 				stdout(f'\tserver_totals[{entry["guild_id"]}] = {server_totals[entry["guild_id"]]}')
 					
 			server_statics = [
