@@ -300,9 +300,7 @@ class RpgUtilities:
 				MongoDB["games"].bulk_write(games, ordered=False)
 
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
-			stdout(repr(traceback.format_exception(e)))
-		
+			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
 
 	@staticmethod
 	def update_statics():
@@ -344,8 +342,7 @@ class RpgUtilities:
 				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
 
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
-			stdout(repr(traceback.format_exception(e)))
+			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
 
 	@staticmethod
 	def update_players():
@@ -366,7 +363,6 @@ class RpgUtilities:
 
 				for p, _ in dirty:
 					p.is_dirty = False
-					
+
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
-			stdout(repr(traceback.format_exception(e)))
+			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
