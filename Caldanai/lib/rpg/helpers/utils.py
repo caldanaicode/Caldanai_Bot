@@ -305,7 +305,6 @@ class RpgUtilities:
 			e = sys.exception()
 			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
 
-	@debug_print
 	@staticmethod
 	def update_statics():
 		command_totals = {}
@@ -317,8 +316,11 @@ class RpgUtilities:
 				cmd = f'commands.{entry["command"]}.{entry["alias"]}'
 				g = command_totals.get(entry['guild_id']) or {}
 				g[cmd] = (g.get(cmd) or 0) + 1
+				stdout(f"g[{cmd}] = {g[cmd]}")
 				command_totals[entry['guild_id']] = g
+				stdout(f"command_totals[{entry['guild_id']}] = {command_totals[entry['guild_id']]}")
 				server_totals[entry['guild_id']] = g[cmd] + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
+				stdout(f"server_totals[{entry['guild_id']}] = {server_totals[entry['guild_id']]}")
 					
 			server_statics = [
 				UpdateOne(
