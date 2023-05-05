@@ -336,10 +336,13 @@ class RpgUtilities:
 			]
 			g.monster_statics.clear()
 
-		if server_statics:
-			MongoDB["statics"].bulk_write(server_statics, ordered=False)
-		if user_statics:
-			MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
+		try:
+			if server_statics:
+				MongoDB["statics"].bulk_write(server_statics, ordered=False)
+			if user_statics:
+				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
+		except Exception as e:
+			stdout(e)
 
 	@staticmethod
 	def update_players():
@@ -351,11 +354,14 @@ class RpgUtilities:
 			)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
 		]
 
-		if dirty:
-			result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
+		try:
+			if dirty:
+				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
 
-			for idx, _id in result.upserted_ids.items():
-				dirty[idx][0].id = _id
+				for idx, _id in result.upserted_ids.items():
+					dirty[idx][0].id = _id
 
-			for p, _ in dirty:
-				p.is_dirty = False
+				for p, _ in dirty:
+					p.is_dirty = False
+		except Exception as e:
+			stdout(e)
