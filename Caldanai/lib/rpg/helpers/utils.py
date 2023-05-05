@@ -131,7 +131,7 @@ class RpgUtilities:
 			try:
 				prefix = MongoDB.servers.find_one({'guild_id': gid})['prefix']
 			except Exception as e:
-				stdout(e)
+				stdout(f'Error in utils.py --> add_game(): {e}')
 				return
 
 			if game is None:
@@ -170,7 +170,7 @@ class RpgUtilities:
 			return games
 
 		except Exception as e:
-			stdout(e)
+			stdout(f'Error in utils.py --> get_games_for_user(): {e}')
 			return []
 
 	# Get the game associated with a context, if it exists.
@@ -273,7 +273,7 @@ class RpgUtilities:
 				del RpgUtilities.bot.games[gid]
 
 			except Exception as e:
-				stdout(e)
+				stdout(f'Error in utils.py --> remove_game(): {e}')
 
 	@staticmethod
 	@tasks.loop(minutes=1)
@@ -289,7 +289,7 @@ class RpgUtilities:
 			stdout(f"Unable to connect to DB: {e}")
 
 		except Exception as e:
-			stdout(e)
+			stdout(f'Error in utils.py --> save_game_data(): {e}')
 
 	@staticmethod
 	def update_games():
@@ -300,8 +300,11 @@ class RpgUtilities:
 			) for g in RpgUtilities.bot.games.values()
 		]
 
-		if games:
-			MongoDB["games"].bulk_write(games, ordered=False)
+		try:
+			if games:
+				MongoDB["games"].bulk_write(games, ordered=False)
+		except Exception as e:
+			stdout(f'Error in utils.py --> update_games(): {e}')
 
 	@staticmethod
 	def update_statics():
@@ -342,7 +345,7 @@ class RpgUtilities:
 			if user_statics:
 				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
 		except Exception as e:
-			stdout(e)
+			stdout(f'Error in utils.py --> update_statics(): {e}')
 
 	@staticmethod
 	def update_players():
@@ -364,4 +367,4 @@ class RpgUtilities:
 				for p, _ in dirty:
 					p.is_dirty = False
 		except Exception as e:
-			stdout(e)
+			stdout(f'Error in utils.py --> update_players(): {e}')
