@@ -287,14 +287,14 @@ class RpgUtilities:
 
 	@staticmethod
 	def update_games():
-		games = [
-			UpdateOne(
-				{'guild_id': g.guild.id},
-				{'$set': g.to_dict()}
-			) for g in RpgUtilities.bot.games.values()
-		]
-
 		try:
+			games = [
+				UpdateOne(
+					{'guild_id': g.guild.id},
+					{'$set': g.to_dict()}
+				) for g in RpgUtilities.bot.games.values()
+			]
+
 			if games:
 				MongoDB["games"].bulk_write(games, ordered=False)
 		except Exception as e:
@@ -305,35 +305,35 @@ class RpgUtilities:
 		command_totals = {}
 		server_totals = {}
 		user_statics = []
-		for entry in RpgUtilities.bot.command_usage:
-			user_statics.append(InsertOne(entry))
-			cmd = f'commands.{entry["command"]}.{entry["alias"]}'
-			g = command_totals.get(entry['guild_id']) or {}
-			c = (g.get(cmd) or 0) + 1
-			command_totals[entry['guild_id']][cmd] = c
-			server_totals[entry['guild_id']] = c + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
-				
-		server_statics = [
-			UpdateOne(
-				{'guild_id': guild_id},
-				{'$inc': {cmd: count, 'total': server_totals[guild_id]}},
-				upsert=True
-			) for guild_id, c in command_totals.items() for cmd, count in c.items()
-		]
-		
-		RpgUtilities.bot.command_usage.clear()
-
-		for g in RpgUtilities.bot.games.values():
-			server_statics += [
-				UpdateOne(
-					{'guild_id': g.guild.id},
-					{'$inc': {f'monsters.{key}': count}},
-					upsert=True
-				) for key, count in g.monster_statics.items()
-			]
-			g.monster_statics.clear()
-
 		try:
+			for entry in RpgUtilities.bot.command_usage:
+				user_statics.append(InsertOne(entry))
+				cmd = f'commands.{entry["command"]}.{entry["alias"]}'
+				g = command_totals.get(entry['guild_id']) or {}
+				c = (g.get(cmd) or 0) + 1
+				command_totals[entry['guild_id']][cmd] = c
+				server_totals[entry['guild_id']] = c + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
+					
+			server_statics = [
+				UpdateOne(
+					{'guild_id': guild_id},
+					{'$inc': {cmd: count, 'total': server_totals[guild_id]}},
+					upsert=True
+				) for guild_id, c in command_totals.items() for cmd, count in c.items()
+			]
+			
+			RpgUtilities.bot.command_usage.clear()
+
+			for g in RpgUtilities.bot.games.values():
+				server_statics += [
+					UpdateOne(
+						{'guild_id': g.guild.id},
+						{'$inc': {f'monsters.{key}': count}},
+						upsert=True
+					) for key, count in g.monster_statics.items()
+				]
+				g.monster_statics.clear()
+
 			if server_statics:
 				MongoDB["statics"].bulk_write(server_statics, ordered=False)
 			if user_statics:
@@ -343,15 +343,15 @@ class RpgUtilities:
 
 	@staticmethod
 	def update_players():
-		dirty = [
-			(p, UpdateOne(
-				{"guild_id": p.guild_id, "user_id": p.user_id},
-				{"$set": p.to_dict()},
-				upsert=True
-			)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
-		]
-
 		try:
+			dirty = [
+				(p, UpdateOne(
+					{"guild_id": p.guild_id, "user_id": p.user_id},
+					{"$set": p.to_dict()},
+					upsert=True
+				)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
+			]
+
 			if dirty:
 				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
 
