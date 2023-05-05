@@ -298,7 +298,7 @@ class RpgUtilities:
 			if games:
 				MongoDB["games"].bulk_write(games, ordered=False)
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games(): {e}')
+			stdout(f'Error in utils.py --> update_games(): {e.__dict__}')
 
 	@staticmethod
 	def update_statics():
@@ -339,7 +339,7 @@ class RpgUtilities:
 			if user_statics:
 				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_statics(): {e}')
+			stdout(f'Error in utils.py --> update_statics(): {e.__dict__}')
 
 	@staticmethod
 	def update_players():
