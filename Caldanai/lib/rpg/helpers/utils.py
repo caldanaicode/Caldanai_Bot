@@ -1,4 +1,5 @@
 import smtplib
+import sys
 import textwrap
 
 from datetime import datetime
@@ -299,7 +300,8 @@ class RpgUtilities:
 			if games:
 				MongoDB["games"].bulk_write(games, ordered=False)
 
-		except Exception as e:
+		except Exception:
+			e = sys.exception()
 			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
 
 	@staticmethod
@@ -309,12 +311,17 @@ class RpgUtilities:
 		user_statics = []
 		try:
 			for entry in RpgUtilities.bot.command_usage:
+				stdout(entry)
 				user_statics.append(InsertOne(entry))
 				cmd = f'commands.{entry["command"]}.{entry["alias"]}'
+				stdout(f'\tcmd = {cmd}')
 				g = command_totals.get(entry['guild_id']) or {}
+				stdout(f'\tcommand_totals[{entry["guild_id"]}] = {g}')
 				c = (g.get(cmd) or 0) + 1
 				command_totals[entry['guild_id']][cmd] = c
+				stdout(f'\tcommand_totals[{entry["guild_id"]}] = {command_totals[{entry["guild_id"]}]}')
 				server_totals[entry['guild_id']] = c + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
+				stdout(f'\tserver_totals[{entry["guild_id"]}] = {server_totals[entry["guild_id"]]}')
 					
 			server_statics = [
 				UpdateOne(
@@ -341,7 +348,8 @@ class RpgUtilities:
 			if user_statics:
 				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
 
-		except Exception as e:
+		except Exception:
+			e = sys.exception()
 			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
 
 	@staticmethod
@@ -364,5 +372,6 @@ class RpgUtilities:
 				for p, _ in dirty:
 					p.is_dirty = False
 
-		except Exception as e:
+		except Exception:
+			e = sys.exception()
 			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
