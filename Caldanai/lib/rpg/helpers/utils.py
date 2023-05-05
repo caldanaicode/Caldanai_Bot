@@ -6,6 +6,7 @@ from datetime import datetime
 from email.message import EmailMessage
 import traceback
 from typing import List, Tuple, Union
+from Caldanai import debug_print
 
 from discord import Forbidden, HTTPException, Member, User, File
 from discord.ext import tasks
@@ -304,6 +305,7 @@ class RpgUtilities:
 			e = sys.exception()
 			stdout(f'Error in utils.py --> update_games() for guild_id {e}:\n\targs: {e.args}\n\ttraceback: {repr(traceback.format_exception(e))}')
 
+	@debug_print
 	@staticmethod
 	def update_statics():
 		command_totals = {}
@@ -311,17 +313,12 @@ class RpgUtilities:
 		user_statics = []
 		try:
 			for entry in RpgUtilities.bot.command_usage:
-				stdout(entry)
 				user_statics.append(InsertOne(entry))
 				cmd = f'commands.{entry["command"]}.{entry["alias"]}'
-				stdout(f'\tcmd = {cmd}')
 				g = command_totals.get(entry['guild_id']) or {}
-				stdout(f'\tcommand_totals[{entry["guild_id"]}] = {g}')
 				g[cmd] = (g.get(cmd) or 0) + 1
 				command_totals[entry['guild_id']] = g
-				stdout(f'\tcommand_totals[{entry["guild_id"]}] = {command_totals[{entry["guild_id"]}]}')
 				server_totals[entry['guild_id']] = g[cmd] + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
-				stdout(f'\tserver_totals[{entry["guild_id"]}] = {server_totals[entry["guild_id"]]}')
 					
 			server_statics = [
 				UpdateOne(
