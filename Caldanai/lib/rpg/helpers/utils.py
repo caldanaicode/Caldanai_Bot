@@ -302,7 +302,7 @@ class RpgUtilities:
 		except DiscordException as e:
 			stdout(f'Discord Error in utils.py --> update_games(): {e}')
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games(): {e}')
+			stdout(f'Error in utils.py --> update_games(): {e.__traceback__}')
 		
 
 	@staticmethod
@@ -347,7 +347,7 @@ class RpgUtilities:
 		except DiscordException as e:
 			stdout(f'Discord Error in utils.py --> update_games(): {e}')
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games(): {e}')
+			stdout(f'Error in utils.py --> update_games(): {e.__traceback__}')
 
 	@staticmethod
 	def update_players():
@@ -372,4 +372,4 @@ class RpgUtilities:
 		except DiscordException as e:
 			stdout(f'Discord Error in utils.py --> update_games(): {e}')
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games(): {e}')
+			stdout(f'Error in utils.py --> update_games(): {e.__traceback__}')
