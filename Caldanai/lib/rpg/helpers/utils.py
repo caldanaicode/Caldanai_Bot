@@ -7,6 +7,7 @@ from typing import List, Tuple, Union
 
 from discord import Forbidden, HTTPException, Member, User, File
 from discord.ext import tasks
+from discord.errors import DiscordException
 from pymongo import InsertOne, UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
@@ -297,8 +298,12 @@ class RpgUtilities:
 
 			if games:
 				MongoDB["games"].bulk_write(games, ordered=False)
+
+		except DiscordException as e:
+			stdout(f'Discord Error in utils.py --> update_games(): {e}')
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_games(): {e.__dict__}')
+			stdout(f'Error in utils.py --> update_games(): {e}')
+		
 
 	@staticmethod
 	def update_statics():
@@ -338,8 +343,11 @@ class RpgUtilities:
 				MongoDB["statics"].bulk_write(server_statics, ordered=False)
 			if user_statics:
 				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
+
+		except DiscordException as e:
+			stdout(f'Discord Error in utils.py --> update_games(): {e}')
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_statics(): {e.__dict__}')
+			stdout(f'Error in utils.py --> update_games(): {e}')
 
 	@staticmethod
 	def update_players():
@@ -360,5 +368,8 @@ class RpgUtilities:
 
 				for p, _ in dirty:
 					p.is_dirty = False
+
+		except DiscordException as e:
+			stdout(f'Discord Error in utils.py --> update_games(): {e}')
 		except Exception as e:
-			stdout(f'Error in utils.py --> update_players(): {e}')
+			stdout(f'Error in utils.py --> update_games(): {e}')
