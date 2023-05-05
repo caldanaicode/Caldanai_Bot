@@ -3,12 +3,11 @@ import textwrap
 
 from datetime import datetime
 from email.message import EmailMessage
-from typing import List, Union
+from typing import List, Tuple, Union
 
 from discord import Forbidden, HTTPException, Member, User, File
 from discord.ext import tasks
-from discord.ext.commands import Context
-from pymongo import UpdateOne
+from pymongo import InsertOne, UpdateOne
 from pymongo.errors import ServerSelectionTimeoutError
 
 from Caldanai.lib.bot import Bot
@@ -237,7 +236,7 @@ class RpgUtilities:
 
 	# Returns a tuple containing (game, player) if both exist.
 	@staticmethod
-	async def get_game_and_player(ctx, game_idx: int = None, notify: bool = True) -> (Game, Player):
+	async def get_game_and_player(ctx, game_idx: int = None, notify: bool = True) -> Tuple[Game, Player]:
 		"""
 		Returns a tuple containing a Game and Player if they exist, or None for one or both upon failure.
 		"""
@@ -306,17 +305,29 @@ class RpgUtilities:
 
 	@staticmethod
 	def update_statics():
-		statics = [
+		command_totals = {}
+		server_totals = {}
+		user_statics = []
+		for entry in RpgUtilities.bot.command_usage:
+			user_statics.append(InsertOne(entry))
+			cmd = f'commands.{entry["command"]}.{entry["alias"]}'
+			g = command_totals.get(entry['guild_id']) or {}
+			c = (g.get(cmd) or 0) + 1
+			command_totals[entry['guild_id']][cmd] = c
+			server_totals[entry['guild_id']] = c + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
+				
+		server_statics = [
 			UpdateOne(
-				{'guild_id': key1},
-				{'$inc': {f'commands.{key2}': count, 'total': count}},
+				{'guild_id': guild_id},
+				{'$inc': {cmd: count, 'total': server_totals[guild_id]}},
 				upsert=True
-			) for key1, d in RpgUtilities.bot.command_usage.items() for key2, count in d.items()
+			) for guild_id, c in command_totals.items() for cmd, count in c.items()
 		]
+		
 		RpgUtilities.bot.command_usage.clear()
 
 		for g in RpgUtilities.bot.games.values():
-			statics += [
+			server_statics += [
 				UpdateOne(
 					{'guild_id': g.guild.id},
 					{'$inc': {f'monsters.{key}': count}},
@@ -325,8 +336,10 @@ class RpgUtilities:
 			]
 			g.monster_statics.clear()
 
-		if statics:
-			MongoDB["statics"].bulk_write(statics, ordered=False)
+		if server_statics:
+			MongoDB["statics"].bulk_write(server_statics, ordered=False)
+		if user_statics:
+			MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
 
 	@staticmethod
 	def update_players():

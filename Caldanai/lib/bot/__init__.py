@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Dict
 
 from discord.ext.commands import Bot as BotBase
@@ -42,7 +43,7 @@ class Bot(BotBase):
 		self.stdout = None
 		self.retry = 0
 		self.games: Dict[int, Game] = {}
-		self.command_usage: Dict[str, Dict[str, int]] = {}
+		self.command_usage = []
 		intents = Intents.default()
 		intents.members = True
 		intents.message_content = True
@@ -80,15 +81,20 @@ class Bot(BotBase):
 
 	async def on_command(self, ctx):
 		# Track by user id and guild id
-		key1 = ctx.guild.id if ctx.guild else "dm"
-		key2 = f'{ctx.command.qualified_name}.{ctx.invoked_with}'
-		if key1 not in self.command_usage.keys():
-			self.command_usage[key1] = {}
-
-		if key2 not in self.command_usage[key1].keys():
-			self.command_usage[key1][key2] = 1
-		else:
-			self.command_usage[key1][key2] += 1
+		guild = ctx.guild.id if ctx.guild else "dm"
+		player = ctx.author.id if ctx.author else "unknown"
+		cmd = ctx.command.qualified_name.lower()
+		alias = ctx.invoked_with.lower()
+		dt = datetime.now().isoformat()
+		self.command_usage.append(
+			{
+				'guild_id': guild,
+				'user_id': player,
+				'command': cmd,
+				'alias': alias,
+				'timestamp': dt
+			}
+		)
 
 	async def on_command_completion(self, ctx):
 		if guild := ctx.guild:
