@@ -280,16 +280,10 @@ class RpgUtilities:
 	async def save_game_data():
 		"""Database loop to save player and game data."""
 
-		try:
-			RpgUtilities.update_games()
-			RpgUtilities.update_statics()
-			RpgUtilities.update_players()
+		RpgUtilities.update_games()
+		RpgUtilities.update_statics()
+		RpgUtilities.update_players()
 
-		except ServerSelectionTimeoutError as e:
-			stdout(f"Unable to connect to DB: {e}")
-
-		except Exception as e:
-			stdout(f'Error in utils.py --> save_game_data(): {e}')
 
 	@staticmethod
 	def update_games():
