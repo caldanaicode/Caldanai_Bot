@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only
+from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, Context
 from discord import Embed, File
 from typing import Optional
 
@@ -20,7 +20,7 @@ class RpgInfoCommands(Cog):
 
 	@command(brief="Lists the current players in a game.")
 	@cooldown(1, 10, BucketType.guild)
-	async def players(self, ctx, gid: int = None):
+	async def players(self, ctx: Context, gid: int = None):
 		"""
 		Lists the current players in the game.
 
@@ -49,7 +49,7 @@ class RpgInfoCommands(Cog):
 
 	@command(brief="Shows a player's profile.")
 	@cooldown(1, 10, BucketType.member)
-	async def profile(self, ctx, gid: int = None):
+	async def profile(self, ctx: Context, gid: int = None):
 		"""
 		Shows a player's profile.
 
@@ -69,7 +69,7 @@ class RpgInfoCommands(Cog):
 
 	@command(brief="Shows a player's skills.")
 	@cooldown(1, 10, BucketType.member)
-	async def skills(self, ctx, gid: int = None):
+	async def skills(self, ctx: Context, gid: int = None):
 		"""
 		Shows a player's skills.
 
@@ -108,7 +108,7 @@ class RpgInfoCommands(Cog):
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
 	@command(brief="Generates a chart using the specified options")
-	async def chart(self, ctx, *options: str):
+	async def chart(self, ctx: Context, *options: str):
 		"""
 		Generates a chart using the specified options.
 
@@ -246,7 +246,7 @@ class RpgInfoCommands(Cog):
 
 	@cooldown(1, 5, BucketType.member)
 	@command(name='gender', brief='Displays or sets the user\'s gender.')
-	async def gender(self, ctx, gender: Optional[str] = None, gid: Optional[int] = None):
+	async def gender(self, ctx: Context, gender: Optional[str] = None, gid: Optional[int] = None):
 		"""
 		Displays or sets the user's gender.
 
@@ -278,7 +278,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
-	async def pronouns(self, ctx, s: str = None, o: str = None, p: str = None, a: str = None):
+	async def pronouns(self, ctx: Context, s: str = None, o: str = None, p: str = None, a: str = None):
 		"""
 		Displays or sets the user's pronouns using subject/object/possessive/adjective form.
 
@@ -318,7 +318,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='health', brief='Displays player health and regeneration.')
-	async def health(self, ctx, flag: str = None):
+	async def health(self, ctx: Context, flag: str = None):
 		"""
 		Displays player health and regeneration.
 
@@ -399,7 +399,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='look', brief='Displays information about the area, a direction, or a creature.')
-	async def look(self, ctx, target: str = None):
+	async def look(self, ctx: Context, target: str = None):
 		"""
 		Displays information about the area, a direction, or a creature.
 
@@ -443,7 +443,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(aliases=['cmproll'], brief='Compares the given options for the calling player and mentioned players.')
-	async def compare_roll(self, ctx, *options: str):
+	async def compare_roll(self, ctx: Context, *options: str):
 		"""
 		Compares the given options for the calling player and mentioned players.
 

@@ -3,7 +3,7 @@ from random import choice
 from typing import Optional
 from discord import Embed
 from discord.utils import get
-from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group, HelpCommand
+from discord.ext.commands import Cog, command, Command, cooldown, BucketType, Group, HelpCommand, Context
 from discord.ext.menus import MenuPages, ListPageSource
 
 from Caldanai.Dispatcher import Dispatcher
@@ -50,7 +50,7 @@ def syntax(cmd: Command, prefix: str, verbose: bool = False):
 
 
 class HelpMenu(ListPageSource):
-	def __init__(self, ctx, data):
+	def __init__(self, ctx: Context, data):
 		self.ctx = ctx
 		super().__init__(data, per_page=3)
 	
@@ -93,7 +93,7 @@ class HelpCommands(Cog):
 		brief="Shows a help menu if no command is provided, otherwise shows help specific to the given command."
 	)
 	@cooldown(1, 5, BucketType.member)
-	async def show_help(self, ctx, cmd: Optional[str], sub: Optional[str]):
+	async def show_help(self, ctx: Context, cmd: Optional[str], sub: Optional[str]):
 		"""
 		Shows a help menu if no command is provided, otherwise shows help specific to the given command.
 
@@ -134,7 +134,7 @@ class HelpCommands(Cog):
 					Dispatcher.add(ctx, f"No such command exists: {cmd}")
 
 	@staticmethod
-	async def cmd_help(ctx, cmd: Command):
+	async def cmd_help(ctx: Context, cmd: Command):
 		embed = Embed(
 			title=f"Help for `{cmd}`",
 			description=syntax(cmd, ctx.prefix, True),

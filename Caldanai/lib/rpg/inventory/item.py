@@ -1,3 +1,4 @@
+from typing import Tuple
 from discord import Embed, File
 from random import randint
 
@@ -52,7 +53,7 @@ class Item:
 	def get_full_name(self) -> str:
 		return f"{self.get_article(self.quality.name.lower())} {self.name}"
 
-	def get_embed(self) -> (Embed, File):
+	def get_embed(self) -> Tuple[Embed, File]:
 		"""Returns a tuple containing an Embed and File object for this item."""
 
 		embed = Embed(
