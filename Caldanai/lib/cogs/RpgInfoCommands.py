@@ -12,6 +12,7 @@ from Caldanai.Logger import stdout
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.helpers.enums import Directions, Pronouns
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
+from Caldanai.db import DB
 
 
 class RpgInfoCommands(Cog):
@@ -520,6 +521,25 @@ class RpgInfoCommands(Cog):
 			msg += f"\n{p:>{name_len}}: {r:{roll_len},} / {t:{sum_len},} = {a:.2%}"
 
 		Dispatcher.add(ctx, msg + '```')
+	
+	@cooldown(1, 5, BucketType.member)
+	@guild_only()
+	@command(aliases=['last_command'], brief='Retrieves the most recent command recorded in the database.')
+	async def last_command(self, ctx: Context):
+		"""
+		Retrieves the most recent command recorded in the database, and database updates are only sent once per minute. If this appears to not update properly, please inform the bot owner.
+		"""
+		game = await RpgUtilities.get_game(ctx)
+		if game is None:
+			return
+
+		cmd = DB.get_last_command(ctx.guild_id)
+		if cmd:
+			msg = f'Last command: {cmd.alias} @ {cmd.timestamp}'
+		else:
+			msg = 'No result from the search for last command. This may indicate that the database is currently disconnected, or there is a larger system issue.'
+		
+		Dispatcher.add(ctx, msg)
 
 	@Cog.listener()
 	async def on_ready(self):

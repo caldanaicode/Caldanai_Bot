@@ -225,5 +225,9 @@ class MongoDatabase(Observer, Subject):
 	def insert_game(self, guild_id, channel_id):
 		"""Inserts a game into the database."""
 		self._queues["games"].put(InsertOne({'guild_id': guild_id, 'channelId': channel_id}))
+	
+	def get_last_command(self, guild_id):
+		"""Retrieves the last command recorded in the database."""
+		return self._mongoDB.user_command_statics.find({'guild_id': guild_id}).sort('timestamp', -1).limit(1)
 
 DB = MongoDatabase()
