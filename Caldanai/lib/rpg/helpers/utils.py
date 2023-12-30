@@ -274,27 +274,31 @@ class RpgUtilities:
 			except Exception as e:
 				stdout(f'Error in utils.py --> remove_game(): {e}')
 
-	@tasks.loop(minutes=1)
-	async def save_game_data(self):
+	@staticmethod
+	def save_game_data():
 		"""Database loop to save player and game data."""
-		try:
-			for g in RpgUtilities.bot.games.values():
-				DB.update_game(g.guild.id, g.to_dict())
-				for p in g.player_manager.players.values():
-					if p.is_dirty:
-						DB.update_player(g.guild.id, p.user_id, p.to_dict())
-						p.is_dirty = False
-			
-			for player in RpgUtilities.new_players.copy():
-				if player.id is None:
-					p = DB.get_player(player.guild_id, player.user_id)
-					if p:
-						player.id = p.id
-						RpgUtilities.new_players.remove(player)
+		@tasks.loop(minutes=1)
+		async def loop():
+			try:
+				for g in RpgUtilities.bot.games.values():
+					DB.update_game(g.guild.id, g.to_dict())
+					for p in g.player_manager.players.values():
+						if p.is_dirty:
+							DB.update_player(g.guild.id, p.user_id, p.to_dict())
+							p.is_dirty = False
+				
+				for player in RpgUtilities.new_players.copy():
+					if player.id is None:
+						p = DB.get_player(player.guild_id, player.user_id)
+						if p:
+							player.id = p.id
+							RpgUtilities.new_players.remove(player)
 
-			RpgUtilities.update_statics()
-		except Exception as e:
-			stdout("Error in save_game_data: " + e)
+				RpgUtilities.update_statics()
+			except Exception as e:
+				stdout("Error in save_game_data: " + e)
+		
+		loop.start()
 
 	@staticmethod
 	def update_statics():
