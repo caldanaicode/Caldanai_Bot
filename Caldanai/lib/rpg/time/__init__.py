@@ -125,10 +125,12 @@ class GameClock:
 		if seconds > 0:
 			r = GameClock._Routine(self._ticks, routine, seconds, only_instance)
 			if run_once:
+				logger.debug(f"Adding run_once game routine {r.name} with timer of {seconds} seconds")
 				while only_instance and (match := self.find_routine(r.name)) and match[0] == self._tick_run_once:
 					self._tick_run_once.pop(match[1])
 				self._tick_run_once.append(r)
 			else:
+				logger.debug(f"Adding recurring game routine {r.name} with timer of {seconds} seconds.")
 				while only_instance and (match := self.find_routine(r.name)) and match[0] == self._tick_routines:
 					self._tick_routines.pop(match[1])
 				self._tick_routines.append(r)
