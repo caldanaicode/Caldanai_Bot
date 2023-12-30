@@ -5,6 +5,7 @@ from typing import List, Callable, Optional, Dict, Tuple
 from discord.ext import tasks
 
 from Caldanai.lib.rpg.helpers.enums import TimesOfDay, Seasons
+from Caldanai.Logger import logger
 
 
 class GameClock:
@@ -29,6 +30,7 @@ class GameClock:
 			self.only_instance = only_instance
 
 		def run(self):
+			logger.debug(f"Game routine running: {self}")
 			asyncio.create_task(self.function())
 
 	def __init__(self, game_time: int = 0):
