@@ -8,7 +8,6 @@ from discord.ext.commands import Context
 from Caldanai.Logger import stdout
 from Caldanai.db import DB
 from Caldanai.lib.rpg import Player, Roles
-from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 
 
 class PlayerManager:
@@ -123,6 +122,7 @@ class PlayerManager:
 		joined = datetime.now()
 		if ctx.author.id not in self.players \
 					and (player := Player(gid=ctx.guild.id, uid=ctx.author.id, joined=joined, last_active=joined)):
+			from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 			player.member = ctx.author
 			player.name = ctx.author.display_name
 			player.is_dirty = True
