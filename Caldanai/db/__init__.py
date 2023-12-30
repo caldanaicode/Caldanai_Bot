@@ -113,6 +113,11 @@ class DB(Observer, Subject):
 					logger.error(f"Error occurred while performing bulk write operation: {error_info}")
 			else:
 				logger.error("No connection for batch_write operation.")
+	
+	@batch_write.error
+	async def batch_write_error(e):
+		error_info = traceback.format_exc(e)
+		logger.error(error_info)
 
 	@check_connection
 	@staticmethod
