@@ -311,6 +311,7 @@ class RpgUtilities:
 @tasks.loop(minutes=1)
 async def save_game_data():
 	"""Database loop to save player and game data."""
+	logger.debug("Executing save_game_data...")
 	try:
 		for g in RpgUtilities.bot.games.values():
 			DB.update_game(g.guild.id, g.to_dict())
@@ -330,6 +331,7 @@ async def save_game_data():
 	except Exception as e:
 		error_info = traceback.format_exc(e)
 		stdout(f"Error in save_game_data loop: {error_info}")
+	logger.debug("save_game_data complete!")
 	
 @save_game_data.error
 async def save_loop_error(e):
