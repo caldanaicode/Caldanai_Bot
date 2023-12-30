@@ -46,10 +46,14 @@ class DoubleBuffer:
 		
 		def get_all(self):
 			"""Retrieves all items from the active buffer and clears it."""
-			DB.swap()
-			items = list(DB.passive.queue)
-			DB.passive.queue.clear()
-			return items
+			try:
+				DB.swap()
+				items = list(DB.passive.queue)
+				DB.passive.queue.clear()
+				return items
+			except Exception as e:
+				err = traceback.format_exc(e)
+				logger.error(err)
 
 
 class DB(Observer, Subject):
