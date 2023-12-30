@@ -6,9 +6,6 @@ from Caldanai.Logger import MongoHandler, logger, stdout
 from Caldanai.db import DB
 from Caldanai.lib.bot import Bot
 
-bot = Bot()
-bot_thread = None
-
 def setup_logging():
 	stdout("Setting up logging...")
 	disclog = getLogger('discord')
@@ -41,11 +38,13 @@ def setup_logging():
 async def setup():
 	setup_logging()
 	stdout("Setting up bot.")
+	bot = Bot()
 	await bot.setup()
 
 
 if __name__ == "__main__":
 	loop = asyncio.get_event_loop()
+	bot: Bot = None
 	loop.run_until_complete(setup())
 
 	stdout("Running bot.")
