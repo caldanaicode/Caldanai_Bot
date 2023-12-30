@@ -15,9 +15,9 @@ bot = Bot()
 bot_thread = None
 
 
-@app.route('/')
-def main_web():
-	return render_template('main.html', content='Caldanai Bot is alive and breathing heavily, staring hungrily at you.')
+# @app.route('/')
+# def main_web():
+# 	return render_template('main.html', content='Caldanai Bot is alive and breathing heavily, staring hungrily at you.')
 
 
 # @app.route('/formatter')
@@ -35,8 +35,8 @@ def main_web():
 # 	return render_template('logviewer.html', headers=headers, entries=entries)
 
 
-def run():
-	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
+# def run():
+# 	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
 
 
 def setup_logging():

@@ -274,11 +274,10 @@ class RpgUtilities:
 			except Exception as e:
 				stdout(f'Error in utils.py --> remove_game(): {e}')
 
-	@staticmethod
 	@tasks.loop(minutes=1)
+	@staticmethod
 	async def save_game_data():
 		"""Database loop to save player and game data."""
-
 		for g in RpgUtilities.bot.games.values():
 			DB.update_game(g.guild.id, g.to_dict())
 			for p in g.player_manager.players.values():
