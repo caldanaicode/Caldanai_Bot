@@ -7,7 +7,7 @@ from queue import Queue
 from discord.ext import tasks
 from pymongo import DeleteMany, DeleteOne, InsertOne, MongoClient, UpdateOne
 from pymongo.database import Database
-from pymongo.errors import BulkWriteError, ServerSelectionTimeoutError
+from pymongo.errors import BulkWriteError, ConnectionFailure
 
 from Caldanai import Observer, Subject
 from Caldanai.environment import DB_CONNECTION
@@ -69,43 +69,18 @@ class MongoDatabase(Observer, Subject):
 	
 	def __init__(self):
 		"""Initializes the database connection."""
-		self._mongoClient: MongoClient
-		self._mongoDB: Database = None
-		self._is_connected = False
+		self._mongoClient: MongoClient = MongoClient(DB_CONNECTION)
+		self._mongoDB: Database = self._mongoClient.caldanaiDB
 		self._queues = defaultdict(self.DoubleBuffer)
 	
 	@property
-	def is_connected(self):
-		"""Whether the database was connected when last checked. This gets updated when operations fail due to ServerSelectionTimeoutError, or when successfully reconnected."""
-		return self._is_connected
-	
-	async def connect(self):
-		if not self._is_connected:
-			try:
-				self._mongoClient = MongoClient(DB_CONNECTION)
-				self._mongoDB = self._mongoClient.caldanaiDB
-				self._is_connected = True
-				self.batch_write.start()
-
-			except ServerSelectionTimeoutError:
-				self._is_connected = False
-				logging.error(f"Failed to connect to MongoDB. Retrying.")
-				await self._reconnect.start()
-
-	@tasks.loop(seconds=180)
-	async def _reconnect(self):
-		"""Attempts reconnection to MongoDB with linear backoff and retry."""
-		while not self._is_connected:
-			try:
-				self._mongoClient = MongoClient(DB_CONNECTION)
-				self._mongoDB = self._mongoClient.caldanaiDB
-				self._is_connected = True
-				self._reconnect.stop()
-				await self.notify(DatabaseMessages.CONNECTION_SUCCESS)
-			except ServerSelectionTimeoutError:
-				self._is_connected = False
-				await self.notify(DatabaseMessages.CONNECTION_RETRY)
-				logging.error(f"Failed to connect to MongoDB. Retrying in 3 minutes.")
+	def is_connected(self) -> bool:
+		"""Pings the MongoDB client to verify connectivity."""
+		try:
+			self._mongoClient.admin.command('ping')
+			return True
+		except ConnectionFailure:
+			return False
 	
 	async def update(self, message):
 		if isinstance(message, dict):
@@ -117,12 +92,10 @@ class MongoDatabase(Observer, Subject):
 		"""Verifies database connectivity, raising a DatabaseConnectionError if the connection fails."""
 		@functools.wraps(func)
 		def wrapper(self, *args, **kwargs):
-			if self._is_connected:
-				try:
-					return func(self, *args, **kwargs)
-				except ServerSelectionTimeoutError:
-					self._is_connected = False
-					self._reconnect.start()
+			if self.is_connected:
+				return func(self, *args, **kwargs)
+			else:
+				logging.error(f"Error occurred while performing connection test for {func}.")
 		return wrapper
 
 	@check_connection
@@ -135,12 +108,15 @@ class MongoDatabase(Observer, Subject):
 		"""Performs batch writing to the database for the queued items."""
 		collections = list(self._queues.keys())
 		for collection in collections:
-			ops = self._queues[collection].get_all()
-			try:
-				self._mongoDB[collection].bulk_write(ops, ordered=False)
-			except BulkWriteError as e:
-				logging.error(f"Error occurred while performing bulk write operation: {e.details}")
-				raise e
+			if self.is_connected:
+				ops = self._queues[collection].get_all()
+				try:
+					self._mongoDB[collection].bulk_write(ops, ordered=False)
+				except BulkWriteError as e:
+					logging.error(f"Error occurred while performing bulk write operation: {e.details}")
+					raise e
+			else:
+				logging.error("No connection for batch_write operation.")
 
 	@check_connection
 	def find_players_by_user_id(self, user_id):
@@ -239,4 +215,3 @@ class MongoDatabase(Observer, Subject):
 		return self._mongoDB.user_command_statics.find({'guild_id': guild_id}).sort('timestamp', -1).limit(1)
 
 DB = MongoDatabase()
-DB.connect()
