@@ -299,12 +299,13 @@ class RpgUtilities:
 
 				RpgUtilities.update_statics()
 			except Exception as e:
-				stdout("Error in save_game_data loop: " + e)
+				error_info = traceback.format_exc()
+				stdout(f"Error in save_game_data loop: {error_info}")
 		
 		@loop.error
 		async def loop_error(e):
 			error_info = traceback.format_exc()
-			logger.error("Error in save_game_data loop: " + e)
+			logger.error(f"Error in save_game_data loop: {error_info}")
 		
 		logger.info("Starting save_game_data loop.")
 		loop.start()
