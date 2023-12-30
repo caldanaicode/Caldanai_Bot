@@ -126,7 +126,7 @@ class MongoDatabase(Observer, Subject):
 		for collection in collections:
 			ops = self._queues[collection].get_all()
 			try:
-				await self._mongoDB[collection].bulk_write(ops, ordered=False)
+				self._mongoDB[collection].bulk_write(ops, ordered=False)
 			except BulkWriteError as e:
 				logging.error(f"Error occurred while performing bulk write operation: {e.details}")
 				raise e
