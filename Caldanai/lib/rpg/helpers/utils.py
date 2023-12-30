@@ -258,7 +258,7 @@ class RpgUtilities:
 			games = DB.find_all_games()
 			for g in games:
 				await RpgUtilities.add_game(game=g)
-			RpgUtilities.save_game_data.start()
+			save_game_data.start()
 			RpgUtilities.is_initialized = True
 
 		except Exception as e:
@@ -277,35 +277,6 @@ class RpgUtilities:
 			except Exception as e:
 				stdout(f'Error in utils.py --> remove_game(): {e}')
 
-	@tasks.loop(minutes=1)
-	@staticmethod
-	async def save_game_data():
-		"""Database loop to save player and game data."""
-		try:
-			for g in RpgUtilities.bot.games.values():
-				DB.update_game(g.guild.id, g.to_dict())
-				for p in g.player_manager.players.values():
-					if p.is_dirty:
-						DB.update_player(g.guild.id, p.user_id, p.to_dict())
-						p.is_dirty = False
-			
-			for player in RpgUtilities.new_players.copy():
-				if player.id is None:
-					p = DB.get_player(player.guild_id, player.user_id)
-					if p:
-						player.id = p.id
-						RpgUtilities.new_players.remove(player)
-
-			RpgUtilities.update_statics()
-		except Exception as e:
-			error_info = traceback.format_exc()
-			stdout(f"Error in save_game_data loop: {error_info}")
-		
-	@save_game_data.error
-	async def save_loop_error(e):
-		error_info = traceback.format_exc()
-		logger.error(f"Error in save_game_data loop: {error_info}")
-		
 	@staticmethod
 	def update_statics():
 		command_totals = {}
@@ -335,3 +306,32 @@ class RpgUtilities:
 		except Exception:
 			e = sys.exception()
 			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
+
+
+@tasks.loop(minutes=1)
+async def save_game_data():
+	"""Database loop to save player and game data."""
+	try:
+		for g in RpgUtilities.bot.games.values():
+			DB.update_game(g.guild.id, g.to_dict())
+			for p in g.player_manager.players.values():
+				if p.is_dirty:
+					DB.update_player(g.guild.id, p.user_id, p.to_dict())
+					p.is_dirty = False
+		
+		for player in RpgUtilities.new_players.copy():
+			if player.id is None:
+				p = DB.get_player(player.guild_id, player.user_id)
+				if p:
+					player.id = p.id
+					RpgUtilities.new_players.remove(player)
+
+		RpgUtilities.update_statics()
+	except Exception as e:
+		error_info = traceback.format_exc(e)
+		stdout(f"Error in save_game_data loop: {error_info}")
+	
+@save_game_data.error
+async def save_loop_error(e):
+	error_info = traceback.format_exc(e)
+	logger.error(f"Error in save_game_data loop: {error_info}")
