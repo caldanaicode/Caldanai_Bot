@@ -12,7 +12,7 @@ from random import choice
 
 from Caldanai.lib.rpg import Game
 from Caldanai.Dispatcher import Dispatcher, send
-from Caldanai.Logger import stdout
+from Caldanai.Logger import stdout, logger
 from Caldanai.db import DB
 
 

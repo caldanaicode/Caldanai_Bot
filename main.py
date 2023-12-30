@@ -1,16 +1,14 @@
 import asyncio
 import sys
 from logging import getLogger, Formatter, INFO
-from flask import Flask, render_template
+# from flask import Flask, render_template
 
-from Caldanai.Logger import MongoHandler, stdout
+from Caldanai.Logger import MongoHandler, logger, stdout
 from Caldanai.db import DB
-from Caldanai.environment import FLASK_PORT, FLASK_HOST
 from Caldanai.lib.bot import Bot
 from Caldanai.Dispatcher import Dispatcher
 
-app = Flask(__name__, static_folder='site/static', template_folder='site/templates')
-logger = getLogger('discord')
+# app = Flask(__name__, static_folder='site/static', template_folder='site/templates')
 bot = Bot()
 bot_thread = None
 
@@ -64,7 +62,7 @@ def setup_logging():
 
 def notify_servers(message: str):
 	if bot.is_closed():
-		stdout("Unable to notify servers: bot is shut down.")
+		logger.error("Unable to notify servers: bot is shut down.")
 		return
 
 	if isinstance(message, list):
@@ -141,6 +139,7 @@ if __name__ == "__main__":
 	loop.run_forever()
 
 	logger.handlers.clear()
+	stdout("Closing DB connection.")
 	DB.close_db_connection()
 
 sys.exit()

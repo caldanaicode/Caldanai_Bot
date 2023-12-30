@@ -1,4 +1,5 @@
 from datetime import datetime
+import traceback
 from pymongo.collection import Collection
 import logging
 
@@ -24,10 +25,13 @@ class MongoHandler(logging.Handler):
 			}
 
 			self.collection.insert_one(entry)
-			stdout(f'Error from {record.name}: {record.message}')
+			stdout(f'{record.levelname} - {record.name}: {record.message}')
 		except Exception as e:
-			stdout(e)
+			error_info = traceback.format_exc(e)
+			stdout(error_info)
 
 
 def stdout(msg):
 	print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  {msg}")
+
+logger = logging.getLogger('CaldanaiBot')

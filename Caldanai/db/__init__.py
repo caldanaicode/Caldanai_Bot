@@ -1,8 +1,8 @@
 import functools
-import logging
 from collections import defaultdict
-from enum import IntEnum, Enum
+from enum import Enum
 from queue import Queue
+import traceback
 
 from discord.ext import tasks
 from pymongo import DeleteMany, DeleteOne, InsertOne, MongoClient, UpdateOne
@@ -11,6 +11,7 @@ from pymongo.errors import BulkWriteError, ConnectionFailure
 
 from Caldanai import Observer, Subject
 from Caldanai.environment import DB_CONNECTION
+from Caldanai.Logger import logger
 
 
 class DatabaseCollections(Enum):
@@ -62,8 +63,12 @@ class DB(Observer, Subject):
 		"""Pings the MongoDB client to verify connectivity."""
 		try:
 			DB._mongoClient.admin.command('ping')
+			if not DB.batch_write.is_running():
+				DB.batch_write.start()
 			return True
 		except ConnectionFailure:
+			if DB.batch_write.is_running():
+				DB.batch_write.stop()
 			return False
 	
 	@staticmethod
@@ -81,13 +86,14 @@ class DB(Observer, Subject):
 			if DB.is_connected:
 				return func(*args, **kwargs)
 			else:
-				logging.error(f"Error occurred while performing connection test for {func}.")
+				logger.error(f"Connection test failed for {func}.")
 		return wrapper
 
 	@check_connection
 	@staticmethod
 	def close_db_connection():
 		"""Closes the database connection."""
+		DB.batch_write.stop()
 		DB._mongoClient.close()
 
 	@tasks.loop(minutes=1)
@@ -100,10 +106,10 @@ class DB(Observer, Subject):
 				try:
 					DB._mongoDB[collection].bulk_write(ops, ordered=False)
 				except BulkWriteError as e:
-					logging.error(f"Error occurred while performing bulk write operation: {e.details}")
-					raise e
+					error_info = traceback.format_exc(e)
+					logger.error(f"Error occurred while performing bulk write operation: {error_info}")
 			else:
-				logging.error("No connection for batch_write operation.")
+				logger.error("No connection for batch_write operation.")
 
 	@check_connection
 	@staticmethod
