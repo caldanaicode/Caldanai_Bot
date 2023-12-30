@@ -1,3 +1,4 @@
+from logging import getLogger
 import smtplib
 import sys
 import textwrap
@@ -17,6 +18,7 @@ from Caldanai.Logger import stdout
 from Caldanai.db import DB
 from Caldanai.lib.rpg import Game, Area, Roles
 
+logger = getLogger('discord')
 
 def generate_report(
 		author_id,
@@ -300,10 +302,11 @@ class RpgUtilities:
 				stdout("Error in save_game_data: " + e)
 		
 		try:
+			logger.info("Starting save_game_data loop.")
 			loop.start()
 		except Exception as e:
 			error_info = traceback.format_exc()
-			print(f"Error starting loop: {error_info}")
+			logger.error(f"Error starting save_game_data loop: {error_info}")
 
 	@staticmethod
 	def update_statics():
