@@ -121,9 +121,9 @@ async def console_loop():
 
 async def setup():
 	setup_logging()
-	stdout("Running web server.")
-	srv_thread = Thread(target=run)
-	srv_thread.start()
+	# stdout("Running web server.")
+	# srv_thread = Thread(target=run)
+	# srv_thread.start()
 	stdout("Setting up bot.")
 	await bot.setup()
 
