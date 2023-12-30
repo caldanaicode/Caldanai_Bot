@@ -69,7 +69,7 @@ class MongoDatabase(Observer, Subject):
 	
 	def __init__(self):
 		"""Initializes the database connection."""
-		self._mongoClient: MongoClient = None
+		self._mongoClient: MongoClient
 		self._mongoDB: Database = None
 		self._is_connected = False
 		self._queues = defaultdict(self.DoubleBuffer)
@@ -78,6 +78,18 @@ class MongoDatabase(Observer, Subject):
 	def is_connected(self):
 		"""Whether the database was connected when last checked. This gets updated when operations fail due to ServerSelectionTimeoutError, or when successfully reconnected."""
 		return self._is_connected
+	
+	async def connect(self):
+		if not self._is_connected:
+			try:
+				self._mongoClient = MongoClient(DB_CONNECTION)
+				self._mongoDB = self._mongoClient.caldanaiDB
+				self._is_connected = True
+				
+			except ServerSelectionTimeoutError:
+				self._is_connected = False
+				logging.error(f"Failed to connect to MongoDB. Retrying.")
+				await self._reconnect.start()
 
 	@tasks.loop(seconds=180)
 	async def _reconnect(self):
@@ -227,5 +239,5 @@ class MongoDatabase(Observer, Subject):
 		return self._mongoDB.user_command_statics.find({'guild_id': guild_id}).sort('timestamp', -1).limit(1)
 
 DB = MongoDatabase()
-DB._reconnect.start()
+DB.connect()
 DB.batch_write.start()
