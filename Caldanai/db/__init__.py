@@ -30,26 +30,26 @@ class DatabaseCollections(Enum):
 class DoubleBuffer:
 		"""A double buffer class for queue processing."""
 		def __init__(self):
-			DB.q1 = Queue()
-			DB.q2 = Queue()
-			DB.retry = Queue()
-			DB.active = DB.q1
-			DB.passive = DB.q2
+			self.q1 = Queue()
+			self.q2 = Queue()
+			self.retry = Queue()
+			self.active = self.q1
+			self.passive = self.q2
 		
 		def put(self, item):
 			"""Puts an item into the active queue."""
-			DB.active.put(item)
+			self.active.put(item)
 		
 		def swap(self):
 			"""Swaps the buffer queues."""
-			DB.active, DB.passive = DB.passive, DB.active
+			self.active, self.passive = self.passive, self.active
 		
 		def get_all(self):
 			"""Retrieves all items from the active buffer and clears it."""
 			try:
-				DB.swap()
-				items = list(DB.passive.queue)
-				DB.passive.queue.clear()
+				self.swap()
+				items = list(self.passive.queue)
+				self.passive.queue.clear()
 				return items
 			except Exception as e:
 				err = traceback.format_exc(e)
