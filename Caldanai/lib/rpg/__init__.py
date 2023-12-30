@@ -20,7 +20,7 @@ from Caldanai.lib.rpg.PlayerManager import PlayerManager
 from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from Caldanai.Dispatcher import Dispatcher
-from Caldanai.Logger import stdout
+from Caldanai.Logger import stdout, logger
 from Caldanai.db import DB
 
 
@@ -75,6 +75,7 @@ class Game:
 		self.prefix = prefix
 		self.enable_ambience = enable_ambience
 		self.game_clock = GameClock(game_time=game_time)
+		logger.debug(f"Game clock starting for {game_id}")
 		self.game_clock.tick.start()
 		self.weather = None
 		self._last_ambience_tick = self.game_clock.get_seconds()
@@ -147,6 +148,7 @@ class Game:
 			return
 
 		self.get_monster(monster)
+		logger.debug(f"{monster} spawned.")
 		self.game_clock.add_routine(self.do_combat, self.spawn_duration, True)
 
 	async def cancel_combat(self):
