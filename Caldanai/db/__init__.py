@@ -67,13 +67,13 @@ class MongoDatabase(Observer, Subject):
 			self.passive.queue.clear()
 			return items
 	
-	def __init__(self):
+	async def __init__(self):
 		"""Initializes the database connection."""
 		self._mongoClient: MongoClient = None
 		self._mongoDB: Database = None
 		self._is_connected = False
 		self._queues = defaultdict(self.DoubleBuffer)
-		self._reconnect.start()
+		await self._reconnect.start()
 	
 	@property
 	def is_connected(self):
