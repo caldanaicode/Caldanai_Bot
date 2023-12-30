@@ -85,7 +85,8 @@ class MongoDatabase(Observer, Subject):
 				self._mongoClient = MongoClient(DB_CONNECTION)
 				self._mongoDB = self._mongoClient.caldanaiDB
 				self._is_connected = True
-				
+				self.batch_write.start()
+
 			except ServerSelectionTimeoutError:
 				self._is_connected = False
 				logging.error(f"Failed to connect to MongoDB. Retrying.")
@@ -129,8 +130,8 @@ class MongoDatabase(Observer, Subject):
 		"""Closes the database connection."""
 		self._mongoClient.close()
 
-	@check_connection
 	@tasks.loop(minutes=1)
+	@check_connection
 	async def batch_write(self):
 		"""Performs batch writing to the database for the queued items."""
 		collections = list(self._queues.keys())
@@ -240,4 +241,3 @@ class MongoDatabase(Observer, Subject):
 
 DB = MongoDatabase()
 DB.connect()
-DB.batch_write.start()
