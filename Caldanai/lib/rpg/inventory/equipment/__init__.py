@@ -1,4 +1,3 @@
-from typing import Tuple
 from bson import ObjectId
 from discord import Embed, File
 
@@ -26,7 +25,7 @@ class Equipment(Item):
 		)
 		self.slots: EquipmentSlots = slots
 
-	def get_embed(self) -> Tuple[Embed, File]:
+	def get_embed(self) -> (Embed, File):
 		embed, file = super().get_embed()
 		slots = []
 		for slot in EquipmentSlots:

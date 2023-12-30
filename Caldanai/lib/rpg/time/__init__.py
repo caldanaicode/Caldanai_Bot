@@ -130,7 +130,7 @@ class GameClock:
 					self._tick_routines.pop(match[1])
 				self._tick_routines.append(r)
 
-	def find_routine(self, name: str) -> Tuple[Optional[List['GameClock._Routine']], Optional[int]]:
+	def find_routine(self, name: str) -> (Optional[List['GameClock._Routine']], Optional[int]):
 		"""
 		Returns the list and index within which a given routine is found, or None if not found.
 
@@ -156,7 +156,7 @@ class GameClock:
 			return True
 		return False
 
-	def get_time_components(self, seconds: int = None) -> Tuple[int, int, int]:
+	def get_time_components(self, seconds: int = None) -> (int, int, int):
 		"""
 		Gets the hour, minute, and second components of a given time value.
 
@@ -272,7 +272,7 @@ class GameClock:
 		"""
 		self.set_date_time(self.get_year(), self.get_day(), hour, minute, second)
 
-	def get_sunrise_and_sunset(self) -> Tuple['GameClock', 'GameClock']:
+	def get_sunrise_and_sunset(self) -> ('GameClock', 'GameClock'):
 		"""Returns a tuple containing the sunrise and sunset game clocks for the game's current day."""
 		seconds = self._seconds
 		half_daylight = int(self._seconds_per_hour * self.get_daylight_length() / 2)
@@ -319,7 +319,7 @@ class GameClock:
 			max_key = max(times, key=lambda t: t[1])[0]
 		return max_key.lower()
 
-	def get_next_time(self) -> Tuple[TimesOfDay, int, int]:
+	def get_next_time(self) -> (TimesOfDay, int, int):
 		"""Returns a tuple containing the next time of day after the current time, and the hour and the minute."""
 		h, m, _ = self.get_time_components()
 

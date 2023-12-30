@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, Context
+from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only
 from discord import Embed, File
 from typing import Optional
 
@@ -12,7 +12,6 @@ from Caldanai.Logger import stdout
 from Caldanai.lib.rpg import Game
 from Caldanai.lib.rpg.helpers.enums import Directions, Pronouns
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
-from Caldanai.db import DB
 
 
 class RpgInfoCommands(Cog):
@@ -21,7 +20,7 @@ class RpgInfoCommands(Cog):
 
 	@command(brief="Lists the current players in a game.")
 	@cooldown(1, 10, BucketType.guild)
-	async def players(self, ctx: Context, gid: int = None):
+	async def players(self, ctx, gid: int = None):
 		"""
 		Lists the current players in the game.
 
@@ -50,7 +49,7 @@ class RpgInfoCommands(Cog):
 
 	@command(brief="Shows a player's profile.")
 	@cooldown(1, 10, BucketType.member)
-	async def profile(self, ctx: Context, gid: int = None):
+	async def profile(self, ctx, gid: int = None):
 		"""
 		Shows a player's profile.
 
@@ -70,7 +69,7 @@ class RpgInfoCommands(Cog):
 
 	@command(brief="Shows a player's skills.")
 	@cooldown(1, 10, BucketType.member)
-	async def skills(self, ctx: Context, gid: int = None):
+	async def skills(self, ctx, gid: int = None):
 		"""
 		Shows a player's skills.
 
@@ -109,7 +108,7 @@ class RpgInfoCommands(Cog):
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
 	@command(brief="Generates a chart using the specified options")
-	async def chart(self, ctx: Context, *options: str):
+	async def chart(self, ctx, *options: str):
 		"""
 		Generates a chart using the specified options.
 
@@ -247,7 +246,7 @@ class RpgInfoCommands(Cog):
 
 	@cooldown(1, 5, BucketType.member)
 	@command(name='gender', brief='Displays or sets the user\'s gender.')
-	async def gender(self, ctx: Context, gender: Optional[str] = None, gid: Optional[int] = None):
+	async def gender(self, ctx, gender: Optional[str] = None, gid: Optional[int] = None):
 		"""
 		Displays or sets the user's gender.
 
@@ -279,7 +278,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='pronouns', brief='Displays or sets the user\'s pronouns.')
-	async def pronouns(self, ctx: Context, s: str = None, o: str = None, p: str = None, a: str = None):
+	async def pronouns(self, ctx, s: str = None, o: str = None, p: str = None, a: str = None):
 		"""
 		Displays or sets the user's pronouns using subject/object/possessive/adjective form.
 
@@ -319,7 +318,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='health', brief='Displays player health and regeneration.')
-	async def health(self, ctx: Context, flag: str = None):
+	async def health(self, ctx, flag: str = None):
 		"""
 		Displays player health and regeneration.
 
@@ -400,7 +399,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='look', brief='Displays information about the area, a direction, or a creature.')
-	async def look(self, ctx: Context, target: str = None):
+	async def look(self, ctx, target: str = None):
 		"""
 		Displays information about the area, a direction, or a creature.
 
@@ -444,7 +443,7 @@ class RpgInfoCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(aliases=['cmproll'], brief='Compares the given options for the calling player and mentioned players.')
-	async def compare_roll(self, ctx: Context, *options: str):
+	async def compare_roll(self, ctx, *options: str):
 		"""
 		Compares the given options for the calling player and mentioned players.
 
@@ -521,25 +520,6 @@ class RpgInfoCommands(Cog):
 			msg += f"\n{p:>{name_len}}: {r:{roll_len},} / {t:{sum_len},} = {a:.2%}"
 
 		Dispatcher.add(ctx, msg + '```')
-	
-	@cooldown(1, 5, BucketType.member)
-	@guild_only()
-	@command(aliases=['last_command'], brief='Retrieves the most recent command recorded in the database.')
-	async def last_command(self, ctx: Context):
-		"""
-		Retrieves the most recent command recorded in the database, and database updates are only sent once per minute. If this appears to not update properly, please inform the bot owner.
-		"""
-		game = await RpgUtilities.get_game(ctx)
-		if game is None:
-			return
-
-		cmd = DB.get_last_command(ctx.guild_id)
-		if cmd:
-			msg = f'Last command: {cmd.alias} @ {cmd.timestamp}'
-		else:
-			msg = 'No result from the search for last command. This may indicate that the database is currently disconnected, or there is a larger system issue.'
-		
-		Dispatcher.add(ctx, msg)
 
 	@Cog.listener()
 	async def on_ready(self):
