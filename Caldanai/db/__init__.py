@@ -1,7 +1,7 @@
 import functools
 import logging
 from collections import defaultdict
-from enum import IntEnum, StrEnum
+from enum import IntEnum, Enum
 from queue import Queue
 from typing import Dict
 
@@ -30,7 +30,7 @@ class DatabaseMessages(IntEnum):
 	# Requests
 	REQUEST_UPDATE = 10
 
-class DatabaseCollections(StrEnum):
+class DatabaseCollections(Enum):
 	AUTH = 'auth'
 	SERVERS = 'servers'
 	GAMES = 'games'
