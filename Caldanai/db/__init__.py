@@ -67,13 +67,12 @@ class MongoDatabase(Observer, Subject):
 			self.passive.queue.clear()
 			return items
 	
-	async def __init__(self):
+	def __init__(self):
 		"""Initializes the database connection."""
 		self._mongoClient: MongoClient = None
 		self._mongoDB: Database = None
 		self._is_connected = False
 		self._queues = defaultdict(self.DoubleBuffer)
-		await self._reconnect.start()
 	
 	@property
 	def is_connected(self):
@@ -228,4 +227,5 @@ class MongoDatabase(Observer, Subject):
 		return self._mongoDB.user_command_statics.find({'guild_id': guild_id}).sort('timestamp', -1).limit(1)
 
 DB = MongoDatabase()
+DB._reconnect.start()
 DB.batch_write.start()
