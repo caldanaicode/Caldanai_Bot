@@ -132,12 +132,14 @@ class Game:
 	def get_monster(self, monster: Optional[str] = None):
 		if monster is None:
 			self.monster = Monster.get_random_monster(self.game_clock)
+			logger.debug(f"{self.monster} spawned randomly")
 		else:
 			monsters = [
 				filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
 			]
 			monsters.remove('__init__')
 			self.monster = importlib.import_module(f'Caldanai.lib.rpg.creatures.monsters.{monster}').MonsterPlugin()
+			logger.debug(f"{self.monster} spawned selectively")
 
 		embed, file = self.monster.get_embed()
 		Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
@@ -149,7 +151,6 @@ class Game:
 			return
 
 		self.get_monster(monster)
-		logger.debug(f"{monster} spawned.")
 		self.game_clock.add_routine(self.do_combat, self.spawn_duration, True)
 
 	async def cancel_combat(self):
@@ -172,7 +173,6 @@ class Game:
 
 	async def on_monster_death(self) -> str:
 		"""Generates loot, shows monster death, and clears combatants."""
-
 		has_loot = False
 		for player in self.looters:
 			loot = self.monster.get_loot()
