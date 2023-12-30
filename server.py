@@ -1,5 +1,5 @@
 from flask import Flask, render_template
-from Caldanai.db import DB
+from Caldanai.db.__init__ import MongoDB
 from pymongo import DESCENDING
 
 app = Flask('', static_folder='site/static', template_folder='site/templates')
@@ -19,7 +19,7 @@ def formatter():
 def logviewer() -> list:
 	entries = ()
 	headers = ('When', 'Level', 'Module', 'Message')
-	results = DB._mongoDB.logs_discord.find().sort('_id', DESCENDING).limit(200)
+	results = MongoDB.logs_discord.find().sort('_id', DESCENDING).limit(200)
 	if results is not None:
 		entries = ((e['asctime'], e['level'], e['name'], e['message']) for e in results)
 	return render_template('logviewer.html', headers=headers, entries=entries)

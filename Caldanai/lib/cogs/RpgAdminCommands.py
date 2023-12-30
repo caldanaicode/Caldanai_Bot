@@ -1,9 +1,8 @@
 from typing import Optional
 
 from discord import Embed, Guild
-from discord.ext.commands import (
-	Cog, guild_only, has_permissions, group, cooldown,
-	BucketType,	command, Context, is_owner, check_any)
+from discord.ext.commands import Cog, guild_only, has_permissions, group, cooldown, BucketType, command, Context, \
+	is_owner, check_any
 from Caldanai.lib.bot import Bot
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 from Caldanai.lib.rpg import Roles, parse
@@ -11,7 +10,7 @@ from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.inventory import Inventory
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.db import DB
+from Caldanai.db import MongoDB
 
 
 class RpgAdminCommands(Cog):
@@ -21,7 +20,7 @@ class RpgAdminCommands(Cog):
 	@group(aliases=["rpg"], brief="Groups the various Game commands.")
 	@guild_only()
 	@check_any(is_owner(), has_permissions(manage_guild=True))
-	async def game_cmd(self, ctx: Context):
+	async def game_cmd(self, ctx):
 		"""
 		Groups the various game commands for administrators. This command cannot be used on its own.
 		"""
@@ -35,17 +34,17 @@ class RpgAdminCommands(Cog):
 			return
 
 	@game_cmd.command(brief="Begins an RPG game on the server in the current channel.")
-	async def create(self, ctx: Context) -> bool:
+	async def create(self, ctx) -> bool:
 		"""
 		Begins an RPG game on the server in the current channel. Only a single game per server is supported.
 		"""
 
 		try:
-			if DB.get_game_by_guild_id(ctx.guild.id) is not None:
+			if MongoDB.games.find_one({'guild_id': ctx.guild.id}) is not None:
 				Dispatcher.add(ctx, "Only a single game per server is supported.")
 
 			else:
-				if DB.insert_game(ctx.guild.id, ctx.channel.id):
+				if MongoDB.games.insert_one({'guild_id': ctx.guild.id, 'channelId': ctx.channel.id}):
 					await RpgUtilities.add_game(gid=ctx.guild.id, chid=ctx.channel.id)
 					Dispatcher.add(ctx, "A new game has been started in this channel!")
 					return True
@@ -56,7 +55,7 @@ class RpgAdminCommands(Cog):
 		return False
 
 	@game_cmd.command(brief="Removes the RPG game for this server. WARNING: Cannot be undone.")
-	async def remove(self, ctx: Context) -> None:
+	async def remove(self, ctx) -> None:
 		"""
 		Removes the RPG game for this server. WARNING: Cannot be undone.
 		Upon removal, a new game may be created but data from the removed game is not recoverable.
@@ -72,14 +71,14 @@ class RpgAdminCommands(Cog):
 	@guild_only()
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@cooldown(1, 5, BucketType.guild)
-	async def roles(self, ctx: Context):
+	async def roles(self, ctx):
 		"""
 		This command cannot be used on its own, and requires a subcommand.
 		"""
 		pass
 
 	@roles.command(brief='Adds roles for the game, if the bot has the permissions.', aliases=['add'])
-	async def add_roles(self, ctx: Context):
+	async def add_roles(self, ctx):
 		"""
 		Adds roles for the game, if the bot has the permissions.
 
@@ -101,7 +100,7 @@ class RpgAdminCommands(Cog):
 			Dispatcher.add(ctx, "There is no game running on this server.")
 
 	@roles.command(brief='Removes roles for the game, if the bot has the permissions.', aliases=['remove'])
-	async def remove_roles(self, ctx: Context):
+	async def remove_roles(self, ctx):
 		"""
 		Removes roles for the game, if the bot has the permissions.
 
@@ -179,7 +178,7 @@ class RpgAdminCommands(Cog):
 	@guild_only()
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@cooldown(1, 5, BucketType.guild)
-	async def spawn(self, ctx: Context):
+	async def spawn(self, ctx):
 		"""
 		Used alone, displays the various spawning options and information. See the subcommands for settings those options.
 
@@ -213,7 +212,7 @@ class RpgAdminCommands(Cog):
 		aliases=["min"],
 		brief="Sets or displays the minimum time between monster spawns for a game, in minutes"
 	)
-	async def minimum(self, ctx: Context, minutes: int = None):
+	async def minimum(self, ctx, minutes: int = None):
 		"""
 		Sets or displays the minimum time between monster spawns for a game, in minutes
 
@@ -238,7 +237,7 @@ class RpgAdminCommands(Cog):
 		aliases=["max"],
 		brief="Sets or displays the maximum time between monster spawns for a game, in minutes."
 	)
-	async def maximum(self, ctx: Context, minutes: int = None):
+	async def maximum(self, ctx, minutes: int = None):
 		"""
 		Sets or displays the maximum time between monster spawns for a game, in minutes.
 
@@ -260,7 +259,7 @@ class RpgAdminCommands(Cog):
 
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@spawn.command(aliases=["dur", "d"], brief="Sets or displays the spawn duration for a game, in minutes.")
-	async def duration(self, ctx: Context, minutes: int = None):
+	async def duration(self, ctx, minutes: int = None):
 		"""
 		Sets or displays the spawn duration for a game, in minutes.
 
@@ -282,7 +281,7 @@ class RpgAdminCommands(Cog):
 
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@spawn.command(brief="Sets or displays the loot duration for a game, in minutes.")
-	async def loot(self, ctx: Context, minutes: int = None):
+	async def loot(self, ctx, minutes: int = None):
 		"""
 		Sets or displays the loot duration, in minutes. If a monster has loot after death, the spawn timer does not begin until after the loot timer expires.
 
@@ -304,7 +303,7 @@ class RpgAdminCommands(Cog):
 
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@spawn.command(aliases=['set'], brief="Sets or displays the spawning for a game on or off.")
-	async def spawn_set(self, ctx: Context, msg: str = None):
+	async def spawn_set(self, ctx, msg: str = None):
 		"""
 		Sets or displays the spawning for a game on or off.
 
@@ -339,7 +338,7 @@ class RpgAdminCommands(Cog):
 
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@spawn.command(brief="Forces a monster to spawn.")
-	async def monster(self, ctx: Context, monster: Optional[str] = None):
+	async def monster(self, ctx, monster: Optional[str] = None):
 		"""
 		Forces a monster to spawn.
 
@@ -356,7 +355,7 @@ class RpgAdminCommands(Cog):
 
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@spawn.command(brief="Forces the current monster to die.")
-	async def kill(self, ctx: Context):
+	async def kill(self, ctx):
 		"""
 		Forces the current monster to die.
 		"""
@@ -370,7 +369,7 @@ class RpgAdminCommands(Cog):
 
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@spawn.command(brief="Spawns the requested item to the given player's inventory.")
-	async def item(self, ctx: Context, item_name: str):
+	async def item(self, ctx, item_name: str):
 		"""
 		Spawns the requested item to the given player's inventory.
 
@@ -404,7 +403,7 @@ class RpgAdminCommands(Cog):
 	@guild_only()
 	@check_any(is_owner(), has_permissions(manage_guild=True))
 	@cooldown(1, 5, BucketType.guild)
-	async def ambience(self, ctx: Context):
+	async def ambience(self, ctx):
 		"""
 		Displays or sets various ambience options.
 		(5-second cool-down server-wide)
@@ -422,7 +421,7 @@ class RpgAdminCommands(Cog):
 			Dispatcher.add(ctx, embed=embed)
 
 	@ambience.command(aliases=['set'], brief="Sets ambience for a game on or off.")
-	async def ambience_set(self, ctx: Context, value: str = None):
+	async def ambience_set(self, ctx, value: str = None):
 		"""
 		Sets ambience for a game on or off. If no setting is supplied, displays the current setting.
 
