@@ -35,7 +35,7 @@ def setup_logging():
 	stdout("Logging setup complete.")
 
 
-async def setup():
+async def setup(bot):
 	setup_logging()
 	stdout("Setting up bot.")
 	bot = Bot()
@@ -45,7 +45,7 @@ async def setup():
 if __name__ == "__main__":
 	loop = asyncio.get_event_loop()
 	bot: Bot = None
-	loop.run_until_complete(setup())
+	loop.run_until_complete(setup(bot))
 
 	stdout("Running bot.")
 	loop.run_until_complete(bot.start(bot.TOKEN, reconnect=True))
