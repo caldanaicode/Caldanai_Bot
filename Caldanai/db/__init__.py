@@ -83,6 +83,7 @@ class DB(Observer, Subject):
 		"""Verifies database connectivity, raising a DatabaseConnectionError if the connection fails."""
 		@functools.wraps(func)
 		def wrapper(*args, **kwargs):
+			logger.debug(f"Checking connection for {func}")
 			if DB.is_connected:
 				return func(*args, **kwargs)
 			else:
@@ -103,6 +104,7 @@ class DB(Observer, Subject):
 		for collection in collections:
 			if DB.is_connected():
 				ops = DB._queues[collection].get_all()
+				logger.info(f"{collection} queue size: {len(ops)}")
 				try:
 					DB._mongoDB[collection].bulk_write(ops, ordered=False)
 				except BulkWriteError as e:

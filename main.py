@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from logging import getLogger, Formatter, INFO
+from logging import DEBUG, getLogger, Formatter, INFO
 # from flask import Flask, render_template
 
 from Caldanai.Logger import MongoHandler, logger, stdout
@@ -35,11 +35,10 @@ bot_thread = None
 
 # def run():
 # 	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
-
-
 def setup_logging():
 	stdout("Setting up logging...")
-	logger.setLevel(INFO)  # logger.setLevel(DEBUG)
+	# logger.setLevel(INFO)
+	logger.setLevel(DEBUG)
 	f = Formatter('%(asctime)23s | %(levelname)-8s | %(name)-20s | %(message)s')
 
 	# DB logging
@@ -58,7 +57,6 @@ def setup_logging():
 	mHandler.setFormatter(f)
 	logger.addHandler(mHandler)
 	stdout("Logging setup complete.")
-
 
 def notify_servers(message: str):
 	if bot.is_closed():
