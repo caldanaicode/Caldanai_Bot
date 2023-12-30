@@ -131,7 +131,6 @@ class MongoDatabase(Observer, Subject):
 		self._mongoClient.close()
 
 	@tasks.loop(minutes=1)
-	@check_connection
 	async def batch_write(self):
 		"""Performs batch writing to the database for the queued items."""
 		collections = list(self._queues.keys())
