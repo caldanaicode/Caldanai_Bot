@@ -34,4 +34,6 @@ class MongoHandler(logging.Handler):
 def stdout(msg):
 	print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  {msg}")
 
-logger = logging.getLogger('discord')
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('CaldanaiBot')
+logger.setLevel(logging.DEBUG)
