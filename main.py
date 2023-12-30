@@ -35,10 +35,14 @@ bot_thread = None
 
 # def run():
 # 	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
+
 def setup_logging():
 	stdout("Setting up logging...")
-	# logger.setLevel(INFO)
+	disclog = getLogger('discord')
+
+	disclog.setLevel(INFO)
 	logger.setLevel(DEBUG)
+	
 	f = Formatter('%(asctime)23s | %(levelname)-8s | %(name)-20s | %(message)s')
 
 	# DB logging
@@ -55,6 +59,7 @@ def setup_logging():
 	)
 	mHandler = MongoHandler(DB._mongoDB.logs_discord, ignore)
 	mHandler.setFormatter(f)
+	disclog.addHandler(mHandler)
 	logger.addHandler(mHandler)
 	stdout("Logging setup complete.")
 

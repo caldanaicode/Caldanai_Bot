@@ -30,10 +30,9 @@ class MongoHandler(logging.Handler):
 			error_info = traceback.format_exc(e)
 			stdout(error_info)
 
-
 def stdout(msg):
 	print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  {msg}")
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('CaldanaiBot')
 logger.setLevel(logging.DEBUG)
