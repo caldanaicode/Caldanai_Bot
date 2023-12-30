@@ -113,11 +113,12 @@ class DB(Observer, Subject):
 				logger.debug(f"{collection} processing for batch_write()")
 				ops = DB._queues[collection].get_all()
 				logger.debug(f"{collection} queue size: {len(ops)}")
-				try:
-					DB._mongoDB[collection].bulk_write(ops, ordered=False)
-				except BulkWriteError as e:
-					error_info = traceback.format_exc(e)
-					logger.error(f"Error occurred while performing bulk write operation: {error_info}")
+				if len(ops) > 0:
+					try:
+						DB._mongoDB[collection].bulk_write(ops, ordered=False)
+					except BulkWriteError as e:
+						error_info = traceback.format_exc(e)
+						logger.error(f"Error occurred while performing bulk write operation: {error_info}")
 			else:
 				logger.error("No connection for batch_write operation.")
 	
