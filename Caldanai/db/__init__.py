@@ -120,13 +120,13 @@ class MongoDatabase(Observer, Subject):
 
 	@check_connection
 	@tasks.loop(minutes=1)
-	def batch_write(self):
+	async def batch_write(self):
 		"""Performs batch writing to the database for the queued items."""
 		collections = list(self._queues.keys())
 		for collection in collections:
 			ops = self._queues[collection].get_all()
 			try:
-				self._mongoDB[collection].bulk_write(ops, ordered=False)
+				await self._mongoDB[collection].bulk_write(ops, ordered=False)
 			except BulkWriteError as e:
 				logging.error(f"Error occurred while performing bulk write operation: {e.details}")
 				raise e
