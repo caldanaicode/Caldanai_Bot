@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
 
-from Caldanai.db import DB
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures import Creature, BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
@@ -593,7 +592,7 @@ class Player(Creature):
 		"""Returns a dictionary of the player's attributes."""
 
 		d = {
-			'_id': self.id or DB.get_player(self.guild_id, self.user_id).get('_id'),
+			'_id': self.id,
 			'user_id': self.user_id,
 			'guild_id': self.guild_id,
 			'name': self.name,

@@ -1,4 +1,3 @@
-from typing import Tuple
 from bson import ObjectId
 
 from Caldanai.lib.rpg import parse
@@ -23,7 +22,7 @@ class ConsumablePlugin(Consumable):
 			uses_left=uses_left
 		)
 
-	def use(self, user: Creature) -> Tuple[str, bool]:
+	def use(self, user: Creature) -> (str, bool):
 		msg, keep = super().use(user)
 
 		msg += parse(

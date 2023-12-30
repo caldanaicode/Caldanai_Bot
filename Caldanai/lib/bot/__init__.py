@@ -13,7 +13,7 @@ from random import choice
 from Caldanai.lib.rpg import Game
 from Caldanai.Dispatcher import Dispatcher, send
 from Caldanai.Logger import stdout
-from Caldanai.db import DB
+from Caldanai.db import MongoDB
 
 
 def get_prefix(_bot, message):
@@ -22,12 +22,11 @@ def get_prefix(_bot, message):
 		if message.guild is None:
 			prefix = "$"
 
-		elif DB.get_server_by_guild_id(message.guild.id) is None:
-			DB.insert_server(message.guild.id, prefix=prefix)
+		elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
+			MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
 
 		if prefix is None and message.guild is not None:
-			prefix = DB.get_server_by_guild_id(message.guild.id)['prefix']
-
+			prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
 	except Exception as e:
 		stdout(e)
 
@@ -36,8 +35,7 @@ def get_prefix(_bot, message):
 
 class Bot(BotBase):
 	def __init__(self):
-		auth = DB.get_auth() or {}
-		self.TOKEN = auth.get('TOKEN')
+		self.TOKEN = MongoDB['auth'].find_one()['TOKEN'] or None
 		self.COGS = None
 		self.IMAGES = None
 		self.ready = False
@@ -51,7 +49,7 @@ class Bot(BotBase):
 		intents.message_content = True
 		super().__init__(
 			command_prefix=get_prefix,
-			owner_ids=auth.get('OWNER_IDS'),
+			owner_ids=MongoDB['auth'].find_one()['OWNER_IDS'] or None,
 			intents=intents,
 			case_insensitive=True
 		)
@@ -81,7 +79,7 @@ class Bot(BotBase):
 		for cog in self.COGS:
 			self.reload_cog(cog)
 
-	async def on_command(self, ctx: Context):
+	async def on_command(self, ctx):
 		# Track by user id and guild id
 		guild = ctx.guild.id if ctx.guild else "dm"
 		player = ctx.author.id if ctx.author else "unknown"
@@ -98,7 +96,7 @@ class Bot(BotBase):
 			}
 		)
 
-	async def on_command_completion(self, ctx: Context):
+	async def on_command_completion(self, ctx):
 		if guild := ctx.guild:
 			if game := self.games[guild.id]:
 				if ctx.author.id in game.player_manager.players.keys() \
@@ -125,7 +123,7 @@ class Bot(BotBase):
 			"We're sorry. The number you have dialed is no longer in service. Please hang up, and try your call again."
 		])
 
-	async def on_command_error(self, ctx: Context, exc):
+	async def on_command_error(self, ctx, exc):
 		if isinstance(
 				exc,
 				(BadArgument, CommandOnCooldown, MissingRequiredArgument)
@@ -160,13 +158,23 @@ class Bot(BotBase):
 		self.online = True
 
 	async def on_guild_join(self, guild: Guild):
-		DB.insert_server(guild.id, guild.name)
-		stdout(f"Guild joined: {guild.name} ({guild.id})")
+		try:
+			MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
+			stdout(f"Guild joined: {guild.name} ({guild.id})")
+		except Exception as e:
+			stdout(f"Unable to add guild {guild.id} due to database error.")
+			stdout(e)
 
 	async def on_guild_remove(self, guild: Guild):
-		DB.delete_server(guild.id)
-		stdout(f"Guild left: {guild.name} ({guild.id})")
-	
+		try:
+			MongoDB.servers.delete_one({'guild_id': guild.id})
+			MongoDB.games.delete_many({'guild_id': guild.id})
+			MongoDB.players.delete_many({'guild_id': guild.id})
+			stdout(f"Guild left: {guild.name} ({guild.id})")
+		except Exception as e:
+			stdout(f"Unable to remove guild {guild.id} due to database error.")
+			stdout(e)
+
 	async def on_ready(self):
 		if not self.ready:
 			stdout(f'Logged in as {self.user.name}, {self.user.id}')
