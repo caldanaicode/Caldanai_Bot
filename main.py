@@ -1,8 +1,13 @@
+import asyncio
+import sys
 from logging import DEBUG, getLogger, Formatter, INFO
 
 from Caldanai.Logger import MongoHandler, logger, stdout
 from Caldanai.db import DB
 from Caldanai.lib.bot import Bot
+
+bot = Bot()
+bot_thread = None
 
 def setup_logging():
 	stdout("Setting up logging...")
@@ -32,6 +37,7 @@ def setup_logging():
 	logger.propagate = False
 	stdout("Logging setup complete.")
 
+
 async def setup():
 	setup_logging()
 	stdout("Setting up bot.")
@@ -39,10 +45,16 @@ async def setup():
 
 
 if __name__ == "__main__":
-	bot = Bot()
-	setup()
+	loop = asyncio.get_event_loop()
+	loop.run_until_complete(setup())
+
 	stdout("Running bot.")
-	bot.run(bot.TOKEN, reconnect=True)
+	loop.run_until_complete(bot.start(bot.TOKEN, reconnect=True))
+
+	loop.run_forever()
+
 	logger.handlers.clear()
 	stdout("Closing DB connection.")
 	DB.close_db_connection()
+
+sys.exit()
