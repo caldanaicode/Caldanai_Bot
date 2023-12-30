@@ -1,9 +1,9 @@
 from discord.ext import tasks
-from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only, Context
+from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.db import DB
+from Caldanai.db import MongoDB
 
 from time import sleep
 
@@ -15,7 +15,7 @@ class BotAdminCommands(Cog):
 	@command(name='prefix', brief="Changes the bot's prefix for recognizing commands.")
 	@guild_only()
 	@has_permissions(manage_guild=True)
-	async def change_prefix(self, ctx: Context, prefix: str):
+	async def change_prefix(self, ctx, prefix: str):
 		"""
 		Changes the bot's prefix for recognizing commands. Requires Manage Server permissions.
 
@@ -26,10 +26,10 @@ class BotAdminCommands(Cog):
 
 		else:
 			try:
-				if DB.get_server_by_guild_id(ctx.guild.id):
-					DB.update_server_prefix(ctx.guild.id, prefix)
+				if MongoDB.servers.find_one({'guild_id': ctx.guild.id}) is None:
+					MongoDB.servers.insert_one({'guild_id': ctx.guild.id, 'prefix': prefix})
 				else:
-					DB.insert_server(ctx.guild.id, ctx.guild.name, prefix)
+					MongoDB.servers.update_one({'guild_id': ctx.guild.id}, {'$set': {'prefix': prefix}})
 
 				Dispatcher.add(ctx, f"Prefix set to {prefix}.")
 
@@ -41,13 +41,13 @@ class BotAdminCommands(Cog):
 				)
 
 	@change_prefix.error
-	async def change_prefix_error(self, ctx: Context, exc):
+	async def change_prefix_error(self, ctx, exc):
 		if isinstance(exc, CheckFailure):
 			Dispatcher.add(ctx, "You need the Manage Server permission to do that.")
 
 	@has_permissions(manage_guild=True)
 	@command(name='reloadCog', brief='Reloads a cog -- or all cogs if no cog is specified -- on the bot.')
-	async def reload_cog(self, ctx: Context, cog: str = None):
+	async def reload_cog(self, ctx, cog: str = None):
 		"""
 		Reloads a cog -- or all cogs if no cog is specified -- on the bot.
 
@@ -71,7 +71,7 @@ class BotAdminCommands(Cog):
 
 	@has_permissions(administrator=True)
 	@command(name='shutdown', brief='Shuts down the bot with an optional message.')
-	async def shutdown(self, ctx, *msg: str):
+	async def reload_cog(self, ctx, *msg: str):
 		"""
 		Shuts down the bot with an optional message to be sent to servers that the bot is running on.
 
@@ -80,7 +80,7 @@ class BotAdminCommands(Cog):
 
 		if msg:
 			try:
-				games = list(DB.find_all_games())
+				games = list(MongoDB.games.find())
 				for game in games:
 					Dispatcher.add(self.bot.get_channel(game["channel_id"]), ' '.join(msg))
 

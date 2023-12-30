@@ -13,18 +13,20 @@ from random import choice
 from Caldanai.lib.rpg import Game
 from Caldanai.Dispatcher import Dispatcher, send
 from Caldanai.Logger import stdout
-from Caldanai.db import DB
+from Caldanai.db import MongoDB
 
 
 def get_prefix(_bot, message):
-	prefix = "$"
+	prefix = None
 	try:
-		if message.guild:
-			if server := DB.get_server_by_guild_id(message.guild.id):
-				prefix = server['prefix']
-			else:
-				DB.insert_server(message.guild.id, message.guild.name)
-			
+		if message.guild is None:
+			prefix = "$"
+
+		elif MongoDB.servers.find_one({'guild_id': message.guild.id}) is None:
+			MongoDB.servers.insert_one({'guild_id': message.guild.id, 'prefix': '$'})
+
+		if prefix is None and message.guild is not None:
+			prefix = MongoDB.servers.find_one({'guild_id': message.guild.id})['prefix']
 	except Exception as e:
 		stdout(e)
 
@@ -33,8 +35,7 @@ def get_prefix(_bot, message):
 
 class Bot(BotBase):
 	def __init__(self):
-		auth = DB.get_auth()
-		self.TOKEN = auth['TOKEN'] if auth else None
+		self.TOKEN = MongoDB['auth'].find_one()['TOKEN'] or None
 		self.COGS = None
 		self.IMAGES = None
 		self.ready = False
@@ -48,7 +49,7 @@ class Bot(BotBase):
 		intents.message_content = True
 		super().__init__(
 			command_prefix=get_prefix,
-			owner_ids=auth['OWNER_IDS'] if auth else None,
+			owner_ids=MongoDB['auth'].find_one()['OWNER_IDS'] or None,
 			intents=intents,
 			case_insensitive=True
 		)
@@ -158,7 +159,7 @@ class Bot(BotBase):
 
 	async def on_guild_join(self, guild: Guild):
 		try:
-			DB.insert_server(guild.id, guild.name)
+			MongoDB.servers.insert_one({'guild_id': guild.id, 'name': guild.name, 'prefix': '$'})
 			stdout(f"Guild joined: {guild.name} ({guild.id})")
 		except Exception as e:
 			stdout(f"Unable to add guild {guild.id} due to database error.")
@@ -166,9 +167,9 @@ class Bot(BotBase):
 
 	async def on_guild_remove(self, guild: Guild):
 		try:
-			DB.delete_server(guild.id)
-			DB.delete_game(guild.id)
-			DB.delete_all_players({'guild_id': guild.id})
+			MongoDB.servers.delete_one({'guild_id': guild.id})
+			MongoDB.games.delete_many({'guild_id': guild.id})
+			MongoDB.players.delete_many({'guild_id': guild.id})
 			stdout(f"Guild left: {guild.name} ({guild.id})")
 		except Exception as e:
 			stdout(f"Unable to remove guild {guild.id} due to database error.")
