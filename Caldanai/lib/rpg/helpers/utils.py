@@ -4,6 +4,7 @@ import textwrap
 
 from datetime import datetime
 from email.message import EmailMessage
+import traceback
 from typing import List, Tuple, Union
 
 from discord import Forbidden, HTTPException, Member, User, File
@@ -298,7 +299,11 @@ class RpgUtilities:
 			except Exception as e:
 				stdout("Error in save_game_data: " + e)
 		
-		loop.start()
+		try:
+			loop.start()
+		except Exception as e:
+			error_info = traceback.format_exc()
+			print(f"Error starting loop: {error_info}")
 
 	@staticmethod
 	def update_statics():
