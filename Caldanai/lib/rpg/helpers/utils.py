@@ -255,7 +255,7 @@ class RpgUtilities:
 			games = DB.find_all_games()
 			for g in games:
 				await RpgUtilities.add_game(game=g)
-			RpgUtilities.save_game_data.start()
+			RpgUtilities.save_game_data()
 			RpgUtilities.is_initialized = True
 
 		except Exception as e:
