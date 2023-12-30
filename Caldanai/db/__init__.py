@@ -98,7 +98,7 @@ class DB(Observer, Subject):
 		DB._mongoClient.close()
 
 	@tasks.loop(minutes=1)
-	async def batch_write(self):
+	async def batch_write():
 		"""Performs batch writing to the database for the queued items."""
 		logger.debug("batch_write() running")
 		collections = list(DB._queues.keys())
