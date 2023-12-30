@@ -102,10 +102,11 @@ class DB(Observer, Subject):
 	@tasks.loop(minutes=1)
 	async def batch_write():
 		"""Performs batch writing to the database for the queued items."""
-		logger.debug("batch_write() running")
 		collections = list(DB._queues.keys())
+		logger.debug("batch_write() running for {collections}")
 		for collection in collections:
 			if DB.is_connected():
+				logger.debug(f"{collection} processing for batch_write()")
 				ops = DB._queues[collection].get_all()
 				logger.debug(f"{collection} queue size: {len(ops)}")
 				try:
