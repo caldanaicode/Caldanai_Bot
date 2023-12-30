@@ -14,11 +14,9 @@ from discord.ext import tasks
 from Caldanai.lib.bot import Bot
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.Dispatcher import Dispatcher
-from Caldanai.Logger import stdout
+from Caldanai.Logger import stdout, logger
 from Caldanai.db import DB
 from Caldanai.lib.rpg import Game, Area, Roles
-
-logger = getLogger('discord')
 
 def generate_report(
 		author_id,
