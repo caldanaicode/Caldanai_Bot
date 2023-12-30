@@ -258,6 +258,7 @@ class RpgUtilities:
 			games = DB.find_all_games()
 			for g in games:
 				await RpgUtilities.add_game(game=g)
+			logger.debug("Starting save_game_data loop")
 			save_game_data.start()
 			RpgUtilities.is_initialized = True
 
