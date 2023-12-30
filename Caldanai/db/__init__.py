@@ -84,7 +84,7 @@ class DB(Observer, Subject):
 		@functools.wraps(func)
 		def wrapper(*args, **kwargs):
 			logger.debug(f"Checking connection for {func}")
-			if DB.is_connected:
+			if DB.is_connected():
 				return func(*args, **kwargs)
 			else:
 				logger.error(f"Connection test failed for {func}.")
