@@ -1,12 +1,10 @@
 import asyncio
 import sys
 from logging import getLogger, Formatter, INFO
-from threading import Thread
 from flask import Flask, render_template
-# from pymongo import DESCENDING
 
 from Caldanai.Logger import MongoHandler, stdout
-from Caldanai.db.__init__ import MongoDB, close_db_connection
+from Caldanai.db import DB
 from Caldanai.environment import FLASK_PORT, FLASK_HOST
 from Caldanai.lib.bot import Bot
 from Caldanai.Dispatcher import Dispatcher
@@ -58,7 +56,7 @@ def setup_logging():
 		'Keeping shard ID None websocket alive',
 		'Shard ID None has successfully RESUMED session'
 	)
-	mHandler = MongoHandler(MongoDB.logs_discord, ignore)
+	mHandler = MongoHandler(DB._mongoDB.logs_discord, ignore)
 	mHandler.setFormatter(f)
 	logger.addHandler(mHandler)
 	stdout("Logging setup complete.")
@@ -143,6 +141,6 @@ if __name__ == "__main__":
 	loop.run_forever()
 
 	logger.handlers.clear()
-	close_db_connection()
+	DB.close_db_connection()
 
 sys.exit()

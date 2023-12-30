@@ -21,7 +21,7 @@ from Caldanai.lib.rpg.inventory.item import Item
 from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import stdout
-from Caldanai.db import MongoDB
+from Caldanai.db import DB
 
 
 class Game:
@@ -354,9 +354,10 @@ class Game:
 		"""Adds or updates a game object in the database."""
 
 		try:
-			result = MongoDB["games"].update_one({'guild_id': self.guild.id}, {'$set': self.to_dict()}, upsert=True)
+			DB.update_game(self.guild.id, self.to_dict(), upsert=True)
 			if self.id is None:
-				self.id = result.upserted_id
+				game = DB.get_game_by_guild_id(self.guild.id)
+				self.id = game['_id'] if game else None
 		except Exception as e:
 			stdout(e)
 
@@ -368,7 +369,7 @@ class Game:
 			return None
 
 		try:
-			g = await MongoDB.games.find_one({'guild_id': guild_id})
+			g = DB.get_game_by_guild_id(guild_id)
 			if g is None or bot is None:
 				return None
 

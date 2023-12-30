@@ -6,8 +6,9 @@ from discord.errors import NotFound
 from discord.ext.commands import Context
 
 from Caldanai.Logger import stdout
-from Caldanai.db import MongoDB
+from Caldanai.db import DB
 from Caldanai.lib.rpg import Player, Roles
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 
 
 class PlayerManager:
@@ -26,7 +27,7 @@ class PlayerManager:
 			self.roles[r] = matches[0] if len(matches) > 0 else None
 
 		try:
-			players = (p for p in MongoDB.players.find({'guild_id': guild.id}))
+			players = (p for p in DB.find_players_by_guild_id(guild.id))
 		except Exception as e:
 			stdout(e)
 			return
@@ -105,7 +106,7 @@ class PlayerManager:
 				if self.roles[Roles.COMBAT_MAIN] in p.member.roles:
 					await p.member.remove_roles(self.roles[Roles.COMBAT_MAIN], reason=reason)
 
-	async def get_player(self, ctx) -> Union[Player, None]:
+	async def get_player(self, ctx: Context) -> Union[Player, None]:
 		"""
 		Returns a Player associated with a context, or None if the Player does not exist.
 		"""
@@ -118,13 +119,14 @@ class PlayerManager:
 
 		return None
 
-	async def add_player(self, ctx) -> bool:
+	async def add_player(self, ctx: Context) -> bool:
 		joined = datetime.now()
 		if ctx.author.id not in self.players \
 					and (player := Player(gid=ctx.guild.id, uid=ctx.author.id, joined=joined, last_active=joined)):
 			player.member = ctx.author
 			player.name = ctx.author.display_name
 			player.is_dirty = True
+			RpgUtilities.new_players.add(player)
 			if Roles.ALL in self.roles.keys() and Roles.ACTIVE in self.roles.keys():
 				await player.member.add_roles(
 					self.roles[Roles.ALL],
@@ -146,4 +148,4 @@ class PlayerManager:
 				)
 				del self.players[user_id]
 
-		MongoDB.players.delete_one({'guild_id': guild_id, 'user_id': user_id})
+		DB.delete_player(guild_id, user_id)
