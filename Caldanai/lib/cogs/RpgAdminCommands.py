@@ -4,6 +4,7 @@ from discord import Embed, Guild
 from discord.ext.commands import (
 	Cog, guild_only, has_permissions, group, cooldown,
 	BucketType,	command, Context, is_owner, check_any)
+from Caldanai.Logger import logger
 from Caldanai.lib.bot import Bot
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 from Caldanai.lib.rpg import Roles, parse
@@ -462,6 +463,7 @@ class RpgAdminCommands(Cog):
 	@Cog.listener()
 	async def on_ready(self):
 		if not RpgUtilities.is_initialized:
+			logger.debug("Initializing RpgUtilities")
 			await RpgUtilities.init(self.bot)
 		stdout("RpgAdminCommands ready.")
 
