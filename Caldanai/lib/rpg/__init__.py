@@ -213,7 +213,7 @@ class Game:
 		"""Tallies and displays combat results."""
 
 		if self.monster is None:
-			stdout(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
+			logger.error(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
 			await self.set_spawn_timer()
 			return
 
