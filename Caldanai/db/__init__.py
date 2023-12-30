@@ -111,7 +111,6 @@ class DB(Observer, Subject):
 			if DB.is_connected():
 				ops = DB._queues[collection].get_all()
 				if len(ops) > 0:
-					logger.debug(f"{collection} queue size: {len(ops)}")
 					try:
 						DB._mongoDB[collection].bulk_write(ops, ordered=False)
 					except BulkWriteError as e:

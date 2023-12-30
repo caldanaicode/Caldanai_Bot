@@ -126,6 +126,7 @@ class Game:
 	async def set_spawn_timer(self):
 		await self.player_manager.clear_combat_roles()
 		r = randint(self.minutes_min, self.minutes_max)
+		logger.debug(f"Setting spawn timer for {r} seconds.")
 		self.game_clock.add_routine(self.do_spawn, r * 60, True)
 
 	def get_monster(self, monster: Optional[str] = None):
