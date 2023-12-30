@@ -24,6 +24,7 @@ class MongoHandler(logging.Handler):
 			}
 
 			self.collection.insert_one(entry)
+			stdout(entry)
 		except Exception as e:
 			stdout(e)
 
