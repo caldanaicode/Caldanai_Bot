@@ -65,10 +65,12 @@ class DB(Observer, Subject):
 			DB._mongoClient.admin.command('ping')
 			if not DB.batch_write.is_running():
 				DB.batch_write.start()
+				logger.debug("batch_write() started")
 			return True
 		except ConnectionFailure:
 			if DB.batch_write.is_running():
 				DB.batch_write.stop()
+				logger.debug("batch_write() stopped due to connection failure")
 			return False
 	
 	@staticmethod
