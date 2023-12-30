@@ -8,34 +8,6 @@ from Caldanai.db import DB
 from Caldanai.lib.bot import Bot
 from Caldanai.Dispatcher import Dispatcher
 
-# app = Flask(__name__, static_folder='site/static', template_folder='site/templates')
-bot = Bot()
-bot_thread = None
-
-
-# @app.route('/')
-# def main_web():
-# 	return render_template('main.html', content='Caldanai Bot is alive and breathing heavily, staring hungrily at you.')
-
-
-# @app.route('/formatter')
-# def formatter():
-# 	return render_template('formatter.html')
-
-
-# @app.route('/logviewer')
-# def logviewer() -> list:
-# 	entries = ()
-# 	headers = ('When', 'Level', 'Module', 'Message')
-# 	results = MongoDB.logs_discord.find().sort('_id', DESCENDING).limit(200)
-# 	if results is not None:
-# 		entries = ((e['asctime'], e['level'], e['name'], e['message']) for e in results)
-# 	return render_template('logviewer.html', headers=headers, entries=entries)
-
-
-# def run():
-# 	app.run(host=FLASK_HOST, port=FLASK_PORT, debug=False)
-
 def setup_logging():
 	stdout("Setting up logging...")
 	disclog = getLogger('discord')
@@ -132,6 +104,10 @@ async def setup():
 if __name__ == "__main__":
 	loop = asyncio.get_event_loop()
 	loop.run_until_complete(setup())
+
+	bot = Bot()
+	bot_thread = None
+
 
 	# TODO: Need to figure out a non-blocking solution for reading from command line.
 	# stdout("Running input loop.")
