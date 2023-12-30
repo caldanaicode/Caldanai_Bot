@@ -329,7 +329,6 @@ async def save_game_data():
 	except Exception as e:
 		error_info = traceback.format_exc(e)
 		stdout(f"Error in save_game_data loop: {error_info}")
-	logger.debug("save_game_data complete!")
 	
 @save_game_data.error
 async def save_loop_error(e):
