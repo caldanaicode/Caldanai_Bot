@@ -61,6 +61,7 @@ def setup_logging():
 	disclog.addHandler(mHandler)
 	disclog.propagate = False
 	logger.addHandler(mHandler)
+	logger.propagate = False
 	stdout("Logging setup complete.")
 
 def notify_servers(message: str):
