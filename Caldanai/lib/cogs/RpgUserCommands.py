@@ -1,17 +1,19 @@
 import math
 from random import choice, randint
 
-from discord import File, TextChannel
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group
+from discord import File
+from discord.ext.commands import (BucketType, Cog, command, cooldown, group,
+                                  guild_only, Context)
 
+#from Caldanai import takes_target
 from Caldanai.Dispatcher import Dispatcher
-from Caldanai.Logger import stdout
-from Caldanai.lib.rpg.helpers.utils import RpgUtilities, generate_report
-from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg import Game
+from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.parser import parse
+from Caldanai.lib.rpg.helpers.utils import RpgUtilities, generate_report
+from Caldanai.Logger import stdout
 
 
 class RpgUserCommands(Cog):
@@ -21,7 +23,7 @@ class RpgUserCommands(Cog):
 	@group(brief="Groups together various game commands for players.")
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
-	async def game(self, ctx):
+	async def game(self, ctx: Context):
 		"""
 		Requires a subcommand.
 
@@ -34,7 +36,7 @@ class RpgUserCommands(Cog):
 
 	@guild_only()
 	@game.command(brief="Adds a player to the RPG system.")
-	async def join(self, ctx):
+	async def join(self, ctx: Context):
 		"""
 		Adds a member to the RPG system as a player if they do not already exist in the database. This can only be called by the member trying to participate.
 		"""
@@ -51,7 +53,7 @@ class RpgUserCommands(Cog):
 
 	@guild_only()
 	@game.command(name="leave", brief="Removes the player from the RPG system.")
-	async def leave(self, ctx, gid: int = None):
+	async def leave(self, ctx: Context, gid: int = None):
 		"""
 		Removes an existing player from the game. This can only be called by member withdrawing from participation.
 		"""
@@ -72,7 +74,7 @@ class RpgUserCommands(Cog):
 	)
 	@guild_only()
 	@cooldown(1, 10, BucketType.member)
-	async def attack(self, ctx):
+	async def attack(self, ctx: Context):
 		"""
 		Attacks the critter currently daring to show its face to intrepid adventurers!
 
@@ -102,7 +104,7 @@ class RpgUserCommands(Cog):
 	@command(name='hug', aliases=['snuggle', 'cuddle'], brief='Hugs, snuggles, and cuddles for all of your needs!')
 	@guild_only()
 	@cooldown(1, 5, BucketType.member)
-	async def hug(self, ctx, *, msg: str = None):
+	async def hug(self, ctx: Context, *, msg: str = None):
 		"""
 		Hugs, snuggles, and cuddles for all of your needs!
 
@@ -155,7 +157,7 @@ class RpgUserCommands(Cog):
 	@cooldown(1, 5, BucketType.member)
 	@guild_only()
 	@command(name='haunt', brief='Allows the dead to harass the less-dead.')
-	async def haunt(self, ctx, target: str = None):
+	async def haunt(self, ctx: Context, target: str = None):
 		"""
 		Allows the dead to harass the less-dead. When specifying a target, use the @ symbol to target another player.
 
@@ -223,7 +225,7 @@ class RpgUserCommands(Cog):
 		aliases=['meditate', 'reflect'],
 		brief='Beseeches heavenly blessings.'
 	)
-	async def pray(self, ctx):
+	async def pray(self, ctx: Context):
 		"""
 		Beseeches heavenly blessings. Occasionally, prayers may be answered...
 
@@ -323,7 +325,7 @@ class RpgUserCommands(Cog):
 
 	@cooldown(1, 60, BucketType.user)
 	@command(aliases=['report'], brief='Reports an error or issue to the logs and developer.')
-	async def report_problem(self, ctx, *, msg: str):
+	async def report_problem(self, ctx: Context, *, msg: str):
 		"""
 		Reports an error or issue to the logs and developer. 1-minute cooldown.
 

@@ -30,7 +30,7 @@ class Consumable(Usable):
 		self.uses_max = max(uses_max, 0)
 		self.uses_left = min(max(uses_left, 0), uses_max)
 
-	def get_embed(self) -> (Embed, File):
+	def get_embed(self) -> Tuple[Embed, File]:
 		"""Returns a tuple containing an Embed and File object for this item."""
 
 		embed, file = super().get_embed()

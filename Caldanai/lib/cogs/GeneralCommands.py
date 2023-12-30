@@ -3,7 +3,7 @@ from typing import Union, Tuple, Dict
 
 from discord import Embed
 from discord.ext import tasks
-from discord.ext.commands import Cog, command, cooldown, BucketType
+from discord.ext.commands import Cog, command, cooldown, BucketType, Context
 from discord.ext.commands.errors import MissingRequiredArgument
 
 from Caldanai.Dispatcher import Dispatcher
@@ -25,7 +25,7 @@ class GeneralCommands(Cog):
 	async def on_ready(self):
 		stdout("GeneralCommands ready.")
 	
-	async def check_hilo(self, ctx, count: int, options: tuple) -> Union[int, None]:
+	async def check_hilo(self, ctx: Context, count: int, options: tuple) -> Union[int, None]:
 		idx = None
 		hilo = 0
 		if 'hi' in options and 'lo' in options:
@@ -80,7 +80,7 @@ class GeneralCommands(Cog):
 			stdout(e)
 			return 0
 	
-	async def check_dice(self, ctx, dice: str) -> Tuple[Union[int, None], Union[int, None]]:
+	async def check_dice(self, ctx: Context, dice: str) -> Tuple[Union[int, None], Union[int, None]]:
 		count, sides = map(self.__int__, dice.split('d'))
 		if count < 1:
 			embed = Embed(
@@ -112,7 +112,7 @@ class GeneralCommands(Cog):
 
 	@command(name='reminder', aliases=['remind'], brief="Tells the bot to send you a DM as a reminder for something.")
 	@cooldown(1, 5, BucketType.user)
-	async def reminder_command(self, ctx, timespan: Union[int, str], *message) -> None:
+	async def reminder_command(self, ctx: Context, timespan: Union[int, str], *message) -> None:
 		"""
 		Sets a timespan at which the bot will send a DM to the invoker. Using this command again before a reminder has expired will overwrite the existing reminder. Note: Do not use this for very important reminders, as there is no guarantee the bot will available at the desired time. Reminders are not persistent, meaning that should the bot go offline (for restart, power outage, etc), then any reminders will be lost.
 
@@ -142,7 +142,7 @@ class GeneralCommands(Cog):
 		Dispatcher.add(ctx, f"Reminder has been set for {seconds} seconds.")
 
 	@reminder_command.error
-	async def reminder_error(self, ctx, exc):
+	async def reminder_error(self, ctx: Context, exc):
 		if isinstance(exc, MissingRequiredArgument):
 			if ctx.author in self.reminders.keys():
 				r = self.reminders[ctx.author]
@@ -175,7 +175,7 @@ class GeneralCommands(Cog):
 
 	@command(name='roll', aliases=['dice'], brief="Rolls dice given in the NdN format.")
 	@cooldown(1, 5, BucketType.member)
-	async def roll(self, ctx, dice: str, *options: str):
+	async def roll(self, ctx: Context, dice: str, *options: str):
 		"""
 		Rolls dice given in the NdN format.
 
@@ -258,7 +258,7 @@ class GeneralCommands(Cog):
 		Dispatcher.add(ctx, embed=embed)
 
 	@roll.error
-	async def roll_error(self, ctx, exc):
+	async def roll_error(self, ctx: Context, exc):
 		if isinstance(exc, MissingRequiredArgument):
 			embed = Embed(
 				title=f'Dice roll for {ctx.author.nick or ctx.author.name} failed',
@@ -269,7 +269,7 @@ class GeneralCommands(Cog):
 
 	@command(brief="Ask the bot for a prediction.")
 	@cooldown(1, 5, BucketType.member)
-	async def ask(self, ctx):
+	async def ask(self, ctx: Context):
 		"""
 		Ask the bot a question and receive the questionable wisdom of a possible future.
 		"""

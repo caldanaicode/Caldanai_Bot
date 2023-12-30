@@ -1,4 +1,4 @@
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only
+from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, Context
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed
 from typing import Union, List, Optional
@@ -20,7 +20,7 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
 	@cooldown(1, 2, BucketType.member)
-	async def equip(self, ctx, item: Union[str, int], slot: str = None, gid: int = None):
+	async def equip(self, ctx: Context, item: Union[str, int], slot: str = None, gid: int = None):
 		"""
 		Equips an item.
 
@@ -80,7 +80,7 @@ class RpgInventoryCommands(Cog):
 
 	@command(aliases=['slots', 'gear'], brief="Shows a player's equipment.")
 	@cooldown(1, 10, BucketType.member)
-	async def equipment(self, ctx, options: str = None, gid: int = None):
+	async def equipment(self, ctx: Context, options: str = None, gid: int = None):
 		"""
 		Shows a player's equipment.
 
@@ -102,7 +102,7 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
 	@cooldown(1, 2, BucketType.member)
-	async def stow(self, ctx, item_or_slot: Union[str, int], gid: int = None):
+	async def stow(self, ctx: Context, item_or_slot: Union[str, int], gid: int = None):
 		"""
 		Un-equip an item by name, name.n, index, or slot.
 
@@ -152,7 +152,7 @@ class RpgInventoryCommands(Cog):
 		brief='Sends a DM to the player with information about the items they carry.'
 	)
 	@cooldown(1, 5, BucketType.member)
-	async def inventory(self, ctx, filtr: str = None, gid: int = None):
+	async def inventory(self, ctx: Context, filtr: str = None, gid: int = None):
 		"""
 		Sends a DM to the player with information about the items they carry.
 
@@ -178,7 +178,7 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='item', brief='Displays details about an item.')
 	@cooldown(1, 2, BucketType.member)
-	async def item(self, ctx, name: Union[str, int], gid: int = None):
+	async def item(self, ctx: Context, name: Union[str, int], gid: int = None):
 		"""
 		Displays details about an item.
 		
@@ -208,7 +208,7 @@ class RpgInventoryCommands(Cog):
 		Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
 
 	@item.error
-	async def item_err(self, ctx, error):
+	async def item_err(self, ctx: Context, error):
 		if isinstance(error, MissingRequiredArgument):
 			embed = Embed(
 				title=f'Item help',
@@ -268,7 +268,7 @@ class RpgInventoryCommands(Cog):
 	@cooldown(1, 2, BucketType.member)
 	@guild_only()
 	@command(name='sell', brief='Sells an item, range of items, unequipped items, or items having a given rarity.')
-	async def sell(self, ctx, *items: Union[int, str]):
+	async def sell(self, ctx: Context, *items: Union[int, str]):
 		"""
 		Sells items by name, name.n, index, a range of indices, all items, or items having a given rarity.
 		Items must be unequipped to be sold.
@@ -351,7 +351,7 @@ class RpgInventoryCommands(Cog):
 
 	@command(name='use', brief='Attempts to use an item.')
 	@cooldown(1, 5, BucketType.member)
-	async def use(self, ctx, item: Union[int, str], gid: int = None):
+	async def use(self, ctx: Context, item: Union[int, str], gid: int = None):
 		"""
 		Attempts to use an item.
 
@@ -381,7 +381,7 @@ class RpgInventoryCommands(Cog):
 			Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
 
 	@use.error
-	async def use_err(self, ctx, error):
+	async def use_err(self, ctx: Context, error):
 		if isinstance(error, MissingRequiredArgument):
 			embed = Embed(
 				title=f'Item help',

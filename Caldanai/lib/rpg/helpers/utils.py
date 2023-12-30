@@ -1,24 +1,19 @@
 import smtplib
-import sys
 import textwrap
-
 from datetime import datetime
 from email.message import EmailMessage
-import traceback
 from typing import List, Tuple, Union
-from Caldanai import debug_print
 
-from discord import Forbidden, HTTPException, Member, User, File
+from discord import File, Forbidden, HTTPException, Member, User
 from discord.ext import tasks
-from pymongo import InsertOne, UpdateOne
-from pymongo.errors import ServerSelectionTimeoutError
+from discord.ext.commands import Context
 
-from Caldanai.lib.bot import Bot
-from Caldanai.lib.rpg.creatures.player import Player
+from Caldanai.db import DB
 from Caldanai.Dispatcher import Dispatcher
+from Caldanai.lib.bot import Bot
+from Caldanai.lib.rpg import Area, Game, Roles
+from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.Logger import stdout
-from Caldanai.db import MongoDB
-from Caldanai.lib.rpg import Game, Area, Roles
 
 
 def generate_report(
@@ -29,7 +24,7 @@ def generate_report(
 		guild_id=None,
 		channel_id=None,
 	):
-	auth_rec = MongoDB['auth'].find_one()
+	auth_rec = DB.get_auth()
 	if not auth_rec:
 		stdout('Reporting error: unable to retrieve authentication information from database.')
 		return False
@@ -72,7 +67,7 @@ class RpgUtilities:
 
 	# Checks the given context to see if a game exists for it.
 	@staticmethod
-	async def check_game_exists(ctx) -> bool:
+	def check_game_exists(ctx: Context) -> bool:
 		if ctx.guild is None:
 			Dispatcher.add(ctx, f"I'm afraid I can't do that from here, {ctx.author.display_name}.")
 		elif ctx.guild.id not in RpgUtilities.bot.games.keys():
@@ -130,12 +125,10 @@ class RpgUtilities:
 		if gid is not None and chid is not None:
 			guild = RpgUtilities.bot.get_guild(gid) or await RpgUtilities.bot.fetch_guild(gid)
 			channel = RpgUtilities.bot.get_channel(chid) or await RpgUtilities.bot.fetch_channel(chid)
-
-			try:
-				prefix = MongoDB.servers.find_one({'guild_id': gid})['prefix']
-			except Exception as e:
-				stdout(f'Error in utils.py --> add_game(): {e}')
-				return
+			g = DB.get_server_by_guild_id(gid)
+			prefix = g['prefix'] if g else '$'
+			if not g:
+				DB.insert_game(gid, chid)
 
 			if game is None:
 				game = Game(
@@ -165,7 +158,7 @@ class RpgUtilities:
 		if uid is None:
 			return games
 		try:
-			players = MongoDB.players.find({'user_id': uid})
+			players = DB.find_players_by_user_id(uid)
 			for player in players:
 				game = RpgUtilities.bot.games[player['guild_id']]
 				games.append(game)
@@ -178,7 +171,7 @@ class RpgUtilities:
 
 	# Get the game associated with a context, if it exists.
 	@staticmethod
-	async def get_game(ctx, game_idx: int = None) -> Union[Game, None]:
+	def get_game(ctx: Context, game_idx: int = None) -> Union[Game, None]:
 		"""
 		Returns a Game associated with a context, or by index, if it exists. Otherwise returns None.
 		"""
@@ -212,7 +205,7 @@ class RpgUtilities:
 		return game
 
 	@staticmethod
-	async def get_player(ctx, game: Game = None, notify: bool = True) -> Union[Player, None]:
+	async def get_player(ctx: Context, game: Game = None, notify: bool = True) -> Union[Player, None]:
 		"""
 		Returns a Player associated with a context, or None if the Player does not exist.
 		"""
@@ -239,7 +232,7 @@ class RpgUtilities:
 
 	# Returns a tuple containing (game, player) if both exist.
 	@staticmethod
-	async def get_game_and_player(ctx, game_idx: int = None, notify: bool = True) -> Tuple[Game, Player]:
+	async def get_game_and_player(ctx: Context, game_idx: int = None, notify: bool = True) -> Tuple[Game, Player]:
 		"""
 		Returns a tuple containing a Game and Player if they exist, or None for one or both upon failure.
 		"""
@@ -255,7 +248,7 @@ class RpgUtilities:
 	async def init(bot: Bot):
 		try:
 			RpgUtilities.bot = bot
-			games = MongoDB.games.find()
+			games = DB.find_all_games()
 			for g in games:
 				await RpgUtilities.add_game(game=g)
 			RpgUtilities.save_game_data.start()
@@ -270,8 +263,7 @@ class RpgUtilities:
 	async def remove_game(gid: int):
 		if gid in RpgUtilities.bot.games.keys():
 			try:
-				MongoDB.games.delete_one({'guild_id': gid})
-				MongoDB.players.delete_many({'guild_id': gid})
+				DB.delete_game(gid)
 				await RpgUtilities.delete_roles(RpgUtilities.bot.games[gid])
 				del RpgUtilities.bot.games[gid]
 
@@ -282,7 +274,6 @@ class RpgUtilities:
 	@tasks.loop(minutes=1)
 	async def save_game_data():
 		"""Database loop to save player and game data."""
-
 		RpgUtilities.update_games()
 		RpgUtilities.update_statics()
 		RpgUtilities.update_players()
@@ -290,84 +281,37 @@ class RpgUtilities:
 
 	@staticmethod
 	def update_games():
-		try:
-			games = [
-				UpdateOne(
-					{'guild_id': g.guild.id},
-					{'$set': g.to_dict()}
-				) for g in RpgUtilities.bot.games.values()
-			]
-
-			if games:
-				MongoDB["games"].bulk_write(games, ordered=False)
-
-		except Exception:
-			e = sys.exception()
-			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
+		for g in RpgUtilities.bot.games.values():
+			DB.update_game(g.guild.id, g.to_dict())
 
 	@staticmethod
 	def update_statics():
 		command_totals = {}
 		server_totals = {}
-		user_statics = []
-		try:
-			for entry in RpgUtilities.bot.command_usage:
-				user_statics.append(InsertOne(entry))
-				cmd = f'commands.{entry["command"]}.{entry["alias"]}'
-				g = command_totals.get(entry['guild_id']) or {}
-				g[cmd] = (g.get(cmd) or 0) + 1
-				command_totals[entry['guild_id']] = g
-				server_totals[entry['guild_id']] = g[cmd] + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
-					
-			server_statics = [
-				UpdateOne(
-					{'guild_id': guild_id},
-					{'$inc': {cmd: count, 'total': server_totals[guild_id]}},
-					upsert=True
-				) for guild_id, c in command_totals.items() for cmd, count in c.items()
-			]
-			
-			RpgUtilities.bot.command_usage.clear()
 
-			for g in RpgUtilities.bot.games.values():
-				server_statics += [
-					UpdateOne(
-						{'guild_id': g.guild.id},
-						{'$inc': {f'monsters.{key}': count}},
-						upsert=True
-					) for key, count in g.monster_statics.items()
-				]
-				g.monster_statics.clear()
+		for entry in RpgUtilities.bot.command_usage:
+			DB.update_user_statics(entry)
+			cmd = f'commands.{entry["command"]}.{entry["alias"]}'
+			g = command_totals.get(entry['guild_id']) or {}
+			g[cmd] = (g.get(cmd) or 0) + 1
+			command_totals[entry['guild_id']] = g
+			server_totals[entry['guild_id']] = g[cmd] + (server_totals[entry['guild_id']] if server_totals.get(entry['guild_id']) else 0)
 
-			if server_statics:
-				MongoDB["statics"].bulk_write(server_statics, ordered=False)
-			if user_statics:
-				MongoDB["user_command_statics"].bulk_write(user_statics, ordered=False)
+		for guild_id, c in command_totals.items():
+			for cmd, count in c.items():
+				DB.update_statistic(guild_id, {cmd: count, 'total': server_totals[guild_id]})
+		
+		RpgUtilities.bot.command_usage.clear()
 
-		except Exception:
-			e = sys.exception()
-			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
+		for g in RpgUtilities.bot.games.values():
+			for key, count in g.monster_statics.items():
+				DB.update_statistic(g.guild.id, {f'monsters.{key}': count})
+			g.monster_statics.clear()
+
 
 	@staticmethod
 	def update_players():
-		try:
-			dirty = [
-				(p, UpdateOne(
-					{"guild_id": p.guild_id, "user_id": p.user_id},
-					{"$set": p.to_dict()},
-					upsert=True
-				)) for g in RpgUtilities.bot.games.values() for p in g.player_manager.players.values() if p.is_dirty
-			]
-
-			if dirty:
-				result = MongoDB["players"].bulk_write([d[1] for d in dirty], ordered=False)
-
-				for idx, _id in result.upserted_ids.items():
-					dirty[idx][0].id = _id
-
-				for p, _ in dirty:
-					p.is_dirty = False
-
-		except Exception:
-			e = sys.exception()
-			stdout(f'Error in utils.py --> update_games() for guild_id {e}')
+		for g in RpgUtilities.bot.games.values():
+			for p in filter(lambda _p: _p.is_dirty, g.player_manager.players.values()):
+				DB.update_player(g.guild.id, p.user_id, p.to_dict())
+				p.is_dirty = False
