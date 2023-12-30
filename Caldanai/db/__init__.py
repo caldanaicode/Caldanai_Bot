@@ -35,7 +35,7 @@ class DoubleBuffer:
 			DB.active = DB.q1
 			DB.passive = DB.q2
 		
-		def put(item):
+		def put(self, item):
 			"""Puts an item into the active queue."""
 			DB.active.put(item)
 		
@@ -144,10 +144,7 @@ class DB(Observer, Subject):
 	@staticmethod
 	def update_game(guild_id, guild_dict, upsert=False):
 		"""Enqueues an update for a game object in the database."""
-		DB._queues["games"].put(UpdateOne(
-			{'guild_id': guild_id},
-			{'$set': guild_dict},
-			upsert=upsert))
+		DB._queues["games"].put(UpdateOne({'guild_id': guild_id}, {'$set': guild_dict},	upsert=upsert))
 	
 	@staticmethod
 	def update_statistic(guild_id, inc_doc):
