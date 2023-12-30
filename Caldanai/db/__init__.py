@@ -103,7 +103,7 @@ class DB(Observer, Subject):
 	async def batch_write():
 		"""Performs batch writing to the database for the queued items."""
 		collections = list(DB._queues.keys())
-		logger.debug("batch_write() running for {collections}")
+		logger.debug(f"batch_write() running for {collections}")
 		for collection in collections:
 			if DB.is_connected():
 				logger.debug(f"{collection} processing for batch_write()")
