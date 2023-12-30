@@ -39,7 +39,6 @@ bot_thread = None
 def setup_logging():
 	stdout("Setting up logging...")
 	disclog = getLogger('discord')
-
 	disclog.setLevel(INFO)
 	logger.setLevel(DEBUG)
 	
@@ -60,6 +59,7 @@ def setup_logging():
 	mHandler = MongoHandler(DB._mongoDB.logs_discord, ignore)
 	mHandler.setFormatter(f)
 	disclog.addHandler(mHandler)
+	disclog.propagate = False
 	logger.addHandler(mHandler)
 	stdout("Logging setup complete.")
 
