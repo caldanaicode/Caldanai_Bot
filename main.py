@@ -44,10 +44,11 @@ async def setup():
 	await bot.setup()
 	return bot
 
-async def start_bot(*, bot: Bot):
+async def start_bot():
 	stdout("Running bot.")
 	while True:
 		try:
+			bot = asyncio.run(setup())
 			await bot.start(bot.TOKEN, reconnect=True)
 		except HTTPException as e:
 			err = traceback.format_exc()
@@ -62,8 +63,7 @@ async def start_bot(*, bot: Bot):
 				await bot.close()
 
 if __name__ == "__main__":
-	bot = asyncio.run(setup())
-	asyncio.run(start_bot(bot=bot))
+	asyncio.run(start_bot())
 	logger.handlers.clear()
 	stdout("Closing DB connection.")
 	DB.close_db_connection()
