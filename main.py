@@ -51,12 +51,12 @@ async def start_bot(*, bot: Bot):
 			await bot.start(bot.TOKEN, reconnect=True)
 
 		except HTTPException as e:
-			err = traceback.format_exc(e)
+			err = traceback.format_exc()
 			logger.error(f"Error running bot. Retrying in 5 minutes: {err}")
 			await asyncio.sleep(300)
 		
 		except Exception as e:
-			err = traceback.format_exc(e)
+			err = traceback.format_exc()
 			logger.error(f"Unexpected error: {err}")
 			return
 
