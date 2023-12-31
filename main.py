@@ -38,16 +38,16 @@ def setup_logging():
 
 
 async def setup():
-	setup_logging()
 	stdout("Setting up bot.")
 	bot = Bot()
 	await bot.setup()
 	return bot
 
 async def start_bot():
+	setup_logging()
 	stdout("Running bot.")
 	while True:
-		bot = asyncio.run(setup())
+		bot = await setup()
 		try:
 			await bot.start(bot.TOKEN, reconnect=True)
 		except HTTPException as e:
