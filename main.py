@@ -63,6 +63,11 @@ async def start_bot(bot, loop):
 			err = traceback.format_exc(e)
 			logger.error(f"Error running bot. Retrying in 30 seconds: {err}")
 			await asyncio.sleep(30)
+
+@start_bot.error
+async def start_bot_error(e):
+	err = traceback.format_exc(e)
+	logger.error(f"Error running bot: {err}")
 			
 if __name__ == "__main__":
 	loop = asyncio.get_event_loop()
