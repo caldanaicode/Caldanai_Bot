@@ -1,9 +1,9 @@
 import asyncio
-import sys
 from logging import DEBUG, getLogger, Formatter, INFO
 import traceback
 
 from discord import HTTPException
+from discord.ext import tasks
 
 from Caldanai.Logger import MongoHandler, logger, stdout
 from Caldanai.db import DB
@@ -45,19 +45,19 @@ async def setup():
 	await bot.setup()
 	return bot
 
-async def start_bot(bot, loop):
+@tasks.loop()
+async def start_bot(*, bot: Bot):
 	running = False
 	stdout("Running bot.")
 	while not running:
 		try:
 			running = True
-			loop.run_until_complete(bot.start(bot.TOKEN, reconnect=True))
-			loop.run_forever()
-			
+			await bot.start(bot.TOKEN, reconnect=True)
+
 			logger.handlers.clear()
 			stdout("Closing DB connection.")
 			DB.close_db_connection()
-
+			
 		except HTTPException as e:
 			running = False
 			err = traceback.format_exc(e)
@@ -72,4 +72,4 @@ async def start_bot_error(e):
 if __name__ == "__main__":
 	loop = asyncio.get_event_loop()
 	bot: Bot = loop.run_until_complete(setup())
-	start_bot(bot, loop)
+	start_bot.start(bot=bot)
