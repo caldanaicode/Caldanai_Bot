@@ -47,8 +47,8 @@ async def setup():
 async def start_bot():
 	stdout("Running bot.")
 	while True:
+		bot = asyncio.run(setup())
 		try:
-			bot = asyncio.run(setup())
 			await bot.start(bot.TOKEN, reconnect=True)
 		except HTTPException as e:
 			err = traceback.format_exc()
