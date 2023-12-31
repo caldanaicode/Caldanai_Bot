@@ -49,16 +49,17 @@ async def start_bot(*, bot: Bot):
 	while True:
 		try:
 			await bot.start(bot.TOKEN, reconnect=True)
-
 		except HTTPException as e:
 			err = traceback.format_exc()
 			logger.error(f"Error running bot. Retrying in 5 minutes: {err}")
 			await asyncio.sleep(300)
-		
 		except Exception as e:
 			err = traceback.format_exc()
 			logger.error(f"Unexpected error: {err}")
 			return
+		finally:
+			if not bot.is_closed():
+				await bot.close()
 
 if __name__ == "__main__":
 	bot = asyncio.run(setup())
