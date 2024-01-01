@@ -28,7 +28,7 @@ def setup_logging():
 		'Keeping shard ID None websocket alive',
 		'Shard ID None has successfully RESUMED session'
 	)
-	mHandler = MongoHandler(DB._mongoDB.logs_discord, ignore)
+	mHandler = MongoHandler(MongoDB.logs_discord, ignore)
 	mHandler.setFormatter(f)
 	disclog.addHandler(mHandler)
 	disclog.propagate = False

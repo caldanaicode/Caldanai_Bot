@@ -1,4 +1,3 @@
-from logging import getLogger
 import smtplib
 import sys
 import textwrap
