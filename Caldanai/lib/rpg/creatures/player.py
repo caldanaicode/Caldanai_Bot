@@ -1,0 +1,658 @@
+from math import floor
+from typing import Dict, Tuple, Optional, List, Union
+from io import BytesIO
+
+import pandas
+import matplotlib.pyplot as plt
+
+from discord import Member, Embed, File
+
+from Caldanai.lib.rpg import parse
+from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
+from Caldanai.lib.rpg.helpers.dice import Dice
+from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes
+from Caldanai.lib.rpg.helpers.parser import item_list_to_string
+from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
+from Caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
+from Caldanai.lib.rpg.inventory.equipment import Equipment
+from Caldanai.lib.rpg.inventory.stackables import Stackable
+from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+from datetime import datetime
+
+
+class Player(Creature):
+    """A simple Player object for tracking player data"""
+
+    def __init__(
+        self,
+        *,
+        pid: Optional[int] = None,
+        gid: Optional[int] = None,
+        uid: Optional[int] = None,
+        weight_limit: Optional[int] = None,
+        joined: Optional[datetime] = None,
+        clarks: Optional[int] = 0,
+        defense: Optional[int] = 6,
+        dodge: Optional[int] = 6,
+        health: Optional[int] = 20,
+        health_max: Optional[int] = 20,
+        inventory: Optional[Inventory] = None,
+        rolls: Optional[Dict[str, List[int]]] = None,
+        skills: Optional[Dict[str, int]] = None,
+        gender: Optional[str] = None,
+        pronouns: Optional[str] = None,
+        equip_slots: Optional[Dict[str, Item]] = None,
+        last_active: Optional[datetime] = None,
+    ):
+        super().__init__(
+            name=None,
+            atk=None,
+            defense=defense,
+            dodge=dodge,
+            health=health,
+            health_max=health_max,
+            gender=gender,
+            pronouns=pronouns,
+        )
+        self.id = pid
+        self.guild_id = gid
+        self.user_id = uid
+        self.member: Optional[Member] = None
+        self.weight_limit = weight_limit or 100
+        self.joined = joined
+        self.last_active = last_active
+        self.clarks = clarks
+        self.inventory = inventory or Inventory()
+        self.skills = skills or {}
+        self.is_dirty = False
+        self.rolls = rolls or {
+            "d4": [0] * 4,
+            "d6": [0] * 6,
+            "d8": [0] * 8,
+            "d10": [0] * 10,
+            "d12": [0] * 12,
+            "d20": [0] * 20,
+        }
+        self.health_regen = 0
+        self.equip_slots: Dict[str, Optional[Equipment]] = {}
+
+        for slot in EquipmentSlots:
+            if not EquipmentSlots.exclude_from_output(slot.name):
+                exists = equip_slots and slot.name in equip_slots.keys()
+                self.equip_slots[slot.name] = self.inventory[str(equip_slots[slot.name])] if exists else None
+
+    def __eq__(self, o):
+        return isinstance(o, Player) and self.user_id == o.user_id and self.guild_id == o.guild_id
+
+    def apply_damage(self, amount: int) -> str:
+        was_alive = self.health > 0
+        super().apply_damage(amount)
+        self.is_dirty = True
+        if was_alive and self.is_dead():
+            return parse("@1 crumples to the ground lifelessly!", self)
+
+        if not was_alive and not self.is_dead():
+            return parse(f"<@!{self.member.id}> suddenly gasps raggedly as life returns to @1o!", self)
+
+        return ""
+
+    def do_attack(self, creature: Creature, target: BodyPart = None, dmg_type: DamageTypes = None) -> Tuple[str, int]:
+        """
+        Performs an attack against the given creature, without modifying the monster's attributes.
+
+        Returns a tuple containing the attack message and the total damage done.
+        """
+
+        lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
+        rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+        two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
+        left = self.get_combat_rolls(lh, creature)
+        l_multiplier = creature.get_trait_multiplier(lh.damage_type if lh else DamageTypes.BLUDGEONING)
+        l_sub = int(left.result * l_multiplier)
+        raw_dmg = l_sub
+        if right := None if two_handed else self.get_combat_rolls(rh, creature):
+            r_multiplier = creature.get_trait_multiplier(rh.damage_type if rh else DamageTypes.BLUDGEONING)
+            r_sub = int(right.result * r_multiplier)
+            raw_dmg += r_sub
+
+        t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - creature.defense)
+
+        msg = (
+            f"<@!{self.member.id}>'s attack:```diff\nAttack vs Dodge ({creature.dodge}): "
+            f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} "
+            f"({left.get_hit_string()})"
+        )
+        msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
+
+        if not left.isMiss or (right and not right.isMiss):
+            msg += (
+                f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {'Left' if right else 'Two-Handed'} "
+                f"({str(lh.damage_type if lh else DamageTypes.BLUDGEONING).title()}):\n        {left.damage}"
+                f"{' * 0' if left.isMiss else ' * 2' if left.isCritical else ''}"
+                f"{' * ' + str(l_multiplier) if l_multiplier != 1 else ''} = {l_sub}"
+            )
+            if right:
+                msg += (
+                    f"\n{'-' if right.isMiss else '+'}    Right ("
+                    f"{str(rh.damage_type if rh else DamageTypes.BLUDGEONING).title()}):\n        {right.damage}"
+                    f"{' * 0' if right.isMiss else ' * 2' if right.isCritical else ''}"
+                    f"{' * ' + str(r_multiplier) if r_multiplier != 1 else ''} = {r_sub}"
+                )
+
+            if not left.isMiss:
+                self.gain_skill_experience(lh.skill if lh else "unarmed")
+
+            if right and not right.isMiss:
+                self.gain_skill_experience(rh.skill if rh else "unarmed")
+
+            msg += f"\n\nTotal ({raw_dmg}) vs Defense ({creature.defense}) = {t_dmg}"
+
+        msg += "```\n"
+        self.update_roll_counts(left, right)
+        return msg, t_dmg
+
+    def replace_equipment(self, item: Equipment, slot_name: str) -> Tuple[bool, Equipment]:
+        """
+        Replaces the item in the given slot with the provided item.
+
+        :param item: The item to equip.
+        :param slot_name: The slot name to which it should equip.
+        :return: A tuple containing a boolean for success/fail and the item replaced, if any.
+        """
+        replaced = None
+        if self.equip_slots[slot_name]:
+            replaced = self.equip_slots[slot_name]
+            self.remove(self.equip_slots[slot_name])
+        self.equip_slots[slot_name] = item
+        return True, replaced
+
+    def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
+        """
+        Attempts to auto-equip an item to a slot if no slot is provided, otherwise attempts to equip to the
+        provided slot.
+
+        :param item: The item to equip.
+        :param slot: The slot(s) to which it should equip.
+        :return: A tuple containing a boolean for success/fail and a string indicating items replaced or error message.
+        """
+
+        dirty = False
+        msg = ""
+
+        # First ensure the item is not already equipped.
+        for i in self.equip_slots.values():
+            if i == item:
+                return False, "Item already equipped."
+
+        # Equip to all possible slots if multi-slot is flagged.
+        if item.slots & EquipmentSlots.MULTI_SLOT:
+            removed = []
+            for s in EquipmentSlots:
+                if s & item.slots and s.name in self.equip_slots:
+                    d, replaced = self.replace_equipment(item, s.name)
+                    if d:
+                        dirty = True
+
+                    if replaced:
+                        removed.append(replaced)
+
+            if dirty and removed:
+                msg = item_list_to_string(removed)
+
+            else:
+                msg = "Unable to auto-equip: Multi-slot item matched no equipment slots."
+
+        # Equip to the first possible slot, if no slot was specified.
+        elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
+            for key, value in self.equip_slots.items():
+                if item.slots & EquipmentSlots[key]:
+                    dirty, replaced = self.replace_equipment(item, key)
+                    if replaced:
+                        msg = replaced.get_full_name()
+                    break
+
+            if not dirty:
+                msg = (
+                    "Unable to auto-equip: None of the slots that the item could fill are empty. Either specify "
+                    "the slot, or unequip the item occupying the desired slot."
+                )
+
+        # Equip to the specified slot.
+        else:
+            if slot & item.slots and slot.name:
+                dirty, replaced = self.replace_equipment(item, slot.name)
+                if replaced:
+                    msg = replaced.get_full_name()
+
+            if not dirty:
+                msg = "Unable to equip: The item does not fit that slot."
+        if dirty:
+            self.is_dirty = True
+            self.health = min(self.health, self.get_health_max())
+
+        return dirty, msg
+
+    @classmethod
+    def from_dict(cls, p: dict) -> Optional["Player"]:
+        if p is None:
+            return None
+
+        player = cls(
+            pid=p["_id"],
+            gid=p["guild_id"],
+            uid=p["user_id"],
+            weight_limit=p["weight_limit"],
+            joined=p["joined"],
+            clarks=p["clarks"],
+            defense=p["defense"],
+            dodge=p["dodge"],
+            health=p["health"],
+            health_max=p["health_max"],
+            inventory=Inventory.from_list(p["items"]),
+            rolls=p["rolls"],
+            skills=p["skills"],
+            gender=p["gender"] if "gender" in p.keys() else None,
+            pronouns=p["pronouns"] if "pronouns" in p.keys() else None,
+            equip_slots=p["equip_slots"] if "equip_slots" in p.keys() else None,
+            last_active=p["last_active"] if "last_active" in p.keys() else None,
+        )
+
+        left = player.inventory[str(p["equip_slots"][EquipmentSlots.LEFT_HELD.name])]
+        right = player.inventory[str(p["equip_slots"][EquipmentSlots.RIGHT_HELD.name])]
+
+        if left and isinstance(left, Weapon):
+            player.equip(left, EquipmentSlots.LEFT_HELD)
+
+        if right and isinstance(right, Weapon):
+            player.equip(right, EquipmentSlots.RIGHT_HELD)
+
+        return player
+
+    def gain_skill_experience(self, skill: str) -> None:
+        """Applies experience gain for the given skill."""
+
+        if skill not in self.skills.keys():
+            self.skills[skill] = 0
+
+        skill_level = self.get_skill_level(skill)
+
+        if skill_level < 20:
+            amt = 10 + floor(10 * (skill_level**0.5))
+            if "two-handed" in skill:
+                amt *= 2
+
+            self.skills[skill] += amt
+            self.is_dirty = True
+
+    def get_armor_bonuses(self, *names: str) -> Dict[str, int]:
+        """
+        Returns a dictionary containing the sums of all bonuses granted by equipment.
+        :param names: If you wish to retrieve specific bonuses, provide their names.
+        :return: A dictionary containing the sum of bonuses from all equipment worn.
+        """
+
+        result: Dict[str, int] = {}
+        items_checked = []
+        for slot, item in self.equip_slots.items():
+            if isinstance(item, Armor) and item not in items_checked:
+                items_checked.append(item)
+                for bonus, value in item.bonuses.items():
+                    if names and bonus not in names:
+                        continue
+
+                    if bonus not in result.keys():
+                        result[bonus] = value
+                    else:
+                        result[bonus] += value
+
+        return result
+
+    def get_chart_attacks(self) -> Tuple[Embed, File]:
+        """Returns a discord Embed and File for the player's natural rolls."""
+
+        embed = Embed(title=f"d20 Rolls", description=f"for {self.name}", color=0x00FFFF)
+
+        rolls = 0
+        total = 0
+        for idx, count in enumerate(self.rolls["d20"]):
+            rolls += count
+            total += (idx + 1) * count
+
+        mean = total / rolls if rolls > 0 else 0
+
+        embed.add_field(name="Count", value=f"{rolls:,}", inline=True)
+        embed.add_field(name="Mean", value=f"{mean:.2f}", inline=True)
+
+        cyan = (0.0, 1.0, 0.7, 1.0)
+
+        series = pandas.Series(self.rolls["d20"], index=range(1, 21), dtype="int")
+        ax = series.plot(kind="bar")
+        ax.set_xlabel("Rolls")
+        ax.set_ylabel("Count")
+        ax.xaxis.label.set_color(cyan)
+        ax.yaxis.label.set_color(cyan)
+        ax.set_ybound(lower=0)
+        ax.tick_params(axis="both", colors=cyan)
+        ax.grid(True, axis="y", color=cyan, alpha=0.25)
+        for spine in ax.spines.values():
+            spine.set_color(cyan)
+
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png", transparent=True)
+        plt.close()
+        buffer.seek(0)
+        file = File(buffer, filename="plot.png")
+        embed.set_image(url="attachment://plot.png")
+
+        return embed, file
+
+    def get_combat_rolls(self, weapon: Optional[Weapon], creature: Creature) -> CombinedRoll:
+        """Returns a CombinedRoll for the given weapon's attack and damage rolls."""
+
+        bonus = self.get_skill_bonus("unarmed" if weapon is None else weapon.skill)
+        attack = AttackRoll(skill_bonus=bonus[0])
+        damage = DamageRoll(
+            dice=Dice.d4() if weapon is None else Dice.from_ndn(weapon.attack),
+            weapon_bonus=0 if weapon is None else weapon.bonus,
+            skill_bonus=bonus[1],
+        )
+        return CombinedRoll(attack, damage, creature.dodge)
+
+    def get_defense(self) -> int:
+        """Tallies the total defense value for the given player."""
+        d = self.get_armor_bonuses("defense")
+        if "defense" in d.keys():
+            return max(0, d["defense"] + self.defense)
+        return self.defense
+
+    def get_dodge(self) -> int:
+        """Tallies the total dodge value for the given player."""
+        d = self.get_armor_bonuses("dodge")
+        if "dodge" in d.keys():
+            return max(0, d["dodge"] + self.dodge)
+        return self.dodge
+
+    def get_health_max(self) -> int:
+        """Tallies the total max health value for the given creature."""
+        d = self.get_armor_bonuses("health_max")
+        if "health_max" in d.keys():
+            return max(0, d["health_max"] + self.health_max)
+        return self.health_max
+
+    def get_equipment(self, guild_name: str, show_all: bool = False) -> Embed:
+        """Returns a discord embed for the player's equipment slots."""
+        embed = Embed(title=f"Player Equipment", description=f"for {self.name} on {guild_name}", color=0x00FFFF)
+
+        fields = [
+            ("Equipped", "---------------------------------------------------", False),
+        ]
+
+        for slot, item in self.equip_slots.items():
+            if not EquipmentSlots.exclude_from_output(slot):
+                if item is None:
+                    if show_all:
+                        fields.append((slot, "None", True))
+                else:
+                    fields.append((slot, item.get_full_name(), True))
+
+        for f, v, i in fields:
+            embed.add_field(name=f, value=v, inline=i)
+
+        return embed
+
+    def get_inventory(self, filtr: str = None) -> str:
+        """Returns a string containing a formatted display of the player's inventory."""
+
+        msg = ""
+        inv = self.inventory.filter(filtr)
+
+        for idx, item in enumerate(inv):
+            if item is None:
+                continue
+            msg += f"\n{idx + 1}: {item.get_full_name()}"
+            for s, i in self.equip_slots.items():
+                msg += f"{' [' + s + ']' if i == item and not EquipmentSlots.exclude_from_output(s) else ''}"
+
+        if len(msg) == 0 and not filtr:
+            msg = "\nYou have no items."
+        elif len(msg) == 0 and filtr:
+            msg = "\nNo items matched the provided filter."
+
+        return msg
+
+    def get_profile(self, guild_name: str) -> Embed:
+        """Returns a discord Embed for the player's profile."""
+
+        embed = Embed(title=f"Player Profile", description=f"for {self.name} on {guild_name}", color=0x00FFFF)
+
+        lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
+        rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+
+        fields = [
+            ("\u200b", "\u200b", False),
+            ("Stats", "---------------------------------------------------", False),
+            ("Left Hand", f"{lh.attack} + {lh.bonus}" if lh else "1d4", True),
+            ("Right Hand", f"{rh.attack} + {rh.bonus}" if rh else "1d4", True),
+            ("\u200b", "\u200b", True),
+            ("Defense", self.get_defense(), True),
+            ("Dodge", self.get_dodge(), True),
+            ("Health", f"{self.health} / {self.get_health_max()}", True),
+            ("\u200b", "\u200b", False),
+            ("General", "---------------------------------------------------", False),
+            ("Gender", self.gender.lower(), True),
+            ("Pronouns", "/".join(self.pronouns.values()), True),
+            ("\u200b", "\u200b", True),
+            ("Clarks", f"{self.clarks:,}", True),
+            ("Weight", f"{self.get_weight():,} / {self.weight_limit:,}", True),
+            ("\u200b", "\u200b", True),
+            ("Joined", self.joined, False),
+        ]
+
+        for f, v, i in fields:
+            embed.add_field(name=f, value=v, inline=i)
+
+        return embed
+
+    def get_skill_bonus(self, skill: str) -> Tuple[int, int]:
+        """Returns a tuple containing the attack bonus and damage bonus for a given skill."""
+
+        atk = floor(self.get_skill_level(skill) / 2)
+        dmg = floor(self.get_skill_level(skill) / 4)
+        return atk, dmg
+
+    def get_skill_display(self) -> Embed:
+        embed = Embed(title="Skills", description=f"for {self.name}", color=0x00FFFF)
+
+        fields = []
+
+        for skill in self.skills.keys():
+            bonuses = self.get_skill_bonus(skill)
+            msg = f"Current XP: {self.skills[skill]:,}\nAttack Bonus: {bonuses[0]}\nDamage Bonus: {bonuses[1]}"
+            fields.append((f"{skill} ({self.get_skill_level(skill)})", msg, True))
+
+        for f, v, i in fields:
+            embed.add_field(name=f, value=v, inline=i)
+
+        return embed
+
+    def get_skill_level(self, skill: str) -> int:
+        """Return the skill level for the given skill."""
+
+        if skill not in self.skills.keys():
+            return 1
+
+        return min(20, floor((25 + (5 * (125 + self.skills[skill])) ** 0.5) / 50))
+
+    def get_weight(self):
+        """Returns the cumulative weight of the player's inventory."""
+
+        return self.inventory.get_weight()
+
+    def give_item(self, item: Item) -> bool:
+        """
+        Adds an item to the player's inventory, if they can afford the weight.
+
+        Returns a boolean value indicating if the item was added.
+        """
+
+        if self.get_weight() + item.get_weight() > self.weight_limit:
+            return False
+
+        self.inventory.add(item)
+        self.is_dirty = True
+        return True
+
+    def remove(self, item: Equipment) -> str:
+        """
+        Removes an item from all slots that it occupies.
+
+        :param item: The item to remove.
+        :return: A string representing the result of the removal.
+        """
+
+        dirty = False
+        msg = ""
+        removed = []
+
+        if item is None:
+            return "Nothing to remove."
+
+        for s in EquipmentSlots:
+            if not EquipmentSlots.exclude_from_output(s.name) and s & item.slots and self.equip_slots[s.name] == item:
+                self.equip_slots[s.name] = None
+                removed.append(s.name)
+                dirty = True
+
+        if dirty:
+            msg = f"Removed {item.get_full_name()}."
+            self.is_dirty = True
+            self.health = min(self.health, self.get_health_max())
+
+        else:
+            msg = f"{item.get_full_name().capitalize()} does not seem to be equipped."
+
+        return msg
+
+    def sell(self, item: Item, count: int = 1, _all: bool = False) -> Tuple[str, int]:
+        """
+        Sells the given item if the player has it.
+        """
+
+        if item is None:
+            return "No item was specified.", 0
+
+        sold = False
+        value = 0
+
+        if count is None or count == 0:
+            count = 1
+
+        if isinstance(item, Stackable):
+            if _all:
+                count = item.count
+
+            value = item.unit_value * count
+            sold = self.take_item(item, count)
+
+        else:
+            value = item.unit_value
+            sold = self.take_item(item)
+
+        name = item.get_full_name(count) if isinstance(item, Stackable) else item.get_full_name()
+
+        if sold:
+            self.clarks += value
+            return f"You sold {name} for {value} clark{'s' if value != 1 else ''}.", value
+
+        return f"Item not found", 0
+
+    def take_item(self, item: Item, count: int = 1) -> Optional[Item]:
+        """
+        Removes an item from the player's inventory, if present.
+
+        Returns the item that was found and removed, or None if the item was not found or was equipped.
+        """
+
+        if item == self.inventory[item.id] and item not in self.equip_slots.values():
+            self.inventory.remove(item, count)
+            self.is_dirty = True
+            return item
+        return None
+
+    def on_hugged(self, actor: Creature, invocation: str) -> str:
+        """
+        Gets a creature's reaction to being hugged.
+
+        :param actor: The Creature object initiating the hug.
+        :param invocation: The calling command, such as 'hug', 'cuddle', or 'snuggle'.
+        :return: A string representing the creature's reaction.
+        """
+        if self.is_dead():
+            return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
+        return parse("@1 glances at @2 and sidesteps @2a hug.", self, actor)
+
+    def to_dict(self) -> dict:
+        """Returns a dictionary of the player's attributes."""
+
+        d = {
+            "_id": self.id,
+            "user_id": self.user_id,
+            "guild_id": self.guild_id,
+            "name": self.name,
+            "defense": self.defense,
+            "dodge": self.dodge,
+            "health": self.health,
+            "health_max": self.health_max,
+            "weight_limit": self.weight_limit,
+            "joined": self.joined,
+            "clarks": self.clarks,
+            "rolls": self.rolls,
+            "skills": self.skills,
+            "gender": self.gender,
+            "pronouns": ",".join(list(self.pronouns.values())[:-1]),
+            "items": self.inventory.to_list(),
+            "equip_slots": {},
+            "last_active": self.last_active,
+        }
+
+        for slot, item in self.equip_slots.items():
+            if not EquipmentSlots.exclude_from_output(slot):
+                d["equip_slots"][slot] = item.id if item else None
+
+        if self.id is None:
+            del d["_id"]
+
+        return d
+
+    def update_roll_count(self, sides: int, value: int):
+        """Updates the player's roll count for an individual die roll."""
+
+        if sides <= 1 or 1 > value or value > sides or f"d{sides}" not in self.rolls.keys():
+            return
+
+        self.rolls[f"d{sides}"][value - 1] += 1
+        self.is_dirty = True
+
+    def update_roll_counts(self, *rolls: Optional[CombinedRoll]):
+        """Updates the player's attack and damage averages."""
+
+        for roll in rolls:
+            if roll and roll.attack:
+                self.update_roll_count(20, roll.attack.rolls[0])
+                if not roll.isMiss:
+                    for r in roll.damage.rolls:
+                        self.update_roll_count(roll.damage.sides, r)
+
+    def use_item(self, item: Union[Usable, Consumable]) -> str:
+        msg = "There does not seem to be a way to do that."
+        if item and isinstance(item, Consumable):
+            msg, any_left = item.use(self)
+            if not any_left:
+                self.inventory.remove(item)
+                self.is_dirty = True
+
+        elif item and isinstance(item, Usable):
+            msg = item.use(self)
+
+        return msg

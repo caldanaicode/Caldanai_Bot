@@ -1,0 +1,7 @@
+discord.py
+discord_ext_menus
+pymongo
+python-dotenv
+pandas
+matplotlib
+flask

@@ -1,0 +1,159 @@
+from queue import Queue
+from typing import Union, Tuple
+
+from discord import User, Member, TextChannel, Guild, Embed, File, HTTPException
+from discord.ext import tasks
+from discord.ext.commands import Context
+
+from Caldanai.Logger import get_logger
+
+
+_log = get_logger(__name__)
+
+
+class Dispatcher:
+    queue: Queue = Queue(-1)
+    flush: bool = False
+
+    class Message:
+        """
+        Container class for message data.
+        """
+
+        def __init__(
+            self,
+            channel: Union[User, Member, TextChannel, Guild],
+            text: Union[str, Tuple[str], None] = None,
+            embed: Union[Embed, None] = None,
+            file: Union[File, None] = None,
+        ):
+            self.channel = channel
+            self.text = text
+            self.embed = embed
+            self.file = file
+
+    @classmethod
+    def add_message(cls, message: Message):
+        """
+        Enqueues a message to the dispatcher.
+
+        :param message: Message object to send.
+        """
+        if cls.flush:
+            return
+
+        if not cls.queue.empty():
+            last_msg: cls.Message = cls.queue.queue[-1]
+            if (
+                isinstance(last_msg.channel, type(message.channel))
+                and last_msg.channel.id == message.channel.id
+                and last_msg.file is None
+                and last_msg.embed is None
+                and message.embed is None
+                and message.file is None
+                and len(last_msg.text) + len(message.text) + 1 < 2000
+            ):
+                last_msg.text += f"\n{message.text}"
+            else:
+                cls.queue.put(message)
+        else:
+            cls.queue.put(message)
+
+    @classmethod
+    def add(
+        cls,
+        channel: Union[User, Member, TextChannel, Guild],
+        text: Union[str, Tuple[str], None] = None,
+        embed: Embed = None,
+        file: File = None,
+    ):
+        """
+        Enqueues a message to the dispatcher.
+
+        :param channel: The User, Member, TextChannel, or Guild to which the message will be sent.
+        :param text: Optional message to send. Limit of 2000 characters.
+        :param embed: Optional Embed to send.
+        :param file: Optional File to send.
+        """
+        if cls.flush:
+            return
+
+        ch = (
+            channel
+            if isinstance(channel, (User, Member, TextChannel, Guild))
+            else channel.channel if isinstance(channel, Context) else None
+        )
+
+        if ch is None:
+            _log.error(f"Dispatcher.add() - Unrecognized channel type: {type(channel)}")
+            return
+
+        cls.add_message(cls.Message(ch, text, embed, file))
+
+    @staticmethod
+    def split_message(message: str, sep: str = "\n", keep_sep: bool = False, limit: int = 1900) -> Tuple[str]:
+        """
+        Splits a string into a tuple of strings at every separator nearest to a character limit.
+
+        :param message: The string to split.
+        :param sep: The separator to split on. Default is a new line character.
+        :param keep_sep: Specifies whether to add the separator back into the split string after splitting.
+        :param limit: The maximum number of characters to allow per split.
+        :return: A tuple of strings.
+        """
+
+        result: Tuple[str] = ()
+        if message is None or len(message) == 0:
+            return result
+        elif len(message) <= limit:
+            result = (message,)
+        else:
+            i = 0
+            while i < len(message):
+                if len(message) - i < limit:
+                    m = message[i:]
+                    result += (m,)
+                    i += len(m)
+                else:
+                    m = message[i : i + limit].rsplit(sep, 1)
+                    result += (m[0] + sep if keep_sep else "",)
+                    i += len(m[0]) + len(sep)
+        return result
+
+
+@tasks.loop(seconds=1)
+async def send():
+    """
+    Sends a batch of messages to discord's API every second.
+    """
+
+    count = 0
+    while not Dispatcher.queue.empty() and count < 10:
+        message: Dispatcher.Message = Dispatcher.queue.get()
+        try:
+            if isinstance(message.text, (str, Tuple)) or message.text is None:
+                if message.text is None or len(message.text) <= 2000:
+                    await message.channel.send(message.text, embed=message.embed, file=message.file)
+                elif isinstance(message.text, Tuple):
+                    for msg in message.text:
+                        await message.channel.send(msg)
+                        count += 1
+                else:
+                    _log.warning(f"Message length was too long: {len(message.text)} characters.")
+
+        except HTTPException as e:
+            msg = "HTTP Exception"
+            if e.status == 429:
+                msg += " -- Message blocked due to rate limiting."
+                if "Retry-After" in e.response.headers.keys():
+                    msg += f" Retry after {e.response.headers['Retry-After']} seconds."
+
+            elif e.status == 400:
+                msg += " -- Message returned a bad format error."
+            elif e.status == 524:
+                msg += " -- Cloudflare Timeout Error 524."
+            else:
+                msg += e.text
+
+            _log.error(f"{msg}\n\tError Code: {e.code}\n\tError Status: {e.status}")
+        count += 1
