@@ -141,7 +141,7 @@ class RpgUserCommands(Cog):
                     "You cannot hug me, for I exist only in the ether.",
                     "One does not simply hug the AI, mortal.",
                 ]
-                if c := randint(0, 3) == 3:
+                if (c := randint(0, 3)) == 3:
                     file = File(f"./site/static/images/hal9000.gif", filename="hal9000.gif")
                     Dispatcher.add(game.channel, file=file)
                 else:
