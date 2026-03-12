@@ -5,7 +5,5 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DB_CONNECTION = getenv("DB_CONNECTION")
-FLASK_HOST = getenv("FLASK_HOST")
-FLASK_PORT = getenv("FLASK_PORT")
 LOG_LEVEL = getenv("LOG_LEVEL")
 STAGE = getenv("STAGE")
