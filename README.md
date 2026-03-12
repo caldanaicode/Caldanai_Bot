@@ -26,11 +26,10 @@ A Discord bot featuring dice rolling, a text-based RPG system, and general serve
 - `$shutdown` — Graceful shutdown with optional announcement (admin only)
 - Hot-reloadable cogs (`$reload_cog`)
 
-### Admin / Infrastructure
+### Infrastructure
 - MongoDB backend for persistent storage (players, games, servers, logs)
 - Batched database writes via a double-buffer queue
 - Plugin architecture for dynamically loading cogs, console commands, and monster definitions
-- Built-in log viewer web UI (Flask, `/logviewer`)
 - Console command interface for server-side management
 
 ## Requirements
@@ -63,8 +62,6 @@ A Discord bot featuring dice rolling, a text-based RPG system, and general serve
    DB_CONNECTION=mongodb://localhost:27017
    LOG_LEVEL=INFO
    STAGE=TEST          # or omit for production
-   FLASK_HOST=0.0.0.0
-   FLASK_PORT=8080
    ```
 
 4. **Set up the database**
@@ -88,7 +85,6 @@ A Discord bot featuring dice rolling, a text-based RPG system, and general serve
 ```
 Caldanai_Bot/
 ├── main.py                  # Entry point — starts bot, console, and input loops
-├── server.py                # Flask web server (log viewer, status page)
 ├── Caldanai/
 │   ├── __init__.py          # Event/Observer pattern, PluginManager
 │   ├── Dispatcher.py        # Batched message queue for Discord API
@@ -110,7 +106,8 @@ Caldanai_Bot/
 │           ├── helpers/     # Dice, enums, text parser, utilities
 │           ├── time/        # In-game clock and scheduled routines
 │           └── PlayerManager/
-└── site/                    # Flask templates and static assets
+└── site/
+    └── static/images/       # RPG asset images (used in Discord embeds)
 ```
 
 ## License
