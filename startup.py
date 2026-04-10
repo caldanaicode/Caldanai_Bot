@@ -1,6 +1,5 @@
 import subprocess
-subprocess.run(["git", "reset", "--hard", "origin/mainline"], cwd="/home/container")
+import sys
 
-import main
-import asyncio
-asyncio.run(main.main())
+subprocess.run(["git", "reset", "--hard", "origin/mainline"], cwd="/home/container")
+sys.exit(subprocess.run([sys.executable, "/home/container/main.py"]).returncode)
