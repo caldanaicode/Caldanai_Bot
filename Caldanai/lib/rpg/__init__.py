@@ -192,10 +192,10 @@ class Game:
                 _log.error(f"Monster definition not found for `{monster}`")
                 return False
 
-        if spawn_msg := self.monster.on_spawn(self):
-            Dispatcher.add(self.channel, parse(spawn_msg, self.monster))
         embed, file = self.monster.get_embed()
         Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
+        if spawn_msg := self.monster.on_spawn(self):
+            Dispatcher.add(self.channel, parse(spawn_msg, self.monster))
         if self.monster.dies_from_time or self.monster.flees_from_time:
             self.game_clock.add_routine(self.check_time, 1)
         return True
