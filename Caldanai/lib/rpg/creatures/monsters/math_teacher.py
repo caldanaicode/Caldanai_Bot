@@ -1,7 +1,6 @@
-from random import choice, sample
+from random import choice
 from typing import Tuple
 
-from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import (
@@ -69,34 +68,19 @@ class MathTeacher(MonsterPlugin):
 
     @staticmethod
     def is_prime(number: int) -> bool:
-        if number > 1:
-            for i in range(2, int(number / 2) + 1):
-                if number % i == 0:
-                    return False
-
-            return True
-
-        else:
+        if number < 2:
             return False
-
-    def attack_random(self, combatants: list, count=1) -> str:
-        if combatants and 0 < count <= len(combatants):
-            victims = sample(combatants, count)
-            m = None
-            for victim in victims:
-                m, d = self.do_attack(victim, DamageTypes.MAGICAL)
-                if d > 0:
-                    m += parse(victim.apply_damage(d), victim)
-
-            return m
-
-        return None
+        i = 2
+        while i * i <= number:
+            if number % i == 0:
+                return False
+            i += 1
+        return True
 
     def do_attack(self, target: Creature, dmg_type: DamageTypes = None) -> Tuple[str, int]:
-        print("Called do_attack from math_teacher.py")
         attack = AttackRoll(skill_bonus=0)
         damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
-        msg, dmg = target.on_attacked(self, attack, damage, DamageTypes.MAGICAL)
+        msg, dmg = target.on_attacked(self, attack, damage, DamageTypes.MATHEMAGICAL)
         if self.is_prime(dmg):
             dmg *= 2
             msg = msg[:-4] + f" __LORD OF PRIMES!__ * 2 = {dmg}```\n"
@@ -105,9 +89,8 @@ class MathTeacher(MonsterPlugin):
     def on_attacked(
         self, actor: Creature, atk_roll: AttackRoll, dmg_roll: DamageRoll, dmg_type: DamageTypes = None
     ) -> Tuple[str, int]:
-        print("Called on_attacked from math_teacher.py")
         msg, dmg = super().on_attacked(actor, atk_roll, dmg_roll, dmg_type)
         if self.is_prime(dmg):
-            dmg /= 2
+            dmg //= 2
             msg = msg[:-4] + f" __LORD OF PRIMES!__ / 2 = {dmg}```\n"
         return msg, dmg

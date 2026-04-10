@@ -52,9 +52,11 @@ class DamageTypes(IntFlag):
     """Better for buffs, but can also be used to petrify and fashion magical + physical weapons"""
     AIR = 1 << 11
     """Better for utilities, and various effects when combined with other magics"""
+    MATHEMAGICAL = 1 << 12
+    """Damage dealt through the power of mathematics. Primes hit different."""
 
     # Combinations
-    ANY = RANGED | MAGICAL | BLUDGEONING | PIERCING | SLASHING | DARK | LIGHT | FIRE | WATER | EARTH | AIR
+    ANY = RANGED | MAGICAL | BLUDGEONING | PIERCING | SLASHING | DARK | LIGHT | FIRE | WATER | EARTH | AIR | MATHEMAGICAL
     """Indicates any damage type"""
     ALL = COMBINED | ANY
     """Indicates all damage types combined (which should be rare)"""
