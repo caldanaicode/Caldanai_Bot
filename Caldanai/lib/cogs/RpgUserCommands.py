@@ -148,9 +148,17 @@ class RpgUserCommands(Cog):
                     Dispatcher.add(game.channel, responses[c])
                 return
 
-            target = await RpgUtilities.get_player(ctx.message.mentions[0])
-
-            if target is not None:
+            # Monster takes priority if its name matches the mentioned player
+            mention = ctx.message.mentions[0]
+            if (
+                game.monster is not None
+                and game.monster.on_hugged
+                and game.monster.name.lower() == mention.display_name.lower()
+            ):
+                Dispatcher.add(
+                    game.channel, parse(game.monster.on_hugged(player, ctx.invoked_with), game.monster, player)
+                )
+            elif (target := await RpgUtilities.get_player(mention)) is not None:
                 Dispatcher.add(game.channel, parse(target.on_hugged(player, ctx.invoked_with), target, player))
 
         elif msg is not None and len(msg) > 0:

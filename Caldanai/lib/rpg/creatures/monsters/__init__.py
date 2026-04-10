@@ -52,6 +52,15 @@ class MonsterPlugin(Creature):
         self.death = ""
         self.loot: Dict[str, float] = {}
 
+    def on_spawn(self, game) -> str:
+        """Called after the monster is placed into the game. Override to perform
+        setup that requires access to the game state (players, channel, etc.).
+
+        :param game: The Game instance this monster was spawned into.
+        :return: An optional message string to display, or empty string.
+        """
+        return ""
+
     def apply_damage(self, amount: int) -> str:
         was_alive = self.health > 0
         super().apply_damage(amount)
