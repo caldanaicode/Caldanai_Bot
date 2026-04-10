@@ -106,12 +106,12 @@ class Doppelganger(MonsterPlugin):
             f"both disturbing and fascinating, as it molds itself slowly into the likeness of {target.name}."
         )
 
-    def on_combat_round(self, damage_by_player: dict) -> str:
+    def on_combat_round(self, damage_by_player: list) -> str:
         """Imitate whoever hit the hardest this round."""
         if not damage_by_player:
             return ""
 
-        hardest_hitter = max(damage_by_player, key=damage_by_player.get)
+        hardest_hitter, _ = max(damage_by_player, key=lambda x: x[1])
         if isinstance(hardest_hitter, Player):
             return self.imitate(hardest_hitter)
         return ""

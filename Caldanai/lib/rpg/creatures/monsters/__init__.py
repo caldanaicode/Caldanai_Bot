@@ -52,11 +52,11 @@ class MonsterPlugin(Creature):
         self.death = ""
         self.loot: Dict[str, float] = {}
 
-    def on_combat_round(self, damage_by_player: dict) -> str:
+    def on_combat_round(self, damage_by_player: list) -> str:
         """Called after players attack but before the monster retaliates.
         Override to react to per-player damage dealt this round.
 
-        :param damage_by_player: Dict mapping Player → int damage dealt this round.
+        :param damage_by_player: List of (Player, int) tuples with damage dealt this round.
         :return: An optional message string to display, or empty string.
         """
         return ""

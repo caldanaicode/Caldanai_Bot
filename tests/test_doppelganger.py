@@ -142,16 +142,16 @@ class TestOnCombatRound:
         weak = _make_player("Weak")
         strong = _make_player("Strong")
 
-        msg = doppel.on_combat_round({weak: 5, strong: 15})
+        msg = doppel.on_combat_round([(weak, 5), (strong, 15)])
 
         assert doppel.name == "Strong"
         assert "likeness" in msg
 
-    def test_empty_damage_dict_no_change(self):
+    def test_empty_list_no_change(self):
         doppel = Doppelganger()
         original_name = doppel.name
 
-        msg = doppel.on_combat_round({})
+        msg = doppel.on_combat_round([])
 
         assert doppel.name == original_name
         assert msg == ""
@@ -160,7 +160,7 @@ class TestOnCombatRound:
         doppel = Doppelganger()
         creature = MagicMock(spec=Creature)
 
-        msg = doppel.on_combat_round({creature: 99})
+        msg = doppel.on_combat_round([(creature, 99)])
 
         assert msg == ""
         assert doppel.name == "???"

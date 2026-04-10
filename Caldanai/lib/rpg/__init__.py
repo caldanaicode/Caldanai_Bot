@@ -315,7 +315,7 @@ class Game:
                 monster.aggression & (AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE)
             ):
 
-                if round_msg := monster.on_combat_round({p: d for p, d in damage_by_player.values()}):
+                if round_msg := monster.on_combat_round(list(damage_by_player.values())):
                     msg += f"\n{round_msg}"
                 msg += f"\n{monster.attack_random(self.combatants)}"
 
