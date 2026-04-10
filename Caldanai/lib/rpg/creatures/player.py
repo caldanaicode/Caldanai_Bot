@@ -44,6 +44,7 @@ class Player(Creature):
         pronouns: Optional[str] = None,
         equip_slots: Optional[Dict[str, Item]] = None,
         last_active: Optional[datetime] = None,
+        health_regen: Optional[int] = 0,
     ):
         super().__init__(
             name=None,
@@ -74,7 +75,7 @@ class Player(Creature):
             "d12": [0] * 12,
             "d20": [0] * 20,
         }
-        self.health_regen = 0
+        self.health_regen = health_regen
         self.equip_slots: Dict[str, Optional[Equipment]] = {}
 
         for slot in EquipmentSlots:
@@ -256,6 +257,7 @@ class Player(Creature):
             pronouns=p["pronouns"] if "pronouns" in p.keys() else None,
             equip_slots=p["equip_slots"] if "equip_slots" in p.keys() else None,
             last_active=p["last_active"] if "last_active" in p.keys() else None,
+            health_regen=p.get("health_regen", 0),
         )
 
         left = player.inventory[str(p["equip_slots"][EquipmentSlots.LEFT_HELD.name])]
@@ -614,6 +616,7 @@ class Player(Creature):
             "items": self.inventory.to_list(),
             "equip_slots": {},
             "last_active": self.last_active,
+            "health_regen": self.health_regen,
         }
 
         for slot, item in self.equip_slots.items():

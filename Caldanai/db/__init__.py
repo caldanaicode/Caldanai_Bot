@@ -265,7 +265,7 @@ class DB:
     @staticmethod
     def insert_game(guild_id, channel_id):
         """Inserts a game into the database."""
-        DB._queues[DB._games].put(InsertOne({"guild_id": guild_id, "channelId": channel_id}))
+        DB._queues[DB._games].put(InsertOne({"guild_id": guild_id, "channel_id": channel_id}))
 
     @check_connection
     @staticmethod

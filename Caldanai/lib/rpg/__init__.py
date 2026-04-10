@@ -374,7 +374,7 @@ class Game:
 
         d = {
             "guild_id": self.guild.id,
-            "channelId": self.channel.id,
+            "channel_id": self.channel.id,
             "use_spawn_timer": self.use_spawn_timer,
             "spawn_duration": int(self.spawn_duration / 60),
             "loot_duration": int(self.loot_duration / 60),
@@ -438,8 +438,26 @@ class Game:
 
         game.guild = bot.get_guild(d["guild_id"])
         game.channel = bot.get_channel(d["channel_id"])
+
+        if game.guild is None:
+            _log.error(f"Failed to load game {d['_id']}: guild {d['guild_id']} not found.")
+            return None
+        if game.channel is None:
+            _log.error(f"Failed to load game {d['_id']}: channel not found for guild {d['guild_id']}.")
+            return None
+
         await game.player_manager.load_players(game.guild)
         game.game_clock.add_routine(game.player_manager.update_inactive_roles, 3600)
         game.prefix = DB.get_server_by_guild_id(game.guild.id)["prefix"]
+
+        # Kickstart regen for dead players so they don't waste the first cycle
+        dead_count = 0
+        for player in game.player_manager.players.values():
+            if player.is_dead():
+                dead_count += 1
+                if player.health_regen == 0:
+                    player.health_regen = 1
+        if dead_count:
+            _log.info(f"Game {game.guild.name}: {dead_count} dead player(s) — health regen will revive them.")
 
         return game
