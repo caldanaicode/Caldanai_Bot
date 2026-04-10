@@ -4,6 +4,7 @@ import os
 import traceback
 
 from collections import defaultdict
+from datetime import datetime
 from discord.ext import tasks
 from pymongo import DESCENDING, DeleteMany, DeleteOne, InsertOne, MongoClient, UpdateOne
 from pymongo.database import Database
@@ -14,6 +15,9 @@ from Caldanai.environment import DB_CONNECTION, STAGE
 from Caldanai.Logger import MongoHandler, get_logger
 
 _log = get_logger(__name__)
+
+# Seconds without a successful DB write before an alert is sent.
+_WRITE_ALERT_THRESHOLD = 300
 
 
 class DB:
@@ -31,6 +35,8 @@ class DB:
     _command_statics = _mongoDB.user_command_statics
     _logs = _mongoDB.logs_discord
     _is_connected = False
+    _last_successful_write: datetime = None
+    _write_alert_sent = False
 
     @staticmethod
     def on_connected() -> None:
@@ -38,6 +44,7 @@ class DB:
 
         _log.info("Database connected")
         DB._is_connected = True
+        DB._write_alert_sent = False
         if DB.poll_for_connection.is_running():
             DB.poll_for_connection.stop()
             _log.debug("poll_for_connection() stopped")
@@ -52,9 +59,6 @@ class DB:
 
         _log.error("Database disconnected")
         DB._is_connected = False
-        if DB.batch_write.is_running():
-            DB.batch_write.stop()
-            _log.debug("batch_write() stopped")
 
         if not DB.poll_for_connection.is_running():
             DB.poll_for_connection.start()
@@ -107,11 +111,24 @@ class DB:
         DB._mongoClient.close()
 
     @tasks.loop(minutes=1)
-    @check_connection
     async def batch_write():
-        """Performs batch writing to the database for the queued items."""
+        """Performs batch writing to the database for the queued items.
 
-        collections = DB._queues.keys()
+        Handles its own connection checking inline so that a failed ping
+        skips the current cycle without ever stopping the task loop.
+        """
+
+        try:
+            DB._mongoClient.admin.command("ping")
+            if not DB._is_connected:
+                DB.on_connected()
+        except Exception:
+            _log.error("DB ping failed during batch_write.", exc_info=True)
+            if DB._is_connected:
+                DB.on_disconnected()
+            return  # skip this cycle; the task stays alive
+
+        collections = list(DB._queues.keys())
         for collection in collections:
             if ops := DB._queues[collection].get_all():
                 _log.debug(
@@ -124,17 +141,20 @@ class DB:
                     error_info = traceback.format_exc()
                     _log.error(f"Error occurred while performing bulk write operation: {error_info}")
 
-        if errors := [InsertOne(item) for item in DB._mongoHandler.queue.get_all()]:
+        if DB._mongoHandler and (errors := [InsertOne(item) for item in DB._mongoHandler.queue.get_all()]):
             try:
                 DB._logs.bulk_write(errors)
             except BulkWriteError:
                 error_info = traceback.format_exc()
                 _log.error(f"Error occurred while performing bulk write operation: {error_info}")
 
+        DB._last_successful_write = datetime.now()
+        DB._write_alert_sent = False
+
     @batch_write.error
     async def batch_write_error(e):
         error_info = traceback.format_exc()
-        _log.error(error_info)
+        _log.error(f"batch_write task error: {error_info}")
 
     @tasks.loop(minutes=1)
     async def poll_for_connection():
@@ -252,3 +272,67 @@ class DB:
     def get_last_command(guild_id):
         """Retrieves the last command recorded in the database."""
         return DB._command_statics.find_one({"guild_id": guild_id}, sort=[("timestamp", DESCENDING)])
+
+    @tasks.loop(minutes=5)
+    async def watchdog():
+        """Monitors critical task loops and alerts if DB writes have stalled."""
+
+        from Caldanai.Dispatcher import send
+        from Caldanai.lib.rpg.helpers.utils import save_game_data, generate_report
+
+        restarted = []
+
+        if not DB.batch_write.is_running():
+            _log.error("WATCHDOG: batch_write was not running — restarting.")
+            DB.batch_write.start()
+            restarted.append("batch_write")
+
+        if not save_game_data.is_running():
+            _log.error("WATCHDOG: save_game_data was not running — restarting.")
+            save_game_data.start()
+            restarted.append("save_game_data")
+
+        if not send.is_running():
+            _log.error("WATCHDOG: Dispatcher.send was not running — restarting.")
+            send.start()
+            restarted.append("send")
+
+        if DB._last_successful_write is not None:
+            elapsed = (datetime.now() - DB._last_successful_write).total_seconds()
+            if elapsed > _WRITE_ALERT_THRESHOLD and not DB._write_alert_sent:
+                _log.critical(
+                    f"WATCHDOG: No successful DB write in {int(elapsed)} seconds!"
+                )
+                try:
+                    generate_report(
+                        author_id="SYSTEM",
+                        author_display_name="Watchdog",
+                        message=(
+                            f"No successful database write in {int(elapsed)} seconds.\n"
+                            f"batch_write running: {DB.batch_write.is_running()}\n"
+                            f"DB connected flag: {DB._is_connected}\n"
+                            f"Tasks restarted this cycle: {restarted or 'none'}"
+                        ),
+                    )
+                except Exception:
+                    _log.error("WATCHDOG: Failed to send alert.", exc_info=True)
+                DB._write_alert_sent = True
+
+        elif DB.batch_write.is_running():
+            # First cycle after startup — seed the timestamp
+            DB._last_successful_write = datetime.now()
+
+        if restarted:
+            try:
+                generate_report(
+                    author_id="SYSTEM",
+                    author_display_name="Watchdog",
+                    message=f"Restarted dead task(s): {', '.join(restarted)}",
+                )
+            except Exception:
+                _log.error("WATCHDOG: Failed to send restart alert.", exc_info=True)
+
+    @watchdog.error
+    async def watchdog_error(e):
+        error_info = traceback.format_exc()
+        _log.error(f"Watchdog task error: {error_info}")

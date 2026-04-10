@@ -21,6 +21,28 @@ from Caldanai.lib.rpg import Game, Area, Roles
 
 _log = get_logger(__name__)
 
+# Cached auth credentials so alerts can be sent even when the DB is unreachable.
+_cached_auth = None
+
+
+def cache_auth():
+    """Fetches and caches alert credentials from the database. Call once at startup."""
+    global _cached_auth
+    try:
+        auth_rec = DB.get_auth()
+        if auth_rec:
+            _cached_auth = {
+                "DEV_EMAIL": auth_rec["DEV_EMAIL"],
+                "SMTP_USER": auth_rec["SMTP_USER"],
+                "SMTP_PASSWORD": auth_rec["SMTP_PASSWORD"],
+                "SMS_EMAIL": auth_rec["SMS_EMAIL"],
+            }
+            _log.debug("Alert credentials cached.")
+        else:
+            _log.error("cache_auth: no auth record found in database.")
+    except Exception:
+        _log.error("cache_auth: failed to cache alert credentials.", exc_info=True)
+
 
 def generate_report(
     author_id,
@@ -30,9 +52,18 @@ def generate_report(
     guild_id=None,
     channel_id=None,
 ):
-    auth_rec = DB.get_auth()
+    # Try live DB first, fall back to cached credentials.
+    auth_rec = None
+    try:
+        auth_rec = DB.get_auth()
+    except Exception:
+        pass
+
     if not auth_rec:
-        _log.error("Reporting error: unable to retrieve authentication information from database.")
+        auth_rec = _cached_auth
+
+    if not auth_rec:
+        _log.error("Reporting error: unable to retrieve authentication information from database or cache.")
         return False
 
     msg = EmailMessage()
@@ -269,12 +300,18 @@ class RpgUtilities:
     async def init(bot: Bot):
         try:
             RpgUtilities.bot = bot
+            cache_auth()
             games: List[Game] = list(DB.find_all_games())
             MonsterPlugin.load_plugins()
             for g in games:
                 await RpgUtilities.add_game(game=g)
             _log.debug("Starting save_game_data loop")
             save_game_data.start()
+
+            if not DB.watchdog.is_running():
+                _log.debug("Starting watchdog loop")
+                DB.watchdog.start()
+
             RpgUtilities.is_initialized = True
 
         except Exception as e:

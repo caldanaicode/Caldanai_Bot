@@ -163,6 +163,7 @@ class Bot(BotBase, Subject):
 
     async def on_disconnect(self):
         _log.warning("Disconnected from discord")
+        self.is_online_discord = False
         await self.notify(DiscordDisconnectedEvent())
 
     async def on_resumed(self):
