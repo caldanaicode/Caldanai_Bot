@@ -172,7 +172,20 @@ class Game:
             ]
             available_monsters.remove("__init__")
             if monster.lower() in available_monsters:
-                self.monster = importlib.import_module(f"Caldanai.lib.rpg.creatures.monsters.{monster}").MonsterPlugin()
+                mod = importlib.import_module(f"Caldanai.lib.rpg.creatures.monsters.{monster}")
+                # Find the MonsterPlugin subclass defined in this module
+                monster_cls = next(
+                    (
+                        obj for obj in vars(mod).values()
+                        if isinstance(obj, type) and issubclass(obj, MonsterPlugin) and obj is not MonsterPlugin
+                    ),
+                    None,
+                )
+                if monster_cls is None:
+                    Dispatcher.add(self.channel, f"The {monster} module does not define a monster class.")
+                    _log.error(f"No MonsterPlugin subclass found in module `{monster}`")
+                    return False
+                self.monster = monster_cls()
                 _log.debug(f"{self.monster} spawned selectively")
             else:
                 Dispatcher.add(self.channel, f"There is no such thing as a {monster}! (But there could be... 😈)")
