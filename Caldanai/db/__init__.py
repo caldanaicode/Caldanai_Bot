@@ -278,7 +278,7 @@ class DB:
         """Monitors critical task loops and alerts if DB writes have stalled."""
 
         from Caldanai.Dispatcher import send
-        from Caldanai.lib.rpg.helpers.utils import save_game_data, generate_report
+        from Caldanai.lib.rpg.helpers.utils import save_game_data, rescan_plugins, generate_report
 
         restarted = []
 
@@ -296,6 +296,11 @@ class DB:
             _log.error("WATCHDOG: Dispatcher.send was not running — restarting.")
             send.start()
             restarted.append("send")
+
+        if not rescan_plugins.is_running():
+            _log.error("WATCHDOG: rescan_plugins was not running — restarting.")
+            rescan_plugins.start()
+            restarted.append("rescan_plugins")
 
         if DB._last_successful_write is not None:
             elapsed = (datetime.now() - DB._last_successful_write).total_seconds()

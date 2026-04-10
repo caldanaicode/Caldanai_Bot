@@ -18,6 +18,7 @@ from Caldanai.db import DB
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.lib.bot import Bot
 from Caldanai.lib.rpg import Roles, parse
+from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.creatures.player import Player
 from Caldanai.lib.rpg.helpers.utils import RpgUtilities
 from Caldanai.lib.rpg.inventory import Inventory
@@ -510,6 +511,28 @@ class RpgAdminCommands(Cog):
 
         game.save()
         Dispatcher.add(game.channel, "Ambience has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @command(name="reload_plugins", aliases=["rp"], brief="Reloads monster and item plugins.")
+    async def reload_plugins(self, ctx: Context, target: str = None):
+        """
+        Reloads monster and/or item plugins from disk.
+
+        :param target: 'monsters', 'items', or omit for both.
+        """
+        reloaded = []
+        if target is None or target.lower() == "monsters":
+            MonsterPlugin.load_plugins()
+            reloaded.append("monsters")
+        if target is None or target.lower() == "items":
+            Inventory.ITEMS.clear()
+            Inventory.discover_items()
+            reloaded.append("items")
+
+        if reloaded:
+            Dispatcher.add(ctx, f"Reloaded: {', '.join(reloaded)}.")
+        else:
+            Dispatcher.add(ctx, f"Unknown target '{target}'. Use 'monsters', 'items', or omit for both.")
 
     # Additional maintenance after cog loads.
     @Cog.listener()

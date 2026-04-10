@@ -312,6 +312,10 @@ class RpgUtilities:
                 _log.debug("Starting watchdog loop")
                 DB.watchdog.start()
 
+            if not rescan_plugins.is_running():
+                _log.debug("Starting rescan_plugins loop")
+                rescan_plugins.start()
+
             RpgUtilities.is_initialized = True
 
         except Exception as e:
@@ -388,3 +392,24 @@ async def save_game_data():
 async def save_loop_error(e):
     error_info = traceback.format_exc()
     _log.error(f"Error in save_game_data loop: {error_info}")
+
+
+@tasks.loop(minutes=10)
+async def rescan_plugins():
+    """Periodically rescans monster and item plugins for new additions."""
+    try:
+        from Caldanai.lib.rpg.inventory import Inventory
+
+        MonsterPlugin.load_plugins()
+        Inventory.ITEMS.clear()
+        Inventory.discover_items()
+        _log.debug("Plugin rescan complete.")
+    except Exception:
+        error_info = traceback.format_exc()
+        _log.error(f"Error in rescan_plugins loop: {error_info}")
+
+
+@rescan_plugins.error
+async def rescan_plugins_error(e):
+    error_info = traceback.format_exc()
+    _log.error(f"rescan_plugins task error: {error_info}")

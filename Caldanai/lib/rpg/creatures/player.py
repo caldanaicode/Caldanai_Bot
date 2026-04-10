@@ -100,7 +100,8 @@ class Player(Creature):
 
     def do_attack(self, creature: Creature, target: BodyPart = None, dmg_type: DamageTypes = None) -> Tuple[str, int]:
         """
-        Performs an attack against the given creature, without modifying the monster's attributes.
+        Performs an attack against the given creature by delegating each hit
+        through the target's on_attacked method.
 
         Returns a tuple containing the attack message and the total damage done.
         """
@@ -108,50 +109,48 @@ class Player(Creature):
         lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
         rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
         two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
-        left = self.get_combat_rolls(lh, creature)
-        l_multiplier = creature.get_trait_multiplier(lh.damage_type if lh else DamageTypes.BLUDGEONING)
-        l_sub = int(left.result * l_multiplier)
-        raw_dmg = l_sub
-        if right := None if two_handed else self.get_combat_rolls(rh, creature):
-            r_multiplier = creature.get_trait_multiplier(rh.damage_type if rh else DamageTypes.BLUDGEONING)
-            r_sub = int(right.result * r_multiplier)
-            raw_dmg += r_sub
 
-        t_dmg = 0 if left.isMiss and (right is None or right and right.isMiss) else max(1, raw_dmg - creature.defense)
+        total_dmg = 0
+        msg = ""
 
-        msg = (
-            f"<@!{self.member.id}>'s attack:```diff\nAttack vs Dodge ({creature.dodge}): "
-            f"\n{'-' if left.isMiss else '+'}    {' Left' if right else 'Two-Handed'}: {left.attack} "
-            f"({left.get_hit_string()})"
-        )
-        msg += f"\n{'-' if right.isMiss else '+'}    Right: {right.attack} ({right.get_hit_string()})" if right else ""
+        # Left / two-handed attack
+        l_atk, l_dmg_roll = self._make_attack_rolls(lh)
+        l_type = lh.damage_type if lh else DamageTypes.BLUDGEONING
+        l_msg, l_dmg = creature.on_attacked(self, l_atk, l_dmg_roll, l_type)
+        msg += l_msg
+        total_dmg += l_dmg
+        if l_dmg > 0:
+            self.gain_skill_experience(lh.skill if lh else "unarmed")
 
-        if not left.isMiss or (right and not right.isMiss):
-            msg += (
-                f"\n\nDamage:\n{'-' if left.isMiss else '+'}    {'Left' if right else 'Two-Handed'} "
-                f"({str(lh.damage_type if lh else DamageTypes.BLUDGEONING).title()}):\n        {left.damage}"
-                f"{' * 0' if left.isMiss else ' * 2' if left.isCritical else ''}"
-                f"{' * ' + str(l_multiplier) if l_multiplier != 1 else ''} = {l_sub}"
-            )
-            if right:
-                msg += (
-                    f"\n{'-' if right.isMiss else '+'}    Right ("
-                    f"{str(rh.damage_type if rh else DamageTypes.BLUDGEONING).title()}):\n        {right.damage}"
-                    f"{' * 0' if right.isMiss else ' * 2' if right.isCritical else ''}"
-                    f"{' * ' + str(r_multiplier) if r_multiplier != 1 else ''} = {r_sub}"
-                )
-
-            if not left.isMiss:
-                self.gain_skill_experience(lh.skill if lh else "unarmed")
-
-            if right and not right.isMiss:
+        # Right hand (only if not two-handed)
+        r_atk = None
+        r_dmg_roll = None
+        if not two_handed:
+            r_atk, r_dmg_roll = self._make_attack_rolls(rh)
+            r_type = rh.damage_type if rh else DamageTypes.BLUDGEONING
+            r_msg, r_dmg = creature.on_attacked(self, r_atk, r_dmg_roll, r_type)
+            msg += r_msg
+            total_dmg += r_dmg
+            if r_dmg > 0:
                 self.gain_skill_experience(rh.skill if rh else "unarmed")
 
-            msg += f"\n\nTotal ({raw_dmg}) vs Defense ({creature.defense}) = {t_dmg}"
+        # Roll counting (reconstruct CombinedRolls for stat tracking)
+        l_combined = CombinedRoll(l_atk, l_dmg_roll, creature.get_dodge())
+        r_combined = CombinedRoll(r_atk, r_dmg_roll, creature.get_dodge()) if r_atk else None
+        self.update_roll_counts(l_combined, r_combined)
 
-        msg += "```\n"
-        self.update_roll_counts(left, right)
-        return msg, t_dmg
+        return msg, total_dmg
+
+    def _make_attack_rolls(self, weapon: Optional[Weapon]) -> Tuple[AttackRoll, DamageRoll]:
+        """Creates an AttackRoll and DamageRoll for the given weapon (or unarmed if None)."""
+        bonus = self.get_skill_bonus("unarmed" if weapon is None else weapon.skill)
+        atk = AttackRoll(skill_bonus=bonus[0])
+        dmg = DamageRoll(
+            dice=Dice.d4() if weapon is None else Dice.from_ndn(weapon.attack),
+            weapon_bonus=0 if weapon is None else weapon.bonus,
+            skill_bonus=bonus[1],
+        )
+        return atk, dmg
 
     def replace_equipment(self, item: Equipment, slot_name: str) -> Tuple[bool, Equipment]:
         """

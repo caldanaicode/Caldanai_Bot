@@ -298,3 +298,112 @@ class TestGainSkillExperience:
         old_xp = p.skills["swords"]
         p.gain_skill_experience("swords")
         assert p.skills["swords"] == old_xp
+
+
+# ---------------------------------------------------------------------------
+# do_attack — event-driven refactor
+# ---------------------------------------------------------------------------
+
+class TestDoAttack:
+    def test_calls_target_on_attacked(self):
+        """Player.do_attack should delegate to target.on_attacked per hand."""
+        p = _make_player()
+        target = MagicMock()
+        target.on_attacked.return_value = ("attack msg```\n", 5)
+        target.get_dodge.return_value = 10
+
+        msg, dmg = p.do_attack(target)
+
+        # Unarmed player attacks with both fists — on_attacked called twice
+        assert target.on_attacked.call_count == 2
+        assert dmg == 10  # 5 per hand
+
+    def test_two_handed_calls_on_attacked_once(self):
+        """Two-handed weapon should only call on_attacked once."""
+        p = _make_player()
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = EquipmentSlots.LEFT_HELD | EquipmentSlots.RIGHT_HELD | EquipmentSlots.MULTI_SLOT
+        weapon.damage_type = None
+        weapon.skill = "two-handed swords"
+        weapon.attack = "2d6"
+        weapon.bonus = 2
+        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+
+        target = MagicMock()
+        target.on_attacked.return_value = ("attack msg```\n", 8)
+        target.get_dodge.return_value = 10
+
+        msg, dmg = p.do_attack(target)
+
+        assert target.on_attacked.call_count == 1
+        assert dmg == 8
+
+    def test_skill_xp_granted_on_hit(self):
+        """Skill XP should be granted when on_attacked returns damage > 0."""
+        p = _make_player()
+        target = MagicMock()
+        target.on_attacked.return_value = ("hit```\n", 5)
+        target.get_dodge.return_value = 10
+
+        p.do_attack(target)
+
+        assert "unarmed" in p.skills
+        assert p.skills["unarmed"] > 0
+
+    def test_no_skill_xp_on_miss(self):
+        """No skill XP when on_attacked returns 0 damage (miss)."""
+        p = _make_player()
+        target = MagicMock()
+        target.on_attacked.return_value = ("miss```\n", 0)
+        target.get_dodge.return_value = 10
+
+        p.do_attack(target)
+
+        assert p.skills.get("unarmed", 0) == 0
+
+    def test_monster_can_modify_damage(self):
+        """Monster's on_attacked override can reduce damage (e.g., math teacher)."""
+        p = _make_player()
+        target = MagicMock()
+        # Monster halves prime damage
+        target.on_attacked.side_effect = [
+            ("left hit```\n", 3),   # left hand: monster reduced from 7 to 3
+            ("right hit```\n", 4),  # right hand
+        ]
+        target.get_dodge.return_value = 10
+
+        msg, dmg = p.do_attack(target)
+
+        assert dmg == 7  # 3 + 4, not what player would have calculated alone
+
+    def test_roll_counts_updated(self):
+        """Roll statistics should be tracked after attack."""
+        p = _make_player()
+        target = MagicMock()
+        target.on_attacked.return_value = ("msg```\n", 1)
+        target.get_dodge.return_value = 10
+
+        old_d20 = [c for c in p.rolls["d20"]]
+        p.do_attack(target)
+
+        # At least one d20 roll should have been recorded
+        assert p.rolls["d20"] != old_d20
+
+
+class TestMakeAttackRolls:
+    def test_unarmed_uses_d4(self):
+        p = _make_player()
+        atk, dmg = p._make_attack_rolls(None)
+        assert atk.sides == 20  # always d20 for attack
+        assert dmg.sides == 4   # d4 for unarmed
+
+    def test_weapon_uses_weapon_dice(self):
+        p = _make_player()
+        weapon = MagicMock(spec=Weapon)
+        weapon.skill = "swords"
+        weapon.attack = "3d8"
+        weapon.bonus = 5
+        atk, dmg = p._make_attack_rolls(weapon)
+        assert atk.sides == 20
+        assert dmg.sides == 8
