@@ -289,7 +289,10 @@ class Game:
                 m, d = player.do_attack(self.monster)
                 msg += m
                 damage += d
-                damage_by_player[player] = damage_by_player.get(player, 0) + d
+                if player.user_id not in damage_by_player:
+                    damage_by_player[player.user_id] = (player, 0)
+                p, prev = damage_by_player[player.user_id]
+                damage_by_player[player.user_id] = (player, prev + d)
             else:
                 self.combatants.pop(i)
 
@@ -312,7 +315,7 @@ class Game:
                 monster.aggression & (AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE)
             ):
 
-                if round_msg := monster.on_combat_round(damage_by_player):
+                if round_msg := monster.on_combat_round({p: d for p, d in damage_by_player.values()}):
                     msg += f"\n{round_msg}"
                 msg += f"\n{monster.attack_random(self.combatants)}"
 
