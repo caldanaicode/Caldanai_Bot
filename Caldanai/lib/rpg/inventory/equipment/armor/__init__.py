@@ -30,7 +30,7 @@ class Armor(Equipment):
         super().__init__(iid, name, desc, unit_weight, unit_value, image, quality, article, "Armor", slots, plugin)
 
         self.bonuses: Dict[str, int] = {}
-        for stat, bonus in bonuses.items():
+        for stat, bonus in (bonuses or {}).items():
             self.bonuses[stat] = int(bonus * self.quality.value["multiplier"])
 
     def get_embed(self) -> tuple[Embed, File]:

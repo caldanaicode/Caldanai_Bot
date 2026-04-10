@@ -335,11 +335,10 @@ class RpgUtilities:
         command_totals = {}
         server_totals = {}
         try:
-            cmd_copy = RpgUtilities.bot.command_usage.copy()
-            RpgUtilities.bot.command_usage.clear()
-            mon_copy = {g: g.monster_statics.copy() for g in RpgUtilities.bot.games.values()}
+            cmd_copy, RpgUtilities.bot.command_usage = RpgUtilities.bot.command_usage, []
+            mon_copy = {}
             for g in RpgUtilities.bot.games.values():
-                g.monster_statics.clear()
+                mon_copy[g], g.monster_statics = g.monster_statics, {}
 
             for entry in cmd_copy:
                 DB.update_user_statics(entry)

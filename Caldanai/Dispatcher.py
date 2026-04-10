@@ -51,6 +51,10 @@ class Dispatcher:
                 and last_msg.embed is None
                 and message.embed is None
                 and message.file is None
+                and last_msg.text is not None
+                and message.text is not None
+                and isinstance(last_msg.text, str)
+                and isinstance(message.text, str)
                 and len(last_msg.text) + len(message.text) + 1 < 2000
             ):
                 last_msg.text += f"\n{message.text}"
@@ -116,7 +120,7 @@ class Dispatcher:
                     i += len(m)
                 else:
                     m = message[i : i + limit].rsplit(sep, 1)
-                    result += (m[0] + sep if keep_sep else "",)
+                    result += (m[0] + sep if keep_sep else m[0],)
                     i += len(m[0]) + len(sep)
         return result
 
@@ -131,15 +135,14 @@ async def send():
     while not Dispatcher.queue.empty() and count < 10:
         message: Dispatcher.Message = Dispatcher.queue.get()
         try:
-            if isinstance(message.text, (str, Tuple)) or message.text is None:
-                if message.text is None or len(message.text) <= 2000:
-                    await message.channel.send(message.text, embed=message.embed, file=message.file)
-                elif isinstance(message.text, Tuple):
-                    for msg in message.text:
-                        await message.channel.send(msg)
-                        count += 1
-                else:
-                    _log.warning(f"Message length was too long: {len(message.text)} characters.")
+            if isinstance(message.text, Tuple):
+                for msg in message.text:
+                    await message.channel.send(msg)
+                    count += 1
+            elif message.text is None or (isinstance(message.text, str) and len(message.text) <= 2000):
+                await message.channel.send(message.text, embed=message.embed, file=message.file)
+            elif isinstance(message.text, str):
+                _log.warning(f"Message length was too long: {len(message.text)} characters.")
 
         except HTTPException as e:
             msg = "HTTP Exception"

@@ -108,7 +108,7 @@ class Bot(BotBase, Subject):
 
     async def on_command_completion(self, ctx: Context):
         if guild := ctx.guild:
-            if game := self.games[guild.id]:
+            if game := self.games.get(guild.id):
                 if ctx.author.id in game.player_manager.players.keys() and (
                     player := game.player_manager.players[ctx.author.id]
                 ):
@@ -118,8 +118,8 @@ class Bot(BotBase, Subject):
         if err == "on_command_error":
             Dispatcher.add(args[0], "*BZZZT* ERROR! DOES NOT COMPUTE!")
         for oid in self.owner_ids:
-            owner = self.get_user(oid)
-            Dispatcher.add(owner, repr(args[1]))
+            if owner := self.get_user(oid):
+                Dispatcher.add(owner, repr(args[1]))
         raise
 
     @staticmethod

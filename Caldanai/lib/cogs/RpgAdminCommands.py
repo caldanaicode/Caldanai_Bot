@@ -190,9 +190,12 @@ class RpgAdminCommands(Cog):
                         target.apply_damage(-target.get_health_max())
                         corpses.append(target.name)
 
-                c = ", ".join(corpses).replace(f", {corpses[-1]}", f" and {corpses[-1]}")
-                msg += f"{c}, who now appear{'' if len(corpses) > 1 else 's'} whole."
-                Dispatcher.add(game.channel, msg)
+                if corpses:
+                    c = ", ".join(corpses).replace(f", {corpses[-1]}", f" and {corpses[-1]}")
+                    msg += f"{c}, who now appear{'' if len(corpses) > 1 else 's'} whole."
+                    Dispatcher.add(game.channel, msg)
+                else:
+                    Dispatcher.add(game.channel, "Everyone mentioned appears to already be in good health.")
 
     @group(brief="Displays or sets various spawning options.")
     @guild_only()
@@ -210,7 +213,7 @@ class RpgAdminCommands(Cog):
 
         if ctx.invoked_subcommand is None:
             guild: Guild = ctx.guild
-            game = self.bot.games[ctx.guild.id]
+            game = self.bot.games.get(ctx.guild.id)
             r, i = game.game_clock.find_routine("do_spawn")
             routine = r[i] if r else None
 
@@ -242,7 +245,9 @@ class RpgAdminCommands(Cog):
         :param minutes: The minimum number of minutes before another monster can spawn after the previous monster is removed.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if minutes is None:
             Dispatcher.add(game.channel, f"Minimum spawn time is {game.spawn_timer_range[0] / 60} minutes.")
             return
@@ -273,7 +278,9 @@ class RpgAdminCommands(Cog):
         :param minutes: The maximum number of minutes before another monster can be spawned after the previous is removed.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if minutes is None:
             Dispatcher.add(game.channel, f"Maximum spawn time is {game.spawn_timer_range[1] / 60} minutes.")
             return
@@ -302,7 +309,9 @@ class RpgAdminCommands(Cog):
         :param minutes: The number of minutes that a monster will wait for combat on the first round. This time is halved for additional rounds of combat.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if minutes is None:
             Dispatcher.add(game.channel, f"Spawn duration is {int(game.spawn_duration / 60)} minutes.")
             return
@@ -324,7 +333,9 @@ class RpgAdminCommands(Cog):
         :param minutes: The number of minutes that loot will be available before removal.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if minutes is None:
             Dispatcher.add(game.channel, f"Loot duration is {game.loot_duration} minutes.")
             return
@@ -346,7 +357,9 @@ class RpgAdminCommands(Cog):
         :param msg: To enable spawning use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if msg is None:
             Dispatcher.add(game.channel, f"Spawning is currently {'en' if game.use_spawn_timer else 'dis'}abled.")
             return
@@ -381,7 +394,9 @@ class RpgAdminCommands(Cog):
         :param monster: the filename of the monster to spawn. If not provided, randomly chooses an available monster.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if game.monster is None:
             game.game_clock.remove_routine(game.do_spawn)
             await game.do_spawn(monster)
@@ -396,7 +411,9 @@ class RpgAdminCommands(Cog):
         Forces the current monster to die.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if game.monster is None:
             Dispatcher.add(game.channel, "There is no monster present!")
             return
@@ -412,7 +429,9 @@ class RpgAdminCommands(Cog):
         :param item_name: The item name.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         target: Player = None
 
         if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
@@ -447,7 +466,7 @@ class RpgAdminCommands(Cog):
 
         if ctx.invoked_subcommand is None:
             guild: Guild = ctx.guild
-            game = self.bot.games[ctx.guild.id]
+            game = self.bot.games.get(ctx.guild.id)
             embed = Embed(title="Current Ambience Settings")
             embed.set_thumbnail(url=guild.icon.url)
             embed.add_field(name="Ambience Enabled", value=f"{game.enable_ambience}", inline=True)
@@ -461,7 +480,9 @@ class RpgAdminCommands(Cog):
         :param value: To enable ambience use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
         """
 
-        game = self.bot.games[ctx.guild.id]
+        game = self.bot.games.get(ctx.guild.id)
+        if not game:
+            return
         if value is None:
             Dispatcher.add(game.channel, f"Ambience is currently {'en' if game.enable_ambience else 'dis'}abled.")
             return

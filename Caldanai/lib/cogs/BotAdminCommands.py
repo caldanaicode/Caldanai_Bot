@@ -6,7 +6,7 @@ from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import get_logger
 from Caldanai.db import DB
 
-from time import sleep
+import asyncio
 
 if TYPE_CHECKING:
     from Caldanai.lib.bot import Bot
@@ -72,7 +72,7 @@ class BotAdminCommands(Cog):
                 Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 
     async def wait_to_close(self, seconds=5):
-        sleep(seconds)
+        await asyncio.sleep(seconds)
         await self.bot.close()
 
     @has_permissions(administrator=True)

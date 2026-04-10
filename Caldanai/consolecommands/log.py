@@ -28,7 +28,8 @@ class LogCommand(CommandPlugin):
     VALID_LEVELS = {"critical", "fatal", "error", "warn", "warning", "info", "debug"}
 
     @classmethod
-    def level(cls, args: List[str] = []):
+    def level(cls, args: List[str] = None):
+        args = args or []
         if not args:
             stdout(f"Current log level is {os.getenv('LOG_LEVEL', 'INFO')}")
         elif (level := args.pop(0).lower()) in cls.VALID_LEVELS:
