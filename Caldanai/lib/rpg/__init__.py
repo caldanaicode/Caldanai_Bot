@@ -277,6 +277,7 @@ class Game:
         monster = self.monster
         msg = ""
         damage = 0
+        damage_by_player = {}
         for i in range(len(self.combatants) - 1, -1, -1):
             player = self.combatants[i]
             if not player.is_dead():
@@ -288,6 +289,7 @@ class Game:
                 m, d = player.do_attack(self.monster)
                 msg += m
                 damage += d
+                damage_by_player[player] = damage_by_player.get(player, 0) + d
             else:
                 self.combatants.pop(i)
 
@@ -310,6 +312,8 @@ class Game:
                 monster.aggression & (AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE)
             ):
 
+                if round_msg := monster.on_combat_round(damage_by_player):
+                    msg += f"\n{round_msg}"
                 msg += f"\n{monster.attack_random(self.combatants)}"
 
                 if monster.aggression & AggressionLevels.RAMPAGE or (

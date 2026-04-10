@@ -1,12 +1,9 @@
 from random import choice
-from typing import Tuple
 
 from Caldanai.lib.rpg import get_random_direction, Player
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, Qualities
 from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll, CombinedRoll
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
 from Caldanai.Logger import get_logger
 
 
@@ -26,8 +23,6 @@ class Doppelganger(MonsterPlugin):
         self.time_partition = TimePartitions.CATHEMERAL
         self.aggression = AggressionLevels.RAMPAGE
         self.image = None
-        self._hardest_hitter = None
-        self._hardest_hit = 0
 
         self.arrival = choice(
             [
@@ -108,35 +103,18 @@ class Doppelganger(MonsterPlugin):
 
         return (
             "\nThe amorphous creature's body begins to shift, stretch, and squash. The form's movements are "
-            "both disturbing and fascinating, as it molds itself slowly into the likeness of @2."
+            f"both disturbing and fascinating, as it molds itself slowly into the likeness of {target.name}."
         )
 
-    def on_attacked(
-        self, actor: Creature, atk_roll: AttackRoll, dmg_roll: DamageRoll, dmg_type: DamageTypes = None
-    ) -> Tuple[str, int]:
-        msg, dmg = super().on_attacked(actor, atk_roll, dmg_roll, dmg_type)
+    def on_combat_round(self, damage_by_player: dict) -> str:
+        """Imitate whoever hit the hardest this round."""
+        if not damage_by_player:
+            return ""
 
-        # Track who hits the hardest for re-imitation
-        if isinstance(actor, Player) and dmg > self._hardest_hit:
-            self._hardest_hitter = actor
-            self._hardest_hit = dmg
-
-        return msg, dmg
-
-    def attack_random(self, combatants: list, count=1) -> str:
-        # Re-imitate the hardest hitter before retaliating
-        if self._hardest_hitter is not None:
-            imitate_msg = self.imitate(self._hardest_hitter)
-            self._hardest_hitter = None
-            self._hardest_hit = 0
-        else:
-            imitate_msg = ""
-
-        result = super().attack_random(combatants, count)
-
-        if imitate_msg and result:
-            return f"{imitate_msg}\n{result}"
-        return imitate_msg or result
+        hardest_hitter = max(damage_by_player, key=damage_by_player.get)
+        if isinstance(hardest_hitter, Player):
+            return self.imitate(hardest_hitter)
+        return ""
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(

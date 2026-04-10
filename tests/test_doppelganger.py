@@ -1,6 +1,6 @@
 """Tests for the Doppelganger monster plugin."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from Caldanai.lib.rpg.creatures.monsters.doppelganger import Doppelganger
 from Caldanai.lib.rpg.creatures.player import Player
@@ -136,52 +136,34 @@ class TestImitate:
         assert doppel.name == "???"
 
 
-class TestOnAttacked:
-    def test_tracks_hardest_hitter(self):
+class TestOnCombatRound:
+    def test_imitates_hardest_hitter(self):
         doppel = Doppelganger()
         weak = _make_player("Weak")
         strong = _make_player("Strong")
 
-        with patch.object(type(doppel).__mro__[1], "on_attacked", return_value=("msg```\n", 5)):
-            doppel.on_attacked(weak, MagicMock(), MagicMock())
-        with patch.object(type(doppel).__mro__[1], "on_attacked", return_value=("msg```\n", 15)):
-            doppel.on_attacked(strong, MagicMock(), MagicMock())
+        msg = doppel.on_combat_round({weak: 5, strong: 15})
 
-        assert doppel._hardest_hitter is strong
-        assert doppel._hardest_hit == 15
+        assert doppel.name == "Strong"
+        assert "likeness" in msg
 
-    def test_ignores_non_player_attackers(self):
+    def test_empty_damage_dict_no_change(self):
+        doppel = Doppelganger()
+        original_name = doppel.name
+
+        msg = doppel.on_combat_round({})
+
+        assert doppel.name == original_name
+        assert msg == ""
+
+    def test_ignores_non_player(self):
         doppel = Doppelganger()
         creature = MagicMock(spec=Creature)
 
-        with patch.object(type(doppel).__mro__[1], "on_attacked", return_value=("msg```\n", 99)):
-            doppel.on_attacked(creature, MagicMock(), MagicMock())
+        msg = doppel.on_combat_round({creature: 99})
 
-        assert doppel._hardest_hitter is None
-
-
-class TestAttackRandom:
-    def test_reimitates_hardest_hitter(self):
-        doppel = Doppelganger()
-        player = _make_player("BigHitter")
-        doppel._hardest_hitter = player
-        doppel._hardest_hit = 20
-
-        with patch.object(type(doppel).__mro__[1], "attack_random", return_value="attack msg"):
-            doppel.attack_random([MagicMock()])
-
-        assert doppel.name == "BigHitter"
-        assert doppel._hardest_hitter is None
-        assert doppel._hardest_hit == 0
-
-    def test_no_reimitation_without_hitter(self):
-        doppel = Doppelganger()
-        doppel.name = "CurrentForm"
-
-        with patch.object(type(doppel).__mro__[1], "attack_random", return_value="attack msg"):
-            doppel.attack_random([MagicMock()])
-
-        assert doppel.name == "CurrentForm"
+        assert msg == ""
+        assert doppel.name == "???"
 
 
 class TestOnHugged:
