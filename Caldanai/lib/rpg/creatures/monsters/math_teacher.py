@@ -87,9 +87,10 @@ class MathTeacher(MonsterPlugin):
         return msg, dmg
 
     def on_attacked(
-        self, actor: Creature, atk_roll: AttackRoll, dmg_roll: DamageRoll, dmg_type: DamageTypes = None
+        self, actor: Creature, atk_roll: AttackRoll, dmg_roll: DamageRoll,
+        dmg_type: DamageTypes = None, label: str = None
     ) -> Tuple[str, int]:
-        msg, dmg = super().on_attacked(actor, atk_roll, dmg_roll, dmg_type)
+        msg, dmg = super().on_attacked(actor, atk_roll, dmg_roll, dmg_type, label=label)
         if self.is_prime(dmg):
             dmg //= 2
             msg = msg[:-4] + f" __LORD OF PRIMES!__ / 2 = {dmg}```\n"

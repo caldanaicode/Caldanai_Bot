@@ -198,7 +198,8 @@ class Creature:
         return self.health <= 0
 
     def on_attacked(
-        self, actor: "Creature", atk_roll: AttackRoll, dmg_roll: DamageRoll, dmg_type: DamageTypes = None
+        self, actor: "Creature", atk_roll: AttackRoll, dmg_roll: DamageRoll,
+        dmg_type: DamageTypes = None, label: str = None
     ) -> Tuple[str, int]:
         """
         Gets a creature's reaction to being attacked.
@@ -207,6 +208,7 @@ class Creature:
         :param atk_roll: The actor's attack roll.
         :param dmg_roll: The actor's damage roll.
         :param dmg_type: The incoming damage type.
+        :param label: Optional label for the attack (e.g. 'Left', 'Right', 'Two-Handed').
         :return: A tuple containing a string representing this creature's reaction, and the total damage done.
         """
         defense = self.get_defense()
@@ -216,18 +218,22 @@ class Creature:
         sub_dmg = int(multiplier * combined.result)
         t_dmg = 0 if combined.isMiss else max(1, sub_dmg - defense)
 
+        header = f"**{actor.name.capitalize()} attacks {self.name}:**" if not label else f"**{label}:**"
+        hit_mark = '-' if combined.isMiss else '+'
+
         msg = (
-            f"**{actor.name.capitalize()} attacks {self.name}:**```diff\nAttack vs Dodge ({dodge}): "
-            f"\n{'-' if combined.isMiss else '+'}    {combined.attack} ({combined.get_hit_string()})"
+            f"{header}```diff\nAttack vs Dodge ({dodge}): "
+            f"\n{hit_mark}    {combined.attack} ({combined.get_hit_string()})"
+        )
+
+        dmg_type_str = f"{str(dmg_type).title()} " if dmg_type else ""
+        msg += (
+            f"\n\n{dmg_type_str}Damage:\n{hit_mark}"
+            f"    {combined.damage}{' * 0' if combined.isMiss else ' * 2' if combined.isCritical else ''}"
+            f"{' * ' + str(multiplier) if multiplier != 1 else ''} = {sub_dmg}"
         )
 
         if not combined.isMiss:
-            msg += (
-                f"\n\n{str(dmg_type).title() + ' ' if dmg_type else ''}Damage:\n{'-' if combined.isMiss else '+'}"
-                f"    {combined.damage}{' * 0' if combined.isMiss else ' * 2' if combined.isCritical else ''}"
-                f"{' * ' + str(multiplier) if multiplier != 1 else ''} = {sub_dmg}"
-            )
-
             msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
 
         msg += "```\n"

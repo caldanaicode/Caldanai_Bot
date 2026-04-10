@@ -111,12 +111,14 @@ class Player(Creature):
         two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
 
         total_dmg = 0
-        msg = ""
+        has_right = not two_handed
+        msg = f"<@!{self.member.id}>'s attack:\n"
 
         # Left / two-handed attack
         l_atk, l_dmg_roll = self._make_attack_rolls(lh)
         l_type = lh.damage_type if lh else DamageTypes.BLUDGEONING
-        l_msg, l_dmg = creature.on_attacked(self, l_atk, l_dmg_roll, l_type)
+        l_label = "Left" if has_right else "Two-Handed"
+        l_msg, l_dmg = creature.on_attacked(self, l_atk, l_dmg_roll, l_type, label=l_label)
         msg += l_msg
         total_dmg += l_dmg
         if l_dmg > 0:
@@ -125,10 +127,10 @@ class Player(Creature):
         # Right hand (only if not two-handed)
         r_atk = None
         r_dmg_roll = None
-        if not two_handed:
+        if has_right:
             r_atk, r_dmg_roll = self._make_attack_rolls(rh)
             r_type = rh.damage_type if rh else DamageTypes.BLUDGEONING
-            r_msg, r_dmg = creature.on_attacked(self, r_atk, r_dmg_roll, r_type)
+            r_msg, r_dmg = creature.on_attacked(self, r_atk, r_dmg_roll, r_type, label="Right")
             msg += r_msg
             total_dmg += r_dmg
             if r_dmg > 0:
