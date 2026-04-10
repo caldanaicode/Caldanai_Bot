@@ -141,10 +141,10 @@ class Doppelganger(MonsterPlugin):
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(
             [
-                f"The @1 breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
-                f"The @1 sneers at @2's attempt to {invocation} @1o.",
-                f"The @1 mirrors @2's {invocation} back perfectly, and for a moment it's unclear who is hugging whom.",
-                f"@2 reaches out to {invocation} the @1, but @1a form shifts uncomfortably and @2's arms pass through thin air.",
-                f"The @1 accepts the {invocation} with unsettling enthusiasm, @1a features flickering between faces.",
+                f"@1 breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
+                f"@1 sneers at @2's attempt to {invocation} @1o.",
+                f"@1 mirrors @2's {invocation} back perfectly, and for a moment it's unclear who is hugging whom.",
+                f"@2 reaches out to {invocation} @1, but @1a form shifts uncomfortably and @2's arms pass through thin air.",
+                f"@1 accepts the {invocation} with unsettling enthusiasm, @1a features flickering between faces.",
             ]
         )
