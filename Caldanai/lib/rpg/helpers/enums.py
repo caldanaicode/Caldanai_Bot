@@ -85,6 +85,55 @@ class DamageTypes(IntFlag):
 
         return " ".join(result)
 
+    @property
+    def emoji(self) -> str:
+        """Returns a string of emoji representing this damage type.
+
+        Combined flags produce concatenated emoji in a consistent order
+        (ranged → magical → physical → elemental). Returns an empty string
+        for zero-value flags or flags without an emoji mapping.
+        """
+        if int(self) == 0:
+            return ""
+        parts = []
+        for base in _DAMAGE_TYPE_EMOJI_ORDER:
+            if self & base and base in _DAMAGE_TYPE_EMOJI:
+                parts.append(_DAMAGE_TYPE_EMOJI[base])
+        return "".join(parts)
+
+
+_DAMAGE_TYPE_EMOJI = {
+    DamageTypes.RANGED: "🏹",
+    DamageTypes.MAGICAL: "✨",
+    DamageTypes.BLUDGEONING: "🔨",
+    DamageTypes.PIERCING: "🪡",
+    DamageTypes.SLASHING: "🔪",
+    DamageTypes.DARK: "🌑",
+    DamageTypes.LIGHT: "☀️",
+    DamageTypes.FIRE: "🔥",
+    DamageTypes.WATER: "💧",
+    DamageTypes.EARTH: "🌍",
+    DamageTypes.AIR: "💨",
+    DamageTypes.MATHEMAGICAL: "🧮",
+}
+
+# Display order for combined damage types — ranged/magical modifiers first,
+# then physical attack shapes, then elemental flavors.
+_DAMAGE_TYPE_EMOJI_ORDER = (
+    DamageTypes.RANGED,
+    DamageTypes.MAGICAL,
+    DamageTypes.BLUDGEONING,
+    DamageTypes.PIERCING,
+    DamageTypes.SLASHING,
+    DamageTypes.DARK,
+    DamageTypes.LIGHT,
+    DamageTypes.FIRE,
+    DamageTypes.WATER,
+    DamageTypes.EARTH,
+    DamageTypes.AIR,
+    DamageTypes.MATHEMAGICAL,
+)
+
 
 class Directions(IntFlag):
     SPAN_DIRECTIONS = 1

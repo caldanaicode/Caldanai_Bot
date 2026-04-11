@@ -1,8 +1,9 @@
 from random import choice
-from typing import Tuple
+from typing import List
 
+from Caldanai.lib.rpg.combat.attack_result import AttackResult
+from Caldanai.lib.rpg.combat.attack_source import AttackSource, NaturalAttackSource
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes)
 from Caldanai.lib.rpg.creatures import Creature
@@ -77,21 +78,33 @@ class MathTeacher(MonsterPlugin):
             i += 1
         return True
 
-    def do_attack(self, target: Creature, dmg_type: DamageTypes = None) -> Tuple[str, int]:
-        attack = AttackRoll(skill_bonus=0)
-        damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
-        msg, dmg = target.on_attacked(self, attack, damage, DamageTypes.MATHEMAGICAL)
-        if self.is_prime(dmg):
-            dmg *= 2
-            msg = msg[:-4] + f" __LORD OF PRIMES!__ * 2 = {dmg}```\n"
-        return msg, dmg
+    def get_attack_sources(self) -> List[AttackSource]:
+        """MATHEMAGICAL attacks from the flying math teacher."""
+        return [
+            NaturalAttackSource(
+                atk=self.attack,
+                dmg_type=DamageTypes.MATHEMAGICAL,
+                label=self.name.title(),
+                skill="natural",
+            )
+        ]
 
-    def on_attacked(
-        self, actor: Creature, atk_roll: AttackRoll, dmg_roll: DamageRoll,
-        dmg_type: DamageTypes = None, label: str = None
-    ) -> Tuple[str, int]:
-        msg, dmg = super().on_attacked(actor, atk_roll, dmg_roll, dmg_type, label=label)
-        if self.is_prime(dmg):
-            dmg //= 2
-            msg = msg[:-4] + f" __LORD OF PRIMES!__ / 2 = {dmg}```\n"
-        return msg, dmg
+    def _on_attack_resolved(self, source: AttackSource, result: AttackResult) -> None:
+        """Doubles prime damage dealt by the math teacher and sets LORD OF PRIMES flavor."""
+        if self.is_prime(result.damage):
+            result.damage *= 2
+            result.extra_text = f"__LORD OF PRIMES!__ * 2 = {result.damage}"
+
+    def resolve_attack(
+        self,
+        attacker: Creature,
+        source: AttackSource,
+        atk_roll: AttackRoll,
+        dmg_roll: DamageRoll,
+    ) -> AttackResult:
+        """Halves incoming prime damage and sets LORD OF PRIMES flavor."""
+        result = super().resolve_attack(attacker, source, atk_roll, dmg_roll)
+        if self.is_prime(result.damage):
+            result.damage //= 2
+            result.extra_text = f"__LORD OF PRIMES!__ / 2 = {result.damage}"
+        return result

@@ -109,13 +109,15 @@ class MonsterPlugin(Creature):
     def attack_random(self, combatants: list, count=1) -> str:
         if combatants and 0 < count <= len(combatants):
             victims = sample(combatants, count)
-            m = None
+            msg = None
             for victim in victims:
-                m, d = self.do_attack(victim)
-                if d > 0:
-                    m += parse(victim.apply_damage(d), victim)
+                sequence = self.do_attack(victim)
+                msg = sequence.to_markdown()
+                total_dmg = sequence.total_damage()
+                if total_dmg > 0:
+                    msg += parse(victim.apply_damage(total_dmg), victim)
 
-            return m
+            return msg
 
         return None
 

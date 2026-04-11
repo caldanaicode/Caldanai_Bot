@@ -144,32 +144,53 @@ class TestGiveClarks:
 # ---------------------------------------------------------------------------
 
 class TestDoAttack:
-    @patch("Caldanai.lib.rpg.creatures.AttackRoll")
-    @patch("Caldanai.lib.rpg.creatures.DamageRoll")
-    @patch("Caldanai.lib.rpg.creatures.Dice")
-    def test_do_attack_returns_tuple(self, mock_dice_cls, mock_dmg_cls, mock_atk_cls):
-        """do_attack should return (str, int) regardless of roll outcomes."""
+    def test_do_attack_returns_attack_sequence(self):
+        """do_attack should return an AttackSequence by iterating attack sources."""
+        from Caldanai.lib.rpg.combat.attack_result import AttackSequence
+
         attacker = _make_creature(name="attacker", atk="1d4")
         target = _make_creature(name="target", defense=2, dodge=5)
 
-        # We need on_attacked to return a tuple; easiest to let it run naturally
-        # but we need real roll objects. Just call it without mocking on_attacked.
-        mock_dice_cls.from_ndn.return_value = MagicMock(rolls=(2,), value=2, sides=4, count=1)
-        mock_atk_cls.return_value = MagicMock(
-            rolls=(10,), sides=20, skillBonus=0, result=10, isCritical=False, isFumble=False
-        )
-        mock_dmg_cls.return_value = MagicMock(
-            rolls=(3,), sides=4, skillBonus=0, weaponBonus=0, result=3
-        )
+        sequence = attacker.do_attack(target)
+        assert isinstance(sequence, AttackSequence)
+        assert sequence.attacker is attacker
+        assert sequence.target is target
+        assert len(sequence.results) >= 1
 
-        # Since the mocks intercept the constructors used inside do_attack,
-        # on_attacked will also use the mocked classes. Let's just verify the
-        # interface contract instead.
-        with patch.object(target, "on_attacked", return_value=("attack msg", 5)):
-            msg, dmg = attacker.do_attack(target)
-            assert isinstance(msg, str)
-            assert isinstance(dmg, int)
-            assert dmg == 5
+    def test_do_attack_iterates_sources(self):
+        """Each attack source should produce a result in the sequence."""
+        from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+
+        attacker = _make_creature(name="multi", atk="1d4")
+        target = _make_creature(name="target", defense=2, dodge=5)
+
+        # Override to return multiple sources
+        attacker.get_attack_sources = lambda: [
+            NaturalAttackSource(atk="1d4", label="First"),
+            NaturalAttackSource(atk="1d4", label="Second"),
+        ]
+
+        sequence = attacker.do_attack(target)
+        assert len(sequence.results) == 2
+
+    def test_resolve_attack_returns_result(self):
+        """resolve_attack should return an AttackResult with damage calculated."""
+        from Caldanai.lib.rpg.combat.attack_result import AttackResult
+        from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll
+        from Caldanai.lib.rpg.helpers.dice import Dice
+
+        attacker = _make_creature(name="attacker")
+        target = _make_creature(name="target", defense=2, dodge=1)
+
+        source = NaturalAttackSource(atk="1d4")
+        atk_roll = AttackRoll(skill_bonus=20)  # force hit by huge bonus
+        dmg_roll = DamageRoll(dice=Dice.d4(), weapon_bonus=5, skill_bonus=0)
+
+        result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
+        assert isinstance(result, AttackResult)
+        assert result.damage >= 0
+        assert result.defense == 2
 
 
 # ---------------------------------------------------------------------------

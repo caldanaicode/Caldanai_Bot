@@ -98,61 +98,43 @@ class Player(Creature):
 
         return ""
 
-    def do_attack(self, creature: Creature, target: BodyPart = None, dmg_type: DamageTypes = None) -> Tuple[str, int]:
-        """
-        Performs an attack against the given creature by delegating each hit
-        through the target's on_attacked method.
+    def get_attack_sources(self) -> List["AttackSource"]:
+        """Returns attack sources from the player's equipped weapons.
 
-        Returns a tuple containing the attack message and the total damage done.
+        Produces one source for the left/two-handed slot and (if not two-handed)
+        one for the right. Uses WeaponAttackSource when a weapon is equipped
+        and UnarmedAttackSource otherwise.
         """
+        from Caldanai.lib.rpg.combat.attack_source import (
+            AttackSource,
+            UnarmedAttackSource,
+            WeaponAttackSource,
+        )
 
         lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
         rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
         two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
 
-        total_dmg = 0
-        has_right = not two_handed
-        msg = f"<@!{self.member.id}>'s attack:\n"
+        sources: List[AttackSource] = []
+        primary_label = "Two-Handed" if two_handed else "Left"
+        if lh:
+            sources.append(WeaponAttackSource(lh, label=primary_label))
+        else:
+            sources.append(UnarmedAttackSource(label=primary_label))
 
-        # Left / two-handed attack
-        l_atk, l_dmg_roll = self._make_attack_rolls(lh)
-        l_type = lh.damage_type if lh else DamageTypes.BLUDGEONING
-        l_label = "Left" if has_right else "Two-Handed"
-        l_msg, l_dmg = creature.on_attacked(self, l_atk, l_dmg_roll, l_type, label=l_label)
-        msg += l_msg
-        total_dmg += l_dmg
-        if l_dmg > 0:
-            self.gain_skill_experience(lh.skill if lh else "unarmed")
+        if not two_handed:
+            if rh:
+                sources.append(WeaponAttackSource(rh, label="Right"))
+            else:
+                sources.append(UnarmedAttackSource(label="Right"))
 
-        # Right hand (only if not two-handed)
-        r_atk = None
-        r_dmg_roll = None
-        if has_right:
-            r_atk, r_dmg_roll = self._make_attack_rolls(rh)
-            r_type = rh.damage_type if rh else DamageTypes.BLUDGEONING
-            r_msg, r_dmg = creature.on_attacked(self, r_atk, r_dmg_roll, r_type, label="Right")
-            msg += r_msg
-            total_dmg += r_dmg
-            if r_dmg > 0:
-                self.gain_skill_experience(rh.skill if rh else "unarmed")
+        return sources
 
-        # Roll counting (reconstruct CombinedRolls for stat tracking)
-        l_combined = CombinedRoll(l_atk, l_dmg_roll, creature.get_dodge())
-        r_combined = CombinedRoll(r_atk, r_dmg_roll, creature.get_dodge()) if r_atk else None
-        self.update_roll_counts(l_combined, r_combined)
-
-        return msg, total_dmg
-
-    def _make_attack_rolls(self, weapon: Optional[Weapon]) -> Tuple[AttackRoll, DamageRoll]:
-        """Creates an AttackRoll and DamageRoll for the given weapon (or unarmed if None)."""
-        bonus = self.get_skill_bonus("unarmed" if weapon is None else weapon.skill)
-        atk = AttackRoll(skill_bonus=bonus[0])
-        dmg = DamageRoll(
-            dice=Dice.d4() if weapon is None else Dice.from_ndn(weapon.attack),
-            weapon_bonus=0 if weapon is None else weapon.bonus,
-            skill_bonus=bonus[1],
-        )
-        return atk, dmg
+    def _on_attack_resolved(self, source, result) -> None:
+        """Grants skill XP on hits and updates roll counts for each resolved attack."""
+        if result.hit():
+            self.gain_skill_experience(source.skill)
+        self.update_roll_counts(result.combined)
 
     def replace_equipment(self, item: Equipment, slot_name: str) -> Tuple[bool, Equipment]:
         """
@@ -349,18 +331,6 @@ class Player(Creature):
         embed.set_image(url="attachment://plot.png")
 
         return embed, file
-
-    def get_combat_rolls(self, weapon: Optional[Weapon], creature: Creature) -> CombinedRoll:
-        """Returns a CombinedRoll for the given weapon's attack and damage rolls."""
-
-        bonus = self.get_skill_bonus("unarmed" if weapon is None else weapon.skill)
-        attack = AttackRoll(skill_bonus=bonus[0])
-        damage = DamageRoll(
-            dice=Dice.d4() if weapon is None else Dice.from_ndn(weapon.attack),
-            weapon_bonus=0 if weapon is None else weapon.bonus,
-            skill_bonus=bonus[1],
-        )
-        return CombinedRoll(attack, damage, creature.dodge)
 
     def get_defense(self) -> int:
         """Tallies the total defense value for the given player."""

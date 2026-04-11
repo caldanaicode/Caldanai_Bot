@@ -1,6 +1,16 @@
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
+from Caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
+from Caldanai.lib.rpg.combat.attack_source import (
+    AttackSource,
+    NaturalAttackSource,
+    UnarmedAttackSource,
+    WeaponAttackSource,
+)
 
-
-def swing(actor, dmg_type: DamageTypes, dmg_roll: str, victim, target=None):
-    if target and target.traits and dmg_type in target.traits:
-        multiplier = target.traits[dmg_type]
+__all__ = [
+    "AttackResult",
+    "AttackSequence",
+    "AttackSource",
+    "NaturalAttackSource",
+    "UnarmedAttackSource",
+    "WeaponAttackSource",
+]

@@ -1,10 +1,15 @@
 from random import choice
-from typing import Union, Optional, Dict, Tuple
+from typing import List, Union, Optional, Dict
 
 from discord import Embed, File
 
 from Caldanai.lib.rpg import parse
 # from Caldanai.lib.rpg.creatures.body_part import BodyPart
+from Caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
+from Caldanai.lib.rpg.combat.attack_source import (
+    AttackSource,
+    NaturalAttackSource,
+)
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import Pronouns, DamageTypes
 from Caldanai.lib.rpg.helpers.rollData import (
@@ -126,16 +131,72 @@ class Creature:
         self.health = max(0, self.health)
         self.health = min(self.health, self.get_health_max())
 
-    def do_attack(self, target: "Creature", dmg_type: DamageTypes = None) -> Tuple[str, int]:
-        """
-        Calculates an attack against the given creature, without modifying any attributes.
+    def get_attack_sources(self) -> List[AttackSource]:
+        """Returns the list of attack sources this creature uses when attacking.
 
-        Returns a tuple containing the attack message and the total damage done.
+        The base implementation returns a single NaturalAttackSource built
+        from the creature's `attack` dice string. Subclasses override to
+        provide weapon-based, body-part-based, or multi-attack patterns.
         """
-        attack = AttackRoll(skill_bonus=0)
-        damage = DamageRoll(Dice.from_ndn(self.attack), 0, 0)
-        msg, dmg = target.on_attacked(self, attack, damage, dmg_type)
-        return msg, dmg
+        return [
+            NaturalAttackSource(
+                atk=self.attack,
+                dmg_type=None,
+                label=self.name.title() if self.name else "",
+                skill="natural",
+            )
+        ]
+
+    def do_attack(self, target: "Creature") -> AttackSequence:
+        """Performs an attack against the target by iterating this creature's
+        attack sources and delegating each to the target's `resolve_attack`.
+
+        Returns an `AttackSequence` containing all individual results.
+        """
+        results: List[AttackResult] = []
+        for source in self.get_attack_sources():
+            atk_roll, dmg_roll = source.make_attack_rolls(self)
+            result = target.resolve_attack(self, source, atk_roll, dmg_roll)
+            results.append(result)
+            self._on_attack_resolved(source, result)
+        return AttackSequence(attacker=self, target=target, results=results)
+
+    def _on_attack_resolved(self, source: AttackSource, result: AttackResult) -> None:
+        """Hook called after each attack source resolves.
+
+        Subclasses override to react to individual results (e.g., grant
+        skill XP on a hit). No-op by default.
+        """
+        pass
+
+    def resolve_attack(
+        self,
+        attacker: "Creature",
+        source: AttackSource,
+        atk_roll: AttackRoll,
+        dmg_roll: DamageRoll,
+    ) -> AttackResult:
+        """Pure calculation of a single attack against this creature.
+
+        Computes hit/miss, applies trait multipliers, subtracts defense,
+        and returns an `AttackResult`. Override to modify damage (e.g.,
+        math teacher halving prime damage).
+        """
+        dodge = self.get_dodge()
+        defense = self.get_defense()
+        combined = CombinedRoll(atk_roll, dmg_roll, dodge)
+        multiplier = self.get_trait_multiplier(source.damage_type)
+        sub_dmg = int(multiplier * combined.result)
+        damage = 0 if combined.isMiss else max(1, sub_dmg - defense)
+        return AttackResult(
+            source=source,
+            combined=combined,
+            damage=damage,
+            multiplier=multiplier,
+            defense=defense,
+            dodge=dodge,
+            dmg_type=source.damage_type,
+        )
 
     def get_embed(self) -> tuple:
         """
@@ -197,47 +258,6 @@ class Creature:
         """
         return self.health <= 0
 
-    def on_attacked(
-        self, actor: "Creature", atk_roll: AttackRoll, dmg_roll: DamageRoll,
-        dmg_type: DamageTypes = None, label: str = None
-    ) -> Tuple[str, int]:
-        """
-        Gets a creature's reaction to being attacked.
-
-        :param actor: The creature performing the attack.
-        :param atk_roll: The actor's attack roll.
-        :param dmg_roll: The actor's damage roll.
-        :param dmg_type: The incoming damage type.
-        :param label: Optional label for the attack (e.g. 'Left', 'Right', 'Two-Handed').
-        :return: A tuple containing a string representing this creature's reaction, and the total damage done.
-        """
-        defense = self.get_defense()
-        dodge = self.get_dodge()
-        combined = CombinedRoll(atk_roll, dmg_roll, dodge)
-        multiplier = self.get_trait_multiplier(dmg_type)
-        sub_dmg = int(multiplier * combined.result)
-        t_dmg = 0 if combined.isMiss else max(1, sub_dmg - defense)
-
-        header = f"**{actor.name.capitalize()} attacks {self.name}:**" if not label else f"**{label}:**"
-        hit_mark = '-' if combined.isMiss else '+'
-
-        msg = (
-            f"{header}```diff\nAttack vs Dodge ({dodge}): "
-            f"\n{hit_mark}    {combined.attack} ({combined.get_hit_string()})"
-        )
-
-        dmg_type_str = f"{str(dmg_type).title()} " if dmg_type else ""
-        msg += (
-            f"\n\n{dmg_type_str}Damage:\n{hit_mark}"
-            f"    {combined.damage}{' * 0' if combined.isMiss else ' * 2' if combined.isCritical else ''}"
-            f"{' * ' + str(multiplier) if multiplier != 1 else ''} = {sub_dmg}"
-        )
-
-        if not combined.isMiss:
-            msg += f"\n\nTotal ({sub_dmg}) vs Defense ({defense}) = {t_dmg}"
-
-        msg += "```\n"
-        return msg, t_dmg
 
     def on_hugged(self, actor: "Creature", invocation: str) -> str:
         """

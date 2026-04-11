@@ -304,22 +304,80 @@ class TestGainSkillExperience:
 # do_attack — event-driven refactor
 # ---------------------------------------------------------------------------
 
+class TestGetAttackSources:
+    def test_unarmed_has_two_fists(self):
+        p = _make_player()
+        sources = p.get_attack_sources()
+        assert len(sources) == 2
+        assert sources[0].label == "Left"
+        assert sources[1].label == "Right"
+
+    def test_single_weapon_left_and_unarmed_right(self):
+        from Caldanai.lib.rpg.combat.attack_source import UnarmedAttackSource, WeaponAttackSource
+        p = _make_player()
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = EquipmentSlots.LEFT_HELD
+        weapon.damage_type = None
+        weapon.skill = "one-handed slashing"
+        weapon.attack = "1d6"
+        weapon.bonus = 2
+        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+
+        sources = p.get_attack_sources()
+        assert len(sources) == 2
+        assert isinstance(sources[0], WeaponAttackSource)
+        assert sources[0].label == "Left"
+        assert isinstance(sources[1], UnarmedAttackSource)
+        assert sources[1].label == "Right"
+
+    def test_two_handed_yields_single_source(self):
+        from Caldanai.lib.rpg.combat.attack_source import WeaponAttackSource
+        p = _make_player()
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = EquipmentSlots.LEFT_HELD | EquipmentSlots.RIGHT_HELD | EquipmentSlots.MULTI_SLOT
+        weapon.damage_type = None
+        weapon.skill = "two-handed swords"
+        weapon.attack = "2d6"
+        weapon.bonus = 2
+        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+
+        sources = p.get_attack_sources()
+        assert len(sources) == 1
+        assert isinstance(sources[0], WeaponAttackSource)
+        assert sources[0].label == "Two-Handed"
+
+
 class TestDoAttack:
-    def test_calls_target_on_attacked(self):
-        """Player.do_attack should delegate to target.on_attacked per hand."""
+    def test_returns_attack_sequence(self):
+        from Caldanai.lib.rpg.combat.attack_result import AttackSequence
+
         p = _make_player()
         target = MagicMock()
-        target.on_attacked.return_value = ("attack msg```\n", 5)
+        target.get_dodge.return_value = 10
+        target.get_defense.return_value = 0
+        target.get_trait_multiplier.return_value = 1.0
+        # Make target.resolve_attack call the real Creature resolve_attack by mocking it directly
+        from Caldanai.lib.rpg.combat.attack_result import AttackResult
+        target.resolve_attack.return_value = _make_attack_result(damage=5)
+
+        seq = p.do_attack(target)
+        assert isinstance(seq, AttackSequence)
+        assert seq.attacker is p
+        assert seq.target is target
+
+    def test_unarmed_produces_two_results(self):
+        p = _make_player()
+        target = MagicMock()
+        target.resolve_attack.return_value = _make_attack_result(damage=3)
         target.get_dodge.return_value = 10
 
-        msg, dmg = p.do_attack(target)
+        seq = p.do_attack(target)
+        assert len(seq.results) == 2
+        assert target.resolve_attack.call_count == 2
+        assert seq.total_damage() == 6
 
-        # Unarmed player attacks with both fists — on_attacked called twice
-        assert target.on_attacked.call_count == 2
-        assert dmg == 10  # 5 per hand
-
-    def test_two_handed_calls_on_attacked_once(self):
-        """Two-handed weapon should only call on_attacked once."""
+    def test_two_handed_produces_one_result(self):
         p = _make_player()
         weapon = MagicMock(spec=Weapon)
         weapon.slots = EquipmentSlots.LEFT_HELD | EquipmentSlots.RIGHT_HELD | EquipmentSlots.MULTI_SLOT
@@ -331,79 +389,79 @@ class TestDoAttack:
         p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
 
         target = MagicMock()
-        target.on_attacked.return_value = ("attack msg```\n", 8)
+        target.resolve_attack.return_value = _make_attack_result(damage=8)
         target.get_dodge.return_value = 10
 
-        msg, dmg = p.do_attack(target)
-
-        assert target.on_attacked.call_count == 1
-        assert dmg == 8
+        seq = p.do_attack(target)
+        assert len(seq.results) == 1
+        assert target.resolve_attack.call_count == 1
 
     def test_skill_xp_granted_on_hit(self):
-        """Skill XP should be granted when on_attacked returns damage > 0."""
         p = _make_player()
         target = MagicMock()
-        target.on_attacked.return_value = ("hit```\n", 5)
+        target.resolve_attack.return_value = _make_attack_result(damage=5, hit=True)
         target.get_dodge.return_value = 10
 
         p.do_attack(target)
-
         assert "unarmed" in p.skills
         assert p.skills["unarmed"] > 0
 
     def test_no_skill_xp_on_miss(self):
-        """No skill XP when on_attacked returns 0 damage (miss)."""
         p = _make_player()
         target = MagicMock()
-        target.on_attacked.return_value = ("miss```\n", 0)
+        target.resolve_attack.return_value = _make_attack_result(damage=0, hit=False)
         target.get_dodge.return_value = 10
 
         p.do_attack(target)
-
         assert p.skills.get("unarmed", 0) == 0
 
     def test_monster_can_modify_damage(self):
-        """Monster's on_attacked override can reduce damage (e.g., math teacher)."""
         p = _make_player()
         target = MagicMock()
-        # Monster halves prime damage
-        target.on_attacked.side_effect = [
-            ("left hit```\n", 3),   # left hand: monster reduced from 7 to 3
-            ("right hit```\n", 4),  # right hand
+        # First hand hit for 3, second for 4 — simulating a monster override
+        target.resolve_attack.side_effect = [
+            _make_attack_result(damage=3, hit=True),
+            _make_attack_result(damage=4, hit=True),
         ]
         target.get_dodge.return_value = 10
 
-        msg, dmg = p.do_attack(target)
-
-        assert dmg == 7  # 3 + 4, not what player would have calculated alone
+        seq = p.do_attack(target)
+        assert seq.total_damage() == 7
 
     def test_roll_counts_updated(self):
-        """Roll statistics should be tracked after attack."""
         p = _make_player()
         target = MagicMock()
-        target.on_attacked.return_value = ("msg```\n", 1)
+        target.resolve_attack.return_value = _make_attack_result(damage=1, hit=True)
         target.get_dodge.return_value = 10
 
         old_d20 = [c for c in p.rolls["d20"]]
         p.do_attack(target)
-
-        # At least one d20 roll should have been recorded
         assert p.rolls["d20"] != old_d20
 
 
-class TestMakeAttackRolls:
-    def test_unarmed_uses_d4(self):
-        p = _make_player()
-        atk, dmg = p._make_attack_rolls(None)
-        assert atk.sides == 20  # always d20 for attack
-        assert dmg.sides == 4   # d4 for unarmed
+def _make_attack_result(damage=5, hit=True):
+    """Build a minimal AttackResult for Player do_attack tests."""
+    from Caldanai.lib.rpg.combat.attack_result import AttackResult
+    from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+    from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
+    from Caldanai.lib.rpg.helpers.dice import Dice
 
-    def test_weapon_uses_weapon_dice(self):
-        p = _make_player()
-        weapon = MagicMock(spec=Weapon)
-        weapon.skill = "swords"
-        weapon.attack = "3d8"
-        weapon.bonus = 5
-        atk, dmg = p._make_attack_rolls(weapon)
-        assert atk.sides == 20
-        assert dmg.sides == 8
+    atk = AttackRoll(skill_bonus=20 if hit else 0)
+    dmg = DamageRoll(dice=Dice.d4(), weapon_bonus=0, skill_bonus=0)
+    # Force hit/miss state
+    atk.rolls = (20 if hit else 1,)
+    atk.result = 20 if hit else 1
+    atk.isCritical = False
+    atk.isFumble = not hit
+    combined = CombinedRoll(atk, dmg, 10)
+    # Override isMiss directly since the rolled values may not agree
+    combined.isMiss = not hit
+    source = NaturalAttackSource(atk="1d4")
+    return AttackResult(
+        source=source,
+        combined=combined,
+        damage=damage,
+        multiplier=1.0,
+        defense=0,
+        dodge=10,
+    )

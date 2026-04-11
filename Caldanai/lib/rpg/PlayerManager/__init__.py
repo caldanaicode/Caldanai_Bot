@@ -18,7 +18,6 @@ class PlayerManager:
     def __init__(self):
         self.players: Dict[int, Player] = {}
         self.roles: Dict[Roles, Optional[Role]] = {}
-        self.combatant_counter = 0
 
     async def load_players(self, guild: Guild):
         if not guild:
@@ -105,7 +104,6 @@ class PlayerManager:
 
         try:
             await player.member.add_roles(self.roles[Roles.COMBAT_MAIN], reason=reason)
-            self.combatant_counter += 1
             _log.debug(f"Combat role added for {player.name}")
         except (Forbidden, HTTPException):
             _log.warning(f"Addition of combat role failed for {player.name}", exc_info=1)
@@ -121,28 +119,34 @@ class PlayerManager:
 
         try:
             await player.member.remove_roles(self.roles[Roles.COMBAT_MAIN], reason=reason)
-            self.combatant_counter -= 1
             _log.debug(f"Combat role removed for {player.name}")
         except (Forbidden, HTTPException):
             _log.warning(f"Removal of combat role failed for {player.name}", exc_info=1)
 
     async def clear_combat_roles(self):
-        """Clears all combatant roles."""
-        if Roles.COMBAT_MAIN in self.roles.keys():
-            reason = "Combat terminated."
-            combatants: list[Player] = [
-                p for p in self.players.values() if self.roles[Roles.COMBAT_MAIN] in p.member.roles
-            ]
+        """Clears all combatant roles and warns if any stragglers remain."""
+        if Roles.COMBAT_MAIN not in self.roles.keys():
+            return
 
-            if combatants:
-                await asyncio.gather(*[self.clear_player_combatant(p, reason) for p in combatants])
+        reason = "Combat terminated."
+        combatants: list[Player] = [
+            p for p in self.players.values() if self.roles[Roles.COMBAT_MAIN] in p.member.roles
+        ]
 
-                if self.combatant_counter != 0:
-                    names = [p.name for p in self.players.values() if self.roles[Roles.COMBAT_MAIN] in p.member.roles]
-                    _log.warning(
-                        f"Combatant counter should be 0, but is {self.combatant_counter}. "
-                        f"The following players still seem to have the combat role: {', '.join(names)}"
-                    )
+        if not combatants:
+            return
+
+        await asyncio.gather(*[self.clear_player_combatant(p, reason) for p in combatants])
+
+        # Sanity check: verify everyone was cleared (accounts for Discord cache lag
+        # or a remove_roles call that failed but was silently caught)
+        stragglers = [
+            p.name for p in self.players.values() if self.roles[Roles.COMBAT_MAIN] in p.member.roles
+        ]
+        if stragglers:
+            _log.warning(
+                f"Players still have combat role after cleanup: {', '.join(stragglers)}"
+            )
 
     async def get_player(self, ctx: Context) -> Union[Player, None]:
         """

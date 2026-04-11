@@ -189,35 +189,46 @@ class TestPlayerActiveInactive:
 
 
 # ---------------------------------------------------------------------------
-# combatant_counter tracking
+# combat role management
 # ---------------------------------------------------------------------------
 
-class TestCombatantCounter:
-    def test_initial_counter_is_zero(self):
-        pm = PlayerManager()
-        assert pm.combatant_counter == 0
-
+class TestCombatantRoles:
     @pytest.mark.asyncio
-    async def test_set_combatant_increments_counter(self):
+    async def test_set_combatant_adds_role(self):
         pm = PlayerManager()
         _setup_roles(pm)
         player = _make_player()
-        # Player does NOT already have the combat role
         player.member.roles = []
 
         await pm.set_player_combatant(player)
-        assert pm.combatant_counter == 1
         player.member.add_roles.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_clear_combatant_decrements_counter(self):
+    async def test_set_combatant_skips_if_already_has_role(self):
         pm = PlayerManager()
         _setup_roles(pm)
-        pm.combatant_counter = 1
         player = _make_player()
-        # Player HAS the combat role
+        player.member.roles = [pm.roles[Roles.COMBAT_MAIN]]
+
+        await pm.set_player_combatant(player)
+        player.member.add_roles.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_clear_combatant_removes_role(self):
+        pm = PlayerManager()
+        _setup_roles(pm)
+        player = _make_player()
         player.member.roles = [pm.roles[Roles.COMBAT_MAIN]]
 
         await pm.clear_player_combatant(player, "Combat over.")
-        assert pm.combatant_counter == 0
         player.member.remove_roles.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_clear_combatant_skips_if_no_role(self):
+        pm = PlayerManager()
+        _setup_roles(pm)
+        player = _make_player()
+        player.member.roles = []
+
+        await pm.clear_player_combatant(player, "Combat over.")
+        player.member.remove_roles.assert_not_awaited()

@@ -286,12 +286,13 @@ class Game:
                     # TODO: This may need to be disabled because the role cannot be reliably removed after combat.
                     await self.player_manager.set_player_combatant(player)
                     self.looters.append(player)
-                m, d = player.do_attack(self.monster)
-                msg += m
+                sequence = player.do_attack(self.monster)
+                msg += sequence.to_markdown()
+                d = sequence.total_damage()
                 damage += d
                 if player.user_id not in damage_by_player:
                     damage_by_player[player.user_id] = (player, 0)
-                p, prev = damage_by_player[player.user_id]
+                _, prev = damage_by_player[player.user_id]
                 damage_by_player[player.user_id] = (player, prev + d)
             else:
                 self.combatants.pop(i)

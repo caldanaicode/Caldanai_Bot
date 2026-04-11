@@ -1,11 +1,11 @@
 from random import randint
-from typing import Tuple, Optional
 
 from random import choice
 
 from Caldanai.lib.rpg import MonsterPlugin, parse
+from Caldanai.lib.rpg.combat.attack_result import AttackSequence
 from Caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, TimePartitions, DamageTypes)
+    AggressionLevels, DamageTypes, TimePartitions)
 from Caldanai.lib.rpg.creatures import Creature
 from Caldanai.lib.rpg.helpers.dice import Dice
 
@@ -115,7 +115,7 @@ class Vampire(MonsterPlugin):
 
         return response
 
-    def do_attack(self, creature: Creature, dmg_type: Optional[DamageTypes] = None) -> Tuple[str, int]:
+    def do_attack(self, creature: Creature) -> AttackSequence:
         if self.health / self.health_max <= 0.5:
-            return self.feed(creature), 0
+            return AttackSequence(attacker=self, target=creature, narrative=self.feed(creature))
         return super().do_attack(creature)

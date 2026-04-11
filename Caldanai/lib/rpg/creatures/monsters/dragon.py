@@ -1,10 +1,13 @@
 from random import choice, random
 
 from Caldanai.lib.rpg import parse
+from Caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
+from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes)
+from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
 from Caldanai.lib.rpg.creatures import Creature
 
 
@@ -53,21 +56,55 @@ class Dragon(MonsterPlugin):
         return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2a direction."
 
     def breath_attack(self, combatants) -> str:
-        msg = parse(
+        flavor = parse(
             "The base of @1's throat glows brightly, @1a head drawing back slightly as @1s breathes in deeply. With a "
-            "deafening roar, @1s looses a mighty column of liquid flame, blanketing the entire area.\n```diff",
+            "deafening roar, @1s looses a mighty column of liquid flame, blanketing the entire area.",
             self,
         )
+
+        # Build an AttackSequence with one result per victim. Breath bypasses
+        # the normal dodge/defense flow — every victim is auto-hit and we
+        # compute damage as raw - defense directly.
+        results = []
         post = ""
         for victim in combatants:
-            raw = Dice.quick_roll("6d6")
+            raw_dice = Dice.from_ndn("6d6")
+            raw = raw_dice.value
             df = victim.get_defense()
-            dmg = raw - df
-            msg += parse(f"\n- @1 takes [{raw} - {df}] = {dmg} fire damage!", victim)
+            dmg = max(0, raw - df)
+
+            # Construct a no-miss CombinedRoll using the actual damage dice.
+            # The attack roll is a dummy — auto_hit=True will hide it.
+            atk = AttackRoll(skill_bonus=0)
+            atk.isCritical = False  # breath attacks don't crit
+            atk.isFumble = False
+            dmg_roll = DamageRoll(dice=raw_dice, weapon_bonus=0, skill_bonus=0)
+            combined = CombinedRoll(atk, dmg_roll, dodge=0, is_miss=False)
+
+            victim_name = getattr(victim, "name", "target")
+            source = NaturalAttackSource(
+                atk="6d6",
+                dmg_type=DamageTypes.FIRE,
+                label=victim_name,
+            )
+            results.append(
+                AttackResult(
+                    source=source,
+                    combined=combined,
+                    damage=dmg,
+                    multiplier=1.0,
+                    defense=df,
+                    dodge=0,
+                    dmg_type=DamageTypes.FIRE,
+                    auto_hit=True,
+                )
+            )
+
             if p := victim.apply_damage(dmg):
                 post += f"{p}\n"
 
-        return f"{msg}```{post}"
+        sequence = AttackSequence(attacker=self, target=combatants[0] if combatants else self, results=results)
+        return f"{flavor}\n{sequence.to_markdown()}{post}"
 
     def attack_random(self, combatants: list, count=1) -> str:
         if combatants and 0 < count <= len(combatants):
