@@ -76,6 +76,9 @@ class Vampire(MonsterPlugin):
         :return: A string indicating the results of the feeding
         """
 
+        if target.health <= 0:
+            return parse("The @1 sneers at the lifeless husk of @2.", self, target)
+
         amount = randint(1, target.health)
         attempt = Dice.quick_roll("1d20") + 4
         msg = (

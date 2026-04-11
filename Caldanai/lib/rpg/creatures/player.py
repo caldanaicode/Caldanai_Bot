@@ -386,11 +386,16 @@ class Player(Creature):
 
         msg = ""
         inv = self.inventory.filter(filtr)
+        all_items = self.inventory.all()
 
-        for idx, item in enumerate(inv):
+        for item in inv:
             if item is None:
                 continue
-            msg += f"\n{idx + 1}: {item.get_full_name()}"
+            try:
+                absolute_idx = all_items.index(item)
+            except ValueError:
+                continue
+            msg += f"\n{absolute_idx + 1}: {item.get_full_name()}"
             for s, i in self.equip_slots.items():
                 msg += f"{' [' + s + ']' if i == item and not EquipmentSlots.exclude_from_output(s) else ''}"
 

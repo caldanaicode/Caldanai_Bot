@@ -22,11 +22,11 @@ forms = {
 
 def _process(match: Match, actors: Tuple) -> str:
     if match is None:
-        return None
+        return ""
 
     if len(actors) == 0:
         _log.error(f"Error parsing message for actors. No actors were supplied. {match.groupdict()}")
-        return None
+        return match.group(0)
 
     m = match.groupdict()
     if m["actor"] and m["actor"].isnumeric() and 0 <= (num := int(m["actor"]) - 1) < len(actors):

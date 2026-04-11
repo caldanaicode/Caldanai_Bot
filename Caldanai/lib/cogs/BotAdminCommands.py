@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 from discord.ext import tasks
-from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only, Context
+from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only, is_owner, Context
 
 from Caldanai.Dispatcher import Dispatcher
 from Caldanai.Logger import get_logger
@@ -51,7 +51,7 @@ class BotAdminCommands(Cog):
         if isinstance(exc, CheckFailure):
             Dispatcher.add(ctx, "You need the Manage Server permission to do that.")
 
-    @has_permissions(manage_guild=True)
+    @is_owner()
     @command(name="reload_cog", brief="Reloads a cog -- or all cogs if no cog is specified -- on the bot.")
     async def reload_cog(self, ctx: Context, cog: str = None):
         """
@@ -75,7 +75,7 @@ class BotAdminCommands(Cog):
         await asyncio.sleep(seconds)
         await self.bot.close()
 
-    @has_permissions(administrator=True)
+    @is_owner()
     @command(name="shutdown", brief="Shuts down the bot with an optional message.")
     async def shutdown(self, ctx: Context, *msg: str):
         """
