@@ -246,8 +246,11 @@ class Player(Creature):
             health_regen=p.get("health_regen", 0),
         )
 
-        left = player.inventory[str(p["equip_slots"][EquipmentSlots.LEFT_HELD.name])]
-        right = player.inventory[str(p["equip_slots"][EquipmentSlots.RIGHT_HELD.name])]
+        eq = p.get("equip_slots") or {}
+        left_id = eq.get(EquipmentSlots.LEFT_HELD.name)
+        right_id = eq.get(EquipmentSlots.RIGHT_HELD.name)
+        left = player.inventory[str(left_id)] if left_id else None
+        right = player.inventory[str(right_id)] if right_id else None
 
         if left and isinstance(left, Weapon):
             player.equip(left, EquipmentSlots.LEFT_HELD)

@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from datetime import datetime
 from typing import Any, Dict
 
@@ -115,12 +116,14 @@ class Bot(BotBase, Subject):
                     await game.player_manager.set_player_active(player)
 
     async def on_error(self, err, *args, **kwargs):
-        if err == "on_command_error":
+        if err == "on_command_error" and args:
             Dispatcher.add(args[0], "*BZZZT* ERROR! DOES NOT COMPUTE!")
+        exc = args[1] if len(args) > 1 else sys.exc_info()[1]
         for oid in self.owner_ids:
             if owner := self.get_user(oid):
-                Dispatcher.add(owner, repr(args[1]))
-        raise
+                Dispatcher.add(owner, repr(exc))
+        if exc is not None:
+            raise exc
 
     @staticmethod
     async def get_forbidden_response(ctx: Context) -> str:

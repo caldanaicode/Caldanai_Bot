@@ -79,15 +79,18 @@ class MonsterPlugin(Creature):
         return ""
 
     @staticmethod
-    def get_random_monster(clock: GameClock) -> 'MonsterPlugin':
+    def get_random_monster(clock: GameClock) -> Optional['MonsterPlugin']:
         """Retrieves a random"""
         time = TimesOfDay[clock.get_time_of_day().upper()].value
 
-        monster = choice(PluginManager.LOADED_PLUGINS[MonsterPlugin])()
-        while (not bool(time & monster.time_partition)):
-            monster = choice(PluginManager.LOADED_PLUGINS[MonsterPlugin])()
+        candidates = [
+            cls for cls in PluginManager.LOADED_PLUGINS[MonsterPlugin]
+            if bool(time & cls().time_partition)
+        ]
+        if not candidates:
+            return None
 
-        return monster
+        return choice(candidates)()
 
     # Returns a list of loot items
     def get_loot(self) -> list:

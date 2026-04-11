@@ -59,6 +59,7 @@ class GameClock:
         self._time_map: Dict[str, Tuple[int, int]] = {}
 
         self.tick_speed = self.time_scale
+        self.update_times_of_day()
 
     def __add__(self, other):
         if isinstance(other, GameClock):
@@ -383,7 +384,7 @@ class GameClock:
         self._ticks += 1
 
         h, m, s = self.get_time_components()
-        if self.update_times_of_day() == {} or (h == 0 and m == 0 and s < 8):
+        if not self._time_map or (h == 0 and m == 0 and s < 8):
             self.update_times_of_day()
 
         for i in range(len(self._tick_routines)):

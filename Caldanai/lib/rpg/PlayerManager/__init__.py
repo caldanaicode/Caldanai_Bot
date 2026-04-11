@@ -183,9 +183,9 @@ class PlayerManager:
         if user_id in self.players and (player := self.players[user_id]):
             if (
                 player.member
-                and Roles.ALL in self.roles.keys()
-                and Roles.ACTIVE in self.roles.keys()
-                and Roles.INACTIVE in self.roles.keys()
+                and self.roles.get(Roles.ALL)
+                and self.roles.get(Roles.ACTIVE)
+                and self.roles.get(Roles.INACTIVE)
             ):
                 await player.member.remove_roles(
                     self.roles[Roles.ALL],

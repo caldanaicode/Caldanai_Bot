@@ -264,7 +264,7 @@ class RpgAdminCommands(Cog):
             )
             return
 
-        game.spawn_timer_range[0] = minutes * 60
+        game.spawn_timer_range = (minutes * 60, game.spawn_timer_range[1])
         game.save()
         Dispatcher.add(game.channel, "Minimum spawn time has been set.")
 
@@ -297,7 +297,7 @@ class RpgAdminCommands(Cog):
             )
             return
 
-        game.spawn_timer_range[1] = minutes * 60
+        game.spawn_timer_range = (game.spawn_timer_range[0], minutes * 60)
         game.save()
         Dispatcher.add(game.channel, "Maximum spawn time has been set.")
 

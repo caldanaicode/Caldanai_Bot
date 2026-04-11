@@ -106,7 +106,7 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
             return
 
-        if any(player.id == p.id for p in game.combatants):
+        if player in game.combatants:
             Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
             return
 
