@@ -278,7 +278,7 @@ class DB:
         """Monitors critical task loops and alerts if DB writes have stalled."""
 
         from Caldanai.Dispatcher import send
-        from Caldanai.lib.rpg.helpers.utils import save_game_data, rescan_plugins, generate_report
+        from Caldanai.lib.rpg.helpers.utils import save_game_data, generate_report
 
         restarted = []
 
@@ -297,10 +297,21 @@ class DB:
             send.start()
             restarted.append("send")
 
-        if not rescan_plugins.is_running():
-            _log.error("WATCHDOG: rescan_plugins was not running — restarting.")
-            rescan_plugins.start()
-            restarted.append("rescan_plugins")
+        # Check each game's GameClock tick. Only monitor games that have
+        # enabled features which require the clock (ambience or spawn timer).
+        from Caldanai.lib.rpg.helpers.utils import RpgUtilities
+        bot = getattr(RpgUtilities, "bot", None)
+        if bot is not None:
+            for game in list(bot.games.values()):
+                if not (game.enable_ambience or game.use_spawn_timer):
+                    continue
+                if not game.game_clock.tick.is_running():
+                    guild_name = game.guild.name if game.guild else "unknown"
+                    _log.error(
+                        f"WATCHDOG: GameClock.tick for '{guild_name}' was not running — restarting."
+                    )
+                    game.game_clock.tick.start()
+                    restarted.append(f"game_clock.tick[{guild_name}]")
 
         if DB._last_successful_write is not None:
             elapsed = (datetime.now() - DB._last_successful_write).total_seconds()
