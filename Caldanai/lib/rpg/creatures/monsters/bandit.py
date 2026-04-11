@@ -56,7 +56,7 @@ class Bandit(MonsterPlugin):
         """
 
         if target.clarks > 0:
-            amount = randint(1, int(target.clarks / 10))
+            amount = randint(1, max(1, int(target.clarks / 10)))
             attempt = Dice.quick_roll("1d20")
             if attempt >= target.get_dodge():
                 target.give_clarks(-amount)
