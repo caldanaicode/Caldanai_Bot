@@ -187,6 +187,7 @@ class RpgUtilities:
                     loot_duration,
                     prefix,
                 )
+                await game.player_manager.load_players(guild)
                 await RpgUtilities.create_roles(game)
                 game.save()
 
@@ -346,7 +347,7 @@ class RpgUtilities:
                 cmd = f'commands.{entry["command"]}.{entry["alias"]}'
                 guild_totals = command_totals.setdefault(gid, {})
                 guild_totals[cmd] = guild_totals.get(cmd, 0) + 1
-                server_totals[gid] = guild_totals[cmd] + server_totals.get(gid, 0)
+                server_totals[gid] = server_totals.get(gid, 0) + 1
 
             for guild_id, commands in command_totals.items():
                 DB.update_statistic(guild_id, {**commands, "total": server_totals.get(guild_id, 0)})

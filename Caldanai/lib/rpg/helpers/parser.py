@@ -53,9 +53,7 @@ def parse(msg: str, *actors) -> str:
     :return: The original string with all @ flags replaced appropriately
     """
 
-    result = msg
-    while match := actorRegex.search(result):
-        result = actorRegex.sub(_process(match, actors), result, 1)
+    result = actorRegex.sub(lambda m: _process(m, actors), msg)
 
     return result
 
@@ -68,8 +66,10 @@ def item_list_to_string(items: List) -> str:
     :return: The text representation.
     """
 
-    m = ", ".join((last := i.get_full_name()) for i in items if i is not None)
-    if len(items) > 1 and last is not None and last != "":
+    last = None
+    names = [(last := i.get_full_name()) for i in items if i is not None]
+    m = ", ".join(names)
+    if len(names) > 1 and last is not None and last != "":
         m = m.replace(f", {last}", f" and {last}")
 
     return m

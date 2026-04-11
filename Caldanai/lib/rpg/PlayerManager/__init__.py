@@ -188,8 +188,11 @@ class PlayerManager:
                 and Roles.INACTIVE in self.roles.keys()
             ):
                 await player.member.remove_roles(
-                    [self.roles[Roles.ALL], self.roles[Roles.ACTIVE], self.roles[Roles.INACTIVE]], "Player left game."
+                    self.roles[Roles.ALL],
+                    self.roles[Roles.ACTIVE],
+                    self.roles[Roles.INACTIVE],
+                    reason="Player left game.",
                 )
-                del self.players[user_id]
+            del self.players[user_id]
 
         DB.delete_player(guild_id, user_id)

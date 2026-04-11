@@ -306,8 +306,10 @@ class RpgInventoryCommands(Cog):
 
                 if item and item.id not in equipped:
                     sell.append(item)
-                else:
+                elif item is not None:
                     msg += f'\nYou must un-equip {item.get_full_name()} before selling them.'
+                else:
+                    msg += f'\nNo such item: {_item}.'
 
             elif isinstance(_item, str):
                 if _item.lower() == 'all':

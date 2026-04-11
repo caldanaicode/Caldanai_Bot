@@ -86,6 +86,9 @@ class Player(Creature):
     def __eq__(self, o):
         return isinstance(o, Player) and self.user_id == o.user_id and self.guild_id == o.guild_id
 
+    def __hash__(self):
+        return hash((self.user_id, self.guild_id))
+
     def apply_damage(self, amount: int) -> str:
         was_alive = self.health > 0
         super().apply_damage(amount)

@@ -80,7 +80,6 @@ class Game:
         self.monster_statics: Dict[str, int] = {}
 
         if guild:
-            self.player_manager.load_players(guild)
             self.game_clock.add_routine(self.player_manager.update_inactive_roles, 3600)
             self.prefix = DB.get_server_by_guild_id(guild.id)["prefix"]
 
@@ -101,7 +100,7 @@ class Game:
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
-        if asyncio.iscoroutinemethod(method):
+        if asyncio.iscoroutinefunction(method):
 
             async def async_wrapper(self: "Game", *args, **kwargs) -> Any:
                 if not self.bot.is_online_discord:
