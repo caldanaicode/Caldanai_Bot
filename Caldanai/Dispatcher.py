@@ -120,10 +120,11 @@ class Dispatcher:
                     i += len(m)
                 else:
                     m = message[i : i + limit].rsplit(sep, 1)
-                    result += (m[0] + sep if keep_sep else m[0],)
                     if len(m) == 1:
+                        result += (m[0],)
                         i += len(m[0])
                     else:
+                        result += (m[0] + sep if keep_sep else m[0],)
                         i += len(m[0]) + len(sep)
         return result
 

@@ -128,28 +128,39 @@ class DB:
                 DB.on_disconnected()
             return  # skip this cycle; the task stays alive
 
+        attempts = 0
+        successes = 0
         collections = list(DB._queues.keys())
         for collection in collections:
             if ops := DB._queues[collection].get_all():
                 _log.debug(
                     f"Writing {len(ops)} queued DB update{'s' if len(ops) != 1 else ''} to '{collection.full_name}'"
                 )
+                attempts += 1
                 try:
                     result = collection.bulk_write(ops, ordered=False)
                     _log.debug(f"{result=}")
+                    successes += 1
                 except BulkWriteError:
                     error_info = traceback.format_exc()
                     _log.error(f"Error occurred while performing bulk write operation: {error_info}")
 
         if DB._mongoHandler and (errors := [InsertOne(item) for item in DB._mongoHandler.queue.get_all()]):
+            attempts += 1
             try:
                 DB._logs.bulk_write(errors)
+                successes += 1
             except BulkWriteError:
                 error_info = traceback.format_exc()
                 _log.error(f"Error occurred while performing bulk write operation: {error_info}")
 
-        DB._last_successful_write = datetime.now()
-        DB._write_alert_sent = False
+        # Only bump the watchdog timestamp if we either had nothing to write
+        # (connection is healthy, confirmed by the earlier ping) or at least
+        # one bulk_write actually succeeded. If we attempted writes and every
+        # one raised, leave the timestamp alone so the watchdog can fire.
+        if attempts == 0 or successes > 0:
+            DB._last_successful_write = datetime.now()
+            DB._write_alert_sent = False
 
     @batch_write.error
     async def batch_write_error(e):

@@ -170,7 +170,7 @@ class RpgUtilities:
             channel = RpgUtilities.bot.get_channel(chid) or await RpgUtilities.bot.fetch_channel(chid)
 
             try:
-                prefix = DB.get_server_by_guild_id(gid)["prefix"]
+                DB.get_server_by_guild_id(gid)["prefix"]
             except Exception as e:
                 _log.error(f"Error in utils.py --> add_game(): {e}")
                 return
@@ -185,7 +185,6 @@ class RpgUtilities:
                     tuple(spawn_range),
                     spawn_duration,
                     loot_duration,
-                    prefix,
                 )
                 await game.player_manager.load_players(guild)
                 await RpgUtilities.create_roles(game)
@@ -376,7 +375,7 @@ async def save_game_data():
             if player.id is None:
                 p = DB.get_player(player.guild_id, player.user_id)
                 if p:
-                    player.id = p.id
+                    player.id = p["_id"]
                     RpgUtilities.new_players.remove(player)
 
         RpgUtilities.update_statics()

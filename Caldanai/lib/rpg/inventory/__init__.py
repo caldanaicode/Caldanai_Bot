@@ -175,7 +175,9 @@ class Inventory:
             results = (*[i for i in self._filter_by_quality(f)],)
 
         elif "." in f:
-            f, flag, *_ = f.split(".")
+            parts = f.split(".")
+            f, flag = parts[0], parts[1]
+            tail = parts[2] if len(parts) > 2 else None
 
             if flag and flag.isnumeric():
                 r = self._filter_by_name(f)
@@ -184,7 +186,15 @@ class Inventory:
                     results = (r[index],)
 
             elif flag.upper() in Qualities.__members__:
-                results = (*[i for i in self._filter_by_name(f) if i.quality == Qualities[flag.upper()]],)
+                filtered = [i for i in self._filter_by_name(f) if i.quality == Qualities[flag.upper()]]
+                if tail is not None and tail.isnumeric():
+                    index = int(tail) - 1
+                    if 0 <= index < len(filtered):
+                        results = (filtered[index],)
+                    else:
+                        results = (None,)
+                else:
+                    results = (*filtered,)
 
         else:
             if f.upper() in Qualities.__members__:

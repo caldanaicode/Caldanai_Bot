@@ -66,10 +66,7 @@ def item_list_to_string(items: List) -> str:
     :return: The text representation.
     """
 
-    last = None
-    names = [(last := i.get_full_name()) for i in items if i is not None]
-    m = ", ".join(names)
-    if len(names) > 1 and last is not None and last != "":
-        m = m.replace(f", {last}", f" and {last}")
-
-    return m
+    names = [i.get_full_name() for i in items if i is not None]
+    if len(names) > 1:
+        return ", ".join(names[:-1]) + " and " + names[-1]
+    return ", ".join(names)

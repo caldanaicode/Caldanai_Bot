@@ -2,6 +2,7 @@ import importlib
 from typing import Dict, Tuple
 
 from Caldanai.Logger import get_logger
+from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities, DamageTypes
 from Caldanai.lib.rpg.inventory.equipment import Equipment
 from bson.objectid import ObjectId
@@ -38,7 +39,7 @@ class Weapon(Equipment):
             f"{str(self.damage_type) or ''}".strip()
         )
 
-        dice = int(self.attack.split("d")[0])
+        dice = Dice.__int__(self.attack.split("d")[0])
         self.bonus = bonus or int(dice * self.quality.value["multiplier"])
 
     def get_embed(self) -> tuple:

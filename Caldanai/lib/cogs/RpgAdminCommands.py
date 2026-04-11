@@ -192,7 +192,10 @@ class RpgAdminCommands(Cog):
                         corpses.append(target.name)
 
                 if corpses:
-                    c = ", ".join(corpses).replace(f", {corpses[-1]}", f" and {corpses[-1]}")
+                    if len(corpses) > 1:
+                        c = ", ".join(corpses[:-1]) + " and " + corpses[-1]
+                    else:
+                        c = corpses[0]
                     msg += f"{c}, who now appear{'' if len(corpses) > 1 else 's'} whole."
                     Dispatcher.add(game.channel, msg)
                 else:
@@ -338,14 +341,14 @@ class RpgAdminCommands(Cog):
         if not game:
             return
         if minutes is None:
-            Dispatcher.add(game.channel, f"Loot duration is {game.loot_duration} minutes.")
+            Dispatcher.add(game.channel, f"Loot duration is {int(game.loot_duration / 60)} minutes.")
             return
 
         if minutes <= 1:
             Dispatcher.add(game.channel, "Loot duration must be more than 1 minute.")
             return
 
-        game.loot_duration = minutes
+        game.loot_duration = minutes * 60
         game.save()
         Dispatcher.add(game.channel, "Loot duration has been set.")
 

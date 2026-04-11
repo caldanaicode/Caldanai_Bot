@@ -97,7 +97,8 @@ class Player(Creature):
             return parse("@1 crumples to the ground lifelessly!", self)
 
         if not was_alive and not self.is_dead():
-            return parse(f"<@!{self.member.id}> suddenly gasps raggedly as life returns to @1o!", self)
+            mention = f"<@!{self.member.id}>" if self.member is not None else self.name
+            return parse(f"{mention} suddenly gasps raggedly as life returns to @1o!", self)
 
         return ""
 
