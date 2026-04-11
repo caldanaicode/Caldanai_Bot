@@ -59,7 +59,6 @@ class GameClock:
         self._time_map: Dict[str, Tuple[int, int]] = {}
 
         self.tick_speed = self.time_scale
-        self.update_times_of_day()
 
     def __add__(self, other):
         if isinstance(other, GameClock):
@@ -318,6 +317,8 @@ class GameClock:
 
     def get_time_of_day(self) -> str:
         """Returns the string form of the current time of day, such as 'night', 'noon', etc."""
+        if not self._time_map:
+            self.update_times_of_day()
         h, m, _ = self.get_time_components()
 
         times = [(k, v) for k, v in self._time_map.items() if v[0] < h or (v[0] == h and v[1] <= m)]
@@ -329,6 +330,8 @@ class GameClock:
 
     def get_next_time(self) -> Tuple[TimesOfDay, int, int]:
         """Returns a tuple containing the next time of day after the current time, and the hour and the minute."""
+        if not self._time_map:
+            self.update_times_of_day()
         h, m, _ = self.get_time_components()
 
         times = [(k, v) for k, v in self._time_map.items() if v[0] > h or (v[0] == h and v[1] > m)]
