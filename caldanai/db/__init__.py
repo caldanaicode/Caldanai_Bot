@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import inspect
 import os
 import traceback
 
@@ -86,7 +87,7 @@ class DB:
     def check_connection(func):
         """Decorator to verify database connectivity."""
 
-        if asyncio.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):

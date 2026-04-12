@@ -1,5 +1,6 @@
 discord.py
 discord_ext_menus
+audioop-lts
 pymongo
 python-dotenv
 pandas

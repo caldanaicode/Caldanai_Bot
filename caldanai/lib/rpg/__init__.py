@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import importlib
 import random
 from glob import glob
@@ -101,7 +102,7 @@ class Game:
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
-        if asyncio.iscoroutinefunction(method):
+        if inspect.iscoroutinefunction(method):
 
             async def async_wrapper(self: "Game", *args, **kwargs) -> Any:
                 if not self.bot.is_online_discord:
