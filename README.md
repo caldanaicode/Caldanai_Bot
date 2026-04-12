@@ -12,8 +12,14 @@ A Discord bot featuring dice rolling, a text-based RPG system, and general serve
 ### Text RPG
 - Monsters spawn periodically in a designated channel
 - Players can fight monsters using combat commands
+- **Body parts system** — every monster has targetable body parts (head, torso, arms, legs, wings, tail) with injury tracking and debuffs
+- **Explicit targeting** — `$kill arm.left`, `$kill head torso` for dual-wield split targeting, `$target` for mid-combat changes
+- **Injury feedback** — parts degrade through injury levels (minor → moderate → severe → destroyed), debuffing monster stats as they take damage
+- **Critical parts** — destroying a head or torso kills the monster outright
 - Loot drops after defeating monsters, with a timed pickup window
-- Creatures include goblins, bandits, dragons, bears, vampires, and more
+- Creatures include goblins, bandits, dragons, hydras, bears, vampires, and more
+- **Hydra** — regenerating heads, multi-head attacks, head cap, turn-based regrowth
+- **Dragon** — VARIANTS system with the 62-toe flavor variant (grounded dragons can't dodge)
 - Equipment system with weapons (swords, maces, bows, wands, etc.) and armor
 - Inventory management with stackable items, consumables, and equipment
 - Day/night cycle and weather with ambient flavor text
@@ -29,8 +35,10 @@ A Discord bot featuring dice rolling, a text-based RPG system, and general serve
 ### Infrastructure
 - MongoDB backend for persistent storage (players, games, servers, logs)
 - Batched database writes via a double-buffer queue
-- Plugin architecture for dynamically loading cogs, console commands, and monster definitions
+- Plugin architecture for dynamically loading cogs, console commands, monster definitions, and body parts
+- Body composition templates (`BodyPart.humanoid()`, `quadruped()`, `quadruped_winged()`) for one-liner monster setup
 - Console command interface for server-side management
+- 1000+ automated tests (unit + integration)
 
 ## Requirements
 
@@ -85,6 +93,8 @@ A Discord bot featuring dice rolling, a text-based RPG system, and general serve
 ```
 Caldanai_Bot/
 ├── main.py                  # Entry point — starts bot, console, and input loops
+├── startup.py               # Git sync and process launcher
+├── CHANGELOG.md             # Version history
 ├── Caldanai/
 │   ├── __init__.py          # Event/Observer pattern, PluginManager
 │   ├── Dispatcher.py        # Batched message queue for Discord API
@@ -98,14 +108,21 @@ Caldanai_Bot/
 │       ├── cogs/            # Discord command groups (general, RPG, admin)
 │       └── rpg/             # RPG game engine
 │           ├── areas/       # Game areas / zones
-│           ├── combat/      # Combat system
-│           ├── creatures/   # Player, monsters, pets, body parts
+│           ├── combat/      # Attack sources, results, sequences, rendering
+│           ├── creatures/   # Creature base class, targeting helpers
+│           │   ├── bodypart.py      # BodyPart class, factory, templates
+│           │   ├── body_parts/      # Body part plugins (head, arm, leg, etc.)
+│           │   ├── monsters/        # Monster plugins (goblin, dragon, hydra, etc.)
+│           │   └── player.py        # Player class
+│           ├── PlayerManager/       # Player lifecycle management
 │           ├── inventory/   # Items, equipment, weapons, armor, consumables
 │           ├── abilities/   # Ability system
 │           ├── ambience/    # Weather and flavor text
-│           ├── helpers/     # Dice, enums, text parser, utilities
-│           ├── time/        # In-game clock and scheduled routines
-│           └── PlayerManager/
+│           ├── helpers/     # Dice, enums (Stat, Reach, DamageTypes), parser, utilities
+│           └── time/        # In-game clock and scheduled routines
+├── tests/                   # Unit tests (~1000+)
+│   ├── integration/         # Integration tests (combat damage pipeline)
+│   └── conftest.py          # Shared fixtures
 └── site/
     └── static/images/       # RPG asset images (used in Discord embeds)
 ```
