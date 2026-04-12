@@ -174,10 +174,10 @@ class TestDispatcherSplitMessage:
         # Each chunk respects the limit
         for part in result:
             assert len(part) <= 50
-        # When the separator is not found, rsplit returns the whole chunk as
-        # element 0 and i advances by len(chunk) + len(sep), consuming one
-        # extra character per split boundary.  So the total recovered length
-        # equals the original length minus the number of internal splits.
+        # When the separator is not found, rsplit returns the whole chunk
+        # as element 0 and split_message advances by exactly len(chunk) — no
+        # phantom separator is consumed and no characters are lost.
+        # (Round-3 fix `5bb7059`; the prior buggy behavior dropped one
+        # sep-length character per split boundary.)
         total = sum(len(p) for p in result)
-        expected_lost = len(result) - 1  # one sep-length char lost per split
-        assert total == len(msg) - expected_lost
+        assert total == len(msg)

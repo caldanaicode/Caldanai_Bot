@@ -4,6 +4,7 @@ from random import choice
 
 from Caldanai.lib.rpg import MonsterPlugin, parse
 from Caldanai.lib.rpg.combat.attack_result import AttackSequence
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, TimePartitions)
 from Caldanai.lib.rpg.creatures import Creature
@@ -67,6 +68,8 @@ class Vampire(MonsterPlugin):
         self.loot["cape"] = 0.2
         self.loot["high-collared_cape"] = 0.1
         self.loot["wand"] = 0.1
+
+        self.body_parts = BodyPart.humanoid()
 
     def feed(self, target: Creature) -> str:
         """

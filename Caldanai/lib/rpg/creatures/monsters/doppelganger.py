@@ -1,6 +1,8 @@
+import copy
 from random import choice
 
 from Caldanai.lib.rpg import get_random_direction, Player
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, Qualities
 from Caldanai.lib.rpg.creatures import Creature
@@ -15,9 +17,9 @@ class Doppelganger(MonsterPlugin):
         super().__init__(
             name="???",
             atk="2d10",
-            defense="6d4",
-            dodge="6d4",
-            health_max="40d4"
+            defense="5d4",
+            dodge="5d4",
+            health_max="20d4"
         )
 
         self.time_partition = TimePartitions.CATHEMERAL
@@ -61,6 +63,8 @@ class Doppelganger(MonsterPlugin):
         self.loot["cheese_sandwich"] = 0.2
         self.loot["wallet"] = 0.25
 
+        self.body_parts = BodyPart.humanoid()
+
     def on_spawn(self, game) -> str:
         """Imitates a random player on spawn."""
         players = list(game.player_manager.players.values())
@@ -76,6 +80,11 @@ class Doppelganger(MonsterPlugin):
         :param target: The creature being targeted.
         :return: A string indicating the results of the imitation.
         """
+
+        # Never imitate another doppelganger (defensive — prevents infinite
+        # mirror-of-mirror composition and nonsensical stats).
+        if isinstance(target, type(self)):
+            return ""
 
         if not isinstance(target, Player):
             return ""
@@ -98,6 +107,16 @@ class Doppelganger(MonsterPlugin):
             quality = choice(list(Qualities))
             base_freq = quality.value["multiplier"] * 0.1
             self.loot[item.plugin] = self.loot.get(item.plugin, 0) + base_freq
+
+        # Deep-copy the target's body parts including injury state.
+        if hasattr(target, 'body_parts') and target.body_parts:
+            self.body_parts = [copy.deepcopy(p) for p in target.body_parts]
+        else:
+            # Fallback: target has no parts (pre-migration creature or a slime).
+            self.body_parts = BodyPart.humanoid()
+
+        # Copy target's flags (e.g. "flying") as an independent set.
+        self.flags = set(target.flags) if hasattr(target, 'flags') else set()
 
         _log.debug(f"Doppelganger imitated {target.name}")
 

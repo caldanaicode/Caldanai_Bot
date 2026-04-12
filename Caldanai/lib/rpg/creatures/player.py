@@ -89,9 +89,14 @@ class Player(Creature):
     def __hash__(self):
         return hash((self.user_id, self.guild_id))
 
-    def apply_damage(self, amount: int) -> str:
+    def apply_damage(
+        self,
+        amount: int,
+        dmg_type: "Optional[DamageTypes]" = None,
+        target_part: "Optional[BodyPart]" = None,
+    ) -> str:
         was_alive = self.health > 0
-        super().apply_damage(amount)
+        super().apply_damage(amount, dmg_type=dmg_type, target_part=target_part)
         self.is_dirty = True
         if was_alive and self.is_dead():
             return parse("@1 crumples to the ground lifelessly!", self)

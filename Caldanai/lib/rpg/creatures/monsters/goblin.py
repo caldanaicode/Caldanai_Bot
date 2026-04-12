@@ -2,6 +2,7 @@ from random import choice
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -41,6 +42,8 @@ class Goblin(MonsterPlugin):
         self.loot["rock"] = 0.5
         self.loot["torch"] = 0.3
         self.loot["spear"] = 0.1
+
+        self.body_parts = BodyPart.humanoid()
 
     # Reacts to hugs.
     def on_hugged(self, actor: Creature, invocation: str) -> str:

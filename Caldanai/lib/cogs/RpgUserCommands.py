@@ -86,9 +86,12 @@ class RpgUserCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 10, BucketType.member)
-    async def attack(self, ctx: Context):
+    async def attack(self, ctx: Context, *, target: str = None):
         """
         Attacks the critter currently daring to show its face to intrepid adventurers!
+        Optionally specify a body part to target, e.g. ``$kill arm.left``
+        or ``$kill goblin arm.left``. If already in combat, re-calling
+        ``$kill <part>`` updates the target without re-joining.
 
         (10-second cool-down)
         """
@@ -106,12 +109,145 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
             return
 
-        if player in game.combatants:
-            Dispatcher.add(game.channel, f"But {ctx.author.display_name}, you are already attacking!")
+        already_in_combat = player in game.combatants
+
+        # Parse explicit body-part targets from the command arguments.
+        # Supports one target (all sources hit it) or multiple (one per source).
+        part_targets = self._parse_part_targets(target, game.monster)
+
+        # Warn if the player typed something but nothing resolved.
+        if target and target.strip() and not part_targets and game.monster.body_parts:
+            Dispatcher.add(
+                game.channel,
+                f"No targetable part matching '{target.strip()}' found. Attacking randomly.",
+            )
+
+        if already_in_combat:
+            game.combat_targets[player.user_id] = part_targets or None
+            if part_targets:
+                label = self._display_targets(part_targets)
+                Dispatcher.add(game.channel, f"{player.name} shifts focus to {label}!")
+            else:
+                Dispatcher.add(game.channel, f"{player.name} attacks wildly!")
             return
 
         game.combatants.append(player)
-        Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
+        game.combat_targets[player.user_id] = part_targets or None
+
+        if part_targets:
+            label = self._display_targets(part_targets)
+            Dispatcher.add(game.channel, f"{player.name} prepares to attack, targeting {label}!")
+        else:
+            Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
+
+    def _parse_part_targets(self, target_str, monster):
+        """Parse body-part names from the player's command input.
+
+        Returns a list of matched part-name strings (may be empty).
+        Accepts: ``"arm.left"``, ``"arm.left leg.right"``,
+        ``"goblin arm.left"`` (unrecognized tokens like the monster
+        name are silently skipped).
+        """
+        if not target_str or not monster.body_parts:
+            return []
+
+        seen = set()
+        matched = []
+        for token in target_str.strip().split():
+            if token in seen:
+                continue
+            exact = monster.get_part(token)
+            if exact:
+                seen.add(token)
+                matched.append(token)
+                continue
+            prefix_matches = [
+                p for p in monster.get_targetable_parts()
+                if p.name.startswith(token + ".") or p.name == token
+            ]
+            if prefix_matches:
+                seen.add(token)
+                matched.append(token)
+        return matched
+
+    @command(name="target", aliases=["aim", "focus"], brief="Changes your attack target to specific body parts.")
+    @guild_only()
+    async def target_part(self, ctx: Context, *, part: str = None):
+        """
+        Changes your attack focus mid-combat.
+        Use ``$target arm.left`` to focus all weapons on one part,
+        ``$target arm.left leg.right`` to split (one per weapon), or
+        ``$target`` alone to clear targeting and attack randomly.
+        """
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+
+        if game is None or player is None:
+            return
+
+        if player not in game.combatants:
+            Dispatcher.add(game.channel, f"{player.name} is not in combat. Use $kill to join!")
+            return
+
+        if game.monster is None:
+            Dispatcher.add(game.channel, "There's nothing to target!")
+            return
+
+        if not part or not part.strip():
+            game.combat_targets[player.user_id] = None
+            Dispatcher.add(game.channel, f"{player.name} clears targeting — attacking randomly.")
+            return
+
+        part_targets = self._parse_part_targets(part, game.monster)
+
+        if not part_targets:
+            Dispatcher.add(
+                game.channel,
+                f"No targetable part matching '{part.strip()}' found on the {game.monster.name}.",
+            )
+            return
+
+        game.combat_targets[player.user_id] = part_targets
+        label = self._display_targets(part_targets)
+        Dispatcher.add(game.channel, f"{player.name} shifts focus to {label}!")
+
+    @staticmethod
+    def _display_part_name(codified: str, with_article: bool = False) -> str:
+        """Convert a codified part name to a readable display name.
+
+        ``"arm.left"`` → ``"left arm"``, ``"head.2"`` → ``"head 2"``,
+        ``"head"`` → ``"head"``.
+
+        When ``with_article`` is True, prepends "the" for directional
+        and simple names but NOT for numbered parts:
+        ``"the left arm"`` vs ``"head 2"`` (not "the head 2").
+        """
+        if "." not in codified:
+            name = codified
+            use_the = True
+        else:
+            base, qualifier = codified.rsplit(".", 1)
+            if qualifier.isnumeric():
+                name = f"{base} {qualifier}"
+                use_the = False
+            else:
+                name = f"{qualifier} {base}"
+                use_the = True
+
+        if with_article and use_the:
+            return f"the {name}"
+        return name
+
+    @classmethod
+    def _display_targets(cls, part_targets: list) -> str:
+        """Join a list of codified part names into a readable label
+        with appropriate articles.
+
+        ``["arm.left", "leg.right"]`` → ``"the left arm and the right leg"``
+        ``["head.2", "torso"]`` → ``"head 2 and the torso"``
+        """
+        return " and ".join(
+            cls._display_part_name(t, with_article=True) for t in part_targets
+        )
 
     @command(name="hug", aliases=["snuggle", "cuddle"], brief="Hugs, snuggles, and cuddles for all of your needs!")
     @guild_only()

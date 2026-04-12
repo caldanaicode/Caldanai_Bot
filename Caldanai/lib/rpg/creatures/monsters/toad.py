@@ -2,6 +2,7 @@ from random import choice
 
 from Caldanai.lib.rpg import get_random_direction
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes)
 
@@ -58,3 +59,5 @@ class Toad(MonsterPlugin):
 
         self.loot["toad_slime"] = 0.9
         self.loot["mushroom_hat"] = 0.3
+
+        self.body_parts = [p for p in BodyPart.quadruped() if p.name != "tail"]

@@ -1,6 +1,7 @@
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -36,6 +37,8 @@ class Giant(MonsterPlugin):
         self.loot["sledgehammer"] = 0.2
         self.loot["spear"] = 0.2
         self.loot["ice_axe"] = 0.1
+
+        self.body_parts = BodyPart.humanoid()
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         dmg = Dice.quick_roll("1d4")

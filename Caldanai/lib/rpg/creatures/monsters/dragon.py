@@ -3,15 +3,30 @@ from random import choice, random
 from Caldanai.lib.rpg import parse
 from Caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.dice import Dice
 from Caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, TimePartitions, DamageTypes)
+    AggressionLevels, TimePartitions, DamageTypes, Reach)
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
 from Caldanai.lib.rpg.creatures import Creature
 
 
 class Dragon(MonsterPlugin):
+    VARIANTS = [
+        {
+            "flavor": "A massive red @1, smelling faintly of cinnamon and charcoal.",
+            "has_toes": False,
+        },
+        {
+            "flavor": (
+                "Unconfirmed reports suggest that this @1 may, in fact, have 62 toes. "
+                "However, no one can get close enough to actually count."
+            ),
+            "has_toes": True,
+        },
+    ]
+
     def __init__(self):
         super().__init__(
             name="dragon",
@@ -25,13 +40,11 @@ class Dragon(MonsterPlugin):
         self.image = None
         self.aggression = AggressionLevels.RAMPAGE
         self.arrival = "A piercing roar rocks the heavens, as a @1 swoops down out of the sky searching for prey."
-        self.flavor = choice(
-            [
-                "A massive red @1, smelling faintly of cinnamon and charcoal.",
-                "Unconfirmed reports suggest that this @1 may, in fact, have 62 toes. However, no one can get close "
-                "enough to actually count.",
-            ]
-        )
+
+        variant = choice(self.VARIANTS)
+        self._has_toes = variant["has_toes"]
+        self.flavor = variant["flavor"]
+
         self.escape = "The @1 circles the area lazily before taking to the clouds, disappearing from sight."
         self.death = (
             "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1ac thrashing "
@@ -49,6 +62,24 @@ class Dragon(MonsterPlugin):
         self.loot["heavy_stringed_instrument"] = 0.2
         self.loot["mace"] = 0.3
         self.loot["wand"] = 0.1
+
+        self.flags = {"flying"}
+        self.body_parts = BodyPart.quadruped_winged()
+        # Swap the generic head for dragon-specific low-melee-exposure head
+        self.body_parts = [p for p in self.body_parts if p.name != "head"]
+        self.body_parts.append(BodyPart.make("head", name="head",
+            exposure={Reach.MELEE: 0.05, Reach.REACH: 0.10, Reach.THROWN: 0.50, Reach.RANGED: 1.0}))
+        # Mark the torso as critical (dragon dies when torso is destroyed)
+        for p in self.body_parts:
+            if p.name == "torso":
+                p.is_critical = True
+                break
+
+    def get_dodge(self):
+        base = super().get_dodge()
+        if self._has_toes and "flying" not in self.flags:
+            base -= 62
+        return max(0, base)
 
     # Reacts to hugs.
     def on_hugged(self, actor: Creature, invocation: str) -> str:

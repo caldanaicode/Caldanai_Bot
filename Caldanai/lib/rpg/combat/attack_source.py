@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional, Tuple
 
 from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
+from Caldanai.lib.rpg.helpers.enums import DamageTypes, Reach
 from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll
 
 if TYPE_CHECKING:
@@ -21,8 +21,9 @@ if TYPE_CHECKING:
 class AttackSource(ABC):
     """Abstract base class for anything that can produce an attack."""
 
-    def __init__(self, label: str = ""):
+    def __init__(self, label: str = "", *, reach: Reach = Reach.MELEE):
         self._label = label
+        self.reach = reach
 
     @property
     def label(self) -> str:
@@ -50,8 +51,8 @@ class AttackSource(ABC):
 class WeaponAttackSource(AttackSource):
     """An attack source backed by an equipped Weapon."""
 
-    def __init__(self, weapon: "Weapon", label: str = ""):
-        super().__init__(label=label)
+    def __init__(self, weapon: "Weapon", label: str = "", *, reach: Reach = Reach.MELEE):
+        super().__init__(label=label, reach=reach)
         self.weapon = weapon
 
     @property
@@ -76,8 +77,8 @@ class WeaponAttackSource(AttackSource):
 class UnarmedAttackSource(AttackSource):
     """An attack source for unarmed strikes (fists). Rolls 1d4 bludgeoning."""
 
-    def __init__(self, label: str = ""):
-        super().__init__(label=label)
+    def __init__(self, label: str = "", *, reach: Reach = Reach.MELEE):
+        super().__init__(label=label, reach=reach)
 
     @property
     def damage_type(self) -> Optional[DamageTypes]:
@@ -111,8 +112,10 @@ class NaturalAttackSource(AttackSource):
         dmg_type: Optional[DamageTypes] = None,
         label: str = "",
         skill: str = "natural",
+        *,
+        reach: Reach = Reach.MELEE,
     ):
-        super().__init__(label=label)
+        super().__init__(label=label, reach=reach)
         self._atk = atk
         self._dmg_type = dmg_type
         self._skill = skill

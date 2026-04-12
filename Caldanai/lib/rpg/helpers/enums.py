@@ -1,4 +1,4 @@
-from enum import Enum, IntFlag
+from enum import Enum, IntFlag, auto
 
 
 class AggressionLevels(IntFlag):
@@ -243,6 +243,41 @@ class Seasons(Enum):
     SOLSTIME = 1
     LEAFGLOW = 2
     FROSTFALL = 3
+
+
+class Stat(Enum):
+    """Canonical creature stat identifiers.
+
+    Used as keys in body-part debuff tables
+    (``{Stat.DODGE: -3, Stat.ATTACK: -1}``) and by ``Creature`` stat getters
+    that aggregate ``part.get_stat_modifier(stat, owner=self)`` across parts.
+    """
+
+    ATTACK = auto()
+    DEFENSE = auto()
+    DODGE = auto()
+    HEALTH_MAX = auto()
+    HIT = auto()
+
+
+class Reach(Enum):
+    """How an attack reaches its target.
+
+    Used by ``AttackSource.reach`` to declare the reach class of an
+    attack, and by body-part ``exposure`` tables
+    (``Dict[Reach, float]``) to express how exposed a part is to each
+    reach type — e.g. a dragon's head might be
+    ``{Reach.MELEE: 0.05, Reach.THROWN: 0.5, Reach.RANGED: 1.0}``.
+    """
+
+    MELEE = auto()
+    """Default for unarmed and most weapons."""
+    REACH = auto()
+    """Polearms, whips — melee with extended reach."""
+    THROWN = auto()
+    """Daggers, javelins, improvised thrown attacks."""
+    RANGED = auto()
+    """Bows, crossbows, magic."""
 
 
 class Stats(Enum):

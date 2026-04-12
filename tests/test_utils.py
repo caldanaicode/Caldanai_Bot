@@ -182,7 +182,9 @@ class TestSaveGameData:
         new_player.guild_id = 50
         new_player.user_id = 7
 
-        mock_db.get_player.return_value = MagicMock(id="resolved_id")
+        # save_game_data reads p["_id"] (round-3 fix `5bb7059`), not p.id —
+        # set up the mock so __getitem__("_id") returns the resolved id.
+        mock_db.get_player.return_value = {"_id": "resolved_id"}
 
         game = MagicMock()
         game.guild.id = 50

@@ -52,6 +52,7 @@ def _pad_visual(s: str, target_width: int) -> str:
 if TYPE_CHECKING:
     from Caldanai.lib.rpg.combat.attack_source import AttackSource
     from Caldanai.lib.rpg.creatures import Creature
+    from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 
 
 @dataclass
@@ -67,6 +68,7 @@ class AttackResult:
     dmg_type: Optional[DamageTypes] = None
     extra_text: str = ""           # optional flavor text appended by subclasses
     auto_hit: bool = False         # True for attacks that bypass dodge (e.g., dragon breath)
+    target_part: Optional["BodyPart"] = None  # body part targeted by this hit (None = legacy whole-body)
 
     def total_damage(self) -> int:
         """Returns the final damage this result contributes."""
@@ -92,8 +94,12 @@ class AttackResult:
         dmg_type_str = str(self.dmg_type).title() if self.dmg_type else ""
         dmg_type_emoji = self.dmg_type.emoji if self.dmg_type else ""
 
+        label = self.source.label if self.source else ""
+        if self.target_part and not self.combined.isMiss:
+            label = f"{label} → {self.target_part.display_name}"
+
         return {
-            "label": self.source.label if self.source else "",
+            "label": label,
             "roll_str": str(self.combined.attack),
             "hit_str": self.combined.get_hit_string(),
             "is_miss": self.combined.isMiss,
@@ -203,25 +209,21 @@ class AttackSequence:
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]
         mult_col_list = [self._build_mult_column(p) for p in parts_list]
-        def_col_list = [
-            "" if p["is_miss"] else f"- {p['defense']}" for p in parts_list
-        ]
         result_col_list = [
             f"→ {p['final_damage']}" for p in parts_list
         ]
 
-        # Header labels per column
+        # Header labels per column (Def column removed — defense is
+        # subtracted once from the per-player total, not per-source)
         H_LABEL = "Source"
         H_ATTACK = "Roll → Hit"
         H_DAMAGE = "Damage"
         H_MULT = "Multiplier"
-        H_DEF = "Def"
         H_RESULT = "Result"
 
         label_w = max(len(H_LABEL), max(len(p["label"]) for p in parts_list))
         dmg_w = max(len(H_DAMAGE), max(len(s) for s in dmg_col_list))
         mult_w = max(len(H_MULT), max(len(s) for s in mult_col_list))
-        def_w = max(len(H_DEF), max(len(s) for s in def_col_list))
         result_w = max(len(H_RESULT), max(len(s) for s in result_col_list))
 
         if not all_auto_hit:
@@ -241,25 +243,23 @@ class AttackSequence:
         if all_auto_hit:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_DAMAGE.ljust(dmg_w)} | "
-                f"{H_MULT.ljust(mult_w)} | {H_DEF.ljust(def_w)} | {H_RESULT.ljust(result_w)}"
+                f"{H_MULT.ljust(mult_w)} | {H_RESULT.ljust(result_w)}"
             )
         else:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_ATTACK.ljust(attack_w)} | "
                 f"{H_DAMAGE.ljust(dmg_w)} | {H_MULT.ljust(mult_w)} | "
-                f"{H_DEF.ljust(def_w)} | {H_RESULT.ljust(result_w)}"
+                f"{H_RESULT.ljust(result_w)}"
             )
         lines.append(header_row)
 
-        for p, attack_col, dmg_col, mult_col, def_col, result_col in zip(
-            parts_list, attack_col_list, dmg_col_list, mult_col_list, def_col_list, result_col_list
+        for p, attack_col, dmg_col, mult_col, result_col in zip(
+            parts_list, attack_col_list, dmg_col_list, mult_col_list, result_col_list
         ):
             prefix = self._prefix_for(p)
             label = p["label"].ljust(label_w)
             dmg_padded = dmg_col.ljust(dmg_w)
             mult_padded = mult_col.ljust(mult_w)
-            def_padded = def_col.ljust(def_w)
-            # Only pad the result column when we need to align a trailing emoji
             emoji = p["damage_type_emoji"]
             result_rendered = result_col.ljust(result_w) if emoji else result_col
             emoji_trailer = f" {emoji}" if emoji else ""
@@ -267,20 +267,26 @@ class AttackSequence:
             if all_auto_hit:
                 row = (
                     f"{prefix}  {label} | {dmg_padded} | {mult_padded} | "
-                    f"{def_padded} | {result_rendered}{emoji_trailer}"
+                    f"{result_rendered}{emoji_trailer}"
                 )
             else:
                 attack_padded = attack_col.ljust(attack_w)
                 row = (
                     f"{prefix}  {label} | {attack_padded} | {dmg_padded} | "
-                    f"{mult_padded} | {def_padded} | {result_rendered}{emoji_trailer}"
+                    f"{mult_padded} | {result_rendered}{emoji_trailer}"
                 )
             lines.append(row)
 
             if p["extra_text"]:
                 lines.append(f"!  {' ' * label_w}   {p['extra_text']}")
 
-        lines.append(f"   Total: {total_damage} damage")
+        defense = self.results[0].defense if self.results else 0
+        num_hits = sum(1 for r in self.results if r.damage > 0)
+        final = max(num_hits, total_damage - defense) if num_hits > 0 else 0
+        if defense and num_hits > 0 and total_damage != final:
+            lines.append(f"   Total: {total_damage} damage - {defense} defense → {final} damage")
+        else:
+            lines.append(f"   Total: {total_damage} damage")
         lines.append("```")
 
         return "\n".join(lines) + "\n"

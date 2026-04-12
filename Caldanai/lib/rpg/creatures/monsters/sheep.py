@@ -5,6 +5,7 @@ from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes)
 from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 
 
 class Sheep(MonsterPlugin):
@@ -49,6 +50,8 @@ class Sheep(MonsterPlugin):
         self.loot["stick"] = 0.5
         self.loot["wool"] = 0.5
         self.loot["leather"] = 0.25
+
+        self.body_parts = BodyPart.quadruped()
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(

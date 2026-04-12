@@ -5,6 +5,7 @@ from Caldanai.Logger import get_logger
 from glob import glob
 import importlib
 import os
+import sys
 import traceback
 from typing import Dict, List, Type
 
@@ -111,11 +112,15 @@ class PluginManager:
                     f"{os.path.splitext(os.path.basename(filepath))[0]}")\
                     .replace(os.sep, '.')
                 _log.debug(f'Loading plugin module "{module_name=}"')
-                spec = importlib.util.spec_from_file_location(
-                    module_name,
-                    filepath)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
+                if module_name in sys.modules:
+                    module = sys.modules[module_name]
+                else:
+                    spec = importlib.util.spec_from_file_location(
+                        module_name,
+                        filepath)
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
 
                 for item_name in dir(module):
                     item = getattr(module, item_name)

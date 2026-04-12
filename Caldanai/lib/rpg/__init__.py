@@ -8,7 +8,7 @@ from discord import Guild, TextChannel
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, TYPE_CHECKING
 from random import choice, randint
 
-from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay, Roles
+from Caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, TimesOfDay, Roles
 from Caldanai.lib.rpg.helpers.parser import parse
 from Caldanai.lib.rpg.areas import Area
 from Caldanai.lib.rpg.time import GameClock
@@ -65,6 +65,7 @@ class Game:
         self.monster: Optional[MonsterPlugin] = None
         self.monsters: List[str] = []
         self.combatants: List[Player] = []
+        self.combat_targets: Dict[int, Optional[str]] = {}
         self.looters: List[Player] = []
         self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
         self.use_spawn_timer = use_spawn_timer
@@ -213,6 +214,7 @@ class Game:
         """Clears the current monster, combatants, and loot."""
         self.monster = None
         self.combatants.clear()
+        self.combat_targets.clear()
         self.loot.clear()
         self.looters.clear()
         self.game_clock.remove_routine(self.do_combat)
@@ -238,6 +240,7 @@ class Game:
 
         self.monster = None
         self.combatants.clear()
+        self.combat_targets.clear()
         self.looters.clear()
         self.game_clock.remove_routine(self.do_combat)
 
@@ -279,7 +282,13 @@ class Game:
         monster = self.monster
         msg = ""
         damage = 0
+        actual_body_damage = 0
         damage_by_player = {}
+        death_msg = ""
+        # Snapshot health before any per-result damage is applied so the
+        # "Total damage done vs Health" summary line stays accurate.
+        health_before = monster.health
+
         for i in range(len(self.combatants) - 1, -1, -1):
             player = self.combatants[i]
             if not player.is_dead():
@@ -288,7 +297,8 @@ class Game:
                     # TODO: This may need to be disabled because the role cannot be reliably removed after combat.
                     await self.player_manager.set_player_combatant(player)
                     self.looters.append(player)
-                sequence = player.do_attack(self.monster)
+                explicit_targets = self.combat_targets.get(player.user_id)
+                sequence = player.do_attack(self.monster, explicit_part_names=explicit_targets)
                 msg += sequence.to_markdown()
                 d = sequence.total_damage()
                 damage += d
@@ -296,15 +306,55 @@ class Game:
                     damage_by_player[player.user_id] = (player, 0)
                 _, prev = damage_by_player[player.user_id]
                 damage_by_player[player.user_id] = (player, prev + d)
+
+                # Per-result: route raw (pre-defense) damage to parts for
+                # injury tracking. Body HP is handled AFTER all sources
+                # resolve, with defense subtracted once from the total.
+                injury_feedback = []
+                num_hits = 0
+                for result in sequence.results:
+                    if result.damage > 0:
+                        num_hits += 1
+                        part = result.target_part
+                        old_level = part.get_injury_level() if part else None
+
+                        dmg_result = monster.apply_damage(
+                            result.damage,
+                            dmg_type=result.dmg_type,
+                            target_part=part,
+                        )
+                        if dmg_result and not death_msg:
+                            death_msg = dmg_result
+
+                        if part and old_level is not None:
+                            new_level = part.get_injury_level()
+                            if new_level != old_level and new_level != InjuryLevels.NONE:
+                                feedback = part.get_injury_string()
+                                injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
+
+                # Defense subtracted once from the per-player total
+                # (variant B — restored pre-refactor balance).
+                # num_hits is the minimum damage floor (dual-wield = 2, single = 1).
+                if num_hits > 0 and not monster.is_dead():
+                    total_raw = d  # sequence.total_damage() already computed above
+                    defense = monster.get_defense()
+                    final_body_dmg = max(num_hits, total_raw - defense)
+                    monster.health = max(0, monster.health - final_body_dmg)
+                    actual_body_damage += final_body_dmg
+                    if monster.health == 0 and not death_msg:
+                        death_msg = monster.death if hasattr(monster, 'death') else ""
+
+                if injury_feedback:
+                    msg += "\n".join(injury_feedback) + "\n"
             else:
                 self.combatants.pop(i)
 
         msg += (
-            f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{damage:,} vs {monster.health:,} "
-            f"= **{max(monster.health - damage, 0)} health remaining.**\n"
+            f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "
+            f"= **{max(health_before - actual_body_damage, 0)} health remaining.**\n"
         )
 
-        msg += parse(monster.apply_damage(damage) or "", monster)
+        msg += parse(death_msg, monster)
         if monster.is_dead():
             key = f"{monster.name}.killed"
             self.monster_statics[key] = 1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
@@ -318,15 +368,20 @@ class Game:
                 monster.aggression & (AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE)
             ):
 
+                # Retaliate FIRST with current heads/sources, THEN run
+                # the combat-round hook (hydra regrowth, doppelganger
+                # re-imitation, etc.). New heads spawned by regrowth
+                # should NOT attack the same turn they grow.
+                msg += f"\n{monster.attack_random(self.combatants)}"
                 if round_msg := monster.on_combat_round(list(damage_by_player.values())):
                     msg += f"\n{round_msg}"
-                msg += f"\n{monster.attack_random(self.combatants)}"
 
                 if monster.aggression & AggressionLevels.RAMPAGE or (
                     monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() > 0.1
                 ):
                     Dispatcher.add(self.channel, msg)
                     self.combatants.clear()
+                    self.combat_targets.clear()
                     self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
                     return
 

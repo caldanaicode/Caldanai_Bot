@@ -3,6 +3,7 @@ from typing import List
 
 from Caldanai.lib.rpg.combat.attack_result import AttackResult
 from Caldanai.lib.rpg.combat.attack_source import AttackSource, NaturalAttackSource
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes)
@@ -58,6 +59,8 @@ class MathTeacher(MonsterPlugin):
 
         self.traits[DamageTypes.BLUDGEONING] = 1.25
         self.traits[DamageTypes.ANY - DamageTypes.BLUDGEONING] = 1
+
+        self.body_parts = BodyPart.humanoid()
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(

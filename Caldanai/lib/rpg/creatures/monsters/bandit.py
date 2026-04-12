@@ -3,6 +3,7 @@ from random import choice, randint
 from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from Caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
 from Caldanai.lib.rpg.creatures import Creature
+from Caldanai.lib.rpg.creatures.bodypart import BodyPart
 from Caldanai.lib.rpg.helpers.dice import Dice
 
 
@@ -47,13 +48,28 @@ class Bandit(MonsterPlugin):
         self.loot["cheese_sandwich"] = 0.2
         self.loot["wallet"] = 0.25
 
+        self.body_parts = BodyPart.humanoid()
+
     def steal(self, target: Creature) -> str:
         """
         Attempts to steal a creature's wealth.
 
+        Requires at least one working arm (to reach into the target's
+        pockets) and at least one working leg (to close the distance).
+
         :param target: The creature being targeted.
         :return: A string indicating the results of the theft.
         """
+        from Caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+        from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+
+        working_arms = [p for p in self.body_parts if isinstance(p, ArmPlugin) and not p.is_destroyed()]
+        if not working_arms:
+            return "\nThe @1 reaches for @2's coin purse, but @1a mangled arms fail to grasp anything."
+
+        working_legs = [p for p in self.body_parts if isinstance(p, LegPlugin) and not p.is_destroyed()]
+        if not working_legs:
+            return "\nThe @1 tries to approach @2's wallet, but can't close the distance on @1a ruined legs."
 
         if target.clarks > 0:
             amount = randint(1, max(1, int(target.clarks / 10)))
