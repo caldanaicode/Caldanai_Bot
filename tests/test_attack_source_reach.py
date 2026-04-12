@@ -10,14 +10,14 @@ how exposed a given part is to a given attack.
 from typing import Optional, Tuple
 from unittest.mock import MagicMock
 
-from Caldanai.lib.rpg.combat.attack_source import (
+from caldanai.lib.rpg.combat.attack_source import (
     AttackSource,
     NaturalAttackSource,
     UnarmedAttackSource,
     WeaponAttackSource,
 )
-from Caldanai.lib.rpg.helpers.enums import DamageTypes, Reach
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll
+from caldanai.lib.rpg.helpers.enums import DamageTypes, Reach
+from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
 
 
 class _ConcreteAttackSource(AttackSource):

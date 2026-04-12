@@ -26,18 +26,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
-from Caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
-from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
-from Caldanai.lib.rpg.helpers.dice import Dice
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
+from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+from caldanai.lib.rpg.helpers.dice import Dice
+from caldanai.lib.rpg.helpers.enums import DamageTypes
+from caldanai.lib.rpg.helpers.roll_data import AttackRoll, CombinedRoll, DamageRoll
 
 
 @pytest.fixture(autouse=True)
@@ -213,7 +213,7 @@ class TestMathTeacherFullHealthBackwardsCompat:
         assert m.get_dodge() == m.dodge
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
-        from Caldanai.lib.rpg.helpers.enums import Stat
+        from caldanai.lib.rpg.helpers.enums import Stat
 
         m = MathTeacher()
         assert m.get_stat_modifier_total(Stat.DEFENSE) == 0

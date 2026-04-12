@@ -20,15 +20,15 @@ identically at full health to its pre-migration self:
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
-from Caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
-from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.creatures.monsters.bandit import Bandit
-from Caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.monsters.bandit import Bandit
+from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
 
 
 @pytest.fixture(autouse=True)
@@ -171,7 +171,7 @@ class TestBanditFullHealthBackwardsCompat:
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
         """Sanity check on the underlying aggregation path."""
-        from Caldanai.lib.rpg.helpers.enums import Stat
+        from caldanai.lib.rpg.helpers.enums import Stat
 
         b = Bandit()
         assert b.get_stat_modifier_total(Stat.DEFENSE) == 0

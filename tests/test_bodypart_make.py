@@ -17,9 +17,9 @@ from unittest.mock import patch
 
 import pytest
 
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 
 
 class _FactoryTestPart(BodyPartPlugin):

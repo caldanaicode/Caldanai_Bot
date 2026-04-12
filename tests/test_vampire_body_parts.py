@@ -30,15 +30,15 @@ from unittest.mock import patch
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
-from Caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
-from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.creatures.monsters.goblin import Goblin
-from Caldanai.lib.rpg.creatures.monsters.vampire import Vampire
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+from caldanai.lib.rpg.creatures.monsters.vampire import Vampire
 
 
 @pytest.fixture(autouse=True)
@@ -201,7 +201,7 @@ class TestVampireFullHealthBackwardsCompat:
         assert v.get_dodge() == v.dodge
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
-        from Caldanai.lib.rpg.helpers.enums import Stat
+        from caldanai.lib.rpg.helpers.enums import Stat
 
         v = Vampire()
         assert v.get_stat_modifier_total(Stat.DEFENSE) == 0
@@ -540,7 +540,7 @@ class TestVampireFeedPreserved:
         # ``on_hugged`` uses ``choice`` imported at module scope; patch
         # it there and force selection of the seductive (feed) branch.
         with patch(
-            "Caldanai.lib.rpg.creatures.monsters.vampire.choice",
+            "caldanai.lib.rpg.creatures.monsters.vampire.choice",
             return_value=seductive_response,
         ), patch.object(
             Vampire, "feed", return_value="FED"

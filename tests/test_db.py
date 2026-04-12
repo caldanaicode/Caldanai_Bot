@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pymongo import DeleteMany, DeleteOne, InsertOne, UpdateOne
 
-from Caldanai.DoubleBuffer import DoubleBuffer
+from caldanai.double_buffer import DoubleBuffer
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ _mock_client.admin.command = MagicMock(return_value={"ok": 1})
 def _patch_mongo():
     """Patch MongoClient so DB class never connects to a real database."""
     with patch("pymongo.MongoClient", return_value=_mock_client) as patched:
-        import Caldanai.db as db_mod
+        import caldanai.db as db_mod
         importlib.reload(db_mod)
         yield _mock_client
         # Reload again on teardown so the module is in a clean state for
@@ -38,7 +38,7 @@ def _patch_mongo():
 @pytest.fixture
 def fresh_db(_patch_mongo):
     """Return the DB class with reset queues."""
-    import Caldanai.db as db_mod
+    import caldanai.db as db_mod
     DB = db_mod.DB
 
     # Reset state

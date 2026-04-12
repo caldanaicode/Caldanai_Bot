@@ -13,9 +13,9 @@ module into ``sys.modules`` *before* calling ``exec_module``, which is
 also necessary for circular-import safety.
 """
 
-from Caldanai import PluginManager
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai import PluginManager
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 
 
 def test_plugin_manager_uses_sys_modules_so_direct_imports_return_same_class():

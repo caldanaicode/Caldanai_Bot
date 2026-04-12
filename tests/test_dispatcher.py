@@ -1,4 +1,4 @@
-"""Tests for Caldanai.Dispatcher."""
+"""Tests for caldanai.dispatcher."""
 
 from unittest.mock import MagicMock, patch
 
@@ -7,10 +7,10 @@ from discord import TextChannel, Embed, File, User, Member
 from discord.ext.commands import Context
 
 # Patch environment and Logger before importing Dispatcher
-with patch("Caldanai.environment.DB_CONNECTION", "mongodb://localhost:27017"), \
-     patch("Caldanai.environment.LOG_LEVEL", "DEBUG"), \
-     patch("Caldanai.environment.STAGE", "TEST"):
-    from Caldanai.Dispatcher import Dispatcher
+with patch("caldanai.environment.DB_CONNECTION", "mongodb://localhost:27017"), \
+     patch("caldanai.environment.LOG_LEVEL", "DEBUG"), \
+     patch("caldanai.environment.STAGE", "TEST"):
+    from caldanai.dispatcher import Dispatcher
 
 
 @pytest.fixture(autouse=True)

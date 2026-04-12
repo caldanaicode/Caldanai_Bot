@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from Caldanai.lib.rpg.time import GameClock
+from caldanai.lib.rpg.time import GameClock
 
 
 # ---------------------------------------------------------------------------

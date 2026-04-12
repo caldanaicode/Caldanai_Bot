@@ -15,8 +15,8 @@ Covers:
   (item 1.3 uncomments it).
 """
 
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
 
 
 class TestBodyPartExposureField:
@@ -189,7 +189,7 @@ class TestBodyPartConstructorCompat:
 class TestBodyPartImportWiring:
     def test_bodypart_importable_from_creatures_package(self):
         """Item 1.3 uncomments the BodyPart import in creatures/__init__.py."""
-        from Caldanai.lib.rpg.creatures import BodyPart as ReexportedBodyPart
+        from caldanai.lib.rpg.creatures import BodyPart as ReexportedBodyPart
 
         assert ReexportedBodyPart is BodyPart
 

@@ -1,16 +1,16 @@
-"""Tests for Caldanai.Logger."""
+"""Tests for caldanai.logger."""
 
 import logging
 from unittest.mock import MagicMock, patch
 
-from Caldanai.DoubleBuffer import DoubleBuffer
+from caldanai.double_buffer import DoubleBuffer
 
 
 # We need to import carefully since Logger imports environment
-with patch("Caldanai.environment.DB_CONNECTION", "mongodb://localhost:27017"), \
-     patch("Caldanai.environment.LOG_LEVEL", "DEBUG"), \
-     patch("Caldanai.environment.STAGE", "TEST"):
-    from Caldanai.Logger import MongoHandler, get_logger, set_app_log_level, MicrosecondFormatter
+with patch("caldanai.environment.DB_CONNECTION", "mongodb://localhost:27017"), \
+     patch("caldanai.environment.LOG_LEVEL", "DEBUG"), \
+     patch("caldanai.environment.STAGE", "TEST"):
+    from caldanai.logger import MongoHandler, get_logger, set_app_log_level, MicrosecondFormatter
 
 
 class TestMongoHandler:
@@ -28,7 +28,7 @@ class TestMongoHandler:
             name="test", level=logging.INFO, pathname="", lineno=0,
             msg="hello world", args=(), exc_info=None,
         )
-        with patch("Caldanai.Logger.stdout"):
+        with patch("caldanai.logger.stdout"):
             handler.emit(record)
         items = handler.queue.get_all()
         assert len(items) == 1
@@ -42,7 +42,7 @@ class TestMongoHandler:
             name="test", level=logging.INFO, pathname="", lineno=0,
             msg="IGNORE_THIS is filtered", args=(), exc_info=None,
         )
-        with patch("Caldanai.Logger.stdout"):
+        with patch("caldanai.logger.stdout"):
             handler.emit(record)
         items = handler.queue.get_all()
         assert len(items) == 0
@@ -53,7 +53,7 @@ class TestMongoHandler:
             name="test", level=logging.INFO, pathname="", lineno=0,
             msg="This is fine", args=(), exc_info=None,
         )
-        with patch("Caldanai.Logger.stdout"):
+        with patch("caldanai.logger.stdout"):
             handler.emit(record)
         items = handler.queue.get_all()
         assert len(items) == 1
@@ -64,7 +64,7 @@ class TestMongoHandler:
             name="test", level=logging.WARNING, pathname="", lineno=0,
             msg="warn msg", args=(), exc_info=None,
         )
-        with patch("Caldanai.Logger.stdout"):
+        with patch("caldanai.logger.stdout"):
             handler.emit(record)
         items = handler.queue.get_all()
         assert "asctime" in items[0]
@@ -75,7 +75,7 @@ class TestMongoHandler:
             name="test", level=logging.INFO, pathname="", lineno=0,
             msg="anything", args=(), exc_info=None,
         )
-        with patch("Caldanai.Logger.stdout"):
+        with patch("caldanai.logger.stdout"):
             handler.emit(record)
         assert len(handler.queue.get_all()) == 1
 
@@ -87,11 +87,11 @@ class TestMongoHandler:
 
 class TestGetLogger:
     def test_returns_named_logger(self):
-        logger = get_logger("Caldanai.test_module")
-        assert logger.name == "Caldanai.test_module"
+        logger = get_logger("caldanai.test_module")
+        assert logger.name == "caldanai.test_module"
 
     def test_caldanai_logger_has_level_set(self):
-        logger = get_logger("Caldanai.something")
+        logger = get_logger("caldanai.something")
         # LOG_LEVEL is patched to "DEBUG" above
         assert logger.level == logging.DEBUG
 
@@ -109,9 +109,9 @@ class TestGetLogger:
 class TestSetAppLogLevel:
     def test_changes_caldanai_loggers(self):
         # Create a couple of Caldanai loggers
-        log1 = logging.getLogger("Caldanai.module_a")
+        log1 = logging.getLogger("caldanai.module_a")
         log1.setLevel(logging.DEBUG)
-        log2 = logging.getLogger("Caldanai.module_b")
+        log2 = logging.getLogger("caldanai.module_b")
         log2.setLevel(logging.DEBUG)
 
         set_app_log_level(logging.ERROR)

@@ -13,18 +13,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
-from Caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.creatures.monsters.doppelganger import Doppelganger
-from Caldanai.lib.rpg.creatures.monsters.goblin import Goblin
-from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.helpers.enums import (
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.monsters.doppelganger import Doppelganger
+from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels,
     InjuryLevels,
     TimePartitions,

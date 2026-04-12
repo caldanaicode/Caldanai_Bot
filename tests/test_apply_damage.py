@@ -22,9 +22,9 @@ from typing import List, Tuple
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.helpers.enums import (
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.helpers.enums import (
     DamageTypes,
     InjuryLevels,
     Reach,
@@ -372,7 +372,7 @@ class TestBackwardsCompat:
         """Player.apply_damage overrides the base and calls
         ``super().apply_damage(amount)`` with a single positional arg.
         The base class's new optional kwargs must not break that."""
-        from Caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.creatures.player import Player
 
         p = Player(health=20, health_max=20)
         msg = p.apply_damage(5)
@@ -380,7 +380,7 @@ class TestBackwardsCompat:
         assert isinstance(msg, str)
 
     def test_player_apply_damage_death_message_still_fires(self):
-        from Caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.creatures.player import Player
 
         p = Player(health=5, health_max=20)
         msg = p.apply_damage(10)

@@ -1,6 +1,6 @@
-"""Tests for Caldanai.DoubleBuffer."""
+"""Tests for caldanai.double_buffer."""
 
-from Caldanai.DoubleBuffer import DoubleBuffer
+from caldanai.double_buffer import DoubleBuffer
 
 
 class TestDoubleBuffer:

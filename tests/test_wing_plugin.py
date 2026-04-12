@@ -42,11 +42,11 @@ health_max=10)``) rather than relying on the ``"1d8"`` dice default.
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
 
 
 def _make_creature(**kwargs) -> Creature:

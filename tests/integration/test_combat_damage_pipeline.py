@@ -14,13 +14,13 @@ specifically to catch that class of bug.
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature, pick_random_part
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from Caldanai.lib.rpg.helpers.enums import DamageTypes, Reach, Stat
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll
+from caldanai.lib.rpg.creatures import Creature, pick_random_part
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from caldanai.lib.rpg.helpers.enums import DamageTypes, Reach, Stat
+from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
 
 
 @pytest.fixture(autouse=True)
@@ -234,9 +234,9 @@ class TestDoAttackFullPipeline:
     def test_goblin_dies_at_zero_hp(self):
         """Regression test for the original bug: a goblin with trait
         multipliers should actually die when total damage >= HP."""
-        from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
         MonsterPlugin.load_plugins()
-        from Caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+        from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
 
         goblin = Goblin()
         goblin.health = 1

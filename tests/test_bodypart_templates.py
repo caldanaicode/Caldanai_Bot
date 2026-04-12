@@ -1,6 +1,6 @@
 """Tests for BodyPart template class methods (humanoid, quadruped, quadruped_winged)."""
 
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
+from caldanai.lib.rpg.creatures.body_part import BodyPart
 
 
 class TestBodyPartTemplates:

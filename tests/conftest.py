@@ -83,7 +83,7 @@ def mock_ctx(mock_guild, mock_channel, mock_member):
 @pytest.fixture
 def mock_db():
     """Patches the DB class so no real MongoDB connection is needed."""
-    with patch("Caldanai.db.DB") as db:
+    with patch("caldanai.db.DB") as db:
         db._is_connected = True
         db.get_auth.return_value = {
             "TOKEN": "fake-token",

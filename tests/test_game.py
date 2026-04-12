@@ -38,12 +38,12 @@ def _make_game_guild_channel(mock_db):
 # ---------------------------------------------------------------------------
 
 class TestGameSerialization:
-    @patch("Caldanai.lib.rpg.Dispatcher")
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.PlayerManager")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     def test_to_dict_keys(self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         guild, channel = _make_game_guild_channel(mock_db)
 
@@ -66,12 +66,12 @@ class TestGameSerialization:
         assert "channel_id" in d  # verify key name is channel_id not channel
         assert d["_id"] == "game123"
 
-    @patch("Caldanai.lib.rpg.Dispatcher")
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.PlayerManager")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     def test_to_dict_omits_id_when_none(self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         guild, channel = _make_game_guild_channel(mock_db)
 
@@ -98,21 +98,21 @@ class TestGameSerialization:
 class TestFromDictNullGuards:
     @pytest.mark.asyncio
     async def test_from_dict_none_dict_returns_none(self):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
         result = await Game.from_dict(None, MagicMock())
         assert result is None
 
     @pytest.mark.asyncio
     async def test_from_dict_none_bot_returns_none(self):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
         result = await Game.from_dict(_make_game_dict(), None)
         assert result is None
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_from_dict_none_guild_returns_none(self, mock_gc_cls, mock_db):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         mock_gc = MagicMock()
         mock_gc.get_seconds.return_value = 0
@@ -128,10 +128,10 @@ class TestFromDictNullGuards:
         assert result is None
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_from_dict_none_channel_returns_none(self, mock_gc_cls, mock_db):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         mock_gc = MagicMock()
         mock_gc.get_seconds.return_value = 0
@@ -153,10 +153,10 @@ class TestFromDictNullGuards:
 
 class TestFromDictDeadPlayerKickstart:
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_dead_player_gets_health_regen_set(self, mock_gc_cls, mock_db):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         mock_gc = MagicMock()
         mock_gc.get_seconds.return_value = 0
@@ -187,8 +187,9 @@ class TestFromDictDeadPlayerKickstart:
         alive_player.health_regen = 0
         alive_player.is_dead.return_value = False
 
-        # Patch load_players to inject our mock players
-        with patch("Caldanai.lib.rpg.PlayerManager") as mock_pm_cls:
+        # Patch PlayerManager where Game imports it so __init__ creates
+        # our mock instance instead of a real one.
+        with patch("caldanai.lib.rpg.PlayerManager") as mock_pm_cls:
             pm_instance = MagicMock()
             pm_instance.load_players = AsyncMock()
             pm_instance.players = {1: dead_player, 2: alive_player}
@@ -207,12 +208,12 @@ class TestFromDictDeadPlayerKickstart:
 
 class TestDoHealthRegen:
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.Dispatcher")
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.PlayerManager")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_heals_injured_player(self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         guild, channel = _make_game_guild_channel(mock_db)
 
@@ -242,12 +243,12 @@ class TestDoHealthRegen:
         assert player.health_regen == 4
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.Dispatcher")
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.PlayerManager")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_skips_full_health_player(self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         guild, channel = _make_game_guild_channel(mock_db)
 
@@ -276,12 +277,12 @@ class TestDoHealthRegen:
         assert player.health_regen == 0
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.Dispatcher")
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.PlayerManager")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_resurrects_dead_player(self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         guild, channel = _make_game_guild_channel(mock_db)
 
@@ -319,11 +320,11 @@ class TestDoHealthRegen:
 
 class TestCancelCombat:
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.DB")
-    @patch("Caldanai.lib.rpg.PlayerManager")
-    @patch("Caldanai.lib.rpg.GameClock")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_cancel_combat_clears_state(self, mock_gc_cls, mock_pm_cls, mock_db):
-        from Caldanai.lib.rpg import Game
+        from caldanai.lib.rpg import Game
 
         guild, channel = _make_game_guild_channel(mock_db)
 

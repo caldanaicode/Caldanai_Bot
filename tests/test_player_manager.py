@@ -1,12 +1,12 @@
-"""Tests for Caldanai.lib.rpg.PlayerManager.PlayerManager class."""
+"""Tests for caldanai.lib.rpg.player_manager.PlayerManager class."""
 
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from Caldanai.lib.rpg.helpers.enums import Roles
-from Caldanai.lib.rpg.PlayerManager import PlayerManager
+from caldanai.lib.rpg.helpers.enums import Roles
+from caldanai.lib.rpg.player_manager import PlayerManager
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +43,8 @@ def _setup_roles(pm):
 
 class TestAddRemovePlayer:
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.PlayerManager.DB")
-    @patch("Caldanai.lib.rpg.helpers.utils.RpgUtilities")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
     async def test_add_player_success(self, mock_utils, mock_db, mock_ctx):
         pm = PlayerManager()
         _setup_roles(pm)
@@ -60,8 +60,8 @@ class TestAddRemovePlayer:
         )
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.PlayerManager.DB")
-    @patch("Caldanai.lib.rpg.helpers.utils.RpgUtilities")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
     async def test_add_player_already_exists(self, mock_utils, mock_db, mock_ctx):
         pm = PlayerManager()
         _setup_roles(pm)
@@ -79,7 +79,7 @@ class TestAddRemovePlayer:
         assert result is False
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.PlayerManager.DB")
+    @patch("caldanai.lib.rpg.player_manager.DB")
     async def test_remove_player(self, mock_db, mock_guild):
         pm = PlayerManager()
         _setup_roles(pm)
@@ -91,7 +91,7 @@ class TestAddRemovePlayer:
         mock_db.delete_player.assert_called_once_with(mock_guild.id, 42)
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.PlayerManager.DB")
+    @patch("caldanai.lib.rpg.player_manager.DB")
     async def test_remove_player_not_present(self, mock_db, mock_guild):
         pm = PlayerManager()
         await pm.remove_player(999, mock_guild.id)

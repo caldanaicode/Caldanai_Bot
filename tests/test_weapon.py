@@ -3,8 +3,8 @@
 import pytest
 from bson.objectid import ObjectId
 
-from Caldanai.lib.rpg.helpers.enums import DamageTypes, EquipmentSlots, Qualities
-from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+from caldanai.lib.rpg.helpers.enums import DamageTypes, EquipmentSlots, Qualities
+from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 # ---------------------------------------------------------------------------

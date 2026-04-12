@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature, pick_random_part
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.helpers.enums import Reach
+from caldanai.lib.rpg.creatures import Creature, pick_random_part
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.helpers.enums import Reach
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ class TestPickRandomPart:
         b = _make_part("b", exposure={Reach.MELEE: 5.0})
 
         with patch(
-            "Caldanai.lib.rpg.creatures.random.choices",
+            "caldanai.lib.rpg.creatures.random.choices",
             return_value=[a],
         ) as mock_choices:
             result = pick_random_part([a, b], Reach.MELEE)

@@ -16,16 +16,16 @@ from unittest.mock import patch
 
 import pytest
 
-from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.helpers.enums import Reach
-from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
-from Caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
-from Caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
-from Caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
-from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.creatures.monsters.dragon import Dragon
-from Caldanai.lib.rpg.helpers.enums import Stat
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.helpers.enums import Reach
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.monsters.dragon import Dragon
+from caldanai.lib.rpg.helpers.enums import Stat
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +55,7 @@ def _force_variant(has_toes: bool):
         # Fall through: return first element for other choice calls.
         return seq[0] if seq else seq
 
-    return patch("Caldanai.lib.rpg.creatures.monsters.dragon.choice", side_effect=_pick)
+    return patch("caldanai.lib.rpg.creatures.monsters.dragon.choice", side_effect=_pick)
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +309,7 @@ class TestDragonBreathAttackPreserved:
         with _force_variant(True):
             d = Dragon()
 
-        from Caldanai.lib.rpg.creatures import Creature
+        from caldanai.lib.rpg.creatures import Creature
 
         target = Creature(
             name="dummy",
@@ -386,7 +386,7 @@ class TestDragonSanityUnchanged:
         assert expected_keys.issubset(set(d.loot.keys()))
 
     def test_traits_identity_preserved(self):
-        from Caldanai.lib.rpg.helpers.enums import DamageTypes
+        from caldanai.lib.rpg.helpers.enums import DamageTypes
 
         with _force_variant(False):
             d = Dragon()

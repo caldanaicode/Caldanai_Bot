@@ -2,15 +2,15 @@
 
 from unittest.mock import MagicMock
 
-from Caldanai.lib.rpg.combat.attack_source import (
+from caldanai.lib.rpg.combat.attack_source import (
     AttackSource,
     NaturalAttackSource,
     UnarmedAttackSource,
     WeaponAttackSource,
     _get_skill_bonus,
 )
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll
+from caldanai.lib.rpg.helpers.enums import DamageTypes
+from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
 
 
 def _attacker_with_skill(skill_name=None, atk_bonus=5, dmg_bonus=3):

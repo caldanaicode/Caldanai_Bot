@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from Caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
-from Caldanai.lib.rpg.helpers.dice import Dice
+from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
+from caldanai.lib.rpg.helpers.enums import DamageTypes
+from caldanai.lib.rpg.helpers.roll_data import AttackRoll, CombinedRoll, DamageRoll
+from caldanai.lib.rpg.helpers.dice import Dice
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ class TestAttackSequence:
         assert "Dragon attacks Caels" in md
 
     def test_player_header_uses_mention(self):
-        from Caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.creatures.player import Player
         attacker = MagicMock(spec=Player)
         attacker.member = MagicMock()
         attacker.member.id = 12345

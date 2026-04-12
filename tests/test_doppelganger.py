@@ -2,10 +2,10 @@
 
 from unittest.mock import MagicMock
 
-from Caldanai.lib.rpg.creatures.monsters.doppelganger import Doppelganger
-from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.helpers.enums import Qualities
+from caldanai.lib.rpg.creatures.monsters.doppelganger import Doppelganger
+from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.helpers.enums import Qualities
 
 
 def _make_player(name="TestPlayer", defense=10, dodge=8, health=20, health_max=20):

@@ -3,8 +3,8 @@
 import pytest
 from bson.objectid import ObjectId
 
-from Caldanai.lib.rpg.helpers.enums import Qualities
-from Caldanai.lib.rpg.inventory.item import Item
+from caldanai.lib.rpg.helpers.enums import Qualities
+from caldanai.lib.rpg.inventory.item import Item
 
 
 # ---------------------------------------------------------------------------

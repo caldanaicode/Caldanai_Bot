@@ -2,12 +2,12 @@
 
 from unittest.mock import MagicMock, patch
 
-from Caldanai.lib.rpg.combat.attack_result import AttackResult
-from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from Caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
-from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
-from Caldanai.lib.rpg.helpers.dice import Dice
+from caldanai.lib.rpg.combat.attack_result import AttackResult
+from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+from caldanai.lib.rpg.helpers.enums import DamageTypes
+from caldanai.lib.rpg.helpers.roll_data import AttackRoll, CombinedRoll, DamageRoll
+from caldanai.lib.rpg.helpers.dice import Dice
 
 
 class TestIsPrime:

@@ -16,8 +16,8 @@ from typing import List, Set, get_type_hints
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_part import BodyPart
 
 
 # ---------------------------------------------------------------------------

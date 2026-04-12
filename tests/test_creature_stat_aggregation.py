@@ -26,9 +26,9 @@ Load-bearing architectural points pinned by these tests:
 
 from typing import List, Optional
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.helpers.enums import InjuryLevels, Stat
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.helpers.enums import InjuryLevels, Stat
 
 
 # ---------------------------------------------------------------------------

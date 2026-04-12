@@ -32,17 +32,17 @@ lands deterministically.
 
 import pytest
 
-from Caldanai import PluginManager
-from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from Caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
-from Caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
-from Caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
-from Caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
-from Caldanai.lib.rpg.creatures.bodypart import BodyPart
-from Caldanai.lib.rpg.helpers.enums import Reach
-from Caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from Caldanai.lib.rpg.creatures.monsters.hydra import Hydra
-from Caldanai.lib.rpg.inventory import Inventory
+from caldanai import PluginManager
+from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.helpers.enums import Reach
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.monsters.hydra import Hydra
+from caldanai.lib.rpg.inventory import Inventory
 
 
 def _make_hydra_head(name="head", **kwargs):
@@ -61,7 +61,7 @@ def _load_plugins():
     every test in this module. The hydra composes body parts via
     ``BodyPart.make`` and is itself a monster plugin, so both registries
     must be populated."""
-    from Caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+    from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
 
     BodyPartPlugin.load_plugins()
     MonsterPlugin.load_plugins()
@@ -577,7 +577,7 @@ class TestDestroyedHeadCleanup:
     def test_destroyed_head_does_not_contribute_debuffs(self):
         """After regrowth, only live heads remain in body_parts,
         so destroyed heads cannot contribute stat debuffs."""
-        from Caldanai.lib.rpg.helpers.enums import Stat
+        from caldanai.lib.rpg.helpers.enums import Stat
 
         h = Hydra()
         h.health_max = 500
@@ -646,7 +646,7 @@ class TestLoot:
         """Exercise the loot factory end-to-end by calling
         ``get_loot`` a few times. It should not raise and every item
         (when rolled) should be a real ``Item``."""
-        from Caldanai.lib.rpg.inventory import Item
+        from caldanai.lib.rpg.inventory import Item
 
         h = Hydra()
         # Run a few times — frequencies are <1.0 so we may get empty

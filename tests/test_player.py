@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from Caldanai.lib.rpg.creatures.player import Player
-from Caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
-from Caldanai.lib.rpg.inventory import Inventory, Item
-from Caldanai.lib.rpg.inventory.equipment import Equipment
-from Caldanai.lib.rpg.inventory.equipment.weapons import Weapon
-from Caldanai.lib.rpg.inventory.stackables import Stackable
+from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+from caldanai.lib.rpg.inventory import Inventory, Item
+from caldanai.lib.rpg.inventory.equipment import Equipment
+from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+from caldanai.lib.rpg.inventory.stackables import Stackable
 from bson.objectid import ObjectId
 
 
@@ -119,11 +119,11 @@ class TestSerialization:
         d = p.to_dict()
         assert "_id" not in d
 
-    @patch("Caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
+    @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
     def test_from_dict_returns_none_for_none(self, _):
         assert Player.from_dict(None) is None
 
-    @patch("Caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
+    @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
     def test_from_dict_round_trip_basic_fields(self, _):
         """Verify basic scalar fields survive a round-trip."""
         pid = ObjectId()
@@ -313,7 +313,7 @@ class TestGetAttackSources:
         assert sources[1].label == "Right"
 
     def test_single_weapon_left_and_unarmed_right(self):
-        from Caldanai.lib.rpg.combat.attack_source import UnarmedAttackSource, WeaponAttackSource
+        from caldanai.lib.rpg.combat.attack_source import UnarmedAttackSource, WeaponAttackSource
         p = _make_player()
         weapon = MagicMock(spec=Weapon)
         weapon.slots = EquipmentSlots.LEFT_HELD
@@ -331,7 +331,7 @@ class TestGetAttackSources:
         assert sources[1].label == "Right"
 
     def test_two_handed_yields_single_source(self):
-        from Caldanai.lib.rpg.combat.attack_source import WeaponAttackSource
+        from caldanai.lib.rpg.combat.attack_source import WeaponAttackSource
         p = _make_player()
         weapon = MagicMock(spec=Weapon)
         weapon.slots = EquipmentSlots.LEFT_HELD | EquipmentSlots.RIGHT_HELD | EquipmentSlots.MULTI_SLOT
@@ -350,7 +350,7 @@ class TestGetAttackSources:
 
 class TestDoAttack:
     def test_returns_attack_sequence(self):
-        from Caldanai.lib.rpg.combat.attack_result import AttackSequence
+        from caldanai.lib.rpg.combat.attack_result import AttackSequence
 
         p = _make_player()
         target = MagicMock()
@@ -358,7 +358,7 @@ class TestDoAttack:
         target.get_defense.return_value = 0
         target.get_trait_multiplier.return_value = 1.0
         # Make target.resolve_attack call the real Creature resolve_attack by mocking it directly
-        from Caldanai.lib.rpg.combat.attack_result import AttackResult
+        from caldanai.lib.rpg.combat.attack_result import AttackResult
         target.resolve_attack.return_value = _make_attack_result(damage=5)
 
         seq = p.do_attack(target)
@@ -441,10 +441,10 @@ class TestDoAttack:
 
 def _make_attack_result(damage=5, hit=True):
     """Build a minimal AttackResult for Player do_attack tests."""
-    from Caldanai.lib.rpg.combat.attack_result import AttackResult
-    from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-    from Caldanai.lib.rpg.helpers.rollData import AttackRoll, CombinedRoll, DamageRoll
-    from Caldanai.lib.rpg.helpers.dice import Dice
+    from caldanai.lib.rpg.combat.attack_result import AttackResult
+    from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+    from caldanai.lib.rpg.helpers.roll_data import AttackRoll, CombinedRoll, DamageRoll
+    from caldanai.lib.rpg.helpers.dice import Dice
 
     atk = AttackRoll(skill_bonus=20 if hit else 0)
     dmg = DamageRoll(dice=Dice.d4(), weapon_bonus=0, skill_bonus=0)

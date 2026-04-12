@@ -5,10 +5,10 @@ from unittest.mock import patch, MagicMock
 import pytest
 from bson.objectid import ObjectId
 
-from Caldanai.lib.rpg.helpers.enums import Qualities
-from Caldanai.lib.rpg.inventory import Inventory
-from Caldanai.lib.rpg.inventory.item import Item
-from Caldanai.lib.rpg.inventory.stackables import Stackable
+from caldanai.lib.rpg.helpers.enums import Qualities
+from caldanai.lib.rpg.inventory import Inventory
+from caldanai.lib.rpg.inventory.item import Item
+from caldanai.lib.rpg.inventory.stackables import Stackable
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +226,7 @@ class TestSerialization:
         assert result[0]["plugin"] == "alpha"
         assert result[1]["plugin"] == "beta"
 
-    @patch("Caldanai.lib.rpg.inventory.Inventory.load_item")
+    @patch("caldanai.lib.rpg.inventory.Inventory.load_item")
     def test_from_list_round_trip(self, mock_load):
         """from_list calls load_item for each dict; verify items end up in inventory."""
         item_a = _make_item(name="alpha")

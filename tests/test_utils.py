@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
-import Caldanai.lib.rpg.helpers.utils as utils_module
-from Caldanai.lib.rpg.helpers.utils import generate_report, cache_auth, save_game_data, RpgUtilities
+import caldanai.lib.rpg.helpers.utils as utils_module
+from caldanai.lib.rpg.helpers.utils import generate_report, cache_auth, save_game_data, RpgUtilities
 
 
 # ---------------------------------------------------------------------------
@@ -13,8 +13,8 @@ from Caldanai.lib.rpg.helpers.utils import generate_report, cache_auth, save_gam
 # ---------------------------------------------------------------------------
 
 class TestGenerateReport:
-    @patch("Caldanai.lib.rpg.helpers.utils.smtplib.SMTP")
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.smtplib.SMTP")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     def test_generate_report_with_db_auth(self, mock_db, mock_smtp):
         mock_db.get_auth.return_value = {
             "DEV_EMAIL": "dev@test.com",
@@ -36,8 +36,8 @@ class TestGenerateReport:
         assert smtp_instance.login.called
         assert smtp_instance.send_message.call_count == 2  # email + SMS
 
-    @patch("Caldanai.lib.rpg.helpers.utils.smtplib.SMTP")
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.smtplib.SMTP")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     def test_generate_report_with_cached_auth(self, mock_db, mock_smtp):
         # DB auth fails, fall back to cache
         mock_db.get_auth.side_effect = Exception("DB down")
@@ -61,7 +61,7 @@ class TestGenerateReport:
         # Clean up
         utils_module._cached_auth = None
 
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     def test_generate_report_no_auth_returns_false(self, mock_db):
         mock_db.get_auth.return_value = None
         utils_module._cached_auth = None
@@ -79,7 +79,7 @@ class TestGenerateReport:
 # ---------------------------------------------------------------------------
 
 class TestCacheAuth:
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     def test_cache_auth_success(self, mock_db):
         utils_module._cached_auth = None
         mock_db.get_auth.return_value = {
@@ -95,14 +95,14 @@ class TestCacheAuth:
         # Clean up
         utils_module._cached_auth = None
 
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     def test_cache_auth_db_returns_none(self, mock_db):
         utils_module._cached_auth = None
         mock_db.get_auth.return_value = None
         cache_auth()
         assert utils_module._cached_auth is None
 
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     def test_cache_auth_db_raises(self, mock_db):
         utils_module._cached_auth = None
         mock_db.get_auth.side_effect = Exception("connection refused")
@@ -116,8 +116,8 @@ class TestCacheAuth:
 
 class TestSaveGameData:
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.helpers.utils.RpgUtilities")
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     async def test_dirty_players_saved(self, mock_db, mock_rpg):
         player_dirty = MagicMock()
         player_dirty.is_dirty = True
@@ -151,8 +151,8 @@ class TestSaveGameData:
         assert player_dirty.is_dirty is False
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.helpers.utils.RpgUtilities")
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     async def test_clean_players_skipped(self, mock_db, mock_rpg):
         player = MagicMock()
         player.is_dirty = False
@@ -174,8 +174,8 @@ class TestSaveGameData:
         mock_db.update_player.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("Caldanai.lib.rpg.helpers.utils.RpgUtilities")
-    @patch("Caldanai.lib.rpg.helpers.utils.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
+    @patch("caldanai.lib.rpg.helpers.utils.DB")
     async def test_new_player_id_resolved(self, mock_db, mock_rpg):
         new_player = MagicMock()
         new_player.id = None

@@ -4,8 +4,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from Caldanai.lib.rpg.creatures import Creature
-from Caldanai.lib.rpg.helpers.enums import DamageTypes
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.helpers.enums import DamageTypes
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ class TestGiveClarks:
 class TestDoAttack:
     def test_do_attack_returns_attack_sequence(self):
         """do_attack should return an AttackSequence by iterating attack sources."""
-        from Caldanai.lib.rpg.combat.attack_result import AttackSequence
+        from caldanai.lib.rpg.combat.attack_result import AttackSequence
 
         attacker = _make_creature(name="attacker", atk="1d4")
         target = _make_creature(name="target", defense=2, dodge=5)
@@ -159,7 +159,7 @@ class TestDoAttack:
 
     def test_do_attack_iterates_sources(self):
         """Each attack source should produce a result in the sequence."""
-        from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 
         attacker = _make_creature(name="multi", atk="1d4")
         target = _make_creature(name="target", defense=2, dodge=5)
@@ -175,10 +175,10 @@ class TestDoAttack:
 
     def test_resolve_attack_returns_result(self):
         """resolve_attack should return an AttackResult with damage calculated."""
-        from Caldanai.lib.rpg.combat.attack_result import AttackResult
-        from Caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-        from Caldanai.lib.rpg.helpers.rollData import AttackRoll, DamageRoll
-        from Caldanai.lib.rpg.helpers.dice import Dice
+        from caldanai.lib.rpg.combat.attack_result import AttackResult
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
+        from caldanai.lib.rpg.helpers.dice import Dice
 
         attacker = _make_creature(name="attacker")
         target = _make_creature(name="target", defense=2, dodge=1)

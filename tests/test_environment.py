@@ -9,7 +9,7 @@ class TestEnvironment:
         """DB_CONNECTION unset should raise RuntimeError."""
         with patch.dict("os.environ", {"LOG_LEVEL": "INFO", "STAGE": "PROD"}, clear=True):
             with patch("dotenv.load_dotenv"):
-                import Caldanai.environment as env_mod
+                import caldanai.environment as env_mod
                 import pytest
                 with pytest.raises(RuntimeError, match="DB_CONNECTION"):
                     importlib.reload(env_mod)
@@ -18,7 +18,7 @@ class TestEnvironment:
         """LOG_LEVEL and STAGE should get defaults when not set."""
         with patch.dict("os.environ", {"DB_CONNECTION": "mongodb://localhost:27017"}, clear=True):
             with patch("dotenv.load_dotenv"):
-                import Caldanai.environment as env_mod
+                import caldanai.environment as env_mod
                 importlib.reload(env_mod)
                 assert env_mod.LOG_LEVEL == "INFO"
                 assert env_mod.STAGE == "PROD"
@@ -31,7 +31,7 @@ class TestEnvironment:
             clear=True,
         ):
             with patch("dotenv.load_dotenv"):
-                import Caldanai.environment as env_mod
+                import caldanai.environment as env_mod
                 importlib.reload(env_mod)
                 assert env_mod.DB_CONNECTION == "mongodb://custom:1234"
                 assert env_mod.LOG_LEVEL == "WARNING"

@@ -7,12 +7,12 @@ from typing import Union
 
 from discord import HTTPException
 
-from Caldanai import PluginManager
-from Caldanai.consolecommands import CommandPlugin
-from Caldanai.lib.bot import Bot
-from Caldanai.lib.bot.BotState import BotState
-from Caldanai.db import DB
-from Caldanai.Logger import (
+from caldanai import PluginManager
+from caldanai.console_commands import CommandPlugin
+from caldanai.lib.bot import Bot
+from caldanai.lib.bot.bot_state import BotState
+from caldanai.db import DB
+from caldanai.logger import (
     MicrosecondFormatter, MongoHandler, get_logger, stdout
 )
 

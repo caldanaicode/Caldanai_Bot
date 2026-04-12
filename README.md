@@ -95,11 +95,11 @@ Caldanai_Bot/
 ├── main.py                  # Entry point — starts bot, console, and input loops
 ├── startup.py               # Git sync and process launcher
 ├── CHANGELOG.md             # Version history
-├── Caldanai/
+├── caldanai/
 │   ├── __init__.py          # Event/Observer pattern, PluginManager
-│   ├── Dispatcher.py        # Batched message queue for Discord API
-│   ├── DoubleBuffer.py      # Thread-safe double-buffer queue
-│   ├── Logger.py            # Colored stdout + MongoDB log handler
+│   ├── dispatcher.py        # Batched message queue for Discord API
+│   ├── double_buffer.py     # Thread-safe double-buffer queue
+│   ├── logger.py            # Colored stdout + MongoDB log handler
 │   ├── environment.py       # .env loader
 │   ├── db/                  # MongoDB wrapper (batch writes, connection mgmt)
 │   ├── consolecommands/     # Server-side CLI plugins (echo, help, shutdown, etc.)
