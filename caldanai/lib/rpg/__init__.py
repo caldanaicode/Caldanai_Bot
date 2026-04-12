@@ -350,10 +350,18 @@ class Game:
             else:
                 self.combatants.pop(i)
 
-        msg += (
-            f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "
-            f"= **{max(health_before - actual_body_damage, 0)} health remaining.**\n"
-        )
+        # Skip the HP summary if the creature died from a critical part
+        # destruction — the "utterly destroyed" feedback + death message
+        # already tells the story, and "0 vs 117 = 0 health remaining"
+        # is confusing noise.  Detect by checking if the body damage we
+        # dealt wasn't enough to kill on its own.
+        critical_kill = monster.is_dead() and actual_body_damage < health_before
+        if not critical_kill:
+            remaining = 0 if monster.is_dead() else max(health_before - actual_body_damage, 0)
+            msg += (
+                f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "
+                f"= **{remaining} health remaining.**\n"
+            )
 
         msg += parse(death_msg, monster)
         if monster.is_dead():
