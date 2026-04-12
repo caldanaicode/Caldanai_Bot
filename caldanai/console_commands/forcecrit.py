@@ -15,7 +15,7 @@ from typing import Any, List
 
 from caldanai.console_commands import CommandPlugin
 from caldanai.lib.bot.bot_state import BotState
-from caldanai.lib.rpg.helpers import rollData
+from caldanai.lib.rpg.helpers import roll_data
 from caldanai.logger import stdout
 
 
@@ -32,7 +32,7 @@ class ForceCritCommand(CommandPlugin):
             stdout("forcecrit: already armed.")
             return
 
-        cls._original_init = rollData.AttackRoll.__init__
+        cls._original_init = roll_data.AttackRoll.__init__
 
         def patched_init(self, skill_bonus: int):
             # Call the real constructor first, then rewrite the roll
@@ -42,12 +42,12 @@ class ForceCritCommand(CommandPlugin):
             self.isCritical = True
             self.isFumble = False
             # Self-disarm after one use
-            rollData.AttackRoll.__init__ = cls._original_init
+            roll_data.AttackRoll.__init__ = cls._original_init
             cls._armed = False
             cls._original_init = None
             stdout("forcecrit: consumed (next attack was crit).")
 
-        rollData.AttackRoll.__init__ = patched_init
+        roll_data.AttackRoll.__init__ = patched_init
         cls._armed = True
         stdout("forcecrit: armed. Next AttackRoll will be a natural 20.")
 
@@ -56,7 +56,7 @@ class ForceCritCommand(CommandPlugin):
         if not cls._armed:
             stdout("forcecrit: not armed.")
             return
-        rollData.AttackRoll.__init__ = cls._original_init
+        roll_data.AttackRoll.__init__ = cls._original_init
         cls._original_init = None
         cls._armed = False
         stdout("forcecrit: disarmed.")

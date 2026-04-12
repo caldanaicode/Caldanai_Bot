@@ -20,7 +20,7 @@ from caldanai.logger import (
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
 
-_log = get_logger("Caldanai")
+_log = get_logger("caldanai")
 
 stdout(f"Default system encoding: {sys.getdefaultencoding()}")
 stdout(f"Standard I/O encoding: {sys.stdout.encoding}")

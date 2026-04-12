@@ -19,7 +19,7 @@ class PetPlugin(Creature):
     more variety to the RPG.
     """
 
-    BASEPATH: str = 'Caldanai/lib/rpg/creatures/pets'
+    BASEPATH: str = 'caldanai/lib/rpg/creatures/pets'
 
     def __init__(
             self,

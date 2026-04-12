@@ -32,7 +32,7 @@ class Inventory:
     def discover_items():
         items = [
             filepath
-            for filepath in glob("./Caldanai/lib/rpg/inventory/*/**/*.py", recursive=True)
+            for filepath in glob("./caldanai/lib/rpg/inventory/*/**/*.py", recursive=True)
             if not filepath.endswith("__init__.py")
         ]
 

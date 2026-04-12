@@ -80,7 +80,7 @@ class Bot(BotBase, Subject):
         _log.info("Cogs loaded. Bot is setup.")
 
     def discover_cogs(self):
-        self.COGS = [filepath.split(path.sep)[-1][:-3] for filepath in glob("./Caldanai/lib/cogs/*.py")]
+        self.COGS = [filepath.split(path.sep)[-1][:-3] for filepath in glob("./caldanai/lib/cogs/*.py")]
 
     async def load_cog(self, cog: str):
         self.discover_cogs()

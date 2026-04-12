@@ -171,7 +171,7 @@ class Game:
         else:
             available_monsters = [
                 filepath.split(path.sep)[-1][:-3].lower()
-                for filepath in glob("./Caldanai/lib/rpg/creatures/monsters/*.py")
+                for filepath in glob("./caldanai/lib/rpg/creatures/monsters/*.py")
             ]
             available_monsters.remove("__init__")
             if monster.lower() in available_monsters:
