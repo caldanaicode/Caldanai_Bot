@@ -97,21 +97,3 @@ class TorsoPlugin(BodyPartPlugin):
         },
     }
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1 grunts as an unseen blow presses against @1a ribs."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1 doubles over, coughing as bruises bloom across @1a "
-                "chest from nowhere."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 staggers, hands pressed to @1a torso as blood seeps "
-                "through @1a clothes of its own accord."
-            ),
-            InjuryLevels.USELESS: (
-                "@1 collapses, @1a chest caving inward as the "
-                "imitation's wound finishes materializing."
-            ),
-        }.get(level, "")

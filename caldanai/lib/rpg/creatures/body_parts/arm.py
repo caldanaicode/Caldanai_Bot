@@ -130,22 +130,3 @@ class ArmPlugin(BodyPartPlugin):
         InjuryLevels.USELESS:  {Stat.ATTACK: -5, "disable_slot": True},
     }
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1 flexes @1a arm and winces at an ache that wasn't "
-                "there moments ago."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1's arm twists at an unnatural angle as sinews pop "
-                "beneath @1a skin."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 howls as @1a arm hangs limp, bone pressing visibly "
-                "against skin."
-            ),
-            InjuryLevels.USELESS: (
-                "@1's arm crumples grotesquely, fingers curling into a "
-                "useless claw as the imitation completes."
-            ),
-        }.get(level, "")

@@ -104,22 +104,3 @@ class LegPlugin(BodyPartPlugin):
         InjuryLevels.USELESS:  {Stat.DODGE: -10, Stat.ATTACK: -4},
     }
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1 favors one leg as a phantom ache shoots up @1a "
-                "thigh."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1 staggers slightly, knee buckling beneath @1a own "
-                "weight."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 cries out as @1a leg twists at an impossible "
-                "angle, bone pressing through the skin."
-            ),
-            InjuryLevels.USELESS: (
-                "@1's leg goes limp, dragging uselessly behind as the "
-                "imitation's crippling finishes."
-            ),
-        }.get(level, "")

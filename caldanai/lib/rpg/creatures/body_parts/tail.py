@@ -118,21 +118,3 @@ class TailPlugin(BodyPartPlugin):
         InjuryLevels.USELESS:  {Stat.DODGE: -5},
     }
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1 flicks @1a tail and winces at an unexpected twinge."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1's tail lashes erratically as unseen damage works "
-                "its way down the vertebrae."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 yelps as @1a tail bends at a sickening angle, "
-                "blood matting the fur."
-            ),
-            InjuryLevels.USELESS: (
-                "@1's tail drops limp and still, a final twitch "
-                "betraying its uselessness as the imitation sets."
-            ),
-        }.get(level, "")

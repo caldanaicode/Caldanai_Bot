@@ -22,9 +22,6 @@ Covers:
 - Damage routing: destroying a non-critical tail does NOT kill the
   creature. The creature survives; stat aggregation picks up the
   USELESS DODGE debuff (-5).
-- Doppelganger pain cries: non-empty strings for each injury level,
-  empty for NONE, all four distinct.
-
 Deterministic testing: where damage-routing behavior is under test, we
 construct tails with an explicit integer ``health_max`` (via
 ``BodyPart.make("tail", health_max=10)``) rather than relying on the
@@ -296,39 +293,3 @@ class TestDamageRouting:
             "part-targeted apply_damage does not touch body HP"
         )
         assert c.get_stat_modifier_total(Stat.DODGE) == -5
-
-
-# ---------------------------------------------------------------------------
-# Doppelganger pain cry
-# ---------------------------------------------------------------------------
-
-
-class TestDoppelgangerPainCry:
-    def test_pain_cry_is_non_empty_for_each_injury_level(self, loaded_plugins):
-        tail = BodyPart.make("tail", health_max=10)
-        for level in (
-            InjuryLevels.MINOR,
-            InjuryLevels.MODERATE,
-            InjuryLevels.SEVERE,
-            InjuryLevels.USELESS,
-        ):
-            cry = tail.get_doppelganger_pain_cry(level)
-            assert isinstance(cry, str)
-            assert cry != "", f"pain cry empty for level {level}"
-
-    def test_pain_cry_empty_for_none_level(self, loaded_plugins):
-        tail = BodyPart.make("tail", health_max=10)
-        assert tail.get_doppelganger_pain_cry(InjuryLevels.NONE) == ""
-
-    def test_pain_cries_are_distinct_per_level(self, loaded_plugins):
-        tail = BodyPart.make("tail", health_max=10)
-        cries = {
-            tail.get_doppelganger_pain_cry(level)
-            for level in (
-                InjuryLevels.MINOR,
-                InjuryLevels.MODERATE,
-                InjuryLevels.SEVERE,
-                InjuryLevels.USELESS,
-            )
-        }
-        assert len(cries) == 4

@@ -32,9 +32,6 @@ Covers:
   contributes -1 DODGE when ``"flying" not in owner.flags`` is
   dormant while the creature flies, then kicks in the instant the
   wing is destroyed. Pins the full state-dependent debuff pipeline.
-- Doppelganger pain cries: non-empty strings for each injury level,
-  empty for NONE, all four distinct.
-
 Deterministic testing: damage-routing tests construct wings with an
 explicit integer ``health_max`` (via ``BodyPart.make("wing",
 health_max=10)``) rather than relying on the ``"1d8"`` dice default.
@@ -418,41 +415,3 @@ class TestWingGroundingDebuffPipeline:
         assert "flying" not in c.flags
         # Now stub contributes -1 AND wing contributes -5 (USELESS).
         assert c.get_stat_modifier_total(Stat.DODGE) == -5 + -1
-
-
-# ---------------------------------------------------------------------------
-# Doppelganger pain cry
-# ---------------------------------------------------------------------------
-
-
-class TestDoppelgangerPainCry:
-    def test_pain_cry_is_non_empty_for_each_injury_level(
-        self, loaded_plugins
-    ):
-        wing = BodyPart.make("wing", health_max=10)
-        for level in (
-            InjuryLevels.MINOR,
-            InjuryLevels.MODERATE,
-            InjuryLevels.SEVERE,
-            InjuryLevels.USELESS,
-        ):
-            cry = wing.get_doppelganger_pain_cry(level)
-            assert isinstance(cry, str)
-            assert cry != "", f"pain cry empty for level {level}"
-
-    def test_pain_cry_empty_for_none_level(self, loaded_plugins):
-        wing = BodyPart.make("wing", health_max=10)
-        assert wing.get_doppelganger_pain_cry(InjuryLevels.NONE) == ""
-
-    def test_pain_cries_are_distinct_per_level(self, loaded_plugins):
-        wing = BodyPart.make("wing", health_max=10)
-        cries = {
-            wing.get_doppelganger_pain_cry(level)
-            for level in (
-                InjuryLevels.MINOR,
-                InjuryLevels.MODERATE,
-                InjuryLevels.SEVERE,
-                InjuryLevels.USELESS,
-            )
-        }
-        assert len(cries) == 4

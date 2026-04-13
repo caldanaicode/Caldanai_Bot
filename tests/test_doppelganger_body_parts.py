@@ -1,12 +1,5 @@
-"""Tests for Phase 1.D item 4.10 round 1 — Doppelganger body parts migration.
-
-The doppelganger deep-copies the imitation target's body parts (including
-injury state) and falls back to a standard humanoid layout when the target
-has no parts.  It must also never imitate another doppelganger.
-
-Round 1 scope: core migration only.  Pain-cry consolidation and OP
-rebalance are later rounds.
-"""
+"""Tests for Doppelganger body parts — deep-copy, injury transfer, fallback,
+pain-cry emission on imitation, and the never-imitate-doppelganger guard."""
 
 import copy
 from unittest.mock import MagicMock
@@ -29,6 +22,7 @@ from caldanai.lib.rpg.helpers.enums import (
     InjuryLevels,
     TimePartitions,
 )
+from caldanai.lib.rpg.creatures.monsters.doppelganger import _PAIN_CRIES
 
 
 @pytest.fixture(autouse=True)
@@ -398,3 +392,93 @@ class TestDoppelgangerBackwardsCompat:
         d.apply_damage(10)
         part_hps_after = [(p.name, p.health) for p in d.body_parts]
         assert part_hps_before == part_hps_after
+
+
+# ---------------------------------------------------------------------------
+# 9. Pain cries on imitation
+# ---------------------------------------------------------------------------
+
+
+class TestDoppelgangerPainCries:
+    def test_no_pain_cries_when_target_uninjured(self):
+        """Imitating a fully healthy target produces no pain-cry lines."""
+        d = Doppelganger()
+        target = _make_player_with_parts("Healthy")
+        result = d.imitate(target)
+        # The base imitation message is always present; pain cries would
+        # appear as extra lines after it.
+        lines = result.strip().split("\n")
+        assert len(lines) == 1
+
+    def test_pain_cry_emitted_for_injured_part(self):
+        """Imitating a target with an injured leg emits a pain cry."""
+        d = Doppelganger()
+        target = _make_player_with_parts("Wounded")
+        leg = next(p for p in target.body_parts if p.name == "leg.left")
+        leg.health_max = 20
+        leg.health = 2  # SEVERE
+        result = d.imitate(target)
+        assert "leg" in result.lower() or "thigh" in result.lower() or "bone" in result.lower()
+
+    def test_multiple_injured_parts_produce_multiple_cries(self):
+        """Each injured part gets its own pain cry line."""
+        d = Doppelganger()
+        target = _make_player_with_parts("Battered")
+        for part in target.body_parts:
+            part.health_max = 20
+            part.health = 2  # SEVERE for all
+        result = d.imitate(target)
+        lines = result.strip().split("\n")
+        # 1 base message + 6 pain cries (head, torso, 2 arms, 2 legs)
+        assert len(lines) == 7
+
+    def test_no_cry_for_none_injury_level(self):
+        """Parts at full health (NONE) produce no cry."""
+        d = Doppelganger()
+        target = _make_player_with_parts("Fresh")
+        # All parts at full health by default
+        result = d.imitate(target)
+        lines = result.strip().split("\n")
+        assert len(lines) == 1
+
+    def test_get_pain_cry_uses_base_name(self):
+        """``_get_pain_cry`` strips the dot-qualifier to find the base part
+        name, so ``"arm.left"`` resolves to ``"arm"``."""
+        d = Doppelganger()
+        arm = BodyPart.make("arm", name="arm.left", health_max=20)
+        arm.health = 2  # SEVERE
+        cry = d._get_pain_cry(arm, InjuryLevels.SEVERE)
+        assert cry != ""
+        assert cry == _PAIN_CRIES[("arm", InjuryLevels.SEVERE)]
+
+    def test_get_pain_cry_returns_empty_for_unknown_part(self):
+        """Parts not in the lookup (e.g. toe, dragon_head) return empty."""
+        d = Doppelganger()
+        toe = BodyPart.make("toe")
+        assert d._get_pain_cry(toe, InjuryLevels.USELESS) == ""
+
+    def test_get_pain_cry_returns_empty_for_none_level(self):
+        """NONE injury level always returns empty."""
+        d = Doppelganger()
+        arm = BodyPart.make("arm", health_max=20)
+        assert d._get_pain_cry(arm, InjuryLevels.NONE) == ""
+
+    def test_pain_cries_table_covers_all_standard_parts(self):
+        """Every standard part type (head, torso, arm, leg, wing, tail, eye)
+        has entries for MINOR through USELESS."""
+        expected_parts = {"head", "torso", "arm", "leg", "wing", "tail", "eye"}
+        injury_levels = {
+            InjuryLevels.MINOR,
+            InjuryLevels.MODERATE,
+            InjuryLevels.SEVERE,
+            InjuryLevels.USELESS,
+        }
+        for part_name in expected_parts:
+            for level in injury_levels:
+                cry = _PAIN_CRIES.get((part_name, level), "")
+                assert cry != "", f"missing pain cry for ({part_name}, {level})"
+
+    def test_pain_cries_are_distinct_per_part_and_level(self):
+        """No two entries in the pain cry table share the same text."""
+        values = list(_PAIN_CRIES.values())
+        assert len(values) == len(set(values)), "duplicate pain cry text found"

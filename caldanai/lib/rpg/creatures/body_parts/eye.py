@@ -143,22 +143,3 @@ class EyePlugin(BodyPartPlugin):
         InjuryLevels.USELESS:  {Stat.HIT: -8},
     }
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1 blinks rapidly as one eye clouds over with "
-                "unexplained tears."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1 squints hard, @1a eye going bloodshot and swollen "
-                "in an instant."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 claps @1a hand to @1a face as the eye beneath it "
-                "splits open without warning."
-            ),
-            InjuryLevels.USELESS: (
-                "@1's eye sinks deep into its socket, pupil blown "
-                "black as the imitation blinds it."
-            ),
-        }.get(level, "")

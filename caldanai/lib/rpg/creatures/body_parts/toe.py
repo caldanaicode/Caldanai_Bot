@@ -23,4 +23,3 @@ class ToePlugin(BodyPartPlugin):
         InjuryLevels.USELESS: {Stat.DODGE: -1},
     }
     # No get_stat_modifier override — uses the standard debuffs table.
-    # No get_doppelganger_pain_cry override — toes use the base empty default.

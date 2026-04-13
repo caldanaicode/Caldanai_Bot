@@ -19,17 +19,12 @@ Covers:
   HIT -2.
 - Damage routing: ``creature.apply_damage(..., target_part=head)`` with
   enough damage to destroy a critical head kills the creature.
-- Doppelganger pain cries are non-empty strings for each injury level
-  and empty for NONE.
-
 Deterministic testing: where damage-routing behavior is under test, we
 construct heads with an explicit integer ``health_max`` (via
 ``BodyPart.make("head", health_max=10)``) rather than relying on the
 ``"1d8"`` dice-string default, so the test outcome doesn't depend on
 the roll.
 """
-
-from typing import List, Optional
 
 import pytest
 
@@ -222,40 +217,3 @@ class TestDamageRouting:
         c.apply_damage(20, target_part=head)
         assert head.is_destroyed()
         assert c.health == 0
-
-
-# ---------------------------------------------------------------------------
-# Doppelganger pain cry
-# ---------------------------------------------------------------------------
-
-
-class TestDoppelgangerPainCry:
-    def test_pain_cry_is_non_empty_for_each_injury_level(self, loaded_plugins):
-        head = BodyPart.make("head", health_max=10)
-        for level in (
-            InjuryLevels.MINOR,
-            InjuryLevels.MODERATE,
-            InjuryLevels.SEVERE,
-            InjuryLevels.USELESS,
-        ):
-            cry = head.get_doppelganger_pain_cry(level)
-            assert isinstance(cry, str)
-            assert cry != "", f"pain cry empty for level {level}"
-
-    def test_pain_cry_empty_for_none_level(self, loaded_plugins):
-        head = BodyPart.make("head", health_max=10)
-        assert head.get_doppelganger_pain_cry(InjuryLevels.NONE) == ""
-
-    def test_pain_cries_are_distinct_per_level(self, loaded_plugins):
-        head = BodyPart.make("head", health_max=10)
-        cries = {
-            head.get_doppelganger_pain_cry(level)
-            for level in (
-                InjuryLevels.MINOR,
-                InjuryLevels.MODERATE,
-                InjuryLevels.SEVERE,
-                InjuryLevels.USELESS,
-            )
-        }
-        # Four levels should produce four distinct strings.
-        assert len(cries) == 4

@@ -32,9 +32,6 @@ Covers:
   lookup is pinned here for the multi-instance case).
 - Damage routing: destroying a non-critical eye does NOT kill the
   creature. The creature survives; stat aggregation picks up HIT -8.
-- Doppelganger pain cries: non-empty strings for each injury level,
-  empty for NONE, all four distinct.
-
 Deterministic testing: where damage-routing behavior is under test, we
 construct eyes with an explicit integer ``health_max`` (via
 ``BodyPart.make("eye", health_max=4)``) rather than relying on the
@@ -424,39 +421,3 @@ class TestDamageRouting:
             "part-targeted apply_damage does not touch body HP"
         )
         assert c.get_stat_modifier_total(Stat.HIT) == -8
-
-
-# ---------------------------------------------------------------------------
-# Doppelganger pain cry
-# ---------------------------------------------------------------------------
-
-
-class TestDoppelgangerPainCry:
-    def test_pain_cry_is_non_empty_for_each_injury_level(self, loaded_plugins):
-        eye = BodyPart.make("eye", health_max=4)
-        for level in (
-            InjuryLevels.MINOR,
-            InjuryLevels.MODERATE,
-            InjuryLevels.SEVERE,
-            InjuryLevels.USELESS,
-        ):
-            cry = eye.get_doppelganger_pain_cry(level)
-            assert isinstance(cry, str)
-            assert cry != "", f"pain cry empty for level {level}"
-
-    def test_pain_cry_empty_for_none_level(self, loaded_plugins):
-        eye = BodyPart.make("eye", health_max=4)
-        assert eye.get_doppelganger_pain_cry(InjuryLevels.NONE) == ""
-
-    def test_pain_cries_are_distinct_per_level(self, loaded_plugins):
-        eye = BodyPart.make("eye", health_max=4)
-        cries = {
-            eye.get_doppelganger_pain_cry(level)
-            for level in (
-                InjuryLevels.MINOR,
-                InjuryLevels.MODERATE,
-                InjuryLevels.SEVERE,
-                InjuryLevels.USELESS,
-            )
-        }
-        assert len(cries) == 4

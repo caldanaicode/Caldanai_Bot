@@ -13,7 +13,6 @@ Covers:
   toes use the standard debuffs table.
 - A creature with healthy toes does NOT get -1 dodge per toe.
 - A destroyed toe contributes -1 DODGE via the debuffs table.
-- Doppelganger pain cry: inherits the base class empty-string default.
 """
 
 import pytest
@@ -169,32 +168,3 @@ class TestGenericToeBehavior:
 
         assert c.get_stat_modifier_total(Stat.DODGE) == -3
         assert c.get_dodge() == 7
-
-
-# ---------------------------------------------------------------------------
-# Doppelganger pain cry -- intentionally NOT overridden
-# ---------------------------------------------------------------------------
-
-
-class TestDoppelgangerPainCry:
-    @pytest.mark.parametrize(
-        "level",
-        [
-            InjuryLevels.NONE,
-            InjuryLevels.MINOR,
-            InjuryLevels.MODERATE,
-            InjuryLevels.SEVERE,
-            InjuryLevels.USELESS,
-        ],
-    )
-    def test_pain_cry_is_empty_for_every_level(self, loaded_plugins, level):
-        """``ToePlugin`` intentionally does NOT override
-        ``get_doppelganger_pain_cry``. Toes inherit the base class's
-        empty-string default."""
-        toe = BodyPart.make("toe")
-        assert toe.get_doppelganger_pain_cry(level) == ""
-
-    def test_pain_cry_method_is_not_overridden(self):
-        """Confirm the method is literally inherited from ``BodyPart``
-        (or ``BodyPartPlugin``) rather than shadowed on ``ToePlugin``."""
-        assert "get_doppelganger_pain_cry" not in ToePlugin.__dict__

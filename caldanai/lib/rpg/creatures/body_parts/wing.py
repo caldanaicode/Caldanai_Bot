@@ -124,22 +124,3 @@ class WingPlugin(BodyPartPlugin):
             return parse("@1's wing crumples; @1o is grounded.", creature)
         return ""
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1's shoulder blades twitch as phantom feathers ripple "
-                "beneath @1a skin."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1 hunches forward, wet cracking sounds echoing from "
-                "@1a back as something tries to unfold."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 howls as a great torn wing rips free of @1a "
-                "shoulder, trailing blood that was never there."
-            ),
-            InjuryLevels.USELESS: (
-                "@1's wing crumples into a twisted ruin of bone and "
-                "membrane as the imitation completes itself."
-            ),
-        }.get(level, "")

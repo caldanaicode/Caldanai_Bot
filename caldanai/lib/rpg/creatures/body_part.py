@@ -155,12 +155,6 @@ class BodyPart(ABC):
         changes. Override in subclasses; empty string by default."""
         return ""
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        """Per-part pain cry the doppelganger emits when it imitates a
-        target and inherits this part's injury level. Override in
-        subclasses; empty string by default."""
-        return ""
-
     def on_injury_change(
         self,
         creature: "Creature",

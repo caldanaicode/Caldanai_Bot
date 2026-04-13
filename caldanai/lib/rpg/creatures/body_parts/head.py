@@ -78,22 +78,3 @@ class HeadPlugin(BodyPartPlugin):
         InjuryLevels.USELESS:  {Stat.ATTACK: -5, Stat.HIT: -4},
     }
 
-    def get_doppelganger_pain_cry(self, level: InjuryLevels) -> str:
-        return {
-            InjuryLevels.MINOR: (
-                "@1 winces as a dull ache throbs behind @1a eyes out of "
-                "nowhere."
-            ),
-            InjuryLevels.MODERATE: (
-                "@1's head snaps sideways as an invisible blow lands; "
-                "blood trickles from @1a nose."
-            ),
-            InjuryLevels.SEVERE: (
-                "@1 clutches @1a temples as a deep gash opens across "
-                "@1a scalp of its own accord."
-            ),
-            InjuryLevels.USELESS: (
-                "@1's head jerks violently as the imitation completes "
-                "itself in the worst possible way."
-            ),
-        }.get(level, "")

@@ -452,6 +452,8 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         assert result.damage == 3  # halved from 7
 
         torso = teacher.get_part("torso")
+        torso.health_max = 20
+        torso.health = 20
         torso_hp_before = torso.health
         teacher.apply_damage(result.damage, target_part=torso)
 
