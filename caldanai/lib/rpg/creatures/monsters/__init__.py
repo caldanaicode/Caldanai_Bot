@@ -122,8 +122,11 @@ class MonsterPlugin(Creature):
                 sequence = self.do_attack(victim)
                 msg += sequence.to_markdown()
                 total_dmg = sequence.total_damage()
-                if total_dmg > 0:
-                    msg += parse(victim.apply_damage(total_dmg), victim)
+                num_hits = sum(1 for r in sequence.results if r.damage > 0)
+                if num_hits > 0:
+                    defense = victim.get_defense()
+                    final = max(num_hits, total_dmg - defense)
+                    msg += parse(victim.apply_damage(final), victim)
 
             return msg
 

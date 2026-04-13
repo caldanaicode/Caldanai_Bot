@@ -191,20 +191,20 @@ class TestSheepPartNames:
 
 
 class TestSheepFullHealthBackwardsCompat:
-    """At full health every part is at ``InjuryLevels.NONE``, which
-    means the ``debuffs`` table lookup returns 0 for every stat.
-    Therefore ``get_defense`` / ``get_dodge`` must return exactly the
-    base attribute values they would have returned before the
-    migration.
+    """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
+    Dodge and defense are scaled by the creature's size modifier.
+    Sheep is SMALL: dodge_mod=1.25, defense_mod=0.75.
     """
 
-    def test_get_defense_matches_base_attribute(self):
+    def test_get_defense_matches_size_scaled(self):
         s = Sheep()
-        assert s.get_defense() == s.defense
+        expected = int(s.defense * 1.0 * 0.75)
+        assert s.get_defense() == expected
 
-    def test_get_dodge_matches_base_attribute(self):
+    def test_get_dodge_matches_size_scaled(self):
         s = Sheep()
-        assert s.get_dodge() == s.dodge
+        expected = int(s.dodge * 1.0 * 1.25)
+        assert s.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
         """Sanity check on the underlying aggregation path."""

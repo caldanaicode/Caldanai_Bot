@@ -197,20 +197,20 @@ class TestMathTeacherPartNames:
 
 
 class TestMathTeacherFullHealthBackwardsCompat:
-    """At full health every part is at ``InjuryLevels.NONE``, which
-    means the ``debuffs`` table lookup returns 0 for every stat.
-    Therefore ``get_defense`` / ``get_dodge`` must return exactly the
-    base attribute values they would have returned before the
-    migration.
+    """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
+    MathTeacher is MEDIUM with core_agility=5.  Dodge = base + 5.
     """
 
     def test_get_defense_matches_base_attribute(self):
         m = MathTeacher()
+        # MEDIUM defense_mod=1.0, no core_toughness
         assert m.get_defense() == m.defense
 
-    def test_get_dodge_matches_base_attribute(self):
+    def test_get_dodge_includes_core_agility(self):
         m = MathTeacher()
-        assert m.get_dodge() == m.dodge
+        # MEDIUM dodge_mod=1.0, core_agility=5
+        expected = int(m.dodge * 1.0 * 1.0) + 5
+        assert m.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
         from caldanai.lib.rpg.helpers.enums import Stat
@@ -359,6 +359,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher.defense = 0
         teacher.dodge = 0
         attacker = MagicMock()
+        attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
         atk, dmg = _make_attack_rolls(7)
 
@@ -376,6 +377,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher.defense = 0
         teacher.dodge = 0
         attacker = MagicMock()
+        attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
         atk, dmg = _make_attack_rolls(8)
 
@@ -390,6 +392,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher.defense = 0
         teacher.dodge = 0
         attacker = MagicMock()
+        attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
 
         for prime in [2, 3, 5, 7, 11, 13]:
@@ -416,6 +419,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher.health_max = 100
         teacher.health = 100
         attacker = MagicMock()
+        attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
         atk, dmg = _make_attack_rolls(7)
 
@@ -445,6 +449,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher.health_max = 100
         teacher.health = 100
         attacker = MagicMock()
+        attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
         atk, dmg = _make_attack_rolls(7)
 
@@ -474,6 +479,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher.defense = 0
         teacher.dodge = 0
         attacker = MagicMock()
+        attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
         atk, dmg = _make_attack_rolls(11)  # prime
 

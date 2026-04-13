@@ -190,8 +190,10 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_defense() == 10
-        assert c.get_dodge() == 5
+        # No torso → defense = core_toughness (0).
+        assert c.get_defense() == 0
+        # Not flying and no legs → dodge = core_agility (0).
+        assert c.get_dodge() == 0
 
     def test_minor_wing_injury_debuffs_dodge_only(self, loaded_plugins):
         c = _make_creature()

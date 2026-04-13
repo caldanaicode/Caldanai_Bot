@@ -1,7 +1,7 @@
 from random import choice, randint
 
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
+from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.dice import Dice
@@ -28,13 +28,13 @@ class Bandit(MonsterPlugin):
 
         self.flavor = choice(["Your money or your life.", "This is a stick up.", "You'll never take me alive."])
 
-        self.escape = choice(["The @1 runs off, taking whatever @1s can grab.", "Other horizons call the @1 away."])
+        self.escape = choice(["@1dc runs off, taking whatever @1s can grab.", "Other horizons call @1d away."])
 
         self.death = choice(
             [
-                "The @1 dies, and shall no longer steal from the rich and give to the poor.",
-                "The @1 coughs blood before collapsing to the ground.",
-                '"In another life, you could have been me," the @1 gasps with @1a dying breath.',
+                "@1dc dies, and shall no longer steal from the rich and give to the poor.",
+                "@1dc coughs blood before collapsing to the ground.",
+                '"In another life, you could have been me," @1d gasps with @1a dying breath.',
             ]
         )
 
@@ -49,6 +49,9 @@ class Bandit(MonsterPlugin):
         self.loot["wallet"] = 0.25
 
         self.body_parts = BodyPart.humanoid()
+
+        self.size = Size.MEDIUM
+        self._scale_part_hp()
 
     def steal(self, target: Creature) -> str:
         """
@@ -65,11 +68,11 @@ class Bandit(MonsterPlugin):
 
         working_arms = [p for p in self.body_parts if isinstance(p, ArmPlugin) and not p.is_destroyed()]
         if not working_arms:
-            return "\nThe @1 reaches for @2's coin purse, but @1a mangled arms fail to grasp anything."
+            return "\n@1dc reaches for @2's coin purse, but @1a mangled arms fail to grasp anything."
 
         working_legs = [p for p in self.body_parts if isinstance(p, LegPlugin) and not p.is_destroyed()]
         if not working_legs:
-            return "\nThe @1 tries to approach @2's wallet, but can't close the distance on @1a ruined legs."
+            return "\n@1dc tries to approach @2's wallet, but can't close the distance on @1a ruined legs."
 
         if target.clarks > 0:
             amount = randint(1, max(1, int(target.clarks / 10)))
@@ -79,13 +82,13 @@ class Bandit(MonsterPlugin):
                 return f"\n@2's wallet suddenly feels lighter... {amount} clarks were lost!"
             return "\n@2 easily avoids the bandit's groping fingers."
         else:
-            return "\nThe @1 sneers in disgust, realizing that @2 has no clarks to steal."
+            return "\n@1dc sneers in disgust, realizing that @2 has no clarks to steal."
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         responses = [
-            f"The @1 breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
-            f"The @1 graciously accepts @2's {invocation} while reaching toward @2a wallet...",
-            f"The @1 sneers at @2's attempt to {invocation} @1o.",
+            f"@1dc breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
+            f"@1dc graciously accepts @2's {invocation} while reaching toward @2a wallet...",
+            f"@1dc sneers at @2's attempt to {invocation} @1o.",
         ]
 
         response = choice(responses)

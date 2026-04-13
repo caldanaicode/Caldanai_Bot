@@ -3,7 +3,7 @@ from random import choice
 from caldanai.lib.rpg import get_random_direction
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, TimePartitions, DamageTypes)
+    AggressionLevels, TimePartitions, DamageTypes, Size)
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 
@@ -35,11 +35,11 @@ class Bearowl(MonsterPlugin):
             ]
         )
 
-        self.escape = "The @1, silent as a jackhammer, slips away."
+        self.escape = "@1dc, silent as a jackhammer, slips away."
         self.death = choice(
             [
-                "The @1 gives a final howl of pain and terror before crumpling to the ground.",
-                "After a last-ditch effort to escape your fury, the @1 collapses into lifelessness.",
+                "@1dc gives a final howl of pain and terror before crumpling to the ground.",
+                "After a last-ditch effort to escape your fury, @1d collapses into lifelessness.",
                 "The abomination of nature will no more threaten your sense of reason.",
             ]
         )
@@ -57,12 +57,15 @@ class Bearowl(MonsterPlugin):
         # creature, not just the hydra test fixture.
         self.flags = {"flying"}
 
+        self.size = Size.LARGE
+        self._scale_part_hp()
+
     # Reacts to hugs.
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(
             [
                 "Are you really sure you want to do that, @2?",
-                f"The @1 looks at @2 suspiciously before accepting the {invocation}.",
+                f"@1dc looks at @2 suspiciously before accepting the {invocation}.",
                 f"{invocation.capitalize()}s do not work on @1, @2.",
             ]
         )

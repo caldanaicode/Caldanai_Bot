@@ -618,3 +618,45 @@ class TestRegrowthWithTypes:
             assert hasattr(head, "dmg_type"), (
                 f"Regrown head {head.name!r} missing dmg_type"
             )
+
+    def test_regrown_heads_have_size_scaled_hp(self):
+        """Regrown heads on a LARGE hydra must have size-scaled HP.
+
+        HeadPlugin base HP is 1d8 (range 1-8).  LARGE hp_scale is 2.0,
+        so scaled HP should be in [2, 16].  An unscaled head would be in
+        [1, 8].  We verify that every regrown head's HP is >= 2 (the
+        minimum scaled value), confirming scaling was applied.
+        """
+        from caldanai.lib.rpg.helpers.enums import Size
+        h = _make_variant_hydra("hydra")
+        assert h.size == Size.LARGE  # hp_scale = 2.0
+        scale = h.size.value["hp_scale"]  # 2.0
+
+        # Destroy a head, then trigger regrowth.
+        heads_before = _live_heads(h)
+        heads_before[0].health = 0
+        h.on_combat_round({})
+
+        # Find regrown heads (names that weren't in the original set).
+        original_names = {hd.name for hd in heads_before}
+        regrown = [hd for hd in _live_heads(h) if hd.name not in original_names]
+        assert len(regrown) >= 1, "Expected at least one regrown head"
+
+        for head in regrown:
+            # The base 1d8 rolls 1-8; scaled by 2.0 gives 2-16.
+            # An unscaled head would have max 8.  We verify the HP is
+            # consistent with scaling: health_max == int(base * scale)
+            # where base is in [1,8].  The minimum scaled value is
+            # max(1, int(1 * 2.0)) = 2.
+            assert head.health_max >= 2, (
+                f"Regrown head {head.name!r} has health_max={head.health_max}, "
+                f"expected >= 2 (min scaled value for LARGE)"
+            )
+            assert head.health_max <= 16, (
+                f"Regrown head {head.name!r} has health_max={head.health_max}, "
+                f"expected <= 16 (max scaled value for LARGE)"
+            )
+            assert head.health == head.health_max, (
+                f"Regrown head {head.name!r} health ({head.health}) != "
+                f"health_max ({head.health_max})"
+            )

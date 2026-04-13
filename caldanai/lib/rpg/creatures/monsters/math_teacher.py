@@ -6,7 +6,7 @@ from caldanai.lib.rpg.combat.attack_source import AttackSource, NaturalAttackSou
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, TimePartitions, DamageTypes)
+    AggressionLevels, TimePartitions, DamageTypes, Size)
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
 
@@ -35,7 +35,7 @@ class MathTeacher(MonsterPlugin):
             [
                 "This @1 has an impressive array of tiny sand timers.",
                 "A confounding quantity of board games surrounds this @1.",
-                "The @1 eyes you mistrustfully, as if expecting to see a graphing calculator in your hand.",
+                "@1dc eyes you mistrustfully, as if expecting to see a graphing calculator in your hand.",
                 '"What do you get when you cross an elephant with a grape?"\n|| |elephant| ⨉ |grape| ⨉ sin(θ)||',
                 '"What do you get when you cross an elephant with a mountain climber?"\n||You can\'t, because a mountain '
                 "climber is a scaler.||",
@@ -44,15 +44,15 @@ class MathTeacher(MonsterPlugin):
 
         self.escape = choice(
             [
-                "The @1 issues homework assignments before vanishing back into the 9th dimension.",
-                "Exhausted from a long day of dealing with idiots, the @1 takes to the skies.",
-                'The @1 boldly declares, "Time\'s up! Pencils down!" @1s then stuffs @1a papers and board games into a '
+                "@1dc issues homework assignments before vanishing back into the 9th dimension.",
+                "Exhausted from a long day of dealing with idiots, @1d takes to the skies.",
+                '@1dc boldly declares, "Time\'s up! Pencils down!" @1s then stuffs @1a papers and board games into a '
                 "dimensional pocket and flutters away.",
             ]
         )
         self.death = choice(
             [
-                "The @1 haltingly begins listing off the digits of π to the 900th decimal, trailing off after only a few.",
+                "@1dc haltingly begins listing off the digits of π to the 900th decimal, trailing off after only a few.",
                 "The students have surpassed the teacher, who can finally rest in peace.",
             ]
         )
@@ -62,11 +62,15 @@ class MathTeacher(MonsterPlugin):
 
         self.body_parts = BodyPart.humanoid()
 
+        self.size = Size.MEDIUM
+        self.core_agility = 5
+        self._scale_part_hp()
+
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(
             [
-                f"The @1 waves a dissuading finger in the face of @2.",
-                f"The @1 arches a cynical eyebrow and sidesteps @2.",
+                f"@1dc waves a dissuading finger in the face of @2.",
+                f"@1dc arches a cynical eyebrow and sidesteps @2.",
             ]
         )
 

@@ -42,7 +42,7 @@ from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, DamageTypes, Reach, TimePartitions,
+    AggressionLevels, DamageTypes, Reach, Size, TimePartitions,
 )
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.creatures import Creature
@@ -54,16 +54,21 @@ from caldanai.lib.rpg.creatures import Creature
 # @1 is resolved by the parser as the hydra.
 
 _NARRATIVE_TEMPLATES = {
-    "bite": "One of the @1's heads lunges at {victim} with a {label}.",
-    "ram": "One of the @1's heads slams into {victim}.",
-    "breath": "One of the @1's heads rears back and unleashes a {label} at {victim}.",
-    "spit": "One of the @1's heads hocks a glob of {label} at {victim}.",
-    "hex": "One of the @1's heads crackles with dark energy aimed at {victim}.",
-    "sweep": "One of the @1's heads gusts a blast of wind at {victim}.",
-    "tail": "The @1 whips its tail at {victim}.",
-    "stomp": "The @1 brings a massive leg down on {victim}.",
-    "kick": "The @1 lashes out with a hind leg at {victim}.",
+    "bite": "One of @1d's heads lunges at {victim} with {article} {label}.",
+    "ram": "One of @1d's heads slams into {victim}.",
+    "breath": "One of @1d's heads rears back and unleashes {article} {label} at {victim}.",
+    "spit": "One of @1d's heads hocks a glob of {label} at {victim}.",
+    "hex": "One of @1d's heads crackles with dark energy aimed at {victim}.",
+    "sweep": "One of @1d's heads gusts a blast of wind at {victim}.",
+    "tail": "@1dc whips its tail at {victim}.",
+    "stomp": "@1dc brings a massive leg down on {victim}.",
+    "kick": "@1dc lashes out with a hind leg at {victim}.",
 }
+
+
+def _article(word: str) -> str:
+    """Return 'an' if *word* starts with a vowel sound, otherwise 'a'."""
+    return "an" if word and word[0].lower() in "aeiou" else "a"
 
 # ---------------------------------------------------------------------------
 # Variant definitions
@@ -153,6 +158,7 @@ VARIANTS = [
     {
         "name": "hydra",
         "weight": 3,
+        "size": Size.LARGE,
         "starting_heads": 3,
         "head_dmg_types": [DamageTypes.PIERCING | DamageTypes.SLASHING],
         "head_repertoire": _REPERTOIRE_GROTESQUE,
@@ -160,7 +166,7 @@ VARIANTS = [
         "traits": {},
         "loot_overrides": {},
         "arrival": (
-            "A writhing mass of scales erupts from the murk as a @1 looms "
+            "A writhing mass of scales erupts from the murk as @1i looms "
             "into view, heads hissing in unison."
         ),
         "flavor": (
@@ -169,11 +175,11 @@ VARIANTS = [
             "it is slick with sulfurous runoff."
         ),
         "escape": (
-            "The @1 slithers back into the murk, its heads twisting in "
+            "@1dc slithers back into the murk, its heads twisting in "
             "mocking farewell."
         ),
         "death": (
-            "The @1's remaining heads sag lifelessly, and with a final "
+            "@1dc's remaining heads sag lifelessly, and with a final "
             "bone-wet shudder, the whole writhing bulk collapses into a "
             "still, steaming mound."
         ),
@@ -181,6 +187,7 @@ VARIANTS = [
     {
         "name": "swamp hydra",
         "weight": 3,
+        "size": Size.LARGE,
         "starting_heads": 3,
         "head_dmg_types": [DamageTypes.DARK | DamageTypes.AIR],
         "head_repertoire": _REPERTOIRE_SWAMP,
@@ -188,20 +195,20 @@ VARIANTS = [
         "traits": {DamageTypes.DARK | DamageTypes.AIR: 0.5},
         "loot_overrides": {"toad_slime": 1.0, "wool": 0},
         "arrival": (
-            "Poisonous vapors roll across the ground as a @1 drags "
+            "Poisonous vapors roll across the ground as @1i drags "
             "itself from the fetid bog, venom dripping from every fang."
         ),
         "flavor": (
-            "A @1 coils in the shallows, its mottled scales slick with "
+            "@1ic coils in the shallows, its mottled scales slick with "
             "algae. The stench of rot and venom hangs heavy in the air "
             "around it."
         ),
         "escape": (
-            "The @1 sinks back into the fetid waters with barely a "
+            "@1dc sinks back into the fetid waters with barely a "
             "ripple, leaving only the acrid smell of venom behind."
         ),
         "death": (
-            "The @1 convulses as its venom sacs rupture, spilling "
+            "@1dc convulses as its venom sacs rupture, spilling "
             "caustic ichor across the ground before it finally lies "
             "still."
         ),
@@ -209,6 +216,7 @@ VARIANTS = [
     {
         "name": "hexed hydra",
         "weight": 3,
+        "size": Size.LARGE,
         "starting_heads": 2,
         "head_dmg_types": [DamageTypes.DARK | DamageTypes.MAGICAL],
         "head_repertoire": _REPERTOIRE_HEXED,
@@ -216,7 +224,7 @@ VARIANTS = [
         "traits": {DamageTypes.MAGICAL: 0.5},
         "loot_overrides": {"wand": 0.15, "wool": 0},
         "arrival": (
-            "Arcane sigils flare in the air as a @1 materializes from "
+            "Arcane sigils flare in the air as @1i materializes from "
             "a rift of dark energy, its eyes burning with eldritch "
             "purpose."
         ),
@@ -226,11 +234,11 @@ VARIANTS = [
             "moves with an unsettling independent intelligence."
         ),
         "escape": (
-            "The @1 dissolves into wisps of dark mana, its laughter "
+            "@1dc dissolves into wisps of dark mana, its laughter "
             "echoing long after its form has gone."
         ),
         "death": (
-            "The @1 unravels in a cascade of spent magic, its scales "
+            "@1dc unravels in a cascade of spent magic, its scales "
             "flaking away into motes of dying light before the body "
             "collapses."
         ),
@@ -238,6 +246,7 @@ VARIANTS = [
     {
         "name": "elemental hydra",
         "weight": 1,
+        "size": Size.HUGE,
         "starting_heads": 5,
         "head_dmg_types": [
             DamageTypes.FIRE,                          # fire
@@ -259,23 +268,23 @@ VARIANTS = [
         },
         "loot_overrides": {"small_gem": 0.9, "wand": 0.2, "wool": 0},
         "arrival": (
-            "The sky cracks with five colors as a @1 descends, each "
+            "The sky cracks with five colors as @1i descends, each "
             "head wreathed in a different elemental fury. The ground "
             "itself seems to flinch."
         ),
         "flavor": (
-            "A colossal @1 radiates raw elemental force from every "
+            "A {size} @1 radiates raw elemental force from every "
             "scale. Its five heads — flame, frost, venom, lightning, "
             "acid — weave independently, each tracking a different "
             "target."
         ),
         "escape": (
-            "The @1 retreats in a storm of elemental fury, its five "
+            "@1dc retreats in a storm of elemental fury, its five "
             "heads snapping at the air as it vanishes into a rift of "
             "raw energy."
         ),
         "death": (
-            "One by one, the elemental flames die in the @1's maws. "
+            "One by one, the elemental flames die in @1d's maws. "
             "Fire gutters, ice cracks, venom hisses dry, lightning "
             "earths, acid neutralizes. The body crashes down in "
             "silence."
@@ -317,7 +326,7 @@ class Hydra(MonsterPlugin):
         self.aggression = AggressionLevels.RAMPAGE
 
         self.arrival = variant["arrival"]
-        self.flavor = variant["flavor"]
+        self.flavor = variant["flavor"].format(size=self.size.name.lower())
         self.escape = variant["escape"]
         self.death = variant["death"]
 
@@ -333,6 +342,10 @@ class Hydra(MonsterPlugin):
         # Variant overrides (e.g. swamp guarantees toad_slime).
         for item, freq in variant.get("loot_overrides", {}).items():
             self.loot[item] = freq
+
+        # Set size from variant (must be before body part composition
+        # so _scale_part_hp reads the correct scale).
+        self.size = variant["size"]
 
         # --- Body part composition ---
         # Quadruped body minus the generic head (we add variant heads).
@@ -350,6 +363,8 @@ class Hydra(MonsterPlugin):
             self.body_parts.append(self._make_head(f"head.{i + 1}", dmg_type))
         self._next_head_number = starting_heads + 1
 
+        self._scale_part_hp()
+
         # Breath cooldown tracker: {head_name: rounds_remaining}.
         self._breath_cooldown: Dict[str, int] = {}
 
@@ -357,14 +372,24 @@ class Hydra(MonsterPlugin):
     # Head factory
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _make_head(name: str, dmg_type: DamageTypes) -> BodyPart:
-        """Create a non-critical head with the given damage type."""
+    def _make_head(self, name: str, dmg_type: DamageTypes, *, scale: bool = False) -> BodyPart:
+        """Create a non-critical head with the given damage type.
+
+        When *scale* is ``True``, applies the creature's size-based HP
+        scaling so that heads created after ``__init__`` (regrowth) match
+        the initial heads' HP.  During ``__init__``, pass ``scale=False``
+        because ``_scale_part_hp()`` handles all parts in bulk.
+        """
         head = BodyPart.make(
             "head", is_critical=False, name=name,
             exposure=dict(_HEAD_EXPOSURE),
         )
         head.dmg_type = dmg_type
+        if scale:
+            hp_scale = self.size.value["hp_scale"]
+            if hp_scale != 1.0:
+                head.health_max = max(1, int(head.health_max * hp_scale))
+                head.health = head.health_max
         return head
 
     def _get_head_dmg_type(self) -> DamageTypes:
@@ -540,6 +565,7 @@ class Hydra(MonsterPlugin):
                 display=part.display_name,
                 victim=victim_name,
                 label=label,
+                article=_article(label),
             )
             lines.append(line)
 
@@ -718,7 +744,7 @@ class Hydra(MonsterPlugin):
         if live_count == 0:
             self.health = 0
             return parse(
-                "The last head falls. With no brain to direct it, @1's "
+                "@1dc's last head falls. With no brain to direct it, @1's "
                 "body collapses in a lifeless heap.",
                 self,
             )
@@ -735,7 +761,7 @@ class Hydra(MonsterPlugin):
         for _ in range(to_spawn):
             dmg_type = self._get_head_dmg_type()
             self.body_parts.append(
-                self._make_head(f"head.{self._next_head_number}", dmg_type)
+                self._make_head(f"head.{self._next_head_number}", dmg_type, scale=True)
             )
             self._next_head_number += 1
 
@@ -748,14 +774,14 @@ class Hydra(MonsterPlugin):
 
         if to_spawn == 0:
             return parse(
-                "The @1's severed stumps writhe but produce nothing — "
+                "@1dc's severed stumps writhe but produce nothing — "
                 "it has reached its biological limit.",
                 self,
             )
         if to_spawn == 1:
             return parse(
                 "A single new head forces its way from a severed stump "
-                "— the @1 is nearing its biological limit.",
+                "— @1d is nearing its biological limit.",
                 self,
             )
         return parse(

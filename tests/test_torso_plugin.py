@@ -172,9 +172,10 @@ class TestCreatureAggregation:
         c = _make_creature()
         torso = BodyPart.make("torso", health_max=10)
         c.body_parts = [torso]
-        # Torso at full health -> InjuryLevels.NONE -> no debuffs.
+        # Torso at full health -> defense emerges at full ratio.
         assert c.get_defense() == 10
-        assert c.get_dodge() == 5
+        # No legs -> dodge = core_agility (0).
+        assert c.get_dodge() == 0
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
@@ -200,8 +201,10 @@ class TestCreatureAggregation:
         c.body_parts = [torso]
         torso.health = 5
         assert torso.get_injury_level() == InjuryLevels.MODERATE
-        assert c.get_defense() == 10 - 1
-        assert c.get_dodge() == 5 - 1
+        # Defense emerges: ratio=0.5 (MODERATE), int(10 * 0.5) = 5.
+        assert c.get_defense() == 5
+        # No legs -> dodge = core_agility (0).
+        assert c.get_dodge() == 0
 
 
 # ---------------------------------------------------------------------------

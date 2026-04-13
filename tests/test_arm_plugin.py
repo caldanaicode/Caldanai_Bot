@@ -198,8 +198,9 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_defense() == 10
-        assert c.get_dodge() == 5
+        # Arm alone: no torso → defense=0, no legs → dodge=0 (emergence).
+        assert c.get_defense() == 0
+        assert c.get_dodge() == 0
 
     def test_minor_arm_injury_debuffs_attack_only(self, loaded_plugins):
         c = _make_creature()
@@ -226,8 +227,8 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.DEFENSE) == -1
         # DODGE never touched by arm debuffs.
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        # Getters reflect the modifiers.
-        assert c.get_defense() == 10 - 1
+        # No torso → defense = core_toughness (0) regardless of arm debuffs.
+        assert c.get_defense() == 0
 
     def test_useless_arm_does_not_affect_defense(self, loaded_plugins):
         """USELESS arm: ATTACK -5, DEFENSE unchanged. The

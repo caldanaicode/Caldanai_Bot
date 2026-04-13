@@ -36,7 +36,22 @@ def _process(match: Match, actors: Tuple) -> str:
     form = m["form"].lower() if m["form"] else ""
     result = actor.name
     for f in form:
-        if f in forms.keys():
+        if f == "d":
+            # Definite article: "the dragon" for monsters, bare name for named entities.
+            if getattr(actor, "uses_article", True):
+                result = f"the {result}"
+        elif f == "i":
+            # Indefinite article: "a dragon" / "an ogre" for monsters, bare name for named entities.
+            # Creatures can override with ``indefinite_article`` for phonetic
+            # exceptions (e.g., "a unicorn" despite starting with 'u').
+            if getattr(actor, "uses_article", True):
+                override = getattr(actor, "indefinite_article", None)
+                if override:
+                    article = override
+                else:
+                    article = "an" if result and result[0].lower() in "aeiou" else "a"
+                result = f"{article} {result}"
+        elif f in forms.keys():
             result = actor.pronouns[forms[f]]
         elif f in casing.keys():
             result = result.__getattribute__(casing[f])()

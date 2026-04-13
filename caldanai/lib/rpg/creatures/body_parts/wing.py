@@ -121,6 +121,6 @@ class WingPlugin(BodyPartPlugin):
         """
         if new_level == InjuryLevels.USELESS:
             creature.flags.discard("flying")
-            return parse("@1's wing crumples; @1o is grounded.", creature)
+            return parse("@1dc's wing crumples; @1s is grounded.", creature)
         return ""
 

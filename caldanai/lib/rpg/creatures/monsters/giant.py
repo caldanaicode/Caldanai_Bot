@@ -1,5 +1,5 @@
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes
+from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.dice import Dice
@@ -18,11 +18,11 @@ class Giant(MonsterPlugin):
         self.time_partition = TimePartitions.DIURNAL
         self.image = None
         self.aggression = AggressionLevels.RAMPAGE
-        self.arrival = "The ground trembles slightly as a @1 trudges in."
+        self.arrival = "The ground trembles slightly as @1i trudges in."
         self.flavor = "This @1 would blend in nicely with the surrounding rocks, if @1s would stop moving."
-        self.escape = "The @1 looks around the area with a wary eye, then lopes off to destinations unknown."
+        self.escape = "@1dc looks around the area with a wary eye, then lopes off to destinations unknown."
         self.death = (
-            "The @1 wobbles unsteadily for a moment, then crashes backward into the earth sending out a "
+            "@1dc wobbles unsteadily for a moment, then crashes backward into the earth sending out a "
             "small tremor."
         )
 
@@ -40,10 +40,13 @@ class Giant(MonsterPlugin):
 
         self.body_parts = BodyPart.humanoid()
 
+        self.size = Size.HUGE
+        self._scale_part_hp()
+
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         dmg = Dice.quick_roll("1d4")
         attempt = Dice.quick_roll("1d20")
-        msg = f"*@2 approaches the @1 for a {invocation}. The @1 flicks @2o away with a rumbling chuckle.*"
+        msg = f"*@2 approaches @1d for a {invocation}. @1dc flicks @2o away with a rumbling chuckle.*"
         if attempt >= actor.get_dodge():
             msg += f" @2 takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
             m = actor.apply_damage(dmg)

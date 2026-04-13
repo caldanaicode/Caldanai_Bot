@@ -4,7 +4,7 @@ from random import choice
 from caldanai.lib.rpg import get_random_direction, Player
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, TimePartitions, Qualities
+from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, Size, TimePartitions, Qualities
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.logger import get_logger
@@ -171,8 +171,8 @@ class Doppelganger(MonsterPlugin):
         self.death = choice(
             [
                 "The creature lets out a final cough before dissolving into shapeless ooze.",
-                "The @1 coughs blood before collapsing to the ground.",
-                '"In another life, you could have been me," the @1 gasps with @1a dying breath.',
+                "@1dc coughs blood before collapsing to the ground.",
+                '"In another life, you could have been me," @1d gasps with @1a dying breath.',
             ]
         )
 
@@ -183,6 +183,9 @@ class Doppelganger(MonsterPlugin):
         self.loot["wallet"] = 0.25
 
         self.body_parts = BodyPart.humanoid()
+
+        self.size = Size.MEDIUM
+        self._scale_part_hp()
 
     def on_spawn(self, game) -> str:
         """Imitates a random player on spawn."""
@@ -215,6 +218,10 @@ class Doppelganger(MonsterPlugin):
         dodge = target.get_dodge()
         health_max = target.get_health_max()
         self.defense = max(self.defense, defense)
+        # TODO(Phase C): This stores a pre-computed dodge value that
+        # emergence (get_dodge) will re-process through leg functionality
+        # and size modifiers, effectively double-applying those factors.
+        # Phase C (player integration) should address this.
         self.dodge = max(self.dodge, dodge)
         # Take the min of current HP vs the new max so we don't heal
         new_max = max(self.health_max, health_max)
@@ -236,6 +243,11 @@ class Doppelganger(MonsterPlugin):
 
         # Copy target's flags (e.g. "flying") as an independent set.
         self.flags = set(target.flags) if hasattr(target, 'flags') else set()
+
+        # Copy size and core stats so emergence computes correctly.
+        self.size = getattr(target, 'size', Size.MEDIUM)
+        self.core_agility = getattr(target, 'core_agility', 0)
+        self.core_toughness = getattr(target, 'core_toughness', 0)
 
         _log.debug(f"Doppelganger imitated {target.name}")
 

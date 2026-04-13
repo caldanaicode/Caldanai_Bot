@@ -136,7 +136,8 @@ class TestGenericToeBehavior:
             BodyPart.make("toe", name=f"toe {i + 1}") for i in range(10)
         ]
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_dodge() == 10
+        # Toes alone: no legs → dodge = core_agility (0).
+        assert c.get_dodge() == 0
 
     def test_destroyed_toe_contributes_minus_one_dodge(self, loaded_plugins):
         """A destroyed toe (USELESS) contributes -1 DODGE via the
@@ -153,9 +154,10 @@ class TestGenericToeBehavior:
         assert toe.is_destroyed()
         assert toe.get_injury_level() == InjuryLevels.USELESS
 
-        # Now contributes -1 DODGE.
+        # Now contributes -1 DODGE via stat modifier aggregation.
         assert c.get_stat_modifier_total(Stat.DODGE) == -1
-        assert c.get_dodge() == 9
+        # Toes alone: no legs → dodge = core_agility (0).
+        assert c.get_dodge() == 0
 
     def test_multiple_destroyed_toes_stack(self, loaded_plugins):
         """Multiple destroyed toes each contribute -1 DODGE."""
@@ -167,4 +169,5 @@ class TestGenericToeBehavior:
             toe.health = 0
 
         assert c.get_stat_modifier_total(Stat.DODGE) == -3
-        assert c.get_dodge() == 7
+        # Toes alone: no legs → dodge = core_agility (0).
+        assert c.get_dodge() == 0

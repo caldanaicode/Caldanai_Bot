@@ -12,7 +12,9 @@ from caldanai.lib.rpg.combat.attack_source import (
     NaturalAttackSource,
 )
 from caldanai.lib.rpg.helpers.dice import Dice
-from caldanai.lib.rpg.helpers.enums import Pronouns, DamageTypes, Reach, Stat
+from caldanai.lib.rpg.helpers.enums import (
+    Pronouns, DamageTypes, InjuryLevels, Reach, Size, Stat,
+)
 from caldanai.lib.rpg.helpers.roll_data import (
     AttackRoll, DamageRoll, CombinedRoll)
 
@@ -74,6 +76,10 @@ class Creature:
         # like ``"flying"`` (see the dragon-toes design).
         self.body_parts: List[BodyPart] = []
         self.flags: Set[str] = set()
+        self.uses_article: bool = True  # "the dragon"; players override to False
+        self.size: Size = Size.MEDIUM
+        self.core_agility: int = 0
+        self.core_toughness: int = 0
 
         if pronouns:
             s = pronouns.split(",")
@@ -302,6 +308,13 @@ class Creature:
         """
         dodge = self.get_dodge()
         defense = self.get_defense()
+
+        # Apply attacker's HIT modifier (eye/head functionality)
+        hit_mod = attacker.get_hit_modifier()
+        if hit_mod != 0:
+            atk_roll.skillBonus += hit_mod
+            atk_roll.result += hit_mod
+
         combined = CombinedRoll(atk_roll, dmg_roll, dodge)
         multiplier = self.get_trait_multiplier(source.damage_type)
         sub_dmg = int(multiplier * combined.result)
@@ -330,10 +343,12 @@ class Creature:
             embed.set_thumbnail(url=f"attachment://{self.image}")
 
         fields = [
+            ("Size", self.size.name.title(), True),
             ("Attack", self.attack, True),
-            ("Defense", self.defense, True),
-            ("Dodge", self.dodge, True),
+            ("Defense", self.get_defense(), True),
+            ("Dodge", self.get_dodge(), True),
             ("Health", f"{self.health} / {self.health_max}", True),
+            ("\u200b", "\u200b", True),
         ]
 
         for f, v, i in fields:
@@ -363,6 +378,11 @@ class Creature:
         ``creature.get_stat_modifier_total(Stat.ATTACK)`` when the attack
         roll is wired to respect injury debuffs in a future item.
 
+        .. note:: DODGE and DEFENSE are now handled by emergence
+           (``get_dodge`` / ``get_defense``) and the debuff table rows
+           for those stats are deprecated. Phase B cleanup should remove
+           them from the debuffs table.
+
         The ``owner=self`` argument is threaded through to every part so
         that state-dependent overrides (dragon toes that read
         ``owner.flags``, blocking arms that read round state, etc.) can
@@ -374,13 +394,74 @@ class Creature:
         return total
 
     def get_defense(self) -> int:
-        return max(0, self.defense + self.get_stat_modifier_total(Stat.DEFENSE))
+        """Defense emerges from torso functionality scaled by size."""
+        if not self.body_parts:
+            return max(0, self.defense)
+
+        torsos = [p for p in self.body_parts if _part_base_name(p) == "torso"]
+        if not torsos:
+            return max(0, self.core_toughness)
+
+        ratio = _functionality_ratio(torsos)
+        size_mod = self.size.value["defense_mod"]
+        return max(0, int(self.defense * ratio * size_mod) + self.core_toughness)
 
     def get_dodge(self) -> int:
-        return max(0, self.dodge + self.get_stat_modifier_total(Stat.DODGE))
+        """Dodge emerges from mobility sources (legs or wings) scaled by size."""
+        if not self.body_parts:
+            # Legacy path: no body parts, use flat stat
+            return max(0, self.dodge)
+
+        # Determine mobility sources: wings if flying, else legs
+        if "flying" in self.flags:
+            sources = [p for p in self.body_parts if _part_base_name(p) == "wing"]
+        else:
+            sources = [p for p in self.body_parts if _part_base_name(p) == "leg"]
+
+        if not sources:
+            # No relevant mobility parts (e.g., a snake or magical creature)
+            return max(0, self.core_agility)
+
+        ratio = _functionality_ratio(sources)
+        size_mod = self.size.value["dodge_mod"]
+        return max(0, int(self.dodge * ratio * size_mod) + self.core_agility)
 
     def get_health_max(self) -> int:
         return self.health_max
+
+    def get_hit_modifier(self) -> int:
+        """HIT modifier from eye/head functionality.
+
+        0 at full health, negative when injured.  Eyes are the primary
+        HIT source; heads are the fallback when no eyes are present.
+        """
+        if not self.body_parts:
+            return 0
+
+        eyes = [p for p in self.body_parts if _part_base_name(p) == "eye"]
+        heads = [p for p in self.body_parts if _part_base_name(p) == "head"]
+
+        # Eyes are primary HIT source; heads are fallback
+        sources = eyes if eyes else heads
+        if not sources:
+            return 0
+
+        ratio = _functionality_ratio(sources)
+        # At full health: 0 penalty. At all destroyed: -5 penalty.
+        # Scale: (ratio - 1.0) * 5 -> ranges from 0 to -5
+        return int((ratio - 1.0) * 5)
+
+    def _scale_part_hp(self) -> None:
+        """Scale body part HP by creature size.
+
+        Call after composing ``body_parts`` in subclass ``__init__``.
+        """
+        scale = self.size.value["hp_scale"]
+        if scale == 1.0:
+            return
+        for part in self.body_parts:
+            part.health_max = max(1, int(part.health_max * scale))
+            part.health = part.health_max
 
     def get_part(self, name: str) -> Optional[BodyPart]:
         """Look up a body part on this creature by name.
@@ -439,7 +520,7 @@ class Creature:
         """
         if self.is_dead():
             return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
-        return parse("The @1 glances at @2 and sidesteps @2a hug.", self, actor)
+        return parse("@1dc glances at @2 and sidesteps @2a hug.", self, actor)
 
     def update_pronouns(self):
         """Auto-updates the creature's pronouns, if the gender matches a preset."""
@@ -463,6 +544,47 @@ class Creature:
             self.pronouns[Pronouns.POSSESSIVE] = "theirs"
             self.pronouns[Pronouns.ADJECTIVE] = "their"
             self.pronouns[Pronouns.REFLEXIVE] = "themself"
+
+
+def _part_base_name(part: BodyPart) -> str:
+    """Get the plugin base name for a body part (e.g., 'leg', 'head').
+
+    Reads the class-level ``name`` attribute set by each
+    :class:`BodyPartPlugin` subclass.  Returns ``""`` for plain
+    ``BodyPart`` instances that lack a class-level ``name``.
+    """
+    cls = type(part)
+    # Only consider the *class*-level attribute — instance ``self.name``
+    # is the dot-qualified instance name (e.g. "leg.left"), not the
+    # plugin role identifier.
+    if "name" in cls.__dict__:
+        return cls.__dict__["name"]
+    # Walk the MRO (excluding the instance) looking for a class-level
+    # ``name`` that isn't the instance attribute.
+    for klass in cls.__mro__:
+        if "name" in klass.__dict__:
+            return klass.__dict__["name"]
+    return ""
+
+
+_FUNCTIONALITY_WEIGHTS = {
+    InjuryLevels.NONE:     1.0,
+    InjuryLevels.MINOR:    0.8,
+    InjuryLevels.MODERATE: 0.5,
+    InjuryLevels.SEVERE:   0.25,
+    InjuryLevels.USELESS:  0.0,
+}
+
+
+def _functionality_ratio(parts: list) -> float:
+    """Compute the average functionality of a group of body parts.
+
+    Returns 0.0–1.0 based on injury-level-weighted average.
+    """
+    if not parts:
+        return 0.0
+    total = sum(_FUNCTIONALITY_WEIGHTS.get(p.get_injury_level(), 1.0) for p in parts)
+    return total / len(parts)
 
 
 def pick_random_part(parts: List[BodyPart], reach: Reach) -> Optional[BodyPart]:

@@ -3,7 +3,7 @@ from random import choice
 from caldanai.lib.rpg import get_random_direction
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, TimePartitions, DamageTypes)
+    AggressionLevels, TimePartitions, DamageTypes, Size)
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 
@@ -34,12 +34,12 @@ class Sheep(MonsterPlugin):
             ]
         )
 
-        self.escape = f"The @1 {choice('slips|bounds|wanders'.split('|'))} away merrily, not a care in the world."
+        self.escape = f"@1dc {choice('slips|bounds|wanders'.split('|'))} away merrily, not a care in the world."
         self.death = choice(
             [
-                "The @1 gurgles out a final, sad, bleating cry, and goes still.",
-                "Eyes rolling wildly in terror and pain, the @1 stumbles and falls to the ground motionless.",
-                "A final wheezing breath escapes slowly, as the @1 collapses to the ground in a twitching heap.",
+                "@1dc gurgles out a final, sad, bleating cry, and goes still.",
+                "Eyes rolling wildly in terror and pain, @1d stumbles and falls to the ground motionless.",
+                "A final wheezing breath escapes slowly, as @1d collapses to the ground in a twitching heap.",
             ]
         )
 
@@ -53,11 +53,14 @@ class Sheep(MonsterPlugin):
 
         self.body_parts = BodyPart.quadruped()
 
+        self.size = Size.SMALL
+        self._scale_part_hp()
+
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice(
             [
-                f"The @1 glances at @2, but apparently decides to allow the {invocation}.",
-                f"A soft bleat escapes the @1 as @2 {invocation}s @1o.",
-                f"The @1 wuffles happily and leans into @2's {invocation}.",
+                f"@1dc glances at @2, but apparently decides to allow the {invocation}.",
+                f"A soft bleat escapes @1d as @2 {invocation}s @1o.",
+                f"@1dc wuffles happily and leans into @2's {invocation}.",
             ]
         )

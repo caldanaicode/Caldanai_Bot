@@ -226,20 +226,20 @@ class TestBearowlPartNames:
 
 
 class TestBearowlFullHealthBackwardsCompat:
-    """At full health every part is at ``InjuryLevels.NONE``, which
-    means the ``debuffs`` table lookup returns 0 for every stat.
-    Therefore ``get_defense`` / ``get_dodge`` must return exactly the
-    base attribute values they would have returned before the
-    migration.
+    """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
+    Bearowl is LARGE and flying: dodge uses wings (dodge_mod=0.75),
+    defense_mod=1.25.
     """
 
-    def test_get_defense_matches_base_attribute(self):
+    def test_get_defense_matches_size_scaled(self):
         b = Bearowl()
-        assert b.get_defense() == b.defense
+        expected = int(b.defense * 1.0 * 1.25)
+        assert b.get_defense() == expected
 
-    def test_get_dodge_matches_base_attribute(self):
+    def test_get_dodge_matches_size_scaled(self):
         b = Bearowl()
-        assert b.get_dodge() == b.dodge
+        expected = int(b.dodge * 1.0 * 0.75)
+        assert b.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
         """Sanity check on the underlying aggregation path."""

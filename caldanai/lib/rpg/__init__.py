@@ -332,6 +332,10 @@ class Game:
                             if new_level != old_level and new_level != InjuryLevels.NONE:
                                 feedback = part.get_injury_string()
                                 injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
+                                # Capture hook messages (e.g. wing grounding text).
+                                hook_msg = part.on_injury_change(monster, old_level, new_level)
+                                if hook_msg:
+                                    injury_feedback.append(f"   {hook_msg}")
 
                 # Defense subtracted once from the per-player total
                 # (variant B — restored pre-refactor balance).

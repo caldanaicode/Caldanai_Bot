@@ -56,6 +56,7 @@ class Player(Creature):
             gender=gender,
             pronouns=pronouns,
         )
+        self.uses_article = False  # "Caels", not "the Caels"
         self.id = pid
         self.guild_id = gid
         self.user_id = uid

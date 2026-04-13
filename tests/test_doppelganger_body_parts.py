@@ -20,6 +20,7 @@ from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels,
     InjuryLevels,
+    Size,
     TimePartitions,
 )
 from caldanai.lib.rpg.creatures.monsters.doppelganger import _PAIN_CRIES
@@ -482,3 +483,47 @@ class TestDoppelgangerPainCries:
         """No two entries in the pain cry table share the same text."""
         values = list(_PAIN_CRIES.values())
         assert len(values) == len(set(values)), "duplicate pain cry text found"
+
+
+# ---------------------------------------------------------------------------
+# 10. Size and core stats copied on imitation
+# ---------------------------------------------------------------------------
+
+
+class TestDoppelgangerCopiesSizeAndCoreStats:
+    def test_size_copied_from_target(self):
+        d = Doppelganger()
+        target = _make_player("BigGuy")
+        target.size = Size.LARGE
+        d.imitate(target)
+        assert d.size == Size.LARGE
+
+    def test_core_agility_copied_from_target(self):
+        d = Doppelganger()
+        target = _make_player("Nimble")
+        target.core_agility = 5
+        d.imitate(target)
+        assert d.core_agility == 5
+
+    def test_core_toughness_copied_from_target(self):
+        d = Doppelganger()
+        target = _make_player("Tough")
+        target.core_toughness = 3
+        d.imitate(target)
+        assert d.core_toughness == 3
+
+    def test_defaults_when_target_lacks_attributes(self):
+        """If target lacks size/core stats, doppelganger gets safe defaults."""
+        d = Doppelganger()
+        d.size = Size.LARGE  # pre-existing non-default
+        d.core_agility = 10
+        d.core_toughness = 10
+        target = _make_player("Plain")
+        # Remove the attributes to test getattr fallback
+        del target.size
+        del target.core_agility
+        del target.core_toughness
+        d.imitate(target)
+        assert d.size == Size.MEDIUM
+        assert d.core_agility == 0
+        assert d.core_toughness == 0

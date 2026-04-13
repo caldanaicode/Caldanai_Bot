@@ -7,7 +7,7 @@ from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, TimePartitions, DamageTypes, Reach)
+    AggressionLevels, TimePartitions, DamageTypes, Reach, Size)
 from caldanai.lib.rpg.helpers.roll_data import AttackRoll, CombinedRoll, DamageRoll
 from caldanai.lib.rpg.creatures import Creature
 
@@ -15,7 +15,7 @@ from caldanai.lib.rpg.creatures import Creature
 class Dragon(MonsterPlugin):
     VARIANTS = [
         {
-            "flavor": "A massive red @1, smelling faintly of cinnamon and charcoal.",
+            "flavor": "A {size} red @1, smelling faintly of cinnamon and charcoal.",
             "has_toes": False,
         },
         {
@@ -39,15 +39,15 @@ class Dragon(MonsterPlugin):
         self.time_partition = TimePartitions.CATHEMERAL
         self.image = None
         self.aggression = AggressionLevels.RAMPAGE
-        self.arrival = "A piercing roar rocks the heavens, as a @1 swoops down out of the sky searching for prey."
+        self.arrival = "A piercing roar rocks the heavens, as @1i swoops down out of the sky searching for prey."
 
         variant = choice(self.VARIANTS)
         self._has_toes = variant["has_toes"]
-        self.flavor = variant["flavor"]
+        self.flavor = variant["flavor"].format(size=self.size.name.lower())
 
-        self.escape = "The @1 circles the area lazily before taking to the clouds, disappearing from sight."
+        self.escape = "@1dc circles the area lazily before taking to the clouds, disappearing from sight."
         self.death = (
-            "The @1 gives a final bellow of rage and disbelief as @1s falls to the ground. @1ac thrashing "
+            "@1dc gives a final bellow of rage and disbelief as @1s falls to the ground. @1ac thrashing "
             "lasts but a moment, then all is still."
         )
 
@@ -75,6 +75,9 @@ class Dragon(MonsterPlugin):
                 p.is_critical = True
                 break
 
+        self.size = Size.HUGE
+        self._scale_part_hp()
+
     def get_dodge(self):
         base = super().get_dodge()
         if self._has_toes and "flying" not in self.flags:
@@ -84,11 +87,11 @@ class Dragon(MonsterPlugin):
     # Reacts to hugs.
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         # TODO: Perhaps attack the hugger in some way.
-        return "The @1 glowers hungrily at @2 and sends a wisp of flame in @2a direction."
+        return "@1dc glowers hungrily at @2 and sends a wisp of flame in @2a direction."
 
     def breath_attack(self, combatants) -> str:
         flavor = parse(
-            "The base of @1's throat glows brightly, @1a head drawing back slightly as @1s breathes in deeply. With a "
+            "@1dc's throat glows brightly, @1a head drawing back slightly as @1s breathes in deeply. With a "
             "deafening roar, @1s looses a mighty column of liquid flame, blanketing the entire area.",
             self,
         )

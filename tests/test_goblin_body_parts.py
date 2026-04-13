@@ -155,19 +155,19 @@ class TestGoblinPartNames:
 
 
 class TestGoblinFullHealthBackwardsCompat:
-    """At full health every part is at ``InjuryLevels.NONE``, which means
-    the ``debuffs`` table lookup returns 0 for every stat. Therefore
-    ``get_defense`` / ``get_dodge`` must return exactly the base
-    attribute values they would have returned before the migration.
+    """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
+    Goblin is SMALL: dodge_mod=1.25, defense_mod=0.75.
     """
 
-    def test_get_defense_matches_base_attribute(self):
+    def test_get_defense_matches_size_scaled(self):
         g = Goblin()
-        assert g.get_defense() == g.defense
+        expected = int(g.defense * 1.0 * 0.75)
+        assert g.get_defense() == expected
 
-    def test_get_dodge_matches_base_attribute(self):
+    def test_get_dodge_matches_size_scaled(self):
         g = Goblin()
-        assert g.get_dodge() == g.dodge
+        expected = int(g.dodge * 1.0 * 1.25)
+        assert g.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
         """Sanity check on the underlying aggregation path."""

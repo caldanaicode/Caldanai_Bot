@@ -443,7 +443,7 @@ class RpgInfoCommands(Cog):
             time = game.game_clock.get_time_of_day()
             msg += f" It appears to be {time}."
 
-        elif game.monster and target.lower() == game.monster.name:
+        elif game.monster and target.lower() == game.monster.name.lower():
             embed, file = game.monster.get_embed()
             Dispatcher.add(game.channel, embed=embed, file=file)
             return

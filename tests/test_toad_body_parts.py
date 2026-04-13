@@ -182,20 +182,21 @@ class TestToadPartNames:
 
 
 class TestToadFullHealthBackwardsCompat:
-    """At full health every part is at ``InjuryLevels.NONE``, which
-    means the ``debuffs`` table lookup returns 0 for every stat.
-    Therefore ``get_defense`` / ``get_dodge`` must return exactly the
-    base attribute values they would have returned before the
-    migration.
+    """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
+    Toad is SMALL or MEDIUM depending on variant.
     """
 
-    def test_get_defense_matches_base_attribute(self):
+    def test_get_defense_matches_size_scaled(self):
         t = Toad()
-        assert t.get_defense() == t.defense
+        defense_mod = t.size.value["defense_mod"]
+        expected = int(t.defense * 1.0 * defense_mod)
+        assert t.get_defense() == expected
 
-    def test_get_dodge_matches_base_attribute(self):
+    def test_get_dodge_matches_size_scaled(self):
         t = Toad()
-        assert t.get_dodge() == t.dodge
+        dodge_mod = t.size.value["dodge_mod"]
+        expected = int(t.dodge * 1.0 * dodge_mod)
+        assert t.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
         """Sanity check on the underlying aggregation path."""

@@ -189,27 +189,36 @@ class TestDragonFlyingFlag:
         assert "flying" not in d.flags
 
     def test_has_toes_variant_flying_no_penalty(self):
-        """While flying, get_dodge returns base value (no 62-toe penalty)."""
+        """While flying, get_dodge uses wings with HUGE size mod (no 62-toe penalty)."""
         with _force_variant(True):
             d = Dragon()
         assert "flying" in d.flags
-        assert d.get_dodge() == d.dodge
+        # HUGE dodge_mod=0.5, wings healthy → ratio 1.0
+        expected = int(d.dodge * 1.0 * 0.5)
+        assert d.get_dodge() == expected
 
     def test_has_toes_variant_grounded_gets_penalty(self):
-        """After grounding, get_dodge returns max(0, base - 62)."""
+        """After grounding, get_dodge uses legs with HUGE size mod minus 62."""
         with _force_variant(True):
             d = Dragon()
         d.flags.discard("flying")
-        expected = max(0, d.dodge + d.get_stat_modifier_total(Stat.DODGE) - 62)
+        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
+        ratio = _functionality_ratio(legs)
+        base_emergence = int(d.dodge * ratio * 0.5)
+        expected = max(0, base_emergence - 62)
         assert d.get_dodge() == expected
 
     def test_non_toes_variant_grounded_no_penalty(self):
-        """Non-toes variant gets no penalty regardless of flight status."""
+        """Non-toes variant grounded: dodge emerges from legs with HUGE mod."""
         with _force_variant(False):
             d = Dragon()
-        base_dodge = d.dodge
         d.flags.discard("flying")
-        assert d.get_dodge() == base_dodge
+        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
+        ratio = _functionality_ratio(legs)
+        expected = int(d.dodge * ratio * 0.5)
+        assert d.get_dodge() == expected
 
 
 # ---------------------------------------------------------------------------
@@ -234,22 +243,29 @@ class TestDragonGetDodgeOverride:
         with _force_variant(True):
             d = Dragon()
         d.flags.discard("flying")
-        base = d.dodge + d.get_stat_modifier_total(Stat.DODGE)
-        assert d.get_dodge() == max(0, base - 62)
+        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
+        ratio = _functionality_ratio(legs)
+        base_emergence = int(d.dodge * ratio * 0.5)
+        assert d.get_dodge() == max(0, base_emergence - 62)
 
     def test_override_no_penalty_when_flying_with_toes(self):
         with _force_variant(True):
             d = Dragon()
         assert "flying" in d.flags
-        base = d.dodge + d.get_stat_modifier_total(Stat.DODGE)
-        assert d.get_dodge() == max(0, base)
+        # Flying: uses wings, HUGE dodge_mod=0.5
+        expected = int(d.dodge * 1.0 * 0.5)
+        assert d.get_dodge() == expected
 
     def test_override_no_penalty_without_toes(self):
         with _force_variant(False):
             d = Dragon()
         d.flags.discard("flying")
-        base = d.dodge + d.get_stat_modifier_total(Stat.DODGE)
-        assert d.get_dodge() == max(0, base)
+        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
+        ratio = _functionality_ratio(legs)
+        expected = int(d.dodge * ratio * 0.5)
+        assert d.get_dodge() == expected
 
 
 # ---------------------------------------------------------------------------
@@ -332,15 +348,19 @@ class TestDragonBreathAttackPreserved:
 
 
 class TestDragonFullHealthBackwardsCompat:
-    def test_get_defense_matches_base_attribute(self):
+    def test_get_defense_matches_size_scaled(self):
         with _force_variant(False):
             d = Dragon()
-        assert d.get_defense() == d.defense
+        # HUGE defense_mod=1.5
+        expected = int(d.defense * 1.0 * 1.5)
+        assert d.get_defense() == expected
 
-    def test_get_dodge_matches_base_attribute(self):
+    def test_get_dodge_matches_size_scaled(self):
         with _force_variant(False):
             d = Dragon()
-        assert d.get_dodge() == d.dodge
+        # Flying, HUGE dodge_mod=0.5
+        expected = int(d.dodge * 1.0 * 0.5)
+        assert d.get_dodge() == expected
 
     def test_stat_modifier_total_zero_at_full_health_non_toe(self):
         with _force_variant(False):
@@ -360,11 +380,12 @@ class TestDragonFullHealthBackwardsCompat:
         assert d.get_stat_modifier_total(Stat.ATTACK) == 0
         assert d.get_stat_modifier_total(Stat.HIT) == 0
 
-    def test_get_dodge_matches_base_on_toe_variant(self):
-        """Toe variant while flying: get_dodge == base dodge."""
+    def test_get_dodge_matches_size_scaled_on_toe_variant(self):
+        """Toe variant while flying: get_dodge uses wings with HUGE mod."""
         with _force_variant(True):
             d = Dragon()
-        assert d.get_dodge() == d.dodge
+        expected = int(d.dodge * 1.0 * 0.5)
+        assert d.get_dodge() == expected
 
 
 # ---------------------------------------------------------------------------

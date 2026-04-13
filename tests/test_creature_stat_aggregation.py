@@ -207,57 +207,39 @@ class TestGetStatModifierTotal:
 
 
 class TestGetDefense:
+    """Defense now emerges from torso functionality scaled by size.
+    Tests use actual torso parts via ``BodyPart.make``."""
+
     def test_returns_base_when_no_parts(self):
         c = _make_creature(defense=10)
         assert c.get_defense() == 10
 
-    def test_applies_negative_part_modifier(self):
+    def test_healthy_torso_gives_base_defense(self):
         c = _make_creature(defense=10)
-        part = BodyPart(
-            name="arm",
-            health_max=10,
-            debuffs={InjuryLevels.MINOR: {Stat.DEFENSE: -3}},
-        )
-        part.health = 7  # MINOR
-        c.body_parts = [part]
-        assert c.get_defense() == 7
+        c.body_parts = [BodyPart.make("torso", name="torso")]
+        assert c.get_defense() == 10
+
+    def test_destroyed_torso_returns_core_toughness(self):
+        c = _make_creature(defense=10)
+        c.core_toughness = 0
+        torso = BodyPart.make("torso", name="torso")
+        _destroy(torso)
+        c.body_parts = [torso]
+        assert c.get_defense() == 0
+
+    def test_no_torso_returns_core_toughness(self):
+        c = _make_creature(defense=10)
+        c.core_toughness = 2
+        c.body_parts = [BodyPart.make("leg", name="leg.left")]
+        assert c.get_defense() == 2
 
     def test_clamps_at_zero(self):
         c = _make_creature(defense=5)
-        part = BodyPart(
-            name="arm",
-            health_max=10,
-            debuffs={InjuryLevels.MINOR: {Stat.DEFENSE: -10}},
-        )
-        part.health = 7  # MINOR
-        c.body_parts = [part]
+        c.core_toughness = 0
+        torso = BodyPart.make("torso", name="torso")
+        _destroy(torso)
+        c.body_parts = [torso]
         assert c.get_defense() == 0
-
-    def test_compounds_across_multiple_parts(self):
-        c = _make_creature(defense=10)
-        parts = [
-            BodyPart(
-                name=f"arm {i}",
-                health_max=10,
-                debuffs={InjuryLevels.MINOR: {Stat.DEFENSE: -2}},
-            )
-            for i in range(3)
-        ]
-        for p in parts:
-            p.health = 7
-        c.body_parts = parts
-        assert c.get_defense() == 10 - 6
-
-    def test_destroyed_part_useless_debuff_still_reduces_defense(self):
-        c = _make_creature(defense=10)
-        part = BodyPart(
-            name="shield arm",
-            health_max=10,
-            debuffs={InjuryLevels.USELESS: {Stat.DEFENSE: -4}},
-        )
-        _destroy(part)
-        c.body_parts = [part]
-        assert c.get_defense() == 6
 
 
 # ---------------------------------------------------------------------------
@@ -266,56 +248,37 @@ class TestGetDefense:
 
 
 class TestGetDodge:
+    """Dodge now emerges from leg/wing functionality scaled by size."""
+
     def test_returns_base_when_no_parts(self):
         c = _make_creature(dodge=5)
         assert c.get_dodge() == 5
 
-    def test_applies_negative_part_modifier(self):
-        c = _make_creature(dodge=5)
-        part = BodyPart(
-            name="leg",
-            health_max=10,
-            debuffs={InjuryLevels.MINOR: {Stat.DODGE: -1}},
-        )
-        part.health = 7  # MINOR
-        c.body_parts = [part]
-        assert c.get_dodge() == 4
+    def test_healthy_legs_give_base_dodge(self):
+        c = _make_creature(dodge=10)
+        c.body_parts = [
+            BodyPart.make("leg", name="leg.left"),
+            BodyPart.make("leg", name="leg.right"),
+        ]
+        assert c.get_dodge() == 10
+
+    def test_one_destroyed_leg_halves_dodge(self):
+        c = _make_creature(dodge=10)
+        legs = [
+            BodyPart.make("leg", name="leg.left"),
+            BodyPart.make("leg", name="leg.right"),
+        ]
+        _destroy(legs[0])
+        c.body_parts = legs
+        # ratio = (1.0 + 0.0) / 2 = 0.5; int(10 * 0.5 * 1.0) = 5
+        assert c.get_dodge() == 5
 
     def test_clamps_at_zero(self):
-        c = _make_creature(dodge=3)
-        part = BodyPart(
-            name="leg",
-            health_max=10,
-            debuffs={InjuryLevels.MINOR: {Stat.DODGE: -10}},
-        )
-        part.health = 7  # MINOR
-        c.body_parts = [part]
-        assert c.get_dodge() == 0
-
-    def test_compounds_across_multiple_parts(self):
         c = _make_creature(dodge=10)
-        parts = [
-            BodyPart(
-                name=f"leg {i}",
-                health_max=10,
-                debuffs={InjuryLevels.MINOR: {Stat.DODGE: -1}},
-            )
-            for i in range(4)
-        ]
-        for p in parts:
-            p.health = 7
-        c.body_parts = parts
-        assert c.get_dodge() == 6
-
-    def test_destroyed_part_useless_debuff_still_reduces_dodge(self):
-        c = _make_creature(dodge=10)
-        part = BodyPart(
-            name="severed leg",
-            health_max=10,
-            debuffs={InjuryLevels.USELESS: {Stat.DODGE: -10}},
-        )
-        _destroy(part)
-        c.body_parts = [part]
+        c.core_agility = 0
+        legs = [BodyPart.make("leg", name="leg.left")]
+        _destroy(legs[0])
+        c.body_parts = legs
         assert c.get_dodge() == 0
 
 
@@ -327,7 +290,10 @@ class TestGetDodge:
 class TestStateDependentDebuff:
     """Tests the flag-dependent body part pattern: a part that reads
     ``owner.flags`` to decide its contribution. Pins the ``owner=self``
-    contract end-to-end through ``get_dodge``.
+    contract end-to-end through ``get_stat_modifier_total``.
+
+    ``get_dodge`` now uses emergence (not stat-modifier aggregation),
+    so these tests verify the aggregator independently.
     """
 
     def test_flag_toggles_aggregate_modifier(self):
@@ -339,19 +305,17 @@ class TestStateDependentDebuff:
         # Airborne: the parts see ``"flying" in owner.flags`` and
         # contribute nothing.
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_dodge() == 10
 
         # Ground the creature: each part now contributes -1 dodge.
         c.flags.discard("flying")
         assert c.get_stat_modifier_total(Stat.DODGE) == -5
-        assert c.get_dodge() == 5
 
     def test_adding_flag_midway_changes_aggregated_total(self):
         c = _make_creature(dodge=10)
         part = _FlagDependentPart(name="flag_part", health_max=1)
         c.body_parts = [part]
         # No flag set: grounded → contributes -1.
-        assert c.get_dodge() == 9
+        assert c.get_stat_modifier_total(Stat.DODGE) == -1
         # Add the flying flag: airborne → contributes 0.
         c.flags.add("flying")
-        assert c.get_dodge() == 10
+        assert c.get_stat_modifier_total(Stat.DODGE) == 0

@@ -534,7 +534,7 @@ class TestVampireFeedPreserved:
         actor.dodge = 0
 
         seductive_response = (
-            "The @1 smiles seductively at @2, encouraging the HUG..."
+            "@1dc smiles seductively at @2, encouraging the HUG..."
         )
 
         # ``on_hugged`` uses ``choice`` imported at module scope; patch

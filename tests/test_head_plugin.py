@@ -168,9 +168,11 @@ class TestCreatureAggregation:
         c = _make_creature()
         head = BodyPart.make("head", health_max=10)
         c.body_parts = [head]
-        # Head at full health -> InjuryLevels.NONE -> no debuffs at all
-        assert c.get_defense() == 10
-        assert c.get_dodge() == 5
+        # Head at full health -> InjuryLevels.NONE -> no debuffs at all.
+        # Defense/dodge now emerge from torso/legs; with only a head,
+        # both fall to core_toughness/core_agility (0).
+        assert c.get_defense() == 0
+        assert c.get_dodge() == 0
         # ATTACK aggregate should also be 0 contribution.
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
 

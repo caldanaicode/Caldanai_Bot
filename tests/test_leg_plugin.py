@@ -187,7 +187,9 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_defense() == 10
+        # Defense emerges from torso (none here) → core_toughness (0).
+        assert c.get_defense() == 0
+        # Dodge emerges from legs: ratio=1.0, MEDIUM → int(5 * 1.0) = 5.
         assert c.get_dodge() == 5
 
     def test_minor_leg_injury_debuffs_dodge_only(self, loaded_plugins):
@@ -200,7 +202,8 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.DODGE) == -1
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
-        assert c.get_dodge() == 5 - 1
+        # Dodge emerges: ratio=0.8, int(5 * 0.8) = 4.
+        assert c.get_dodge() == 4
 
     def test_moderate_leg_injury_debuffs_dodge_and_attack(
         self, loaded_plugins
@@ -208,14 +211,14 @@ class TestCreatureAggregation:
         c = _make_creature()
         leg = BodyPart.make("leg", health_max=10)
         c.body_parts = [leg]
-        # ~40% health -> MODERATE band (MINOR: [0.60, 1.0),
-        # MODERATE: [0.30, 0.60), SEVERE: (0, 0.30), USELESS: <= 0).
+        # ~40% health -> MODERATE band.
         leg.health = 4
         assert leg.get_injury_level() == InjuryLevels.MODERATE
         assert c.get_stat_modifier_total(Stat.DODGE) == -3
         assert c.get_stat_modifier_total(Stat.ATTACK) == -1
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
-        assert c.get_dodge() == 5 - 3
+        # Dodge emerges: ratio=0.5, int(5 * 0.5) = 2.
+        assert c.get_dodge() == 2
 
     def test_severe_leg_injury_debuffs_dodge_and_attack(
         self, loaded_plugins
@@ -229,8 +232,8 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.DODGE) == -5
         assert c.get_stat_modifier_total(Stat.ATTACK) == -2
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
-        # Base dodge 5 - 5 = 0 exactly (still clamped but not negative).
-        assert c.get_dodge() == 0
+        # Dodge emerges: ratio=0.25, int(5 * 0.25) = 1.
+        assert c.get_dodge() == 1
 
     def test_useless_leg_debuffs_dodge_and_attack(self, loaded_plugins):
         c = _make_creature()

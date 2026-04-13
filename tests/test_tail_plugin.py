@@ -210,8 +210,9 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_defense() == 10
-        assert c.get_dodge() == 5
+        # Tail alone: no torso → defense=0, no legs → dodge=0 (emergence).
+        assert c.get_defense() == 0
+        assert c.get_dodge() == 0
 
     def test_minor_tail_injury_debuffs_dodge_only(self, loaded_plugins):
         c = _make_creature()
@@ -223,7 +224,8 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.DODGE) == -1
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
-        assert c.get_dodge() == 5 - 1
+        # Dodge emerges from legs (none here) → core_agility (0).
+        assert c.get_dodge() == 0
 
     def test_moderate_tail_injury_debuffs_dodge_only(self, loaded_plugins):
         c = _make_creature()
@@ -235,7 +237,7 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.DODGE) == -2
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
-        assert c.get_dodge() == 5 - 2
+        assert c.get_dodge() == 0
 
     def test_severe_tail_injury_debuffs_dodge_only(self, loaded_plugins):
         c = _make_creature()
@@ -247,7 +249,7 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.DODGE) == -3
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
-        assert c.get_dodge() == 5 - 3
+        assert c.get_dodge() == 0
 
     def test_useless_tail_debuffs_dodge_only(self, loaded_plugins):
         c = _make_creature()

@@ -270,7 +270,8 @@ class TestCreatureAggregation:
         assert c.get_stat_modifier_total(Stat.ATTACK) == 0
         assert c.get_stat_modifier_total(Stat.DEFENSE) == 0
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
-        assert c.get_dodge() == 5
+        # Dodge now emerges from legs — no legs here, so falls to core_agility (0).
+        assert c.get_dodge() == 0
 
     def test_minor_eye_injury_debuffs_hit_only(self, loaded_plugins):
         c = _make_creature()

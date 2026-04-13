@@ -67,11 +67,13 @@ class TestTraitMultiplierAppliedOnce:
     def test_half_resistance_halves_damage_once(self):
         """Creature with 0.5x FIRE resistance, defense=2. Raw damage 20.
         resolve_attack: int(20 * 0.5) = 10 (no defense subtracted).
-        apply_damage routes 10 to part (no FIRE trait -> 1.0x).
-        Body HP: do_combat subtracts defense once: 100 - max(1, 10 - 2) = 92."""
+        apply_damage routes 10 to arm (no FIRE trait -> 1.0x).
+        Body HP: do_combat subtracts defense once: 100 - max(1, 10 - 2) = 92.
+        Damage routes to arm so torso stays undamaged for defense."""
         target = _make_creature(defense=2, dodge=1, traits={DamageTypes.FIRE: 0.5})
-        torso = BodyPart.make("torso", name="torso", health_max=50)
-        target.body_parts = [torso]
+        torso = BodyPart.make("torso", name="torso", health_max=500)
+        arm = BodyPart.make("arm", name="arm.left", health_max=500)
+        target.body_parts = [torso, arm]
 
         attacker = _make_attacker()
         source = NaturalAttackSource(
@@ -85,11 +87,11 @@ class TestTraitMultiplierAppliedOnce:
         # int(20 * 0.5) = 10, no defense subtracted
         assert result.damage == 10
 
-        result.target_part = torso
+        result.target_part = arm
         target.apply_damage(result.damage, result.dmg_type, result.target_part)
 
-        # Part takes the raw damage
-        assert torso.health == 40   # 50 - 10
+        # Arm takes the raw damage, torso untouched
+        assert arm.health == 490   # 500 - 10
 
         # Manually apply body HP reduction (simulating do_combat)
         defense = target.get_defense()
@@ -101,10 +103,12 @@ class TestTraitMultiplierAppliedOnce:
     def test_double_vulnerability_doubles_damage_once(self):
         """Creature with 2.0x FIRE vulnerability, defense=2. Raw damage 10.
         resolve_attack: int(10 * 2.0) = 20 (no defense subtracted).
-        Body HP: do_combat subtracts defense once: 100 - max(1, 20 - 2) = 82."""
+        Body HP: do_combat subtracts defense once: 100 - max(1, 20 - 2) = 82.
+        Damage routes to arm so torso stays undamaged for defense."""
         target = _make_creature(defense=2, dodge=1, traits={DamageTypes.FIRE: 2.0})
-        torso = BodyPart.make("torso", name="torso", health_max=50)
-        target.body_parts = [torso]
+        torso = BodyPart.make("torso", name="torso", health_max=500)
+        arm = BodyPart.make("arm", name="arm.left", health_max=500)
+        target.body_parts = [torso, arm]
 
         attacker = _make_attacker()
         source = NaturalAttackSource(
@@ -118,11 +122,11 @@ class TestTraitMultiplierAppliedOnce:
         # int(10 * 2.0) = 20, no defense subtracted
         assert result.damage == 20
 
-        result.target_part = torso
+        result.target_part = arm
         target.apply_damage(result.damage, result.dmg_type, result.target_part)
 
-        # Part takes the raw damage
-        assert torso.health == 30  # 50 - 20
+        # Arm takes the raw damage, torso untouched
+        assert arm.health == 480  # 500 - 20
 
         # Manually apply body HP reduction (simulating do_combat)
         defense = target.get_defense()
@@ -135,11 +139,13 @@ class TestTraitMultiplierAppliedOnce:
         """Creature 0.5x FIRE, part 2.0x FIRE, defense=2. Raw damage 20.
         resolve_attack applies creature: int(20 * 0.5) = 10 (no defense).
         apply_damage applies part 2.0x: int(10 * 2.0) = 20 to part only.
-        Body HP: do_combat subtracts defense once: 100 - max(1, 10 - 2) = 92."""
+        Body HP: do_combat subtracts defense once: 100 - max(1, 10 - 2) = 92.
+        Uses torso for defense emergence (head has no effect on defense)."""
         target = _make_creature(defense=2, dodge=1, traits={DamageTypes.FIRE: 0.5})
+        torso = BodyPart.make("torso", name="torso", health_max=500)
         head = BodyPart.make("head", name="head", health_max=50,
                              traits={DamageTypes.FIRE: 2.0})
-        target.body_parts = [head]
+        target.body_parts = [torso, head]
 
         attacker = _make_attacker()
         source = NaturalAttackSource(
@@ -168,10 +174,12 @@ class TestTraitMultiplierAppliedOnce:
 
     def test_no_trait_full_damage(self):
         """No traits on creature or part, defense=2. Raw damage 20.
-        resolve_attack: 20 * 1.0 = 20 (no defense subtracted)."""
+        resolve_attack: 20 * 1.0 = 20 (no defense subtracted).
+        Damage routes to arm so torso stays undamaged for defense."""
         target = _make_creature(defense=2, dodge=1)
-        torso = BodyPart.make("torso", name="torso", health_max=50)
-        target.body_parts = [torso]
+        torso = BodyPart.make("torso", name="torso", health_max=500)
+        arm = BodyPart.make("arm", name="arm.left", health_max=500)
+        target.body_parts = [torso, arm]
 
         attacker = _make_attacker()
         source = NaturalAttackSource(atk="1d4", label="plain sword")
@@ -183,11 +191,11 @@ class TestTraitMultiplierAppliedOnce:
         # 20 * 1.0 = 20, no defense subtracted
         assert result.damage == 20
 
-        result.target_part = torso
+        result.target_part = arm
         target.apply_damage(result.damage, result.dmg_type, result.target_part)
 
-        # Part takes the raw damage
-        assert torso.health == 30  # 50 - 20
+        # Arm takes the raw damage, torso untouched
+        assert arm.health == 480  # 500 - 20
 
         # Manually apply body HP reduction (simulating do_combat)
         defense = target.get_defense()
