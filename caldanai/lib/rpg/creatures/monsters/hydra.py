@@ -54,15 +54,15 @@ from caldanai.lib.rpg.creatures import Creature
 # @1 is resolved by the parser as the hydra.
 
 _NARRATIVE_TEMPLATES = {
-    "bite": "One of @1's heads lunges at {victim} with a {label}.",
-    "ram": "One of @1's heads slams into {victim}.",
-    "breath": "One of @1's heads rears back and unleashes a {label} at {victim}.",
-    "spit": "One of @1's heads hocks a glob of {label} at {victim}.",
-    "hex": "One of @1's heads crackles with dark energy aimed at {victim}.",
-    "sweep": "One of @1's heads gusts a blast of wind at {victim}.",
-    "tail": "@1 whips its tail at {victim}.",
-    "stomp": "@1 brings a massive leg down on {victim}.",
-    "kick": "@1 lashes out with a hind leg at {victim}.",
+    "bite": "One of the @1's heads lunges at {victim} with a {label}.",
+    "ram": "One of the @1's heads slams into {victim}.",
+    "breath": "One of the @1's heads rears back and unleashes a {label} at {victim}.",
+    "spit": "One of the @1's heads hocks a glob of {label} at {victim}.",
+    "hex": "One of the @1's heads crackles with dark energy aimed at {victim}.",
+    "sweep": "One of the @1's heads gusts a blast of wind at {victim}.",
+    "tail": "The @1 whips its tail at {victim}.",
+    "stomp": "The @1 brings a massive leg down on {victim}.",
+    "kick": "The @1 lashes out with a hind leg at {victim}.",
 }
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ VARIANTS = [
         "head_repertoire": _REPERTOIRE_SWAMP,
         "stats": {},
         "traits": {DamageTypes.DARK | DamageTypes.AIR: 0.5},
-        "loot_overrides": {"toad_slime": 1.0},
+        "loot_overrides": {"toad_slime": 1.0, "wool": 0},
         "arrival": (
             "Poisonous vapors roll across the ground as a @1 drags "
             "itself from the fetid bog, venom dripping from every fang."
@@ -214,7 +214,7 @@ VARIANTS = [
         "head_repertoire": _REPERTOIRE_HEXED,
         "stats": {},
         "traits": {DamageTypes.MAGICAL: 0.5},
-        "loot_overrides": {"wand": 0.15},
+        "loot_overrides": {"wand": 0.15, "wool": 0},
         "arrival": (
             "Arcane sigils flare in the air as a @1 materializes from "
             "a rift of dark energy, its eyes burning with eldritch "
@@ -257,7 +257,7 @@ VARIANTS = [
             DamageTypes.FIRE: 0.75,
             DamageTypes.DARK | DamageTypes.WATER: 0.75,
         },
-        "loot_overrides": {"small_gem": 0.9, "wand": 0.2},
+        "loot_overrides": {"small_gem": 0.9, "wand": 0.2, "wool": 0},
         "arrival": (
             "The sky cracks with five colors as a @1 descends, each "
             "head wreathed in a different elemental fury. The ground "
@@ -443,8 +443,26 @@ class Hydra(MonsterPlugin):
         if budget <= 0:
             return []
 
-        # Shuffle for fairness — which parts get to act is random.
-        shuffled = sample(attackable, len(attackable))
+        # Prioritize heads, then tail, then legs — but shuffle within
+        # each tier so the specific head/leg that acts is random.
+        def _priority(item):
+            part, _ = item
+            if isinstance(part, HeadPlugin):
+                return 0
+            if isinstance(part, TailPlugin):
+                return 1
+            return 2  # legs
+
+        attackable.sort(key=_priority)
+        # Shuffle within each priority tier.
+        tiers = {}
+        for item in attackable:
+            p = _priority(item)
+            tiers.setdefault(p, []).append(item)
+        shuffled = []
+        for p in sorted(tiers):
+            tier = tiers[p]
+            shuffled.extend(sample(tier, len(tier)))
 
         selected: List[Tuple["BodyPart", str, dict]] = []
         remaining = budget
@@ -527,7 +545,7 @@ class Hydra(MonsterPlugin):
 
         if not lines:
             return ""
-        return parse(" ".join(lines), self)
+        return parse("\n".join(lines), self)
 
     # ------------------------------------------------------------------
     # Multi-target distribution
@@ -572,15 +590,17 @@ class Hydra(MonsterPlugin):
 
         # 4. Resolve each attack mechanically.
         results: List[AttackResult] = []
-        damage_per_victim: Dict[int, int] = defaultdict(int)
+        hits_per_victim: Dict[int, int] = defaultdict(int)
+        raw_per_victim: Dict[int, int] = defaultdict(int)
 
         for part, action_name, action, victim in assignments:
             dmg_type = self._resolve_dmg_type(part, action)
             reach = action.get("reach", Reach.MELEE)
+            label = action.get("label", action_name)
             source = NaturalAttackSource(
                 atk=action["dice"],
                 dmg_type=dmg_type,
-                label=f"{part.display_name.title()} → {getattr(victim, 'name', '?')} ({action_name})",
+                label=f"{part.display_name.title()} \u2192 {getattr(victim, 'name', '?')} ({label})",
                 skill="natural",
                 reach=reach,
             )
@@ -588,7 +608,8 @@ class Hydra(MonsterPlugin):
             result = victim.resolve_attack(self, source, atk_roll, dmg_roll)
             results.append(result)
             if result.damage > 0:
-                damage_per_victim[id(victim)] += result.damage
+                raw_per_victim[id(victim)] += result.damage
+                hits_per_victim[id(victim)] += 1
 
         # 5. Build combined AttackSequence.
         first_victim = combatants[0]
@@ -605,13 +626,22 @@ class Hydra(MonsterPlugin):
             msg += f"\n{narrative}\n"
         msg += sequence.to_markdown()
 
-        # 7. Apply damage per victim.
+        # 7. Apply damage per victim (defense subtracted once per victim).
+        seen = set()
         for part, action_name, action, victim in assignments:
-            # Find this victim's total damage (only apply once per victim).
             vid = id(victim)
-            total = damage_per_victim.pop(vid, 0)
-            if total > 0:
-                dmg_msg = victim.apply_damage(total)
+            if vid in seen:
+                continue
+            seen.add(vid)
+            raw = raw_per_victim.get(vid, 0)
+            num_hits = hits_per_victim.get(vid, 0)
+            if num_hits > 0:
+                defense = victim.get_defense()
+                final = max(num_hits, raw - defense)
+                victim_name = getattr(victim, "name", "someone")
+                if defense and raw != final:
+                    msg += f"{victim_name}: {raw} damage - {defense} defense \u2192 {final} damage\n"
+                dmg_msg = victim.apply_damage(final)
                 if dmg_msg:
                     msg += parse(dmg_msg, victim)
 

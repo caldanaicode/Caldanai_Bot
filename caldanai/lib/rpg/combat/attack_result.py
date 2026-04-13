@@ -356,9 +356,11 @@ class AttackSequence:
             return f"<@!{self.attacker.member.id}>'s attack:"
 
         attacker_name = getattr(self.attacker, "name", "") or "Something"
-        is_multi_target = self.multi_target or (len(self.results) > 1 and all(r.auto_hit for r in self.results))
-        if is_multi_target:
+        is_auto_hit_aoe = len(self.results) > 1 and all(r.auto_hit for r in self.results)
+        if is_auto_hit_aoe:
             return f"**{attacker_name.capitalize()} attacks everyone:**"
+        if self.multi_target:
+            return f"**{attacker_name.capitalize()} lashes out:**"
 
         target_name = getattr(self.target, "name", "") or "the target"
         return f"**{attacker_name.capitalize()} attacks {target_name}:**"

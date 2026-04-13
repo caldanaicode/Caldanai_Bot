@@ -465,14 +465,14 @@ class TestAttackRandom:
 
     def test_multi_target_header_in_output(self):
         """attack_random output should contain the multi-target header
-        'attacks everyone' when there are combatants."""
+        'lashes out' when there are combatants."""
         h = _make_variant_hydra("hydra")
         h.health_max = 100
         h.health = 100
         combatants = [_mock_combatant("Alice"), _mock_combatant("Bob")]
         result = h.attack_random(combatants)
-        assert "attacks everyone" in result.lower(), (
-            f"Expected 'attacks everyone' in output, got:\n{result}"
+        assert "lashes out" in result.lower(), (
+            f"Expected 'lashes out' in output, got:\n{result}"
         )
 
 
