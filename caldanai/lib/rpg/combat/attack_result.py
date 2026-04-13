@@ -166,6 +166,7 @@ class AttackSequence:
     target: "Creature"
     results: List[AttackResult] = field(default_factory=list)
     narrative: str = ""  # Special narrative text (e.g., vampire feeding) that replaces normal result rendering
+    multi_target: bool = False  # True when results span multiple victims (hydra multi-target)
 
     def total_damage(self) -> int:
         """Returns the sum of damage across all results in the sequence."""
@@ -236,6 +237,8 @@ class AttackSequence:
 
         if all_auto_hit:
             lines.append("   Auto-hit attack")
+        elif self.multi_target:
+            lines.append("   Attack vs Dodge (varies)")
         else:
             lines.append(f"   Attack vs Dodge ({total_dodge})")
 
@@ -280,13 +283,16 @@ class AttackSequence:
             if p["extra_text"]:
                 lines.append(f"!  {' ' * label_w}   {p['extra_text']}")
 
-        defense = self.results[0].defense if self.results else 0
-        num_hits = sum(1 for r in self.results if r.damage > 0)
-        final = max(num_hits, total_damage - defense) if num_hits > 0 else 0
-        if defense and num_hits > 0 and total_damage != final:
-            lines.append(f"   Total: {total_damage} damage - {defense} defense → {final} damage")
-        else:
+        if self.multi_target:
             lines.append(f"   Total: {total_damage} damage")
+        else:
+            defense = self.results[0].defense if self.results else 0
+            num_hits = sum(1 for r in self.results if r.damage > 0)
+            final = max(num_hits, total_damage - defense) if num_hits > 0 else 0
+            if defense and num_hits > 0 and total_damage != final:
+                lines.append(f"   Total: {total_damage} damage - {defense} defense → {final} damage")
+            else:
+                lines.append(f"   Total: {total_damage} damage")
         lines.append("```")
 
         return "\n".join(lines) + "\n"
@@ -350,7 +356,7 @@ class AttackSequence:
             return f"<@!{self.attacker.member.id}>'s attack:"
 
         attacker_name = getattr(self.attacker, "name", "") or "Something"
-        is_multi_target = len(self.results) > 1 and all(r.auto_hit for r in self.results)
+        is_multi_target = self.multi_target or (len(self.results) > 1 and all(r.auto_hit for r in self.results))
         if is_multi_target:
             return f"**{attacker_name.capitalize()} attacks everyone:**"
 

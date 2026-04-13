@@ -41,8 +41,34 @@ from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.enums import Reach
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.monsters.hydra import Hydra
+from caldanai.lib.rpg.creatures.monsters.hydra import Hydra, VARIANTS
 from caldanai.lib.rpg.inventory import Inventory
+
+
+def _default_variant():
+    """Return the default 'hydra' variant dict from the VARIANTS table."""
+    return next(v for v in VARIANTS if v["name"] == "hydra")
+
+
+def _make_default_hydra():
+    """Construct a Hydra forced to the default 'hydra' variant (3 heads).
+
+    Temporarily replaces VARIANTS with a single-element list so that
+    ``random.choices`` always picks the default variant.
+    """
+    import caldanai.lib.rpg.creatures.monsters.hydra as _mod
+    original = _mod.VARIANTS
+    default = _default_variant()
+    _mod.VARIANTS = [default]
+    try:
+        return Hydra()
+    finally:
+        _mod.VARIANTS = original
+
+
+def _starting_heads():
+    """Return the starting head count of the default 'hydra' variant."""
+    return _default_variant()["starting_heads"]
 
 
 def _make_hydra_head(name="head", **kwargs):
@@ -91,9 +117,9 @@ class TestDiscovery:
         assert Hydra.MAX_HEADS == 10
 
     def test_starting_heads_is_three(self):
-        """Starting below the cap makes regrowth visible and dramatic
-        over the first few rounds of combat."""
-        assert Hydra.STARTING_HEADS == 3
+        """The default 'hydra' variant starts with 3 heads — below the cap
+        so that regrowth is visible and dramatic over the first few rounds."""
+        assert _starting_heads() == 3
 
 
 # ---------------------------------------------------------------------------
@@ -103,17 +129,17 @@ class TestDiscovery:
 
 class TestInitialComposition:
     def test_fresh_hydra_has_starting_heads_live_head_instances(self):
-        h = Hydra()
+        h = _make_default_hydra()
         live_heads = [
             p for p in h.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
         ]
-        assert len(live_heads) == Hydra.STARTING_HEADS
+        assert len(live_heads) == _starting_heads()
 
     def test_live_head_count_is_not_max_heads(self):
         """Pin that STARTING_HEADS != MAX_HEADS so that regrowth is
         visible in early-game combat."""
-        h = Hydra()
+        h = _make_default_hydra()
         live_heads = [
             p for p in h.body_parts if isinstance(p, HeadPlugin) and not p.is_critical
         ]
@@ -136,9 +162,9 @@ class TestInitialComposition:
         assert len(tails) == 1
 
     def test_total_body_part_count_matches_composition(self):
-        """1 torso + 4 legs + 1 tail + STARTING_HEADS heads."""
-        h = Hydra()
-        assert len(h.body_parts) == 1 + 4 + 1 + Hydra.STARTING_HEADS
+        """1 torso + 4 legs + 1 tail + starting_heads heads."""
+        h = _make_default_hydra()
+        assert len(h.body_parts) == 1 + 4 + 1 + _starting_heads()
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +174,9 @@ class TestInitialComposition:
 
 class TestGetAttackSources:
     def test_returns_one_source_per_live_head(self):
-        h = Hydra()
+        h = _make_default_hydra()
         sources = h.get_attack_sources()
-        assert len(sources) == Hydra.STARTING_HEADS
+        assert len(sources) == _starting_heads()
 
     def test_each_source_is_a_natural_attack_source(self):
         h = Hydra()
@@ -167,10 +193,10 @@ class TestGetAttackSources:
             # NaturalAttackSource stores the dice string on ``_atk``.
             assert source._atk == h.attack
 
-    def test_each_source_label_contains_head_name(self):
+    def test_each_source_label_contains_head_display_name(self):
         """Combat display needs to distinguish heads. Each source label
-        includes the head's name (``"head.1"`` etc.)."""
-        h = Hydra()
+        includes the head's display name (``"head 1"`` etc.)."""
+        h = _make_default_hydra()
         live_heads = [
             p for p in h.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
@@ -178,11 +204,11 @@ class TestGetAttackSources:
         labels = [s.label for s in h.get_attack_sources()]
         for head in live_heads:
             assert any(
-                head.name in label for label in labels
-            ), f"No attack source label mentions {head.name!r}: {labels}"
+                head.display_name in label for label in labels
+            ), f"No attack source label mentions {head.display_name!r}: {labels}"
 
     def test_destroying_one_head_drops_attack_source_count(self):
-        h = Hydra()
+        h = _make_default_hydra()
         live_heads = [
             p for p in h.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
@@ -192,7 +218,7 @@ class TestGetAttackSources:
         assert live_heads[0].is_destroyed()
 
         sources = h.get_attack_sources()
-        assert len(sources) == Hydra.STARTING_HEADS - 1
+        assert len(sources) == _starting_heads() - 1
 
     def test_headless_returns_single_defensive_flailing_source(self):
         """Defensive case: if all heads are destroyed before
@@ -235,7 +261,7 @@ class TestOnCombatRoundNoOp:
 
 class TestOnCombatRoundRegrowth:
     def test_one_destroyed_head_spawns_two_new_heads(self):
-        h = Hydra()
+        h = _make_default_hydra()
         live_heads = [
             p for p in h.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
@@ -249,7 +275,7 @@ class TestOnCombatRoundRegrowth:
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
         ]
         # Started with STARTING_HEADS, killed 1, regrew 2 -> +1 net.
-        assert len(live_after) == Hydra.STARTING_HEADS - 1 + 2
+        assert len(live_after) == _starting_heads() - 1 + 2
         assert isinstance(msg, str)
         assert msg != ""
 
@@ -427,7 +453,7 @@ class TestOnCombatRoundLastHeadDeath:
 
 class TestEndToEndApplyDamage:
     def _hydra_with_deterministic_hp(self):
-        h = Hydra()
+        h = _make_default_hydra()
         h.health_max = 500
         h.health = 500
         # Give each hydra head a known, manageable max HP so apply_damage
@@ -457,7 +483,7 @@ class TestEndToEndApplyDamage:
             p for p in h.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
         ]
-        assert len(live_heads) == Hydra.STARTING_HEADS - 1 + 2
+        assert len(live_heads) == _starting_heads() - 1 + 2
 
     def test_apply_damage_destroys_all_then_on_combat_round_kills_hydra(self):
         """Second-pass: destroy all four heads individually via
@@ -527,7 +553,7 @@ class TestCriticalTorsoDualWinCondition:
         routing (``self.health = 0``) regardless of how many live heads
         remain. This pins that the hydra's head-based win condition
         does NOT shadow the torso's critical-part path."""
-        h = Hydra()
+        h = _make_default_hydra()
         h.health_max = 500
         h.health = 500
         torso = next(p for p in h.body_parts if isinstance(p, TorsoPlugin))
@@ -544,7 +570,7 @@ class TestCriticalTorsoDualWinCondition:
             p for p in h.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
         ]
-        assert len(live_heads) == Hydra.STARTING_HEADS
+        assert len(live_heads) == _starting_heads()  # torso kill, heads untouched
 
 
 # ---------------------------------------------------------------------------
