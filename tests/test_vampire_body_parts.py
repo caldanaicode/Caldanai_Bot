@@ -266,7 +266,7 @@ class TestVampireSanityUnchanged:
         so a future refactor can't silently swap the pool."""
         v = Vampire()
         known_flavors = {
-            "The @1 radiates malevolent hunger.",
+            "@1dc radiates malevolent hunger.",
             "@1ac gaze is as sharp as @1a teeth.",
             "The shadows shifting about this @1 produce an aura of cold dread, as if defying the very existence of life.",
         }

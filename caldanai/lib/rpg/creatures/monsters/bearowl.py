@@ -15,7 +15,7 @@ class Bearowl(MonsterPlugin):
             atk="2d7",
             defense="3d8",
             dodge="1d10",
-            health_max="10d4"
+            health_max="15d10"
         )
 
         self.time_partition = TimePartitions.NOCTURNAL | TimePartitions.CREPUSCULAR

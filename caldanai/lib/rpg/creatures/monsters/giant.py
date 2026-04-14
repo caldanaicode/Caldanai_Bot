@@ -12,7 +12,7 @@ class Giant(MonsterPlugin):
             atk="2d10",
             defense="2d8",
             dodge="1d4",
-            health_max="5d10"
+            health_max="15d12"
         )
 
         self.time_partition = TimePartitions.DIURNAL

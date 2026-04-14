@@ -10,9 +10,11 @@ of kicks and the inability to brace for a swing.
 Design rationale
 ================
 
-``health_max = "1d10"``
-    Legs are slightly larger than arms (1d8) and are the sturdiest
-    limb. The design doc's leg example uses 1d10 and we match it.
+``health_max = "2d10"``
+    Legs are slightly larger than arms (2d8) — the sturdiest limb,
+    bearing the creature's weight. Post-Q.5 rebalance: ~11 avg at
+    MEDIUM, ~44 on HUGE. Leg destruction cripples dodge via the
+    emergence system (mobility sources), not via flat debuffs.
 
 ``is_critical = False``
     You can lose a leg and live -- you'll just be useless in combat.
@@ -89,7 +91,7 @@ class LegPlugin(BodyPartPlugin):
     """
 
     name = "leg"
-    health_max = "1d10"
+    health_max = "2d10"
     is_critical = False
     exposure = {
         Reach.MELEE:  1.0,

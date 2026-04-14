@@ -163,7 +163,7 @@ class TestVariantTraits:
         """Elemental hydra overrides baseline stats."""
         v = _get_variant("elemental hydra")
         assert v["stats"]["atk"] == "1d8"
-        assert v["stats"]["health_max"] == "30d10"
+        assert v["stats"]["health_max"] == "50d12"
 
     def test_default_hydra_has_no_traits(self):
         h = _make_variant_hydra("hydra")
@@ -622,9 +622,9 @@ class TestRegrowthWithTypes:
     def test_regrown_heads_have_size_scaled_hp(self):
         """Regrown heads on a LARGE hydra must have size-scaled HP.
 
-        HeadPlugin base HP is 1d8 (range 1-8).  LARGE hp_scale is 2.0,
-        so scaled HP should be in [2, 16].  An unscaled head would be in
-        [1, 8].  We verify that every regrown head's HP is >= 2 (the
+        HeadPlugin base HP is 3d10 (range 3-30).  LARGE hp_scale is 2.0,
+        so scaled HP should be in [6, 60].  An unscaled head would be in
+        [3, 30].  We verify that every regrown head's HP is >= 6 (the
         minimum scaled value), confirming scaling was applied.
         """
         from caldanai.lib.rpg.helpers.enums import Size
@@ -643,18 +643,18 @@ class TestRegrowthWithTypes:
         assert len(regrown) >= 1, "Expected at least one regrown head"
 
         for head in regrown:
-            # The base 1d8 rolls 1-8; scaled by 2.0 gives 2-16.
-            # An unscaled head would have max 8.  We verify the HP is
+            # The base 3d10 rolls 3-30; scaled by 2.0 gives 6-60.
+            # An unscaled head would have max 30.  We verify the HP is
             # consistent with scaling: health_max == int(base * scale)
-            # where base is in [1,8].  The minimum scaled value is
-            # max(1, int(1 * 2.0)) = 2.
-            assert head.health_max >= 2, (
+            # where base is in [3,30].  The minimum scaled value is
+            # max(1, int(3 * 2.0)) = 6.
+            assert head.health_max >= 6, (
                 f"Regrown head {head.name!r} has health_max={head.health_max}, "
-                f"expected >= 2 (min scaled value for LARGE)"
+                f"expected >= 6 (min scaled value for LARGE)"
             )
-            assert head.health_max <= 16, (
+            assert head.health_max <= 60, (
                 f"Regrown head {head.name!r} has health_max={head.health_max}, "
-                f"expected <= 16 (max scaled value for LARGE)"
+                f"expected <= 60 (max scaled value for LARGE)"
             )
             assert head.health == head.health_max, (
                 f"Regrown head {head.name!r} health ({head.health}) != "

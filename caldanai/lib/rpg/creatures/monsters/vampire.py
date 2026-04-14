@@ -18,7 +18,7 @@ class Vampire(MonsterPlugin):
             atk="8d4",
             defense="1d4",
             dodge="3d10",
-            health_max="10d8"
+            health_max="18d12"
         )
 
         self.time_partition = TimePartitions.NOCTURNAL

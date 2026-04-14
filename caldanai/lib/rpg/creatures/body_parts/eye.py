@@ -17,11 +17,13 @@ for a very large payoff if it lands.
 Design rationale
 ================
 
-``health_max = "1d4"``
-    Eyes are the smallest base part in the plugin set. ``1d4`` is the
-    smallest sane dice string and matches the biological reality that
-    eyes explode under any serious hit. By contrast, arms and heads
-    are ``1d8``, legs are ``1d10``, and torso is ``2d10``.
+``health_max = "1d6"``
+    Eyes are the smallest base part in the plugin set. ``1d6`` matches
+    the biological reality that eyes explode under any serious hit,
+    and the tiny MELEE exposure (0.1) already protects them through
+    per-part dodge scaling rather than HP bulk. By contrast, arms and
+    wings are ``2d8``, legs and heads are ``2d10``/``3d10``, and torso
+    is ``6d10``.
 
 ``is_critical = False``
     Blinding a creature does not kill it. Even a creature with every
@@ -128,7 +130,7 @@ class EyePlugin(BodyPartPlugin):
     """
 
     name = "eye"
-    health_max = "1d4"
+    health_max = "1d6"
     is_critical = False
     exposure = {
         Reach.MELEE:  0.1,

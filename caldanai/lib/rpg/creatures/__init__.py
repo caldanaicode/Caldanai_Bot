@@ -19,6 +19,8 @@ from caldanai.lib.rpg.helpers.roll_data import (
     AttackRoll, DamageRoll, CombinedRoll)
 
 
+EXPOSURE_FLOOR = 0.05  # Minimum exposure for per-part dodge calculations.
+
 
 class Creature:
     """
@@ -266,11 +268,13 @@ class Creature:
         sources = self.get_attack_sources()
         for i, source in enumerate(sources):
             # Explicit target for this source (cycle: last target fills remaining).
+            explicit_hit = False
             if explicit_parts:
                 idx = min(i, len(explicit_parts) - 1)
                 resolved = explicit_parts[idx]
                 if resolved and not resolved.is_destroyed():
                     target_part = resolved
+                    explicit_hit = True
                 else:
                     target_part = pick_random_part(target.get_targetable_parts(), source.reach)
             elif target.body_parts:
@@ -278,8 +282,18 @@ class Creature:
             else:
                 target_part = None
 
+            # Per-part dodge scaling: only when the explicit target was
+            # honored. Random targeting already pays the exposure tax via
+            # weighted selection.
+            target_dodge: Optional[int] = None
+            if explicit_hit and target_part is not None:
+                exp = target_part.exposure.get(source.reach, 1.0)
+                target_dodge = int(target.get_dodge() / max(EXPOSURE_FLOOR, exp))
+
             atk_roll, dmg_roll = source.make_attack_rolls(self)
-            result = target.resolve_attack(self, source, atk_roll, dmg_roll)
+            result = target.resolve_attack(
+                self, source, atk_roll, dmg_roll, target_dodge=target_dodge
+            )
             result.target_part = target_part  # store for damage application + display
             results.append(result)
             self._on_attack_resolved(source, result)
@@ -299,14 +313,20 @@ class Creature:
         source: AttackSource,
         atk_roll: AttackRoll,
         dmg_roll: DamageRoll,
+        target_dodge: Optional[int] = None,
     ) -> AttackResult:
         """Pure calculation of a single attack against this creature.
 
         Computes hit/miss and applies trait multipliers.  Defense is NOT
         subtracted per-source — it is subtracted once from the per-player
         total in ``do_combat`` (variant B, restored pre-refactor balance).
+
+        ``target_dodge`` lets the caller override the dodge check value
+        (used by per-part dodge scaling when a player explicitly targets
+        a low-exposure body part). When ``None``, the creature's base
+        dodge is used.
         """
-        dodge = self.get_dodge()
+        dodge = target_dodge if target_dodge is not None else self.get_dodge()
         defense = self.get_defense()
 
         # Apply attacker's HIT modifier (eye/head functionality)

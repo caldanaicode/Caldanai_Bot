@@ -12,11 +12,11 @@ enough that the arm can't parry anymore.
 Design rationale
 ================
 
-``health_max = "1d8"``
-    Arms are smaller than the torso (2d10) but comparable in size to
-    the head (1d8). The leg example in the design doc uses 1d10 and
-    the wing example uses 1d8; arms sit naturally at 1d8 alongside
-    wings and heads.
+``health_max = "2d8"``
+    Arms sit between the torso (6d10) and small parts like tails
+    (1d10). Alongside wings (2d8) — both are articulated extremities
+    that tuck or move with the body. Post-Q.5 rebalance: ~9 avg at
+    MEDIUM, ~36 on HUGE.
 
 ``is_critical = False``
     You can lose an arm and live. Destroying an arm drops it to
@@ -109,7 +109,7 @@ class ArmPlugin(BodyPartPlugin):
     """
 
     name = "arm"
-    health_max = "1d8"
+    health_max = "2d8"
     is_critical = False
     exposure = {
         Reach.MELEE:  0.8,

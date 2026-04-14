@@ -8,14 +8,15 @@ Destroying it kills the creature the same way a head loss would.
 Design rationale
 ================
 
-``health_max = "2d10"``
+``health_max = "6d10"``
     Torsos are the largest body part on any creature and should be
-    substantially tougher than the extremities. Heads are ``1d8`` (item
-    2.1); limbs will be around ``1d10``; the torso sits above both as
-    the last thing standing when a creature has been whittled down.
-    ``2d10`` ranges from 2 to 20 with a strong central tendency around
-    11, which leaves room for high-dice-string monsters (dragons,
-    giants) to still scale linearly above the baseline.
+    substantially tougher than the extremities. Heads are ``3d10``;
+    limbs are ``2d8``-``2d10``; the torso sits well above both as the
+    last thing standing when a creature has been whittled down.
+    ``6d10`` averages ~33 HP at MEDIUM, scaling to ~132 on HUGE via
+    size.hp_scale. A non-crit hit can no longer one-shot even a
+    MEDIUM torso, and LARGE+ creatures are well-protected from
+    critical-part exploits.
 
 Exposure uniformly 1.0
     The torso is the easiest thing to hit from any angle. Unlike the
@@ -65,7 +66,7 @@ class TorsoPlugin(BodyPartPlugin):
     """
 
     name = "torso"
-    health_max = "2d10"
+    health_max = "6d10"
     is_critical = True
     exposure = {
         Reach.MELEE:  1.0,

@@ -14,7 +14,7 @@ class Bandit(MonsterPlugin):
             atk="1d8",
             defense="1d12",
             dodge="1d12",
-            health_max="1d12"
+            health_max="3d8"
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

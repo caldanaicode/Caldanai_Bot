@@ -13,7 +13,7 @@ class Goblin(MonsterPlugin):
             atk="1d8",
             defense="1d10",
             dodge="1d10",
-            health_max="1d20"
+            health_max="3d10"
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

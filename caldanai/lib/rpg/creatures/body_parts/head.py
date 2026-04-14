@@ -11,10 +11,12 @@ doppelganger per-part pain cry hook.
 Design rationale
 ================
 
-``health_max = "1d8"``
-    Heads are smaller than torsos (which will be 1d12 or similar in
-    item 2.2) but larger than extremities. The leg example in the
-    design doc uses ``1d10``; 1d8 sits proportionally below that.
+``health_max = "3d10"``
+    Heads are critical parts — destruction kills the creature — so
+    their HP needs to reflect the stakes. Post-Q.5-rebalance baseline
+    gives heads ~17 avg HP at MEDIUM, scaling up to ~66 avg on HUGE
+    creatures via size.hp_scale. This makes head-targeting a real
+    tactical commitment rather than an instakill exploit.
 
 Exposure values
     The four reaches fan out from 0.7 → 1.0 across melee → ranged
@@ -58,7 +60,7 @@ class HeadPlugin(BodyPartPlugin):
     """
 
     name = "head"
-    health_max = "1d8"
+    health_max = "3d10"
     is_critical = True
     exposure = {
         Reach.MELEE:  0.7,

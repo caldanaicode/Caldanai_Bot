@@ -15,11 +15,12 @@ non-critical part) is important downstream.
 Design rationale
 ================
 
-``health_max = "1d6"``
-    Tails are smaller and more fragile than limbs (arms are 1d8, legs
-    are 1d10). They're easier to sever, which matches both the
+``health_max = "1d10"``
+    Tails are smaller and more fragile than limbs (arms are 2d8, legs
+    are 2d10). They're easier to sever, which matches both the
     biological reality and the Monster Hunter loot convention where
-    tails are a notably high-yield severable part.
+    tails are a notably high-yield severable part. Post-Q.5 rebalance:
+    ~5 avg at MEDIUM, ~22 on HUGE.
 
 ``is_critical = False``
     You can live without your tail. Destroying a tail drops it to
@@ -103,7 +104,7 @@ class TailPlugin(BodyPartPlugin):
     """
 
     name = "tail"
-    health_max = "1d6"
+    health_max = "1d10"
     is_critical = False
     exposure = {
         Reach.MELEE:  0.5,

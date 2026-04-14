@@ -260,7 +260,7 @@ VARIANTS = [
             "atk": "1d8",
             "defense": "3d6",
             "dodge": "3d8",
-            "health_max": "30d10",
+            "health_max": "50d12",
         },
         "traits": {
             DamageTypes.FIRE: 0.75,
@@ -318,7 +318,7 @@ class Hydra(MonsterPlugin):
             atk=stats.get("atk", "1d6"),
             defense=stats.get("defense", "2d6"),
             dodge=stats.get("dodge", "2d8"),
-            health_max=stats.get("health_max", "20d10"),
+            health_max=stats.get("health_max", "30d12"),
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

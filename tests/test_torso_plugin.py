@@ -154,12 +154,12 @@ class TestClassDefaults:
         assert d[InjuryLevels.USELESS][Stat.DODGE] == -4
 
     def test_health_max_dice_string_resolves_in_range(self, loaded_plugins):
-        """``health_max = "2d10"`` should resolve to an int in [2, 20]
+        """``health_max = "6d10"`` should resolve to an int in [6, 60]
         at construction time (dice-string support from item 1.5)."""
         for _ in range(30):
             part = BodyPart.make("torso")
             assert isinstance(part.health_max, int)
-            assert 2 <= part.health_max <= 20
+            assert 6 <= part.health_max <= 60
 
 
 # ---------------------------------------------------------------------------

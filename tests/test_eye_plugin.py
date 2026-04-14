@@ -248,12 +248,12 @@ class TestClassDefaults:
             assert set(EyePlugin.debuffs[level].keys()) == {Stat.HIT}
 
     def test_health_max_dice_string_resolves_in_range(self, loaded_plugins):
-        """``health_max = "1d4"`` should resolve to an int in [1, 4]
+        """``health_max = "1d6"`` should resolve to an int in [1, 6]
         at construction time (dice-string support from item 1.5)."""
         for _ in range(30):
             part = BodyPart.make("eye")
             assert isinstance(part.health_max, int)
-            assert 1 <= part.health_max <= 4
+            assert 1 <= part.health_max <= 6
 
 
 # ---------------------------------------------------------------------------

@@ -166,12 +166,12 @@ class TestClassDefaults:
             assert Stat.DEFENSE not in LegPlugin.debuffs[level]
 
     def test_health_max_dice_string_resolves_in_range(self, loaded_plugins):
-        """``health_max = "1d10"`` should resolve to an int in [1, 10]
+        """``health_max = "2d10"`` should resolve to an int in [2, 20]
         at construction time (dice-string support from item 1.5)."""
         for _ in range(30):
             part = BodyPart.make("leg")
             assert isinstance(part.health_max, int)
-            assert 1 <= part.health_max <= 10
+            assert 2 <= part.health_max <= 20
 
 
 # ---------------------------------------------------------------------------

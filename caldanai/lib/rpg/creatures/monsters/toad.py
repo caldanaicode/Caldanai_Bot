@@ -14,7 +14,7 @@ class Toad(MonsterPlugin):
             atk="1d8",
             defense="1d4",
             dodge="2d8",
-            health_max="2d8"
+            health_max="4d8"
         )
 
         if choice([1, 2]) == 2:

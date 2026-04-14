@@ -33,7 +33,7 @@ class Dragon(MonsterPlugin):
             atk="3d10",
             defense="3d8",
             dodge="3d10",
-            health_max="10d10"
+            health_max="25d12"
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

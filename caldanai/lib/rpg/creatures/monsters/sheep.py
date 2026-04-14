@@ -15,7 +15,7 @@ class Sheep(MonsterPlugin):
             atk="1d4",
             defense="1d6",
             dodge="1d6",
-            health_max="2d4"
+            health_max="3d6"
         )
 
         self.time_partition = TimePartitions.DIURNAL

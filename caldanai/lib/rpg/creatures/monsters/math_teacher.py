@@ -18,7 +18,7 @@ class MathTeacher(MonsterPlugin):
             atk="3d14",
             defense="3d6",
             dodge="3d6",
-            health_max="3d14"
+            health_max="6d14"
         )
 
         self.time_partition = TimePartitions.CREPUSCULAR | TimePartitions.NOCTURNAL

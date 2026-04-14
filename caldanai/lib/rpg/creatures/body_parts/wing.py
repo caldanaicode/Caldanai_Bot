@@ -16,9 +16,11 @@ full toe penalty. See the "Dragon toes" section of
 Design rationale
 ================
 
-``health_max = "1d8"``
-    Wings are slightly smaller/lighter than legs (1d10) and the
-    design doc's sketch uses 1d8. We match it.
+``health_max = "2d8"``
+    Wings match arms (2d8) — both are articulated extremities that
+    fold and move with the body. Smaller than legs (2d10) which bear
+    weight. Post-Q.5 rebalance: ~9 avg at MEDIUM, ~36 on HUGE. Wing
+    destruction grounds the creature via the on_injury_change hook.
 
 ``is_critical = False``
     You can destroy a wing without killing the creature. Destruction
@@ -90,7 +92,7 @@ class WingPlugin(BodyPartPlugin):
     """
 
     name = "wing"
-    health_max = "1d8"
+    health_max = "2d8"
     is_critical = False
     exposure = {
         Reach.MELEE:  0.5,   # wings tuck away, hard to hit in melee
