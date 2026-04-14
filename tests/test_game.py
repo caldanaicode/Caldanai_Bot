@@ -239,8 +239,8 @@ class TestDoHealthRegen:
         await game.do_health_regen()
 
         player.apply_damage.assert_called_once_with(-3)
-        # health < max, so health_regen should increment
-        assert player.health_regen == 4
+        # health < max, so health_regen should increment by 2 (ramp).
+        assert player.health_regen == 5
 
     @pytest.mark.asyncio
     @patch("caldanai.lib.rpg.Dispatcher")
@@ -308,10 +308,134 @@ class TestDoHealthRegen:
         await game.do_health_regen()
 
         player.apply_damage.assert_called_once_with(-2)
-        # Still below max (health is mocked at 0, so remains < 20), regen increments
-        assert player.health_regen == 3
+        # Still below max (health is mocked at 0, so remains < 20), regen
+        # increments by 2 per tick (new ramp).
+        assert player.health_regen == 4
         # Dispatcher should have been called with the resurrection message
         mock_dispatch.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_heals_most_injured_part(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Body HP at max but a part destroyed: regen still ticks
+        and heals the most-injured part. Regen amount keeps growing
+        until everything is at full."""
+        from caldanai.lib.rpg import Game
+        from caldanai.lib.rpg.creatures.body_part import BodyPart
+
+        guild, channel = _make_game_guild_channel(mock_db)
+
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild,
+            channel=channel,
+            use_spawn_timer=False,
+            enable_ambience=False,
+        )
+
+        # Real parts so the regen path exercises BodyPart.apply_damage.
+        # Values chosen so healing stays within one injury level — no
+        # threshold cross → no narration (and no parse() call that
+        # would need a real player). Threshold narration has its own
+        # dedicated test below.
+        arm = BodyPart(name="arm.right", health_max=10)
+        arm.health = 7  # MINOR (70%)
+        leg = BodyPart(name="leg.left", health_max=10)
+        leg.health = 9  # MINOR (90%) — less injured than the arm
+
+        player = MagicMock()
+        player.health = 20  # body HP at full
+        player.health_regen = 2
+        player.get_health_max.return_value = 20
+        player.body_parts = [arm, leg]
+        # apply_damage shouldn't fire because body is at full;
+        # still track to make sure we don't call it incorrectly.
+        player.apply_damage.return_value = ""
+
+        game.player_manager.players = {1: player}
+        await game.do_health_regen()
+
+        # Body HP at max → no body-HP healing.
+        player.apply_damage.assert_not_called()
+
+        # Arm was the most injured (7/10 vs 9/10) → regen flowed there.
+        assert arm.health == 9
+        # Leg untouched.
+        assert leg.health == 9
+
+        # Regen still ramps (+2) because the arm hasn't fully healed.
+        assert player.health_regen == 4
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_part_transition_emits_recovery_narration(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """When a healing tick lifts a part across an injury-level
+        threshold (e.g. SEVERE → MODERATE), the regen routine emits
+        a recovery message prefixed with the player's name."""
+        from caldanai.lib.rpg import Game
+        from caldanai.lib.rpg.creatures.body_part import BodyPart
+
+        guild, channel = _make_game_guild_channel(mock_db)
+
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild,
+            channel=channel,
+            use_spawn_timer=False,
+            enable_ambience=False,
+        )
+
+        # Part at 1/10 (SEVERE range: 0 < % < 0.3). Healing by 3
+        # lands at 4/10 → 0.4 → MODERATE.
+        arm = BodyPart(name="arm.right", health_max=10)
+        arm.health = 1
+
+        # Real Creature so parser's @1 token resolves. We patch
+        # the minimum Player surface the regen path touches.
+        from caldanai.lib.rpg.creatures import Creature
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+        player = Creature(
+            name="Caels", atk=None, defense=1, dodge=1,
+            health_max=20, health=20,
+            pronouns="she, her, hers, her",
+        )
+        player.uses_article = False
+        player.health_regen = 3
+        player.body_parts = [arm]
+
+        game.player_manager.players = {1: player}
+        await game.do_health_regen()
+
+        # Healed past a threshold — a recovery line should have been
+        # dispatched to the channel.
+        assert mock_dispatch.add.called
+        call_args = mock_dispatch.add.call_args
+        msg_text = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("text", "")
+        # @ tokens should have been resolved: name present, no raw
+        # tokens leaked, and some form of recovery language.
+        assert "Caels" in msg_text
+        assert "@1" not in msg_text
+        assert any(word in msg_text.lower() for word in (
+            "mend", "recover", "full strength", "as good as new", "feeling returns",
+        ))
 
 
 # ---------------------------------------------------------------------------

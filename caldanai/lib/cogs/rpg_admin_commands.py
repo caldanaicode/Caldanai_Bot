@@ -250,9 +250,32 @@ class RpgAdminCommands(Cog):
                 corpses = []
                 for mention in ctx.message.mentions:
                     target = await RpgUtilities.get_player(mention)
-                    if target and target.health < target.get_health_max():
+                    if target is None:
+                        continue
+                    # "Needs healing" covers both body-HP damage and
+                    # any non-full body part — a player with a
+                    # destroyed arm but full body HP should still be
+                    # restored by unsmite, since the parts and the
+                    # body HP are parallel accounting under Model D.
+                    needs_body = target.health < target.get_health_max()
+                    needs_part = any(
+                        p.health < p.health_max
+                        for p in (target.body_parts or [])
+                    )
+                    if not (needs_body or needs_part):
+                        continue
+
+                    if needs_body:
                         target.apply_damage(-target.get_health_max())
-                        corpses.append(target.name)
+                    # Full part restoration. Divine light is total —
+                    # no selective half-measures on an unsmite.
+                    for part in (target.body_parts or []):
+                        part.health = part.health_max
+                    # Reset regen so the player doesn't carry an
+                    # accumulated ramp after a full restore.
+                    target.health_regen = 0
+                    target.is_dirty = True
+                    corpses.append(target.name)
 
                 if corpses:
                     if len(corpses) > 1:

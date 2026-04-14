@@ -1,5 +1,8 @@
-from random import choice, randint
+from random import choice, randint, random
 
+from typing import Optional
+
+from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
@@ -83,6 +86,16 @@ class Bandit(MonsterPlugin):
             return "\n@2 easily avoids the bandit's groping fingers."
         else:
             return "\n@1dc sneers in disgust, realizing that @2 has no clarks to steal."
+
+    def get_target_part_preference(
+        self, target: Creature, source: AttackSource
+    ) -> Optional[str]:
+        """Bandit instinct: ~30% of attacks go for a leg — cripple the
+        mark so they can't run off with the loot. Otherwise falls back
+        to exposure-weighted random."""
+        if random() < 0.3:
+            return "leg"
+        return None
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         responses = [

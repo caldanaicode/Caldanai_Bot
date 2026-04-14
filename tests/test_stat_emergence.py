@@ -289,10 +289,20 @@ class TestDefenseEmergence:
 
 
 class TestPartHpScaling:
+    """Unpaired parts (head, torso) isolate the scaling math from
+    the pair-symmetrization step. See ``TestPairSymmetrization``
+    below for the symmetrization contract."""
+
+    def _unpaired_parts(self):
+        return [
+            BodyPart.make("head", name="head"),
+            BodyPart.make("torso", name="torso"),
+        ]
+
     def test_medium_creature_keeps_base_hp(self):
         c = _make_creature()
         c.size = Size.MEDIUM
-        c.body_parts = BodyPart.humanoid()
+        c.body_parts = self._unpaired_parts()
         original_hps = [p.health_max for p in c.body_parts]
         c._scale_part_hp()
         for p, original in zip(c.body_parts, original_hps):
@@ -301,7 +311,7 @@ class TestPartHpScaling:
     def test_large_creature_doubles_hp(self):
         c = _make_creature()
         c.size = Size.LARGE
-        c.body_parts = BodyPart.humanoid()
+        c.body_parts = self._unpaired_parts()
         original_hps = [p.health_max for p in c.body_parts]
         c._scale_part_hp()
         for p, original in zip(c.body_parts, original_hps):
@@ -311,7 +321,7 @@ class TestPartHpScaling:
     def test_huge_creature_quadruples_hp(self):
         c = _make_creature()
         c.size = Size.HUGE
-        c.body_parts = BodyPart.humanoid()
+        c.body_parts = self._unpaired_parts()
         original_hps = [p.health_max for p in c.body_parts]
         c._scale_part_hp()
         for p, original in zip(c.body_parts, original_hps):
@@ -328,6 +338,75 @@ class TestPartHpScaling:
         c.body_parts[0].health = 1
         c._scale_part_hp()
         assert c.body_parts[0].health_max >= 1
+
+
+class TestPairSymmetrization:
+    """``_scale_part_hp`` (and the standalone ``_symmetrize_paired_parts``
+    hook) should sync ``<base>.left`` / ``<base>.right`` pairs to the
+    larger of their two rolled values so a freshly-built creature
+    doesn't have conspicuously mismatched left and right sides."""
+
+    def test_left_right_pair_synced_to_pair_max(self):
+        c = _make_creature()
+        c.size = Size.MEDIUM
+        left = BodyPart.make("arm", name="arm.left")
+        right = BodyPart.make("arm", name="arm.right")
+        left.health_max = 5
+        left.health = 5
+        right.health_max = 9
+        right.health = 9
+        c.body_parts = [left, right]
+
+        c._symmetrize_paired_parts()
+
+        # Both should be at the max of the pair (9).
+        assert left.health_max == 9
+        assert right.health_max == 9
+        assert left.health == 9
+        assert right.health == 9
+
+    def test_unpaired_parts_untouched(self):
+        c = _make_creature()
+        head = BodyPart.make("head", name="head")
+        head.health_max = 12
+        head.health = 12
+        c.body_parts = [head]
+        c._symmetrize_paired_parts()
+        assert head.health_max == 12
+
+    def test_numbered_parts_are_not_paired(self):
+        """``head.1`` / ``head.2`` (numbered heads on a hydra) are
+        NOT symmetrized — only ``.left`` / ``.right`` siblings."""
+        c = _make_creature()
+        h1 = BodyPart.make("head", name="head.1")
+        h2 = BodyPart.make("head", name="head.2")
+        h1.health_max = 10
+        h1.health = 10
+        h2.health_max = 25
+        h2.health = 25
+        c.body_parts = [h1, h2]
+        c._symmetrize_paired_parts()
+        assert h1.health_max == 10
+        assert h2.health_max == 25
+
+    def test_scale_and_symmetrize_compose(self):
+        """At LARGE (scale 2.0), a pair's final HP is
+        ``max(left_rolled, right_rolled) * 2``."""
+        c = _make_creature()
+        c.size = Size.LARGE
+        left = BodyPart.make("leg", name="leg.left")
+        right = BodyPart.make("leg", name="leg.right")
+        left.health_max = 4
+        left.health = 4
+        right.health_max = 7
+        right.health = 7
+        c.body_parts = [left, right]
+
+        c._scale_part_hp()
+
+        # 7 (max of pair) * 2 (LARGE scale) = 14
+        assert left.health_max == 14
+        assert right.health_max == 14
 
 
 # ---------------------------------------------------------------------------

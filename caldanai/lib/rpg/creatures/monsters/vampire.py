@@ -1,9 +1,10 @@
-from random import randint
+from random import choice, randint, random
 
-from random import choice
+from typing import Optional
 
 from caldanai.lib.rpg import MonsterPlugin, parse
 from caldanai.lib.rpg.combat.attack_result import AttackSequence
+from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions)
@@ -128,3 +129,22 @@ class Vampire(MonsterPlugin):
         if self.health / self.health_max <= 0.5:
             return AttackSequence(attacker=self, target=creature, narrative=self.feed(creature))
         return super().do_attack(creature)
+
+    def get_target_part_preference(
+        self, target: Creature, source: AttackSource
+    ) -> Optional[str]:
+        """Vampires fixate on the throat: ~40% of non-feeding attacks
+        go for the head (neck-bite targeting). This is a targeting
+        bias only — no status effect. Feeding is a separate path
+        handled by ``do_attack`` / ``feed`` when the vampire drops
+        below half HP.
+
+        Head exposure in melee is ``0.7``, so aiming at it inflates
+        effective dodge by ~1.43× — harder than a random swing but
+        still landable on a decent roll. Eye targeting (exposure
+        ``0.1``) was rejected for this reason: it inflates dodge 10×,
+        making the preference ~only reachable via a nat-20 override,
+        which wastes most "fixated" attacks."""
+        if random() < 0.4:
+            return "head"
+        return None

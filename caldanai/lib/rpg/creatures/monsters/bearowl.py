@@ -1,6 +1,9 @@
-from random import choice
+from random import choice, random
+
+from typing import Optional
 
 from caldanai.lib.rpg import get_random_direction
+from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Size)
@@ -59,6 +62,16 @@ class Bearowl(MonsterPlugin):
 
         self.size = Size.LARGE
         self._scale_part_hp()
+
+    def get_target_part_preference(
+        self, target: Creature, source: AttackSource
+    ) -> Optional[str]:
+        """Apex-predator bias: ~40% of attacks go for the head (killing
+        bite). Otherwise falls back to exposure-weighted random — even
+        a predator misreads prey sometimes."""
+        if random() < 0.4:
+            return "head"
+        return None
 
     # Reacts to hugs.
     def on_hugged(self, actor: Creature, invocation: str) -> str:

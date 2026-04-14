@@ -432,48 +432,128 @@ class RpgUserCommands(Cog):
 
             index = 2
             for p in game.player_manager.players.values():
-                if p != player and p.health < p.get_health_max():
-                    msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
+                if p == player:
+                    continue
+                # "Needs healing" includes part injuries — a player
+                # with a destroyed arm but full body HP should still
+                # be caught in the rain.
+                body_hurt = p.health < p.get_health_max()
+                part_hurt = any(
+                    part.health < part.health_max
+                    for part in (p.body_parts or [])
+                )
+                if not (body_hurt or part_hurt):
+                    continue
+                msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
+                if body_hurt:
                     heal_msg = p.apply_damage(p.health - p.get_health_max())
                     if heal_msg:
                         msg += f"{heal_msg} "
-                    msg += f"@{index}'s health is completely restored!"
-                    actors.append(p)
-                    index += 1
+                # Divine rain is total: restore every body part too.
+                for part in p.body_parts or []:
+                    part.health = part.health_max
+                p.health_regen = 0
+                p.is_dirty = True
+                msg += f"@{index} is made whole!"
+                actors.append(p)
+                index += 1
 
             if player in game.combatants:
                 game.combatants.remove(player)
 
         elif d20.value > 16:
-            heal_target: Player = min(
-                list(filter(lambda p: p.health < p.get_health_max(), game.player_manager.players.values())) or [player],
-                key=lambda p: p.health,
-            )
+            # Candidate filter includes part-injured players, not
+            # just body-HP-injured ones.
+            def _needs_healing(p) -> bool:
+                return (
+                    p.health < p.get_health_max()
+                    or any(
+                        part.health < part.health_max
+                        for part in (p.body_parts or [])
+                    )
+                )
 
-            missing_health = heal_target.get_health_max() - heal_target.health
+            candidates = [
+                p for p in game.player_manager.players.values()
+                if _needs_healing(p)
+            ] or [player]
+            # Pick the most-injured by body-HP ratio; if everyone has
+            # full body HP but some have part injuries, pick by
+            # part-injury count as a tiebreaker.
+            heal_target: Player = min(
+                candidates,
+                key=lambda p: (
+                    p.get_health_scale(),
+                    -sum(
+                        1 for part in (p.body_parts or [])
+                        if part.health < part.health_max
+                    ),
+                ),
+            )
             actors.append(heal_target)
             index = len(actors)
-            quarter = math.ceil(missing_health / 4)
 
-            if quarter > 1:
-                heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
-            elif missing_health == 1:
-                heal_amount = 1
+            if d20.value == 20:
+                # Divine miracle: full body + full parts restore.
+                body_heal_msg = ""
+                if heal_target.health < heal_target.get_health_max():
+                    body_heal_msg = heal_target.apply_damage(
+                        -heal_target.get_health_max()
+                    )
+                for part in heal_target.body_parts or []:
+                    part.health = part.health_max
+                heal_target.health_regen = 0
+                heal_target.is_dirty = True
+                if body_heal_msg:
+                    msg += f"\n{body_heal_msg}"
+                msg += (
+                    f"\nA radiant column of light engulfs @{index}; "
+                    f"wounds seal and broken flesh knits whole in moments."
+                )
             else:
-                heal_amount = Dice.quick_roll(f"1d{missing_health}")
+                # 17–19: computed body heal + fully restore ONE most-
+                # injured part (triage). Keeps nat 20 distinct as the
+                # "everything fixed" outcome.
+                missing_health = heal_target.get_health_max() - heal_target.health
+                quarter = math.ceil(missing_health / 4) if missing_health else 0
 
-            heal_amount = heal_amount or 0
-            heal_msg = heal_target.apply_damage(-heal_amount)
+                if quarter > 1:
+                    heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
+                elif missing_health == 1:
+                    heal_amount = 1
+                elif missing_health > 0:
+                    heal_amount = Dice.quick_roll(f"1d{missing_health}")
+                else:
+                    heal_amount = 0
 
-            if heal_msg:
-                msg += f"\n{heal_msg}"
+                heal_amount = heal_amount or 0
+                body_heal_msg = heal_target.apply_damage(-heal_amount) if heal_amount else ""
 
-            msg += f"\nA warm light suffuses @{index}, "
+                if body_heal_msg:
+                    msg += f"\n{body_heal_msg}"
 
-            if heal_amount > 0 and missing_health > 0:
-                msg += f"imbuing @{index}o with {heal_amount} points of health!"
-            else:
-                msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
+                msg += f"\nA warm light suffuses @{index}, "
+
+                if heal_amount > 0 and missing_health > 0:
+                    msg += f"imbuing @{index}o with {heal_amount} points of health!"
+                else:
+                    msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
+
+                # One part restored. Triage by fractional HP so the
+                # worst off (typically destroyed) gets priority.
+                injured_parts = [
+                    part for part in (heal_target.body_parts or [])
+                    if part.health < part.health_max
+                ]
+                if injured_parts:
+                    worst = min(
+                        injured_parts, key=lambda p: p.health / p.health_max,
+                    )
+                    worst.health = worst.health_max
+                    heal_target.is_dirty = True
+                    msg += (
+                        f"\n@{index}'s {worst.display_name} knits itself whole."
+                    )
 
         Dispatcher.add(game.channel, parse(msg, *actors))
 

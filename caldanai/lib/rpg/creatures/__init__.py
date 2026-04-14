@@ -13,7 +13,7 @@ from caldanai.lib.rpg.combat.attack_source import (
 )
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
-    Pronouns, DamageTypes, InjuryLevels, Reach, Size, Stat,
+    INJURY_LEVEL_DISPLAY, Pronouns, DamageTypes, InjuryLevels, Reach, Size, Stat,
 )
 from caldanai.lib.rpg.helpers.roll_data import (
     AttackRoll, DamageRoll, CombinedRoll)
@@ -266,7 +266,21 @@ class Creature:
                 else:
                     target_part = pick_random_part(target.get_targetable_parts(), source.reach)
             elif target.body_parts:
-                target_part = pick_random_part(target.get_targetable_parts(), source.reach)
+                # No explicit targets — consult the attacker's targeting
+                # preference (for predatory / tactical monsters), then
+                # fall back to exposure-weighted random ("dumb" striking).
+                # Honored preferences pay the exposure tax on dodge, the
+                # same way a player's explicit target does: smart
+                # targeting costs accuracy.
+                target_part = None
+                preference_name = self.get_target_part_preference(target, source)
+                if preference_name:
+                    resolved = _resolve_name(preference_name)
+                    if resolved:
+                        target_part = resolved
+                        explicit_hit = True
+                if target_part is None:
+                    target_part = pick_random_part(target.get_targetable_parts(), source.reach)
             else:
                 target_part = None
 
@@ -294,6 +308,34 @@ class Creature:
         skill XP on a hit). No-op by default.
         """
         pass
+
+    def get_target_part_preference(
+        self,
+        target: "Creature",
+        source: AttackSource,
+    ) -> Optional[str]:
+        """Hook for predatory / tactical targeting. Override to bias
+        where this creature aims when attacking.
+
+        Return a part name (exact like ``"head"`` or base like
+        ``"leg"`` — the latter resolves to a random matching part on
+        the target, e.g. ``leg.left`` or ``leg.right``). The framework
+        resolves the name via the same matcher used by ``$target`` and
+        falls back to exposure-weighted random targeting if no matching
+        non-destroyed part exists.
+
+        Returning ``None`` means "no preference" and is the baseline
+        "dumb" behavior that fits most creatures — they just swing
+        where the body is. Randomize within the override for
+        probabilistic bias (``return 'head' if random() < 0.4 else
+        None``) so a predator isn't mechanically predictable.
+
+        When a preference IS honored, the attack pays the exposure tax
+        on dodge the same way a player's explicit target does: aiming
+        at a low-exposure part makes the attack harder to land, which
+        captures the tactical tradeoff of "smart but obvious."
+        """
+        return None
 
     def resolve_attack(
         self,
@@ -337,6 +379,67 @@ class Creature:
             dmg_type=source.damage_type,
         )
 
+    def render_body_part_status_table(self, show_hp: bool = True) -> str:
+        """Render this creature's per-part status as an ansi-fenced
+        table matching ``$health``'s format: dot gauge + part name +
+        (optionally) HP + color-coded status word. Returns an empty
+        string when the creature has no body parts.
+
+        Used by both ``$health`` (for players) and ``$look`` (for
+        monsters via ``get_embed``) so the single formatting source
+        of truth is this method.
+
+        :param show_hp: When ``True`` (default), include an ``HP``
+            column with current/max values. When ``False``, collapse
+            to dot + part name + status word — used by monster
+            ``$look`` where per-part HP numbers invite confusing
+            arithmetic against the creature's body HP (the two are
+            parallel Model-D accounting, not a shared pool).
+        """
+        parts = self.body_parts or []
+        if not parts:
+            return ""
+
+        rows = []
+        for part in parts:
+            level = part.get_injury_level()
+            dot, word, color = INJURY_LEVEL_DISPLAY.get(level, ("🟢", "unharmed", "32"))
+            hp_str = f"{part.health} / {part.health_max}"
+            rows.append((dot, part.name, hp_str, word, color))
+
+        part_w = max(len(r[1]) for r in rows + [("", "Part", "", "", "")])
+        status_w = max(len(r[3]) for r in rows + [("", "", "", "Status", "")])
+
+        lines = ["```ansi"]
+        if show_hp:
+            hp_w = max(len(r[2]) for r in rows + [("", "", "HP", "", "")])
+            lines.append(
+                f"   {'Part'.ljust(part_w)} | "
+                f"{'HP'.ljust(hp_w)} | "
+                f"{'Status'.ljust(status_w)}"
+            )
+            for dot, name, hp_str, word, color in rows:
+                padded_word = word.ljust(status_w)
+                colored_word = f"\x1b[2;{color}m{padded_word}\x1b[0m"
+                lines.append(
+                    f"{dot} {name.ljust(part_w)} | "
+                    f"{hp_str.ljust(hp_w)} | "
+                    f"{colored_word}"
+                )
+        else:
+            lines.append(
+                f"   {'Part'.ljust(part_w)} | "
+                f"{'Status'.ljust(status_w)}"
+            )
+            for dot, name, _hp_str, word, color in rows:
+                padded_word = word.ljust(status_w)
+                colored_word = f"\x1b[2;{color}m{padded_word}\x1b[0m"
+                lines.append(
+                    f"{dot} {name.ljust(part_w)} | {colored_word}"
+                )
+        lines.append("```")
+        return "\n".join(lines)
+
     def get_embed(self) -> tuple:
         """
         Generates a discord embed and image file for displaying information about this creature.
@@ -363,6 +466,26 @@ class Creature:
             if isinstance(v, int):
                 v = f"{v:,}"
             embed.add_field(name=f, value=v, inline=i)
+
+        # Per-part injury table lives below the stat row. Non-inline so
+        # the monospace table gets its full width. Embed field values
+        # cap at 1024 chars — creatures with huge anatomy (hydras with
+        # many heads, hypothetical centipedes) fall back to truncation
+        # rather than crashing the embed.
+        #
+        # ``show_hp=False`` because body HP and per-part HP are parallel
+        # accounting (Model D) — showing both numbers side-by-side in
+        # one embed invites players to try math that has no answer.
+        # The status words + dot gauge communicate relative injury
+        # without baiting the comparison.
+        parts_table = self.render_body_part_status_table(show_hp=False)
+        if parts_table:
+            if len(parts_table) > 1024:
+                # Preserve the closing fence even after truncation so
+                # the code block still renders correctly.
+                parts_table = parts_table[:1000].rstrip() + "\n...\n```"
+            embed.add_field(name="Body Parts", value=parts_table, inline=False)
+
         return embed, file
 
     def get_stat_modifier_total(self, stat: Stat) -> int:
@@ -460,16 +583,53 @@ class Creature:
         return int((ratio - 1.0) * 5)
 
     def _scale_part_hp(self) -> None:
-        """Scale body part HP by creature size.
+        """Scale body part HP by creature size, then symmetrize paired
+        parts. Call after composing ``body_parts`` in subclass
+        ``__init__``.
 
-        Call after composing ``body_parts`` in subclass ``__init__``.
+        Symmetrization always runs (even at scale 1.0) so MEDIUM
+        creatures also get left/right HP matching. The Player path
+        doesn't invoke this method — it calls
+        ``_symmetrize_paired_parts`` directly after anatomy setup.
         """
         scale = self.size.value["hp_scale"]
-        if scale == 1.0:
-            return
+        if scale != 1.0:
+            for part in self.body_parts:
+                part.health_max = max(1, int(part.health_max * scale))
+                part.health = part.health_max
+        self._symmetrize_paired_parts()
+
+    def _symmetrize_paired_parts(self) -> None:
+        """Sync ``<base>.left`` / ``<base>.right`` pairs so both sides
+        of an individual creature share one rolled ``health_max``.
+
+        Independent rolls at construction produced jarring intra-body
+        asymmetry (e.g. one bearowl hindleg at 12 HP, the other at
+        44). We pick the *max* of the pair's rolled values — preserves
+        any lucky roll without penalizing the unluckier side — and
+        reset both sides' current health to that value since this is
+        called at construction time.
+
+        Unpaired parts (``head``, ``torso``, ``tail``, numbered heads
+        like ``head.1``) are untouched. Creature-to-creature variance
+        still comes from independent rolls across different
+        individuals.
+        """
+        from collections import defaultdict
+        groups: Dict[str, List[BodyPart]] = defaultdict(list)
         for part in self.body_parts:
-            part.health_max = max(1, int(part.health_max * scale))
-            part.health = part.health_max
+            if "." not in part.name:
+                continue
+            base, side = part.name.rsplit(".", 1)
+            if side in ("left", "right"):
+                groups[base].append(part)
+        for parts in groups.values():
+            if len(parts) < 2:
+                continue
+            new_max = max(p.health_max for p in parts)
+            for p in parts:
+                p.health_max = new_max
+                p.health = new_max
 
     def get_part(self, name: str) -> Optional[BodyPart]:
         """Look up a body part on this creature by name.

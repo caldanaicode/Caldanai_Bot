@@ -82,6 +82,36 @@ class BodyPart(ABC):
 
         return f"{label} is completely unscathed."
 
+    def get_recovery_string(self):
+        """Returns a narration template for a part that has just
+        *improved* to this injury level (i.e. healed up from something
+        worse). Template uses ``@1`` / ``@1a`` tokens resolved via the
+        parser, so the caller should pass the owning creature through
+        :func:`parse` to render it.
+
+        Level-appropriate flavor ramps from "just starting to recover"
+        (SEVERE) to "completely fine" (NONE). Returns empty string if
+        the part is still at USELESS — we don't narrate a non-heal.
+        """
+        level = self.get_injury_level()
+        display = self.display_name  # "left arm", "right foreleg", "head"
+
+        if level == InjuryLevels.MINOR:
+            return f"@1's {display} is nearly back to full strength."
+
+        if level == InjuryLevels.MODERATE:
+            return f"@1's {display} is starting to mend."
+
+        if level == InjuryLevels.SEVERE:
+            return f"@1 winces as feeling returns to @1a {display}."
+
+        if level == InjuryLevels.NONE:
+            return f"@1's {display} feels as good as new."
+
+        # USELESS is not a "recovery" destination — if we healed
+        # INTO it, something's gone very wrong.
+        return ""
+
     def _display_with_article(self) -> str:
         """Display name with 'the' for directional/simple names, bare for numbered.
 
@@ -124,7 +154,8 @@ class BodyPart(ABC):
 
     def apply_damage(self, amount: int, dmg_type: Optional[DamageTypes] = None) -> None:
         """Subtracts ``amount`` from this part's current health and
-        clamps at zero.
+        clamps to ``[0, health_max]``. Negative amounts heal; the
+        upper clamp prevents healing past full.
 
         The part's own trait multiplier is **not** applied here — the
         caller (:meth:`Creature.apply_damage`) applies the combined
@@ -133,7 +164,7 @@ class BodyPart(ABC):
         ``dmg_type`` is accepted for signature compatibility and for
         future subclasses that want to react to specific damage types.
         """
-        self.health = max(0, self.health - amount)
+        self.health = max(0, min(self.health_max, self.health - amount))
 
     def is_destroyed(self) -> bool:
         """Returns True iff this part's health has been depleted."""

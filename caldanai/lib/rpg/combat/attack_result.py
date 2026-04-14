@@ -170,6 +170,11 @@ class AttackSequence:
     results: List[AttackResult] = field(default_factory=list)
     narrative: str = ""  # Special narrative text (e.g., vampire feeding) that replaces normal result rendering
     multi_target: bool = False  # True when results span multiple victims (hydra multi-target)
+    # Informational lines rendered inside the diff block above the table
+    # — e.g. "Your right arm hangs limp and useless." when an attack
+    # slot has been disabled by injury. Unlike ``narrative`` (which
+    # replaces the table entirely), notes render alongside the table.
+    notes: List[str] = field(default_factory=list)
 
     def total_damage(self) -> int:
         """Returns the sum of damage across all results in the sequence."""
@@ -183,13 +188,23 @@ class AttackSequence:
         """Render the full attack sequence as a Discord message.
 
         Builds an appropriate header and a compact diff-block table
-        containing all results in the sequence.
+        containing all results in the sequence. When there are no
+        results but there are notes (e.g. every attack slot is
+        disabled by injury), render just the notes so the player
+        sees why nothing happened.
         """
         if self.narrative and not self.results:
             return self.narrative
 
         if not self.results:
-            return ""
+            if not self.notes:
+                return ""
+            header = self._build_header()
+            body = "```diff\n"
+            for note in self.notes:
+                body += f"   {note}\n"
+            body += "```\n"
+            return f"{header}\n{body}" if header else body
 
         header = self._build_header()
         body = self._render_compact_table()
@@ -252,6 +267,13 @@ class AttackSequence:
         total_damage = self.total_damage()
 
         lines = ["```diff"]
+
+        # Informational notes (e.g. "Your right arm hangs limp and
+        # useless.") render inside the diff block, above the auto-hit
+        # banner / column header, so players see why a slot didn't
+        # contribute before reading the table.
+        for note in self.notes:
+            lines.append(f"   {note}")
 
         # Auto-hit keeps its summary line (no roll / no dodge to stand in
         # for it). Non-auto-hit drops the header line entirely — the

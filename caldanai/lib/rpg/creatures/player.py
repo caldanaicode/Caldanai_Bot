@@ -11,7 +11,7 @@ from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.dice import Dice
-from caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes
+from caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes, InjuryLevels
 from caldanai.lib.rpg.helpers.parser import item_list_to_string
 from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll, CombinedRoll
 from caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
@@ -19,6 +19,51 @@ from caldanai.lib.rpg.inventory.equipment import Equipment
 from caldanai.lib.rpg.inventory.stackables import Stackable
 from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 from datetime import datetime
+
+
+# Default humanoid anatomy for all players. Keyed by instance name
+# (the persisted identifier) so health overrides can look parts up
+# directly. Head and torso are critical (destruction kills outright);
+# losing an arm, leg, or eye degrades stats via the emergence system
+# but isn't lethal on its own. Persistence only saves each part's
+# current health, keyed by instance name, so the schema evolves
+# freely if we ever add or rename parts.
+_DEFAULT_PARTS: Dict[str, str] = {
+    "head":      "head",
+    "torso":     "torso",
+    "arm.left":  "arm",
+    "arm.right": "arm",
+    "leg.left":  "leg",
+    "leg.right": "leg",
+    "eye.left":  "eye",
+    "eye.right": "eye",
+}
+
+
+def _build_default_body_parts() -> List[BodyPart]:
+    """Construct a fresh humanoid body-part list at full health.
+
+    Symmetrization (left/right HP matching) and optional DB-persisted
+    health restoration are applied by the caller in the correct order
+    — see ``Player.__init__``."""
+    return [
+        BodyPart.make(plugin_name, name=instance_name)
+        for instance_name, plugin_name in _DEFAULT_PARTS.items()
+    ]
+
+
+def _apply_body_parts_health(
+    parts: List[BodyPart],
+    overrides: Optional[Dict[str, int]],
+) -> None:
+    """Restore per-part current health from a persisted dict, clamped
+    to ``[0, health_max]``. Unknown keys (renamed / removed parts) are
+    silently ignored so old DB entries load cleanly."""
+    if not overrides:
+        return
+    for part in parts:
+        if part.name in overrides:
+            part.health = max(0, min(part.health_max, int(overrides[part.name])))
 
 
 class Player(Creature):
@@ -45,6 +90,7 @@ class Player(Creature):
         equip_slots: Optional[Dict[str, Item]] = None,
         last_active: Optional[datetime] = None,
         health_regen: Optional[int] = 0,
+        body_parts_health: Optional[Dict[str, int]] = None,
     ):
         super().__init__(
             name=None,
@@ -56,6 +102,15 @@ class Player(Creature):
             gender=gender,
             pronouns=pronouns,
         )
+        # Humanoid anatomy. Order matters:
+        # 1. Build fresh at full health (each part independently rolled).
+        # 2. Symmetrize left/right pairs so a character isn't born with
+        #    one strong arm and one weak arm. This also resets both
+        #    sides to full health, which is why overrides come AFTER.
+        # 3. Restore any persisted per-part health from the DB.
+        self.body_parts = _build_default_body_parts()
+        self._symmetrize_paired_parts()
+        _apply_body_parts_health(self.body_parts, body_parts_health)
         self.uses_article = False  # "Caels", not "the Caels"
         self.id = pid
         self.guild_id = gid
@@ -108,12 +163,30 @@ class Player(Creature):
 
         return ""
 
-    def get_attack_sources(self) -> List["AttackSource"]:
-        """Returns attack sources from the player's equipped weapons.
+    def _is_arm_usable(self, instance_name: str) -> bool:
+        """An arm at InjuryLevels.USELESS can no longer swing a weapon
+        or throw a punch. A missing arm (not in body_parts) is treated
+        as usable — falls back to the pre-anatomy behavior so tests and
+        any future armless creatures don't break."""
+        part = self.get_part(instance_name)
+        if part is None:
+            return True
+        return part.get_injury_level() != InjuryLevels.USELESS
 
-        Produces one source for the left/two-handed slot and (if not two-handed)
-        one for the right. Uses WeaponAttackSource when a weapon is equipped
-        and UnarmedAttackSource otherwise.
+    def get_attack_sources(self) -> List["AttackSource"]:
+        """Returns attack sources for usable hands only.
+
+        Produces one source for the left/two-handed slot and (if not
+        two-handed) one for the right. Uses WeaponAttackSource when a
+        weapon is equipped and UnarmedAttackSource otherwise.
+
+        An arm at InjuryLevels.USELESS disables the attack from that
+        hand entirely — no source is emitted and the attack table
+        simply won't contain that row. A two-handed weapon requires
+        BOTH arms; if either is USELESS, no attack fires at all. The
+        companion ``get_disabled_attack_notes`` surfaces the reason
+        so the attack rendering can show "Your right arm hangs limp
+        and useless." instead of silently dropping the row.
         """
         from caldanai.lib.rpg.combat.attack_source import (
             AttackSource,
@@ -123,22 +196,65 @@ class Player(Creature):
 
         lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
         rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
-        two_handed = lh and EquipmentSlots.MULTI_SLOT & lh.slots
+        two_handed = bool(lh and EquipmentSlots.MULTI_SLOT & lh.slots)
+
+        left_ok = self._is_arm_usable("arm.left")
+        right_ok = self._is_arm_usable("arm.right")
 
         sources: List[AttackSource] = []
-        primary_label = "Two-Handed" if two_handed else "Left"
-        if lh:
-            sources.append(WeaponAttackSource(lh, label=primary_label))
-        else:
-            sources.append(UnarmedAttackSource(label=primary_label))
+        if two_handed:
+            # Two-handed weapons require both arms. If either arm is
+            # useless, no source is emitted.
+            if left_ok and right_ok:
+                sources.append(WeaponAttackSource(lh, label="Two-Handed"))
+            return sources
 
-        if not two_handed:
+        if left_ok:
+            if lh:
+                sources.append(WeaponAttackSource(lh, label="Left"))
+            else:
+                sources.append(UnarmedAttackSource(label="Left"))
+
+        if right_ok:
             if rh:
                 sources.append(WeaponAttackSource(rh, label="Right"))
             else:
                 sources.append(UnarmedAttackSource(label="Right"))
 
         return sources
+
+    def get_disabled_attack_notes(self) -> List[str]:
+        """Narrative lines explaining which attack slots are disabled
+        by arm injury. Used by ``do_attack`` to surface why a hand
+        didn't contribute to the sequence — silent dropping feels
+        like a bug even when it's correct."""
+        notes: List[str] = []
+        left_arm = self.get_part("arm.left")
+        right_arm = self.get_part("arm.right")
+
+        if left_arm and left_arm.get_injury_level() == InjuryLevels.USELESS:
+            notes.append("The left arm hangs limp and useless.")
+        if right_arm and right_arm.get_injury_level() == InjuryLevels.USELESS:
+            notes.append("The right arm hangs limp and useless.")
+
+        # Two-handed weapon with any arm disabled: call out that the
+        # weapon can't be wielded even if one arm is still good.
+        lh = self.equip_slots.get(EquipmentSlots.LEFT_HELD.name)
+        if lh and EquipmentSlots.MULTI_SLOT & lh.slots:
+            if ((left_arm and left_arm.get_injury_level() == InjuryLevels.USELESS)
+                    or (right_arm and right_arm.get_injury_level() == InjuryLevels.USELESS)):
+                notes.append(f"{lh.get_full_name().capitalize()} cannot be wielded with a maimed arm.")
+        return notes
+
+    def do_attack(self, target, explicit_part_names=None):
+        """Run the standard do_attack, then attach any disabled-slot
+        notes to the resulting sequence so the rendering can surface
+        why a hand didn't swing."""
+        sequence = super().do_attack(target, explicit_part_names=explicit_part_names)
+        notes = self.get_disabled_attack_notes()
+        if notes:
+            sequence.notes.extend(notes)
+        return sequence
 
     def _on_attack_resolved(self, source, result) -> None:
         """Grants skill XP on hits and updates roll counts for each resolved attack."""
@@ -251,6 +367,7 @@ class Player(Creature):
             equip_slots=p["equip_slots"] if "equip_slots" in p.keys() else None,
             last_active=p["last_active"] if "last_active" in p.keys() else None,
             health_regen=p.get("health_regen", 0),
+            body_parts_health=p.get("body_parts_health"),
         )
 
         eq = p.get("equip_slots") or {}
@@ -346,18 +463,26 @@ class Player(Creature):
         return embed, file
 
     def get_defense(self) -> int:
-        """Tallies the total defense value for the given player."""
-        d = self.get_armor_bonuses("defense")
-        if "defense" in d.keys():
-            return max(0, d["defense"] + self.defense)
-        return self.defense
+        """Total defense: body-part emergence (torso functionality) plus armor bonuses.
+
+        Defers to :meth:`Creature.get_defense` so torso injuries scale
+        defense the same way they do for monsters, then adds any bonuses
+        from equipped armor. Clamped at 0.
+        """
+        base = Creature.get_defense(self)
+        armor = self.get_armor_bonuses("defense").get("defense", 0)
+        return max(0, base + armor)
 
     def get_dodge(self) -> int:
-        """Tallies the total dodge value for the given player."""
-        d = self.get_armor_bonuses("dodge")
-        if "dodge" in d.keys():
-            return max(0, d["dodge"] + self.dodge)
-        return self.dodge
+        """Total dodge: body-part emergence (leg/wing mobility) plus armor bonuses.
+
+        Defers to :meth:`Creature.get_dodge` so leg injuries degrade
+        dodge the same way they do for monsters, then adds any bonuses
+        from equipped armor. Clamped at 0.
+        """
+        base = Creature.get_dodge(self)
+        armor = self.get_armor_bonuses("dodge").get("dodge", 0)
+        return max(0, base + armor)
 
     def get_health_max(self) -> int:
         """Tallies the total max health value for the given creature."""
@@ -606,6 +731,11 @@ class Player(Creature):
             "equip_slots": {},
             "last_active": self.last_active,
             "health_regen": self.health_regen,
+            # Persist only current per-part health keyed by instance name.
+            # The anatomy shape is defined in code; if it changes, old DB
+            # entries with extra/missing keys are handled gracefully on
+            # load (extras ignored, missing keys default to full health).
+            "body_parts_health": {p.name: p.health for p in self.body_parts},
         }
 
         for slot, item in self.equip_slots.items():

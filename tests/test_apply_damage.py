@@ -335,6 +335,23 @@ class TestBodyPartApplyDamageFixed:
         part.apply_damage(5, None)
         assert part.health == 15
 
+    def test_negative_amount_heals(self):
+        """Negative ``amount`` heals the part. Supports the regen
+        path: ``part.apply_damage(-n)`` is the canonical way to
+        restore part health."""
+        part = BodyPart(name="arm", health_max=10)
+        part.health = 3
+        part.apply_damage(-4)
+        assert part.health == 7
+
+    def test_heal_clamps_at_health_max(self):
+        """Healing past ``health_max`` is clamped — a destroyed arm
+        restored with a huge negative doesn't overshoot its cap."""
+        part = BodyPart(name="arm", health_max=10)
+        part.health = 0
+        part.apply_damage(-50)
+        assert part.health == 10
+
 
 # ---------------------------------------------------------------------------
 # Backwards compatibility

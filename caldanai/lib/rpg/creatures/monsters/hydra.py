@@ -42,10 +42,10 @@ from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, DamageTypes, Reach, Size, TimePartitions,
+    AggressionLevels, DamageTypes, InjuryLevels, Reach, Size, TimePartitions,
 )
 from caldanai.lib.rpg.helpers.parser import parse
-from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures import Creature, EXPOSURE_FLOOR, pick_random_part
 
 # ---------------------------------------------------------------------------
 # Per-action narrative sentence templates
@@ -615,9 +615,21 @@ class Hydra(MonsterPlugin):
         narrative = self._build_narrative(assignments)
 
         # 4. Resolve each attack mechanically.
+        #
+        # For each head/tail/leg action targeting a victim, pick a
+        # victim body part (exposure-weighted by the action's reach)
+        # so the damage routes into Model-D per-part injury tracking
+        # — not just straight to body HP. This is the same pattern
+        # the base ``MonsterPlugin.attack_random`` uses for
+        # single-target attacks; the hydra's custom multi-target
+        # path has to repeat the wiring because it doesn't go through
+        # ``Creature.do_attack``.
         results: List[AttackResult] = []
         hits_per_victim: Dict[int, int] = defaultdict(int)
         raw_per_victim: Dict[int, int] = defaultdict(int)
+        # Snapshot victims' per-part starting levels so we can
+        # coalesce injury messages after all resolutions land.
+        part_starts: Dict[int, Dict[int, Tuple["BodyPart", InjuryLevels]]] = defaultdict(dict)
 
         for part, action_name, action, victim in assignments:
             dmg_type = self._resolve_dmg_type(part, action)
@@ -630,12 +642,30 @@ class Hydra(MonsterPlugin):
                 skill="natural",
                 reach=reach,
             )
+
+            # Pick a target part on the victim weighted by exposure
+            # for this attack's reach. Random targeting keeps base
+            # dodge (no exposure tax) — the tax is already baked into
+            # the weighted selection.
+            target_part = None
+            if getattr(victim, "body_parts", None):
+                target_part = pick_random_part(
+                    victim.get_targetable_parts(), reach,
+                )
+
             atk_roll, dmg_roll = source.make_attack_rolls(self)
             result = victim.resolve_attack(self, source, atk_roll, dmg_roll)
+            result.target_part = target_part
             results.append(result)
             if result.damage > 0:
                 raw_per_victim[id(victim)] += result.damage
                 hits_per_victim[id(victim)] += 1
+                if target_part is not None:
+                    starts = part_starts[id(victim)]
+                    if id(target_part) not in starts:
+                        starts[id(target_part)] = (
+                            target_part, target_part.get_injury_level(),
+                        )
 
         # 5. Build combined AttackSequence.
         first_victim = combatants[0]
@@ -652,13 +682,62 @@ class Hydra(MonsterPlugin):
             msg += f"\n{narrative}\n"
         msg += sequence.to_markdown()
 
-        # 7. Apply damage per victim (defense subtracted once per victim).
-        seen = set()
-        for part, action_name, action, victim in assignments:
-            vid = id(victim)
-            if vid in seen:
+        # 7. Route per-result damage to parts for injury tracking
+        # (no body-HP touch), then apply the post-defense total to
+        # body HP once per victim. Mirrors ``do_combat`` and
+        # ``MonsterPlugin.attack_random``.
+        victims_order: List[Creature] = []
+        seen_ids = set()
+        for _part, _a_name, _action, victim in assignments:
+            if id(victim) in seen_ids:
                 continue
-            seen.add(vid)
+            seen_ids.add(id(victim))
+            victims_order.append(victim)
+
+        # Per-result part routing.
+        for result in results:
+            if result.damage <= 0 or result.target_part is None:
+                continue
+            # Find the victim for this result. Results are in the same
+            # order as assignments, so recover the victim by index.
+            idx = results.index(result)
+            _p, _an, _a, victim = assignments[idx]
+            victim.apply_damage(
+                result.damage,
+                dmg_type=result.dmg_type,
+                target_part=result.target_part,
+            )
+
+        # Coalesced injury narration per victim per part.
+        for victim in victims_order:
+            starts = part_starts.get(id(victim), {})
+            injury_feedback: List[str] = []
+            for part_obj, old_level in starts.values():
+                new_level = part_obj.get_injury_level()
+                if new_level == old_level:
+                    continue
+                if new_level != InjuryLevels.NONE:
+                    feedback = part_obj.get_injury_string()
+                    injury_feedback.append(
+                        f"   {feedback[0].upper()}{feedback[1:]}"
+                    )
+                hook_msg = part_obj.on_injury_change(victim, old_level, new_level)
+                if hook_msg:
+                    injury_feedback.append(f"   {hook_msg}")
+                if (
+                    new_level == InjuryLevels.USELESS
+                    and old_level != InjuryLevels.USELESS
+                ):
+                    destroyed_msg = part_obj.on_destroyed(victim)
+                    if destroyed_msg:
+                        injury_feedback.append(f"   {destroyed_msg}")
+            if injury_feedback:
+                msg += "\n".join(injury_feedback) + "\n"
+
+        # Body HP — defense subtracted once per victim, same floor
+        # (1/hit) used by the player-attacks-monster path.
+        for victim in victims_order:
+            vid = id(victim)
             raw = raw_per_victim.get(vid, 0)
             num_hits = hits_per_victim.get(vid, 0)
             if num_hits > 0:
@@ -666,7 +745,10 @@ class Hydra(MonsterPlugin):
                 final = max(num_hits, raw - defense)
                 victim_name = getattr(victim, "name", "someone")
                 if defense and raw != final:
-                    msg += f"{victim_name}: {raw} damage - {defense} defense \u2192 {final} damage\n"
+                    msg += (
+                        f"{victim_name}: {raw} damage - {defense} defense "
+                        f"\u2192 {final} damage\n"
+                    )
                 dmg_msg = victim.apply_damage(final)
                 if dmg_msg:
                     msg += parse(dmg_msg, victim)

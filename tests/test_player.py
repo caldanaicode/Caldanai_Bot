@@ -465,3 +465,278 @@ def _make_attack_result(damage=5, hit=True):
         defense=0,
         dodge=10,
     )
+
+
+# ---------------------------------------------------------------------------
+# Body parts: default anatomy, persistence, and stat emergence
+# ---------------------------------------------------------------------------
+
+class TestPlayerBodyParts:
+    """Players carry a fixed humanoid anatomy. Head and torso are
+    critical; arms, legs, and eyes degrade stats via the same emergence
+    path monsters use. Persistence stores only current per-part health
+    keyed by instance name so schema drift is cheap."""
+
+    _EXPECTED_PART_NAMES = {
+        "head", "torso",
+        "arm.left", "arm.right",
+        "leg.left", "leg.right",
+        "eye.left", "eye.right",
+    }
+
+    def test_default_anatomy_has_eight_parts_at_full_health(self):
+        p = _make_player()
+        names = {part.name for part in p.body_parts}
+        assert names == self._EXPECTED_PART_NAMES
+        for part in p.body_parts:
+            assert part.health == part.health_max
+
+    def test_head_and_torso_are_critical(self):
+        p = _make_player()
+        parts_by_name = {part.name: part for part in p.body_parts}
+        assert parts_by_name["head"].is_critical is True
+        assert parts_by_name["torso"].is_critical is True
+        # Non-critical anatomy
+        for name in ("arm.left", "leg.right", "eye.left"):
+            assert parts_by_name[name].is_critical is False
+
+    def test_body_parts_health_override_restores_injury_state(self):
+        """Passing a body_parts_health dict through __init__ sets current
+        health per part (clamped), matching the DB rehydration flow."""
+        overrides = {"leg.left": 1, "eye.right": 0}
+        p = _make_player(body_parts_health=overrides)
+        parts_by_name = {part.name: part for part in p.body_parts}
+        assert parts_by_name["leg.left"].health == 1
+        assert parts_by_name["eye.right"].health == 0
+        assert parts_by_name["leg.right"].health == parts_by_name["leg.right"].health_max
+
+    def test_body_parts_health_clamped_to_valid_range(self):
+        """Negative / out-of-range overrides are clamped to [0, health_max]."""
+        p = _make_player(body_parts_health={"torso": -5})
+        torso = next(part for part in p.body_parts if part.name == "torso")
+        assert torso.health == 0
+
+    def test_unknown_body_parts_health_keys_are_ignored(self):
+        """Old DB entries with renamed/removed parts load cleanly."""
+        p = _make_player(body_parts_health={"wing.left": 5, "tentacle": 3})
+        names = {part.name for part in p.body_parts}
+        assert names == self._EXPECTED_PART_NAMES
+
+
+class TestPlayerBodyPartPersistence:
+    """to_dict / from_dict round-trip preserves per-part injury state."""
+
+    def test_to_dict_includes_body_parts_health(self):
+        p = _make_player()
+        d = p.to_dict()
+        assert "body_parts_health" in d
+        assert set(d["body_parts_health"].keys()) == {
+            "head", "torso",
+            "arm.left", "arm.right",
+            "leg.left", "leg.right",
+            "eye.left", "eye.right",
+        }
+
+    @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
+    def test_round_trip_preserves_injury_state(self, _):
+        """A Player with a damaged leg survives a to_dict/from_dict cycle
+        with that leg still damaged."""
+        p = _make_player()
+        leg = next(part for part in p.body_parts if part.name == "leg.left")
+        # Drop leg to ~10% (SEVERE territory)
+        damaged_health = max(1, int(leg.health_max * 0.1))
+        leg.health = damaged_health
+
+        payload = p.to_dict()
+        # to_dict drops _id when pid is None, so the test _make_player
+        # which assigns pid keeps _id here.
+        restored = Player.from_dict(payload)
+
+        restored_leg = next(part for part in restored.body_parts if part.name == "leg.left")
+        assert restored_leg.health == damaged_health
+
+    @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
+    def test_from_dict_without_body_parts_health_returns_full_health(self, _):
+        """Legacy DB entries (no body_parts_health key) rehydrate with
+        full per-part health — no crashes, no missing parts."""
+        d = {
+            "_id": ObjectId(),
+            "user_id": 1, "guild_id": 2,
+            "weight_limit": 100, "joined": None,
+            "clarks": 0, "defense": 6, "dodge": 6,
+            "health": 20, "health_max": 20, "items": [],
+            "rolls": {"d4": [0]*4, "d6": [0]*6, "d8": [0]*8,
+                      "d10": [0]*10, "d12": [0]*12, "d20": [0]*20},
+            "skills": {},
+            "gender": "female", "pronouns": "she,her,hers,her",
+            "equip_slots": {},
+            "last_active": None, "health_regen": 0,
+        }
+        p = Player.from_dict(d)
+        assert p is not None
+        assert len(p.body_parts) == 8
+        for part in p.body_parts:
+            assert part.health == part.health_max
+
+
+class TestPlayerStatEmergence:
+    """Player dodge / defense now emerge from body parts the same way
+    monster stats do, plus armor bonuses on top."""
+
+    def test_get_dodge_drops_when_legs_injure(self):
+        """Player with both legs healthy vs one leg destroyed: dodge
+        emergence scales by the mobility ratio."""
+        p = _make_player(dodge=6)
+        healthy_dodge = p.get_dodge()
+        # Destroy one leg → mobility ratio drops to 0.5
+        leg = next(part for part in p.body_parts if part.name == "leg.left")
+        leg.health = 0
+        injured_dodge = p.get_dodge()
+        assert injured_dodge < healthy_dodge
+
+    def test_get_defense_drops_when_torso_injures(self):
+        """Torso at ~50% HP (MODERATE) should reduce defense via
+        emergence."""
+        p = _make_player(defense=10)
+        healthy_def = p.get_defense()
+        torso = next(part for part in p.body_parts if part.name == "torso")
+        torso.health = max(1, int(torso.health_max * 0.3))  # SEVERE range
+        injured_def = p.get_defense()
+        assert injured_def < healthy_def
+
+    def test_critical_part_destruction_kills_player(self):
+        """Routing enough damage to a critical part (head) kills the
+        player outright via the critical-part short-circuit, even when
+        body HP hasn't been touched."""
+        p = _make_player(health=20, health_max=20)
+        head = next(part for part in p.body_parts if part.name == "head")
+        # Route enough damage to destroy the head.
+        p.apply_damage(head.health_max + 10, target_part=head)
+        assert head.is_destroyed()
+        assert p.is_dead()
+
+
+# ---------------------------------------------------------------------------
+# Disabled attack slots — a USELESS arm drops that hand's attack
+# ---------------------------------------------------------------------------
+
+class TestDisabledArmDisablesAttackSlot:
+    """When an arm reaches InjuryLevels.USELESS, attacks from that
+    hand must stop firing entirely (no roll, no damage). Two-handed
+    weapons require both arms; losing either stops the attack. The
+    rendering surfaces a note explaining why a slot didn't swing."""
+
+    def _cripple(self, player, instance_name: str) -> None:
+        """Drive a part directly to 0 HP to simulate USELESS."""
+        part = next(p for p in player.body_parts if p.name == instance_name)
+        part.health = 0
+
+    def test_useless_right_arm_removes_right_source(self):
+        p = _make_player()
+        self._cripple(p, "arm.right")
+        sources = p.get_attack_sources()
+        labels = [s.label for s in sources]
+        assert "Right" not in labels
+        assert "Left" in labels
+
+    def test_useless_left_arm_removes_left_source(self):
+        p = _make_player()
+        self._cripple(p, "arm.left")
+        labels = [s.label for s in p.get_attack_sources()]
+        assert "Left" not in labels
+        assert "Right" in labels
+
+    def test_both_arms_useless_produces_no_sources(self):
+        p = _make_player()
+        self._cripple(p, "arm.left")
+        self._cripple(p, "arm.right")
+        assert p.get_attack_sources() == []
+
+    def test_two_handed_requires_both_arms(self):
+        from caldanai.lib.rpg.combat.attack_source import WeaponAttackSource
+        p = _make_player()
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = (
+            EquipmentSlots.LEFT_HELD | EquipmentSlots.RIGHT_HELD | EquipmentSlots.MULTI_SLOT
+        )
+        weapon.damage_type = None
+        weapon.skill = "two-handed swords"
+        weapon.attack = "2d6"
+        weapon.bonus = 2
+        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+
+        # Baseline: both arms OK → one two-handed source.
+        assert len(p.get_attack_sources()) == 1
+
+        # Cripple either arm → no sources.
+        self._cripple(p, "arm.right")
+        assert p.get_attack_sources() == []
+
+    def test_disabled_notes_populate_when_arm_is_useless(self):
+        p = _make_player()
+        self._cripple(p, "arm.right")
+        notes = p.get_disabled_attack_notes()
+        # A humanized note should reference the right arm being useless.
+        assert any("right arm" in n.lower() for n in notes)
+
+    def test_do_attack_attaches_notes_to_sequence(self):
+        from caldanai.lib.rpg.combat.attack_result import AttackSequence
+        p = _make_player()
+        self._cripple(p, "arm.right")
+
+        # Build a minimal target that survives resolve_attack.
+        target = MagicMock()
+        target.get_dodge.return_value = 10
+        target.get_defense.return_value = 0
+        target.get_trait_multiplier.return_value = 1.0
+        target.body_parts = []
+        target.get_targetable_parts.return_value = []
+
+        from caldanai.lib.rpg.combat.attack_result import AttackResult
+        def _resolve(_a, _s, atk, dmg, target_dodge=None):
+            from caldanai.lib.rpg.helpers.roll_data import CombinedRoll
+            combined = CombinedRoll(atk, dmg, target_dodge if target_dodge is not None else 10)
+            return AttackResult(source=_s, combined=combined, damage=0,
+                                multiplier=1.0, defense=0, dodge=10)
+        target.resolve_attack.side_effect = _resolve
+
+        seq = p.do_attack(target)
+        assert any("right arm" in n.lower() for n in seq.notes)
+
+    def test_attack_sequence_renders_notes_inside_diff_block(self):
+        """Notes should surface in the rendered markdown so the player
+        can see why a slot didn't swing."""
+        from caldanai.lib.rpg.combat.attack_result import AttackSequence, AttackResult
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        from caldanai.lib.rpg.helpers.roll_data import (
+            AttackRoll, DamageRoll, CombinedRoll,
+        )
+        from caldanai.lib.rpg.helpers.dice import Dice
+
+        # Build a sequence with one result + one note.
+        atk = AttackRoll(skill_bonus=0)
+        atk.rolls = (10,)
+        atk.result = 10
+        atk.isCritical = False
+        atk.isFumble = False
+        dmg = DamageRoll(dice=Dice.d4(), skill_bonus=0, weapon_bonus=0)
+        dmg.rolls = (3,)
+        dmg.result = 3
+        combined = CombinedRoll(atk, dmg, 8)
+        attacker = MagicMock()
+        attacker.name = "caels"
+        attacker.member = None
+        target = MagicMock()
+        target.name = "dummy"
+        result = AttackResult(
+            source=NaturalAttackSource(atk="1d4", label="Left"),
+            combined=combined,
+            damage=3, multiplier=1.0, defense=0, dodge=8,
+        )
+        seq = AttackSequence(
+            attacker=attacker, target=target, results=[result],
+            notes=["The right arm hangs limp and useless."],
+        )
+        md = seq.to_markdown()
+        assert "right arm hangs limp" in md

@@ -198,6 +198,22 @@ class InjuryLevels(IntFlag):
     USELESS = 1 << 3
 
 
+# Player-facing (dot, word, ansi_color_code) pairings for each injury
+# level. Kept next to the enum so any command rendering injury state
+# (e.g. ``$health``, future ``$profile`` injury section) imports one
+# canonical mapping. The dot is a universal status gauge; the ANSI
+# code colors the status word inside a ```ansi fence so the word
+# itself reinforces the severity. ANSI doesn't have a distinct orange,
+# so SEVERE shares red with USELESS — the dot still distinguishes them.
+INJURY_LEVEL_DISPLAY = {
+    InjuryLevels.NONE:     ("🟢", "unharmed",  "32"),  # green
+    InjuryLevels.MINOR:    ("🟡", "bruised",   "33"),  # yellow
+    InjuryLevels.MODERATE: ("🟠", "wounded",   "33"),  # yellow
+    InjuryLevels.SEVERE:   ("🔴", "maimed",    "31"),  # red
+    InjuryLevels.USELESS:  ("⚫", "destroyed", "30"),  # gray
+}
+
+
 class Pronouns(Enum):
     SUBJECTIVE = "subjective"
     """He, She, They, etc."""

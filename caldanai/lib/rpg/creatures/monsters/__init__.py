@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Union
 from caldanai import PluginManager
 from caldanai.lib.rpg import GameClock, parse
 from caldanai.lib.rpg.creatures import Creature
-from caldanai.lib.rpg.helpers.enums import (AggressionLevels, TimePartitions,
-                                            TimesOfDay)
+from caldanai.lib.rpg.helpers.enums import (AggressionLevels, InjuryLevels,
+                                            TimePartitions, TimesOfDay)
 from caldanai.lib.rpg.inventory import Inventory, Item
 from caldanai.logger import get_logger
 
@@ -115,22 +115,90 @@ class MonsterPlugin(Creature):
         return items
 
     def attack_random(self, combatants: list, count=1) -> str:
-        if combatants and 0 < count <= len(combatants):
-            victims = sample(combatants, count)
-            msg = ""
-            for victim in victims:
-                sequence = self.do_attack(victim)
-                msg += sequence.to_markdown()
-                total_dmg = sequence.total_damage()
-                num_hits = sum(1 for r in sequence.results if r.damage > 0)
-                if num_hits > 0:
-                    defense = victim.get_defense()
-                    final = max(num_hits, total_dmg - defense)
-                    msg += parse(victim.apply_damage(final), victim)
+        """Attack ``count`` randomly chosen combatants and return the
+        rendered attack markdown plus any resulting injury / death
+        messages.
 
-            return msg
+        Mirrors the player-attacks-monster path in ``Game.do_combat``:
+        per-result damage routes to the targeted body part for injury
+        tracking (no body-HP touch), injury-level transitions coalesce
+        across the sequence into one message per part, and the
+        post-defense total hits body HP once via ``victim.apply_damage``
+        so the victim's own death-transition detection still fires.
 
-        return None
+        Defense is subtracted from the per-victim total (variant B),
+        with a ``max(num_hits, total - defense)`` floor so defense
+        can't trivialize every hit in a multi-source attack.
+        """
+        if not combatants or not (0 < count <= len(combatants)):
+            return None
+
+        victims = sample(combatants, count)
+        msg = ""
+        for victim in victims:
+            sequence = self.do_attack(victim)
+            msg += sequence.to_markdown()
+            total_dmg = sequence.total_damage()
+            num_hits = sum(1 for r in sequence.results if r.damage > 0)
+            if num_hits == 0:
+                continue
+
+            # Per-result: route damage to each hit's target_part for
+            # injury tracking. Snapshot starting levels so we emit
+            # exactly one message per part across the whole sequence.
+            death_msg = ""
+            part_starting_levels: dict = {}  # id(part) -> (part, old_level)
+            for result in sequence.results:
+                if result.damage <= 0:
+                    continue
+                part = result.target_part
+                if part is not None and id(part) not in part_starting_levels:
+                    part_starting_levels[id(part)] = (part, part.get_injury_level())
+                d_msg = victim.apply_damage(
+                    result.damage,
+                    dmg_type=result.dmg_type,
+                    target_part=part,
+                )
+                if d_msg and not death_msg:
+                    death_msg = d_msg
+
+            # Emit one injury message per unique part. apply_damage
+            # intentionally does NOT fire hooks itself — this is the
+            # single authoritative call site.
+            injury_feedback: List[str] = []
+            for part, old_level in part_starting_levels.values():
+                new_level = part.get_injury_level()
+                if new_level == old_level:
+                    continue
+                if new_level != InjuryLevels.NONE:
+                    feedback = part.get_injury_string()
+                    injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
+                hook_msg = part.on_injury_change(victim, old_level, new_level)
+                if hook_msg:
+                    injury_feedback.append(f"   {hook_msg}")
+                if (
+                    new_level == InjuryLevels.USELESS
+                    and old_level != InjuryLevels.USELESS
+                ):
+                    destroyed_msg = part.on_destroyed(victim)
+                    if destroyed_msg:
+                        injury_feedback.append(f"   {destroyed_msg}")
+
+            # Body HP: apply post-defense total once via the whole-body
+            # path so the victim's death-transition messaging fires.
+            if not victim.is_dead():
+                defense = victim.get_defense()
+                final = max(num_hits, total_dmg - defense)
+                d_msg = victim.apply_damage(final)
+                if d_msg and not death_msg:
+                    death_msg = d_msg
+
+            if death_msg:
+                msg += parse(death_msg, victim)
+            if injury_feedback:
+                msg += "\n".join(injury_feedback) + "\n"
+
+        return msg
 
     @staticmethod
     def load_plugins():

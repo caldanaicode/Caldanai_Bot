@@ -12,10 +12,94 @@ from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
 from caldanai.lib.rpg import Game
-from caldanai.lib.rpg.helpers.enums import Directions, Pronouns, Roles
+from caldanai.lib.rpg.helpers.enums import (
+    Directions, INJURY_LEVEL_DISPLAY, InjuryLevels, Pronouns, Roles,
+)
 from caldanai.lib.rpg.helpers.utils import RpgUtilities
 
 _log = get_logger(__name__)
+
+
+# Standard body-HP tier dot. Separate from per-part injury dots because
+# body HP is a single value whereas parts have injury-level enums.
+def _body_hp_dot(player) -> str:
+    """Return a status dot reflecting the player's body HP fraction."""
+    ratio = player.get_health_scale()
+    if ratio >= 1.0:
+        return "🟢"
+    if ratio >= 0.75:
+        return "🟡"
+    if ratio >= 0.4:
+        return "🟠"
+    if ratio > 0:
+        return "🔴"
+    return "⚫"
+
+
+def _is_injured(player) -> bool:
+    """A player is 'injured' if body HP is below max OR any body part
+    has progressed past ``InjuryLevels.NONE``. Purely body-HP injuries
+    are what the old predicate covered; part injuries might leave body
+    HP untouched (Model D routes full damage to the part but only
+    post-defense damage to body HP), so a player with a destroyed arm
+    and full body HP should still show up in ``$health hurt``."""
+    if player.health < player.get_health_max():
+        return True
+    for part in getattr(player, "body_parts", []) or []:
+        if part.get_injury_level() != InjuryLevels.NONE:
+            return True
+    return False
+
+
+_ANSI_RESET = "\x1b[0m"
+
+
+def _ansi_wrap(text: str, color_code: str) -> str:
+    """Wrap ``text`` in an ANSI color escape for a ```ansi fence.
+    Uses the dim/normal intensity (``2;``) to match Discord's other
+    colored-diff aesthetics."""
+    return f"\x1b[2;{color_code}m{text}{_ANSI_RESET}"
+
+
+def _injured_parts_suffix(player) -> str:
+    """Returns a short comma-separated list of the player's non-NONE
+    parts with their status word (ANSI-colored), for use as a one-line
+    suffix in ``$health hurt`` / ``$health injured``. Empty string if
+    nothing."""
+    chunks = []
+    for part in getattr(player, "body_parts", []) or []:
+        level = part.get_injury_level()
+        if level == InjuryLevels.NONE:
+            continue
+        _, word, color = INJURY_LEVEL_DISPLAY.get(level, ("", str(level), "37"))
+        chunks.append(f"{part.name} {_ansi_wrap(word, color)}")
+    return ", ".join(chunks)
+
+
+def _render_health_table(player) -> str:
+    """Render the calling player's full health report: body HP + regen
+    summary line, followed by the shared per-part status table (see
+    ``Creature.render_body_part_status_table``).
+
+    Regen is reported as "next tick +N HP" rather than a rate because
+    the value is an accumulating charge, not a stable per-hour rate —
+    it ramps each tick until everything is fully healed and then
+    resets to 0. Showing "next tick" keeps the displayed number
+    honest about what it represents (the amount the *next* healing
+    event will restore)."""
+    body_dot = _body_hp_dot(player)
+    if player.health_regen > 0:
+        regen_str = f", next tick +{player.health_regen} HP"
+    else:
+        regen_str = ""
+    header = (
+        f"{body_dot} **{player.name}** — {player.health} / "
+        f"{player.get_health_max()} health{regen_str}"
+    )
+    table = player.render_body_part_status_table()
+    if not table:
+        return header
+    return f"{header}\n{table}"
 
 
 class RpgInfoCommands(Cog):
@@ -328,7 +412,7 @@ class RpgInfoCommands(Cog):
 
         (5-second cool-down)
 
-        :param flag: 'all', 'hurt', or 'injured'. If nothing is specified, shows only the calling player's health and regeneration. 'all' shows health for all players. 'hurt' or 'injured' shows health for only those players who are missing health.
+        :param flag: 'all', 'hurt', or 'injured'. If nothing is specified, shows only the calling player's health, regeneration, and per-part injury table. 'all' shows body HP for all players. 'hurt' or 'injured' adds an injured-parts suffix for each listed player.
         """
         game, player = await RpgUtilities.get_game_and_player(ctx)
 
@@ -338,15 +422,16 @@ class RpgInfoCommands(Cog):
         channel = game.channel if ctx.guild is not None else ctx
 
         if flag and flag.lower() in ("active", "all", "hurt", "injured"):
+            flag_norm = flag.lower()
             players = sorted(
                 sorted(
                     [
                         i
                         for i in game.player_manager.players.values()
                         if (
-                            flag == "all"
-                            or (flag.lower() in ("hurt", "injured") and i.health < i.get_health_max())
-                            or (flag.lower() == "active" and game.player_manager.roles[Roles.ACTIVE] in i.member.roles)
+                            flag_norm == "all"
+                            or (flag_norm in ("hurt", "injured") and _is_injured(i))
+                            or (flag_norm == "active" and game.player_manager.roles[Roles.ACTIVE] in i.member.roles)
                         )
                     ],
                     key=lambda x: x.name.lower(),
@@ -354,26 +439,32 @@ class RpgInfoCommands(Cog):
                 key=lambda x: x.get_health_scale(),
             )
 
-            if players is None or len(players) == 0:
+            if not players:
                 msg = "No players are injured."
-
             else:
-                msg = f"```diff"
+                # Every list view appends the injured-parts suffix when
+                # a player has part injuries, regardless of which flag
+                # brought them in — a healer / scanner wants the detail
+                # anywhere a player with a destroyed arm appears.
+                # Fence is ``ansi`` so the colored suffix words render.
+                lines = ["```ansi"]
                 for p in players:
-                    msg += (
-                        f"\n{'-' if p.health < p.get_health_max() else '+'} {p.name}: {p.health} / "
-                        f"{p.get_health_max()}"
+                    dot = _body_hp_dot(p)
+                    line = (
+                        f"{dot} {p.name}: {p.health} / {p.get_health_max()}"
                     )
-                msg += "\n```"
+                    suffix = _injured_parts_suffix(p)
+                    if suffix:
+                        line += f" — {suffix}"
+                    lines.append(line)
+                lines.append("```")
+                msg = "\n".join(lines)
 
             Dispatcher.add(channel, msg)
 
         else:
-            Dispatcher.add(
-                channel,
-                f"{player.name}, you currently have {player.health} / {player.get_health_max()} "
-                f"health, and {player.health_regen} regeneration per game-hour.",
-            )
+            msg = _render_health_table(player)
+            Dispatcher.add(channel, msg)
 
     @cooldown(1, 10, BucketType.member)
     @guild_only()

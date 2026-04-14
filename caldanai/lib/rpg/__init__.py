@@ -89,7 +89,10 @@ class Game:
             _log.debug(f"Game clock starting for {game_id}")
             self.game_clock.tick.start()
             # Regen timer is triggered every game hour (15 minutes for default time scale)
-            self.game_clock.add_routine(self.do_health_regen, 3600 / self.game_clock.time_scale)
+            # Regen ticks every 30 game-minutes (7.5 real-min at
+            # time_scale=4). Keeps recovery pacing playable in a
+            # typical session without making injuries trivial.
+            self.game_clock.add_routine(self.do_health_regen, 1800 / self.game_clock.time_scale)
 
         if use_spawn_timer:
             self.game_clock.add_routine(self.set_spawn_timer, 5, True)
@@ -258,19 +261,75 @@ class Game:
         return msg
 
     async def do_health_regen(self):
-        """Applies health regen to players, and increments the health regen amount."""
+        """Applies per-tick health regen to players.
+
+        Body HP regenerates as before. In addition — until we build a
+        dedicated part-healing mechanic (potions / shrines / skills) —
+        the single most-injured body part also receives the regen
+        amount each tick, clamped to its max. This keeps players from
+        being permanently trapped after a maiming without making every
+        injury trivially self-heal: the regen amount starts at 0,
+        ramps by 1 per tick, and resets only when every part and body
+        HP are back to full. Silent on the part side (no narration per
+        tick) to avoid spam; the returned body-HP resurrection message
+        is still emitted.
+        """
         msg = ""
         for player in self.player_manager.players.values():
             max_health = player.get_health_max()
-            if player.health < max_health:
+            body_needs = player.health < max_health
+
+            if body_needs:
                 m = player.apply_damage(-player.health_regen)
                 if m:
                     msg += f"\n{m}"
 
-            player.health_regen = (player.health_regen + 1) if player.health < max_health else 0
+            injured_part = self._most_injured_part(player)
+            if injured_part is not None:
+                # Snapshot before healing so we can detect a level
+                # transition (SEVERE → MODERATE, USELESS → SEVERE,
+                # etc.) and narrate the recovery.
+                old_level = injured_part.get_injury_level()
+                injured_part.apply_damage(-player.health_regen)
+                new_level = injured_part.get_injury_level()
+                if new_level != old_level:
+                    template = injured_part.get_recovery_string()
+                    if template:
+                        # Parse through the @ system so pronouns /
+                        # names come out naturally (e.g. "Caels winces
+                        # as feeling returns to her left arm.").
+                        line = parse(template, player)
+                        msg += f"\n{line[0].upper()}{line[1:]}"
+
+            # Regen grows until all of the player's HP pools (body +
+            # every part) are back at max, then resets. Ramp is +2
+            # per tick so heavy injuries catch up in a reasonable
+            # session window (~75 real-minutes for a full-body heal
+            # at ~100 HP).
+            any_injury = (
+                player.health < max_health
+                or any(
+                    p.health < p.health_max
+                    for p in (player.body_parts or [])
+                )
+            )
+            player.health_regen = (player.health_regen + 2) if any_injury else 0
 
         if msg:
             Dispatcher.add(self.channel, msg)
+
+    @staticmethod
+    def _most_injured_part(player):
+        """Return the body part with the lowest health/health_max
+        ratio, or None if all parts are at max health. Used by
+        ``do_health_regen`` to triage: healing flows to the most
+        damaged part first so a destroyed limb recovers before
+        cosmetic bruises."""
+        parts = player.body_parts or []
+        injured = [p for p in parts if p.health < p.health_max]
+        if not injured:
+            return None
+        return min(injured, key=lambda p: p.health / p.health_max)
 
     async def do_combat(self):
         """Tallies and displays combat results."""
