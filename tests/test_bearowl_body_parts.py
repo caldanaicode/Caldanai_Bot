@@ -412,10 +412,13 @@ class TestBearowlFlyingFlag:
         assert "flying" in b.flags  # baseline
 
         # Overkill: drive the wing all the way to USELESS in one
-        # shot. ``apply_damage`` with ``target_part`` routes through
-        # the hybrid option-C path, which fires
-        # ``on_injury_change`` when the level transitions.
+        # shot. ``apply_damage`` only routes the damage — ``do_combat``
+        # is the single site that fires ``on_injury_change`` after a
+        # full attack sequence resolves (to avoid double-firing hooks
+        # with side effects). Mirror that here with a manual fire.
+        old_level = wing.get_injury_level()
         b.apply_damage(100, target_part=wing)
+        wing.on_injury_change(b, old_level, wing.get_injury_level())
 
         assert wing.is_destroyed()
         assert "flying" not in b.flags

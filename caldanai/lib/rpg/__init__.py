@@ -339,15 +339,29 @@ class Game:
 
                 # Emit one injury message per unique part based on the
                 # level transition across the full sequence.
+                # ``apply_damage`` intentionally does NOT fire the hooks
+                # itself — this is the single authoritative call site
+                # for ``on_injury_change`` and ``on_destroyed`` so hooks
+                # with side effects (wing grounding, pain cries) fire
+                # exactly once per attack action per part.
                 for part, old_level in part_starting_levels.values():
                     new_level = part.get_injury_level()
-                    if new_level != old_level and new_level != InjuryLevels.NONE:
+                    if new_level == old_level:
+                        continue
+                    if new_level != InjuryLevels.NONE:
                         feedback = part.get_injury_string()
                         injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
-                        # Capture hook messages (e.g. wing grounding text).
-                        hook_msg = part.on_injury_change(monster, old_level, new_level)
-                        if hook_msg:
-                            injury_feedback.append(f"   {hook_msg}")
+                    hook_msg = part.on_injury_change(monster, old_level, new_level)
+                    if hook_msg:
+                        injury_feedback.append(f"   {hook_msg}")
+                    # First-time destruction: fire on_destroyed once.
+                    if (
+                        new_level == InjuryLevels.USELESS
+                        and old_level != InjuryLevels.USELESS
+                    ):
+                        destroyed_msg = part.on_destroyed(monster)
+                        if destroyed_msg:
+                            injury_feedback.append(f"   {destroyed_msg}")
 
                 # Defense subtracted once from the per-player total
                 # (variant B — restored pre-refactor balance).

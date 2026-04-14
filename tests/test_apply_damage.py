@@ -253,68 +253,47 @@ class TestApplyDamagePartTargeted:
 # ---------------------------------------------------------------------------
 
 
-class TestApplyDamageHooks:
-    def test_on_injury_change_fires_on_level_transition(self):
-        c = _make_creature(health=100, health_max=100)
-        arm = _RecordingPart(name="arm", health_max=10)
-        c.body_parts = [arm]
-        # 10/10 (NONE) → 9/10 (0.9, MINOR) : one transition
-        c.apply_damage(1, target_part=arm)
-        assert arm.injury_change_calls == [
-            (InjuryLevels.NONE, InjuryLevels.MINOR),
-        ]
+class TestApplyDamageDoesNotFireHooks:
+    """``Creature.apply_damage`` intentionally does NOT fire hooks —
+    ``do_combat`` is the single authoritative caller that snapshots
+    part state, applies all damage in a sequence, and fires
+    ``on_injury_change`` / ``on_destroyed`` exactly once per part per
+    attack action. This prevents double-firing hooks with side effects
+    (e.g. wing grounding, doppelganger pain cries) when a multi-source
+    attack lands multiple hits on the same part.
+    """
 
-    def test_on_injury_change_does_not_fire_when_level_unchanged(self):
+    def test_apply_damage_does_not_fire_on_injury_change(self):
         c = _make_creature(health=100, health_max=100)
         arm = _RecordingPart(name="arm", health_max=10)
         c.body_parts = [arm]
-        # First drop into MINOR
-        c.apply_damage(1, target_part=arm)  # 10 → 9, MINOR
-        arm.injury_change_calls.clear()
-        # Still in MINOR range (0.60 ≤ % < 1.0)
-        c.apply_damage(1, target_part=arm)  # 9 → 8, still MINOR
+        c.apply_damage(1, target_part=arm)  # level transitions NONE → MINOR
+        # Level tracking still works; hook simply isn't fired here.
+        assert arm.get_injury_level() == InjuryLevels.MINOR
         assert arm.injury_change_calls == []
 
-    def test_on_injury_change_fires_with_correct_levels(self):
+    def test_apply_damage_does_not_fire_on_destroyed(self):
         c = _make_creature(health=100, health_max=100)
         arm = _RecordingPart(name="arm", health_max=10)
         c.body_parts = [arm]
-        c.apply_damage(5, target_part=arm)  # 10 → 5 → 50% → MODERATE
-        assert arm.injury_change_calls == [
-            (InjuryLevels.NONE, InjuryLevels.MODERATE),
-        ]
-
-    def test_on_destroyed_fires_once_on_destruction(self):
-        c = _make_creature(health=100, health_max=100)
-        arm = _RecordingPart(name="arm", health_max=10)
-        c.body_parts = [arm]
-        c.apply_damage(10, target_part=arm)
-        assert arm.destroyed_calls == 1
+        c.apply_damage(10, target_part=arm)  # drives straight to USELESS
         assert arm.is_destroyed()
+        assert arm.destroyed_calls == 0
 
-    def test_on_destroyed_does_not_double_fire(self):
-        """If the part is already destroyed, another hit must NOT
-        re-fire ``on_destroyed``."""
+    def test_apply_damage_still_tracks_state_across_multiple_hits(self):
+        """Even without hook firing, damage routing still updates part
+        health, critical-part death, and injury levels correctly."""
         c = _make_creature(health=100, health_max=100)
         arm = _RecordingPart(name="arm", health_max=10)
         c.body_parts = [arm]
-        c.apply_damage(10, target_part=arm)  # destroys
-        assert arm.destroyed_calls == 1
-        c.apply_damage(5, target_part=arm)  # hit an already-dead part
-        assert arm.destroyed_calls == 1  # still 1
-
-    def test_on_destroyed_fires_before_injury_change_noop(self):
-        """Destruction shouldn't starve the injury_change hook when
-        transitioning into USELESS; both fire once on the killing blow."""
-        c = _make_creature(health=100, health_max=100)
-        arm = _RecordingPart(name="arm", health_max=10)
-        c.body_parts = [arm]
-        c.apply_damage(10, target_part=arm)
-        assert arm.destroyed_calls == 1
-        # NONE → USELESS transition was recorded
-        assert arm.injury_change_calls == [
-            (InjuryLevels.NONE, InjuryLevels.USELESS),
-        ]
+        c.apply_damage(1, target_part=arm)  # MINOR
+        c.apply_damage(1, target_part=arm)  # still MINOR
+        c.apply_damage(8, target_part=arm)  # destroys (USELESS)
+        assert arm.is_destroyed()
+        assert arm.get_injury_level() == InjuryLevels.USELESS
+        # No hook fires, regardless of how many hits land.
+        assert arm.injury_change_calls == []
+        assert arm.destroyed_calls == 0
 
 
 # ---------------------------------------------------------------------------

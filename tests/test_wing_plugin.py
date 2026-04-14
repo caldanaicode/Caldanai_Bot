@@ -350,7 +350,11 @@ class TestDamageRoutingIntegration:
         wing = BodyPart.make("wing", health_max=10)
         c.body_parts = [wing]
 
+        # Hook firing lives in do_combat now — mirror its snapshot +
+        # fire pattern here to exercise the wing grounding path.
+        old_level = wing.get_injury_level()
         c.apply_damage(20, target_part=wing)
+        wing.on_injury_change(c, old_level, wing.get_injury_level())
 
         assert wing.is_destroyed() is True
         assert wing.get_injury_level() == InjuryLevels.USELESS
@@ -410,8 +414,11 @@ class TestWingGroundingDebuffPipeline:
         # While flying: stub dormant, wing healthy -> no DODGE modifier.
         assert c.get_stat_modifier_total(Stat.DODGE) == 0
 
-        # Ground the creature by destroying the wing.
+        # Ground the creature by destroying the wing. Hook firing lives
+        # in do_combat now — mirror that here explicitly.
+        old_level = wing.get_injury_level()
         c.apply_damage(20, target_part=wing)
+        wing.on_injury_change(c, old_level, wing.get_injury_level())
 
         assert wing.is_destroyed() is True
         assert "flying" not in c.flags

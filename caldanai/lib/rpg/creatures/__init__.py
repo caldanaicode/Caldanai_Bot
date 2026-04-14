@@ -159,10 +159,14 @@ class Creature:
         unified HP). If the targeted part is critical and becomes
         destroyed, the creature is killed outright.
 
-        Fires ``target_part.on_injury_change`` once per injury-level
-        transition and ``target_part.on_destroyed`` exactly once on the
-        hit that reduces the part to 0 HP (never re-firing on
-        subsequent hits to an already-destroyed part).
+        Does NOT fire ``on_injury_change`` or ``on_destroyed`` hooks —
+        callers that pass ``target_part`` are responsible for snapshotting
+        the part's starting level and firing hooks exactly once after
+        the sequence of hits for that part resolves. This avoids
+        double-firing hooks with side effects (e.g. wing grounding,
+        doppelganger pain cries) when multi-source attacks target the
+        same part, and it keeps a single, coalesced hook-call site in
+        ``do_combat`` rather than two competing ones.
 
         :param amount: Damage amount; negative heals.
         :param dmg_type: Optional damage type used to look up trait
@@ -184,11 +188,6 @@ class Creature:
         )
         final_dmg = int(amount * multiplier)
 
-        # Snapshot the part's state before damage so we can detect
-        # injury-level transitions and first-time destruction.
-        was_destroyed = target_part.is_destroyed()
-        old_level = target_part.get_injury_level()
-
         # Part tracks damage for injury-level purposes.
         # Body HP is NOT reduced here — the caller (do_combat) applies
         # the post-defense total to body HP after all sources resolve.
@@ -197,17 +196,6 @@ class Creature:
         # Critical part destroyed → death (even before body HP is touched).
         if target_part.is_critical and target_part.is_destroyed():
             self.health = 0
-
-        # Hooks: injury_change fires on any level transition;
-        # on_destroyed fires exactly once (only when the part was NOT
-        # already destroyed and now is). For this item, hook return
-        # strings are intentionally discarded — items 1.10 and combat
-        # rendering will wire the output.
-        new_level = target_part.get_injury_level()
-        if new_level != old_level:
-            target_part.on_injury_change(self, old_level, new_level)
-        if target_part.is_destroyed() and not was_destroyed:
-            target_part.on_destroyed(self)
 
     def get_attack_sources(self) -> List[AttackSource]:
         """Returns the list of attack sources this creature uses when attacking.

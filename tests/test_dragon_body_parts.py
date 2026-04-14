@@ -183,7 +183,10 @@ class TestDragonFlyingFlag:
         wing = next(p for p in d.body_parts if isinstance(p, WingPlugin))
         assert "flying" in d.flags
 
+        # Hook firing lives in do_combat now — mirror it manually.
+        old_level = wing.get_injury_level()
         d.apply_damage(100, target_part=wing)
+        wing.on_injury_change(d, old_level, wing.get_injury_level())
 
         assert wing.is_destroyed()
         assert "flying" not in d.flags
