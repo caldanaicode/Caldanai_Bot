@@ -1,6 +1,9 @@
-from typing import Optional
+import io
+import pprint
+from enum import Enum
+from typing import Any, Optional
 
-from discord import Embed, Guild
+from discord import Embed, File as DiscordFile, Guild
 from discord.ext.commands import (
     BucketType,
     Cog,
@@ -26,6 +29,66 @@ from caldanai.logger import get_logger
 
 
 _log = get_logger(__name__)
+
+
+# Static plugin data that's identical across every spawn of a creature —
+# pruned in `compact` mode to keep dumps legible during playtesting.
+_COMPACT_SKIP_KEYS = {"debuffs", "flavor"}
+
+
+def _to_plain(
+    obj: Any,
+    depth: int = 0,
+    seen: Optional[set] = None,
+    skip_keys: Optional[set] = None,
+) -> Any:
+    """Recursively convert an object to primitive types for pprint.
+
+    Handles cycles (via id tracking), caps depth to avoid runaway dumps,
+    and unwraps dataclasses/objects via their ``__dict__``. Enums render
+    as their str() form; everything exotic falls back to repr().
+
+    ``skip_keys`` is applied to dict and ``__dict__`` traversal alike so
+    noisy static fields (e.g., per-injury debuff tables) can be pruned
+    in compact mode.
+    """
+    MAX_DEPTH = 8
+    if seen is None:
+        seen = set()
+    if skip_keys is None:
+        skip_keys = set()
+
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, Enum):
+        return str(obj)
+    if depth >= MAX_DEPTH:
+        return repr(obj)
+
+    oid = id(obj)
+    if oid in seen:
+        return f"<cycle: {type(obj).__name__}>"
+    seen = seen | {oid}
+
+    if isinstance(obj, dict):
+        return {
+            _to_plain(k, depth + 1, seen, skip_keys):
+                _to_plain(v, depth + 1, seen, skip_keys)
+            for k, v in obj.items()
+            if k not in skip_keys
+        }
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [_to_plain(v, depth + 1, seen, skip_keys) for v in obj]
+    if hasattr(obj, "__dict__") and vars(obj):
+        return {
+            "__class__": type(obj).__name__,
+            **{
+                k: _to_plain(v, depth + 1, seen, skip_keys)
+                for k, v in vars(obj).items()
+                if k not in skip_keys
+            },
+        }
+    return repr(obj)
 
 
 class RpgAdminCommands(Cog):
@@ -516,6 +579,95 @@ class RpgAdminCommands(Cog):
 
         game.save()
         Dispatcher.add(game.channel, "Ambience has been set.")
+
+    @is_owner()
+    @command(name="inspect_monster", aliases=["im"], brief="DM a recursive dump of the current monster. Owner only.")
+    async def inspect_monster(self, ctx: Context, *flags: str):
+        """
+        DMs the invoking owner a pretty-printed recursive dump of the currently
+        spawned monster. Intended for debugging only; output goes to DM to avoid
+        leaking internals into player channels.
+
+        Flags (order-independent, positional):
+            compact     Omit noisy static plugin data (debuff tables, flavor text).
+            inline      Send as inline code-fence messages instead of a .py attachment (the default).
+            stats       Include only top-level creature attributes (no body_parts / attack_sources).
+            parts       Include only body_parts.
+            attacks     Include only attack_sources.
+
+        Section flags are exclusive — passing more than one falls back to the full dump.
+        """
+        game = self.bot.games.get(ctx.guild.id) if ctx.guild else None
+        if not game or game.monster is None:
+            Dispatcher.add(ctx, "There is no monster present to inspect.")
+            return
+
+        flagset = {f.lower() for f in flags}
+        compact = "compact" in flagset
+        as_file = "inline" not in flagset
+        sections = flagset & {"stats", "parts", "attacks"}
+
+        skip = _COMPACT_SKIP_KEYS if compact else set()
+        monster = game.monster
+
+        # Build the dump dict based on section flags. A single section flag
+        # returns just that slice; zero or multiple section flags return the
+        # full dump.
+        if len(sections) == 1:
+            section = next(iter(sections))
+            if section == "stats":
+                # Top-level scalars only — strip body_parts and any
+                # monster-specific list/dict containers to keep the view flat.
+                state = _to_plain(monster, skip_keys=skip)
+                if isinstance(state, dict):
+                    state = {
+                        k: v for k, v in state.items()
+                        if k == "__class__" or not isinstance(v, (list, dict, set))
+                    }
+                dump: Any = {"class": type(monster).__name__, "stats": state}
+            elif section == "parts":
+                dump = {
+                    "class": type(monster).__name__,
+                    "body_parts": _to_plain(monster.body_parts, skip_keys=skip),
+                }
+            else:  # attacks
+                try:
+                    sources = [_to_plain(s, skip_keys=skip) for s in monster.get_attack_sources()]
+                except Exception as e:
+                    sources = f"<get_attack_sources failed: {e!r}>"
+                dump = {
+                    "class": type(monster).__name__,
+                    "attack_sources": sources,
+                }
+        else:
+            try:
+                sources = [_to_plain(s, skip_keys=skip) for s in monster.get_attack_sources()]
+            except Exception as e:
+                sources = f"<get_attack_sources failed: {e!r}>"
+            dump = {
+                "class": type(monster).__name__,
+                "state": _to_plain(monster, skip_keys=skip),
+                "attack_sources": sources,
+            }
+
+        text = pprint.pformat(dump, width=100, sort_dicts=False)
+
+        try:
+            if as_file:
+                # `.py` extension so Discord's inline preview applies Python
+                # syntax highlighting — closest thing to a Slack-style snippet.
+                filename = f"{type(monster).__name__.lower()}_dump.py"
+                buf = io.BytesIO(text.encode("utf-8"))
+                await ctx.author.send(file=DiscordFile(buf, filename=filename))
+            else:
+                chunks = Dispatcher.split_message(text, sep="\n", limit=1900)
+                for chunk in chunks:
+                    await ctx.author.send(f"```python\n{chunk}\n```")
+            suffix = " (compact)" if compact else ""
+            Dispatcher.add(ctx, f"Sent {type(monster).__name__} dump{suffix} to your DMs.")
+        except Exception as e:
+            _log.error(f"inspect_monster DM failed: {e}")
+            Dispatcher.add(ctx, "Unable to DM you — check that DMs from server members are enabled.")
 
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @command(name="reload_plugins", aliases=["rp"], brief="Reloads monster and item plugins.")

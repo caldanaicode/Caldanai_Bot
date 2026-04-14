@@ -231,13 +231,15 @@ class AttackSequence:
             attack_w = max(len(H_ATTACK), max(len(s) for s in attack_col_list))
 
         total_damage = self.total_damage()
+        dodges = {r.dodge for r in self.results}
         total_dodge = self.results[0].dodge if self.results else 0
+        dodge_varies = len(dodges) > 1
 
         lines = ["```diff"]
 
         if all_auto_hit:
             lines.append("   Auto-hit attack")
-        elif self.multi_target:
+        elif self.multi_target or dodge_varies:
             lines.append("   Attack vs Dodge (varies)")
         else:
             lines.append(f"   Attack vs Dodge ({total_dodge})")
