@@ -95,7 +95,10 @@ class AttackResult:
         dmg_type_emoji = self.dmg_type.emoji if self.dmg_type else ""
 
         label = self.source.label if self.source else ""
-        if self.target_part and not self.combined.isMiss:
+        if self.target_part:
+            # Always show the aimed-at part (hit or miss) — on a miss it
+            # provides context for the dodge value in that row, which
+            # varies by part exposure under per-part dodge scaling.
             label = f"{label} → {self.target_part.display_name}"
 
         return {
@@ -196,89 +199,102 @@ class AttackSequence:
         """Render results as a single compact diff-block table.
 
         Layout per row (normal attacks):
-        prefix | label | roll → hit | (breakdown) = raw | [‼️] * mult emoji = sub | - def | → final
+        prefix | label | roll v dodge → result | (breakdown) = raw | [‼️] * mult emoji = sub | → final
 
-        For auto-hit attacks (dragon breath), the roll/hit columns collapse
-        since there's no to-hit roll to display.
+        The attack check collapses to a single column of the form
+        ``{roll} v {dodge} → {HIT|MISS|CRIT|FUMBLE}``. This keeps the
+        three values that describe the check (what was rolled, what it
+        was checked against, what the outcome was) visually adjacent —
+        essential when per-part exposure, multi-target, or multi-player
+        combat makes dodges differ across sources.
+
+        For auto-hit attacks (dragon breath), the check column collapses
+        entirely since there's no roll or dodge to display.
         """
         parts_list = [r.to_display_parts() for r in self.results]
         all_auto_hit = all(p["auto_hit"] for p in parts_list)
 
         # Pre-build per-column strings so we can compute widths
-        attack_col_list = [
-            f"{p['roll_str']} → {p['hit_str']}" for p in parts_list
+        check_col_list = [
+            f"{p['roll_str']} v {p['dodge']} → {p['hit_str']}"
+            for p in parts_list
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]
         mult_col_list = [self._build_mult_column(p) for p in parts_list]
-        result_col_list = [
-            f"→ {p['final_damage']}" for p in parts_list
+        # Final column mirrors the Multiplier column's result (sub_damage)
+        # so post-hook multipliers — e.g. math-teacher prime doubling —
+        # don't create a silent jump between the row's math and the
+        # "Final" total. Post-hook bumps are rendered on the extra_text
+        # line below the row ("LORD OF PRIMES! * 2 = 58"), and still
+        # contribute to the footer total via r.total_damage().
+        final_col_list = [
+            f"→ {0 if p['is_miss'] else p['sub_damage']}" for p in parts_list
         ]
 
         # Header labels per column (Def column removed — defense is
-        # subtracted once from the per-player total, not per-source)
+        # subtracted once from the per-player total, not per-source).
+        # H_FINAL is the per-source damage output; H_CHECK is the
+        # attack-check outcome. They're distinct columns.
         H_LABEL = "Source"
-        H_ATTACK = "Roll → Hit"
+        H_CHECK = "Roll v Dodge → Result"
         H_DAMAGE = "Damage"
         H_MULT = "Multiplier"
-        H_RESULT = "Result"
+        H_FINAL = "Final"
 
         label_w = max(len(H_LABEL), max(len(p["label"]) for p in parts_list))
         dmg_w = max(len(H_DAMAGE), max(len(s) for s in dmg_col_list))
         mult_w = max(len(H_MULT), max(len(s) for s in mult_col_list))
-        result_w = max(len(H_RESULT), max(len(s) for s in result_col_list))
+        final_w = max(len(H_FINAL), max(len(s) for s in final_col_list))
 
         if not all_auto_hit:
-            attack_w = max(len(H_ATTACK), max(len(s) for s in attack_col_list))
+            check_w = max(len(H_CHECK), max(len(s) for s in check_col_list))
 
         total_damage = self.total_damage()
-        dodges = {r.dodge for r in self.results}
-        total_dodge = self.results[0].dodge if self.results else 0
-        dodge_varies = len(dodges) > 1
 
         lines = ["```diff"]
 
+        # Auto-hit keeps its summary line (no roll / no dodge to stand in
+        # for it). Non-auto-hit drops the header line entirely — the
+        # per-row check column tells the whole story.
         if all_auto_hit:
             lines.append("   Auto-hit attack")
-        elif self.multi_target or dodge_varies:
-            lines.append("   Attack vs Dodge (varies)")
-        else:
-            lines.append(f"   Attack vs Dodge ({total_dodge})")
 
         # Column header row (plain text, no diff prefix)
         if all_auto_hit:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_DAMAGE.ljust(dmg_w)} | "
-                f"{H_MULT.ljust(mult_w)} | {H_RESULT.ljust(result_w)}"
+                f"{H_MULT.ljust(mult_w)} | {H_FINAL.ljust(final_w)}"
             )
         else:
             header_row = (
-                f"   {H_LABEL.ljust(label_w)} | {H_ATTACK.ljust(attack_w)} | "
+                f"   {H_LABEL.ljust(label_w)} | {H_CHECK.ljust(check_w)} | "
                 f"{H_DAMAGE.ljust(dmg_w)} | {H_MULT.ljust(mult_w)} | "
-                f"{H_RESULT.ljust(result_w)}"
+                f"{H_FINAL.ljust(final_w)}"
             )
         lines.append(header_row)
 
-        for p, attack_col, dmg_col, mult_col, result_col in zip(
-            parts_list, attack_col_list, dmg_col_list, mult_col_list, result_col_list
+        for p, check_col, dmg_col, mult_col, final_col in zip(
+            parts_list, check_col_list,
+            dmg_col_list, mult_col_list, final_col_list,
         ):
             prefix = self._prefix_for(p)
             label = p["label"].ljust(label_w)
             dmg_padded = dmg_col.ljust(dmg_w)
             mult_padded = mult_col.ljust(mult_w)
             emoji = p["damage_type_emoji"]
-            result_rendered = result_col.ljust(result_w) if emoji else result_col
+            final_rendered = final_col.ljust(final_w) if emoji else final_col
             emoji_trailer = f" {emoji}" if emoji else ""
 
             if all_auto_hit:
                 row = (
                     f"{prefix}  {label} | {dmg_padded} | {mult_padded} | "
-                    f"{result_rendered}{emoji_trailer}"
+                    f"{final_rendered}{emoji_trailer}"
                 )
             else:
-                attack_padded = attack_col.ljust(attack_w)
+                check_padded = check_col.ljust(check_w)
                 row = (
-                    f"{prefix}  {label} | {attack_padded} | {dmg_padded} | "
-                    f"{mult_padded} | {result_rendered}{emoji_trailer}"
+                    f"{prefix}  {label} | {check_padded} | "
+                    f"{dmg_padded} | {mult_padded} | {final_rendered}{emoji_trailer}"
                 )
             lines.append(row)
 
@@ -290,9 +306,26 @@ class AttackSequence:
         else:
             defense = self.results[0].defense if self.results else 0
             num_hits = sum(1 for r in self.results if r.damage > 0)
-            final = max(num_hits, total_damage - defense) if num_hits > 0 else 0
-            if defense and num_hits > 0 and total_damage != final:
-                lines.append(f"   Total: {total_damage} damage - {defense} defense → {final} damage")
+            if num_hits > 0:
+                raw_after_defense = total_damage - defense
+                final = max(num_hits, raw_after_defense)
+                if defense and total_damage != final:
+                    # Distinguish the "defense partially absorbed" case from
+                    # the "defense fully absorbed but the 1-per-hit floor
+                    # kicked in" case so the footer arithmetic reads
+                    # honestly rather than looking like a math error.
+                    if raw_after_defense < num_hits:
+                        lines.append(
+                            f"   Total: {total_damage} damage - {defense} defense, "
+                            f"floored at {num_hits} (1/hit) → {final} damage"
+                        )
+                    else:
+                        lines.append(
+                            f"   Total: {total_damage} damage - {defense} defense "
+                            f"→ {final} damage"
+                        )
+                else:
+                    lines.append(f"   Total: {total_damage} damage")
             else:
                 lines.append(f"   Total: {total_damage} damage")
         lines.append("```")
@@ -304,10 +337,13 @@ class AttackSequence:
         """Build the damage breakdown column.
 
         Cases:
+        - Miss: blank — the attack didn't land, so the roll is irrelevant.
         - Breakdown already contains `=`: show as-is (DamageRoll added it)
         - Breakdown is a single number matching raw damage: show just the number
         - Otherwise: append `= raw` so the reader can see the total
         """
+        if parts["is_miss"]:
+            return ""
         breakdown = parts["damage_breakdown"]
         raw = parts["raw_damage"]
         if "=" in breakdown:

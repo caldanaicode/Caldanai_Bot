@@ -311,13 +311,23 @@ class Game:
                 # Per-result: route raw (pre-defense) damage to parts for
                 # injury tracking. Body HP is handled AFTER all sources
                 # resolve, with defense subtracted once from the total.
+                #
+                # Injury-message coalescing: when multiple sources in a
+                # sequence (e.g. dual-wield) target the same part, we
+                # snapshot that part's starting level ONCE before any
+                # hits land and emit a single transition message after
+                # all hits resolve. This avoids the dual-wield chatter
+                # of "lightly battered" followed by "utterly destroyed"
+                # for a single attack action.
                 injury_feedback = []
                 num_hits = 0
+                part_starting_levels: dict = {}  # id(part) -> (part, old_level)
                 for result in sequence.results:
                     if result.damage > 0:
                         num_hits += 1
                         part = result.target_part
-                        old_level = part.get_injury_level() if part else None
+                        if part is not None and id(part) not in part_starting_levels:
+                            part_starting_levels[id(part)] = (part, part.get_injury_level())
 
                         dmg_result = monster.apply_damage(
                             result.damage,
@@ -327,15 +337,17 @@ class Game:
                         if dmg_result and not death_msg:
                             death_msg = dmg_result
 
-                        if part and old_level is not None:
-                            new_level = part.get_injury_level()
-                            if new_level != old_level and new_level != InjuryLevels.NONE:
-                                feedback = part.get_injury_string()
-                                injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
-                                # Capture hook messages (e.g. wing grounding text).
-                                hook_msg = part.on_injury_change(monster, old_level, new_level)
-                                if hook_msg:
-                                    injury_feedback.append(f"   {hook_msg}")
+                # Emit one injury message per unique part based on the
+                # level transition across the full sequence.
+                for part, old_level in part_starting_levels.values():
+                    new_level = part.get_injury_level()
+                    if new_level != old_level and new_level != InjuryLevels.NONE:
+                        feedback = part.get_injury_string()
+                        injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
+                        # Capture hook messages (e.g. wing grounding text).
+                        hook_msg = part.on_injury_change(monster, old_level, new_level)
+                        if hook_msg:
+                            injury_feedback.append(f"   {hook_msg}")
 
                 # Defense subtracted once from the per-player total
                 # (variant B — restored pre-refactor balance).

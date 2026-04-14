@@ -247,8 +247,8 @@ class TestAttackSequence:
         # Both labels appear inside the table rows
         assert "Left" in md
         assert "Right" in md
-        # Table has the section header and total
-        assert "Attack vs Dodge" in md
+        # Table has a Dodge column (per-row) and a total footer
+        assert "Dodge" in md
         assert "Total:" in md
 
     def test_multi_result_total_damage_in_footer(self):

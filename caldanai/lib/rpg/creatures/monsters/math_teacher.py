@@ -1,5 +1,5 @@
 from random import choice
-from typing import List
+from typing import List, Optional
 
 from caldanai.lib.rpg.combat.attack_result import AttackResult
 from caldanai.lib.rpg.combat.attack_source import AttackSource, NaturalAttackSource
@@ -100,7 +100,7 @@ class MathTeacher(MonsterPlugin):
         """Doubles prime damage dealt by the math teacher and sets LORD OF PRIMES flavor."""
         if self.is_prime(result.damage):
             result.damage *= 2
-            result.extra_text = f"__LORD OF PRIMES!__ * 2 = {result.damage}"
+            result.extra_text = f"LORD OF PRIMES! * 2 = {result.damage}"
 
     def resolve_attack(
         self,
@@ -108,10 +108,13 @@ class MathTeacher(MonsterPlugin):
         source: AttackSource,
         atk_roll: AttackRoll,
         dmg_roll: DamageRoll,
+        target_dodge: Optional[int] = None,
     ) -> AttackResult:
         """Halves incoming prime damage and sets LORD OF PRIMES flavor."""
-        result = super().resolve_attack(attacker, source, atk_roll, dmg_roll)
+        result = super().resolve_attack(
+            attacker, source, atk_roll, dmg_roll, target_dodge=target_dodge
+        )
         if self.is_prime(result.damage):
             result.damage //= 2
-            result.extra_text = f"__LORD OF PRIMES!__ / 2 = {result.damage}"
+            result.extra_text = f"LORD OF PRIMES! / 2 = {result.damage}"
         return result
