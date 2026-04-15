@@ -34,9 +34,14 @@ class Weapon(Equipment):
         self.attack = atk.lower()
         self.damage_type = dmg_type
         self.attack_msg = atk_msg
+        # Skill key uses the *canonical* damage-type form (with
+        # explicit "combined" marker) so a COMBINED-bit weapon
+        # doesn't quietly share a skill key with a hypothetical
+        # non-COMBINED counterpart. Player-facing display strips
+        # the marker via ``DamageTypes.display_skill_name``.
         self.skill: str = (
             f"{'two-handed ' if slots & EquipmentSlots.MULTI_SLOT else 'one-handed '}"
-            f"{str(self.damage_type) or ''}".strip()
+            f"{self.damage_type.canonical if self.damage_type else ''}".strip()
         )
 
         dice = Dice.__int__(self.attack.split("d")[0])
@@ -46,7 +51,9 @@ class Weapon(Equipment):
         embed, file = super().get_embed()
 
         fields = (
-            ("Skill", self.skill.title(), False),
+            # Strip the technical "combined" marker before the player
+            # sees the skill name in the weapon embed.
+            ("Skill", DamageTypes.display_skill_name(self.skill).title(), False),
             ("Is Two-Handed", bool(self.slots & EquipmentSlots.MULTI_SLOT), True),
             ("\u200b", "\u200b", True),
             ("Damage Type", str(self.damage_type), True),

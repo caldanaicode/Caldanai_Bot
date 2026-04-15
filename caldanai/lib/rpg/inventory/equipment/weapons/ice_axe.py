@@ -18,5 +18,5 @@ class WeaponPlugin(Weapon):
             atk="2d6",
             atk_msg="cleaves",
             bonus=bonus,
-            dmg_type=DamageTypes.SLASHING | DamageTypes.WATER | DamageTypes.DARK,
+            dmg_type=DamageTypes.SLASHING | DamageTypes.ICE,
         )

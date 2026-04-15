@@ -114,11 +114,13 @@ class NaturalAttackSource(AttackSource):
         skill: str = "natural",
         *,
         reach: Reach = Reach.MELEE,
+        drain_ratio: float = 0.0,
     ):
         super().__init__(label=label, reach=reach)
         self._atk = atk
         self._dmg_type = dmg_type
         self._skill = skill
+        self._drain_ratio = drain_ratio
 
     @property
     def damage_type(self) -> Optional[DamageTypes]:
@@ -127,6 +129,14 @@ class NaturalAttackSource(AttackSource):
     @property
     def skill(self) -> str:
         return self._skill
+
+    @property
+    def drain_ratio(self) -> float:
+        """Fraction of damage dealt that heals the attacker. ``0.0``
+        for ordinary attacks; non-zero for life-drain attacks
+        (spirit ethereal touch, future vampire bites, etc.). Read by
+        ``Creature._on_attack_resolved`` to apply the heal."""
+        return self._drain_ratio
 
     def make_attack_rolls(self, attacker: "Creature") -> Tuple[AttackRoll, DamageRoll]:
         atk_bonus, dmg_bonus = _get_skill_bonus(attacker, self.skill)

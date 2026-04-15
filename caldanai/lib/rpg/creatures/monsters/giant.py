@@ -37,6 +37,7 @@ class Giant(MonsterPlugin):
         self.loot["sledgehammer"] = 0.2
         self.loot["spear"] = 0.2
         self.loot["ice_axe"] = 0.1
+        self.loot["giant_toe"] = 0.25
 
         self.body_parts = BodyPart.humanoid()
 
@@ -49,8 +50,13 @@ class Giant(MonsterPlugin):
         msg = f"*@2 approaches @1d for a {invocation}. @1dc flicks @2o away with a rumbling chuckle.*"
         if attempt >= actor.get_dodge():
             msg += f" @2 takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
+            # ``apply_damage`` returns a string on ``Player`` (for the
+            # death/resurrection transition message) and ``None`` on
+            # a plain ``Creature``. Guard both to stay robust when
+            # non-Player actors hit this path (tests, NPC-on-NPC).
             m = actor.apply_damage(dmg)
-            msg += f"\n{m}" if len(m) > 0 else ""
+            if m:
+                msg += f"\n{m}"
         else:
             msg += "\n*@2 tumbles deftly to avoid taking damage!*"
         return msg

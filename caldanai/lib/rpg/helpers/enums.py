@@ -61,45 +61,176 @@ class DamageTypes(IntFlag):
     ALL = COMBINED | ANY
     """Indicates all damage types combined (which should be rare)"""
 
-    def __str__(self):
-        result = []
+    # ------------------------------------------------------------------
+    # Compound elemental aliases.
+    #
+    # Each alias bundles its component bits with ``COMBINED`` so trait
+    # matching treats the value as an atomic compound. Without
+    # ``COMBINED``, a ``DARK | WATER`` trait would fire on pure-water
+    # OR pure-dark attacks via the bit-overlap branch in
+    # ``Creature.get_trait_multiplier``; WITH ``COMBINED``, it only
+    # fires on damage that's been declared as a compound event of
+    # those bits — i.e. an actual ice attack.
+    #
+    # NOT a storage drop-in for legacy values: the alias int value
+    # is ``WATER | DARK | COMBINED``, which differs from a legacy
+    # ``WATER | DARK`` by exactly the COMBINED bit (value 1). So
+    # legacy stored ints (or skill names derived from them) do NOT
+    # auto-rename — they need explicit migration. Skill-name
+    # migration lives in ``Player._migrate_skill_keys``.
+    # ------------------------------------------------------------------
 
-        if (self != 0 and (self & (self - 1)) == 0) or self in (DamageTypes.ALL, DamageTypes.ANY):
+    ICE       = WATER | DARK  | COMBINED
+    POISON    = DARK  | AIR   | COMBINED
+    LIGHTNING = LIGHT | AIR   | COMBINED
+    ACID      = EARTH | WATER | COMBINED
+
+    def __str__(self):
+        if int(self) == 0:
+            return ""
+
+        cls = type(self)
+
+        # Single-bit values and the ALL/ANY special cases keep their
+        # canonical name as-is.
+        if (self & (self - 1)) == 0:
+            return cls(int(self)).name.lower()
+        if self == DamageTypes.ALL or self == DamageTypes.ANY:
             return self.name.lower()
 
-        if self & DamageTypes.RANGED:
-            result.append("ranged")
+        val = int(self)
 
-        if self & DamageTypes.MAGICAL:
-            result.append("magical")
+        # First pass: greedy-match compound elemental aliases (any
+        # multi-bit member that includes the COMBINED bit, excluding
+        # ALL itself which is the "everything" sentinel). Largest
+        # bitmask first so a hypothetical multi-element compound
+        # would consume its bits before sub-aliases do.
+        compound_aliases = sorted(
+            (
+                m for name, m in cls.__members__.items()
+                if name != "ALL"
+                and (m.value & (m.value - 1)) != 0  # multi-bit
+                and (m.value & DamageTypes.COMBINED)
+            ),
+            key=lambda m: bin(m.value).count("1"),
+            reverse=True,
+        )
+        matched_aliases = []
+        for alias in compound_aliases:
+            if (val & alias.value) == alias.value:
+                matched_aliases.append(alias.name.lower())
+                val &= ~alias.value
 
-        for t in DamageTypes:
-            if t in (DamageTypes.ALL, DamageTypes.ANY, DamageTypes.COMBINED, DamageTypes.MAGICAL, DamageTypes.RANGED):
+        # Second pass: legacy single-bit accumulation for whatever
+        # bits the aliases didn't consume. RANGED / MAGICAL come first
+        # to preserve the original output ordering ("ranged piercing"
+        # rather than "piercing ranged").
+        single_bits = []
+        if val & DamageTypes.RANGED:
+            single_bits.append("ranged")
+            val &= ~int(DamageTypes.RANGED)
+        if val & DamageTypes.MAGICAL:
+            single_bits.append("magical")
+            val &= ~int(DamageTypes.MAGICAL)
+        for t in cls:
+            if t in (cls.ALL, cls.ANY, cls.COMBINED, cls.MAGICAL, cls.RANGED):
                 continue
+            if (t.value & (t.value - 1)) != 0:
+                continue  # multi-bit member (alias) — handled in pass 1
+            if val & t:
+                single_bits.append(t.name.lower())
+                val &= ~int(t)
 
-            if self & t:
-                if t & DamageTypes.COMBINED and self != t:
-                    continue
+        # Single-bit components come first, then the alias name, so an
+        # ice axe reads "slashing ice" rather than "ice slashing" —
+        # matches the existing convention of physical-bit-first.
+        return " ".join(single_bits + matched_aliases)
 
-                result.append(t.name.lower())
+    @property
+    def canonical(self) -> str:
+        """Lossless canonical form for storage / keying — same as
+        ``__str__`` but explicitly appends ``"combined"`` when the
+        COMBINED bit is set without being absorbed by a compound
+        alias.
 
-        return " ".join(result)
+        Used to derive skill keys (``one-handed bludgeoning fire
+        combined`` for a torch) so that COMBINED-bit damage types
+        don't share keys with their non-COMBINED counterparts. Player-
+        facing display layers should call ``display_skill_name`` to
+        strip the technical marker before showing.
+        """
+        base = str(self)
+        if not (int(self) & DamageTypes.COMBINED):
+            return base
+        # COMBINED bit set. Did a compound alias absorb it?
+        cls = type(self)
+        alias_names = {
+            m.name.lower() for m in cls.__members__.values()
+            if m.name != "ALL"
+            and (m.value & (m.value - 1)) != 0
+            and (m.value & DamageTypes.COMBINED)
+        }
+        if any(word in alias_names for word in base.split()):
+            return base  # alias name implies COMBINED
+        return f"{base} combined".strip() if base else "combined"
+
+    @staticmethod
+    def display_skill_name(skill_key: str) -> str:
+        """Strip internal ``"combined"`` markers from a skill key
+        for player-facing display. ``"one-handed bludgeoning fire
+        combined"`` → ``"one-handed bludgeoning fire"``. Idempotent;
+        skill keys without the marker pass through unchanged."""
+        return skill_key.replace(" combined", "").strip()
 
     @property
     def emoji(self) -> str:
         """Returns a string of emoji representing this damage type.
 
-        Combined flags produce concatenated emoji in a consistent order
-        (ranged → magical → physical → elemental). Returns an empty string
-        for zero-value flags or flags without an emoji mapping.
+        Compound elemental aliases (ICE, POISON, LIGHTNING, ACID)
+        get their own dedicated emoji; the rest of the bits fall back
+        to single-bit emoji concatenation in the canonical order
+        (ranged → magical → physical → elemental). Mirrors the
+        alias-aware ``__str__`` so a SLASHING+ICE attack reads as
+        "🔪🧊" rather than "🔪🌑💧".
+
+        Returns an empty string for zero-value flags or flags without
+        an emoji mapping.
         """
         if int(self) == 0:
             return ""
-        parts = []
+        cls = type(self)
+        val = int(self)
+
+        # Greedy-match compound aliases that have a dedicated emoji.
+        # Largest bitmask first so a hypothetical multi-element compound
+        # consumes its bits before sub-aliases do.
+        compound_aliases = sorted(
+            (
+                m for name, m in cls.__members__.items()
+                if name != "ALL"
+                and (m.value & (m.value - 1)) != 0  # multi-bit
+                and (m.value & DamageTypes.COMBINED)
+                and m in _DAMAGE_TYPE_EMOJI
+            ),
+            key=lambda m: bin(m.value).count("1"),
+            reverse=True,
+        )
+        matched_alias_emoji = []
+        for alias in compound_aliases:
+            if (val & alias.value) == alias.value:
+                matched_alias_emoji.append(_DAMAGE_TYPE_EMOJI[alias])
+                val &= ~alias.value
+
+        # Single-bit fallback for whatever bits the aliases didn't claim.
+        single_bit_emoji = []
         for base in _DAMAGE_TYPE_EMOJI_ORDER:
-            if self & base and base in _DAMAGE_TYPE_EMOJI:
-                parts.append(_DAMAGE_TYPE_EMOJI[base])
-        return "".join(parts)
+            if val & base and base in _DAMAGE_TYPE_EMOJI:
+                single_bit_emoji.append(_DAMAGE_TYPE_EMOJI[base])
+                val &= ~int(base)
+
+        # Single-bit emoji first, then alias emoji — matches the
+        # ordering of ``__str__`` ("slashing ice", "🔪🧊").
+        return "".join(single_bit_emoji + matched_alias_emoji)
 
 
 _DAMAGE_TYPE_EMOJI = {
@@ -115,6 +246,13 @@ _DAMAGE_TYPE_EMOJI = {
     DamageTypes.EARTH: "🌍",
     DamageTypes.AIR: "💨",
     DamageTypes.MATHEMAGICAL: "🧮",
+    # Compound elemental aliases — each gets a dedicated icon so
+    # combat tables read at a glance ("🧊" for ice rather than the
+    # overloaded "🌑💧" which used to also mean "moon + water").
+    DamageTypes.ICE: "🧊",
+    DamageTypes.POISON: "🧪",
+    DamageTypes.LIGHTNING: "⚡",
+    DamageTypes.ACID: "⚗️",
 }
 
 # Display order for combined damage types — ranged/magical modifiers first,
@@ -132,6 +270,10 @@ _DAMAGE_TYPE_EMOJI_ORDER = (
     DamageTypes.EARTH,
     DamageTypes.AIR,
     DamageTypes.MATHEMAGICAL,
+    DamageTypes.ICE,
+    DamageTypes.POISON,
+    DamageTypes.LIGHTNING,
+    DamageTypes.ACID,
 )
 
 
@@ -277,13 +419,33 @@ class Stat(Enum):
 
 
 class Size(Enum):
-    """Creature size category. Affects dodge/defense modifiers and part HP scaling."""
-    TINY     = {"dodge_mod": 1.5, "defense_mod": 0.5, "hp_scale": 0.25}
-    SMALL    = {"dodge_mod": 1.25, "defense_mod": 0.75, "hp_scale": 0.5}
-    MEDIUM   = {"dodge_mod": 1.0, "defense_mod": 1.0, "hp_scale": 1.0}
-    LARGE    = {"dodge_mod": 0.75, "defense_mod": 1.25, "hp_scale": 2.0}
-    HUGE     = {"dodge_mod": 0.5, "defense_mod": 1.5, "hp_scale": 4.0}
-    COLOSSAL = {"dodge_mod": 0.25, "defense_mod": 2.0, "hp_scale": 8.0}
+    """Creature size category. Affects dodge/defense modifiers, part
+    HP scaling, and relative-size targeting difficulty.
+
+    Fields
+    ======
+
+    - ``dodge_mod`` — multiplier on the creature's own rolled dodge
+      (smaller creatures are nimbler overall).
+    - ``defense_mod`` — multiplier on rolled defense (bigger creatures
+      have more mass to shrug off blows).
+    - ``hp_scale`` — body-part HP multiplier applied by
+      ``Creature._scale_part_hp``.
+    - ``attack_scale`` — proxy for silhouette size when computing
+      cross-size targeting difficulty. Used in ``Creature.do_attack``
+      as ``attacker_scale / target_scale`` (clamped) so a TINY
+      attacker finds a HUGE target's parts easier to reach, and a
+      HUGE attacker finds a TINY target's parts harder to pinpoint.
+      The ratio is clamped to ``[0.5, 2.0]`` at the call site so
+      extreme disparities (pixie vs colossal dragon) don't trivialize
+      the math.
+    """
+    TINY     = {"dodge_mod": 1.5,  "defense_mod": 0.5, "hp_scale": 0.25, "attack_scale": 0.5}
+    SMALL    = {"dodge_mod": 1.25, "defense_mod": 0.75, "hp_scale": 0.5,  "attack_scale": 0.75}
+    MEDIUM   = {"dodge_mod": 1.0,  "defense_mod": 1.0,  "hp_scale": 1.0,  "attack_scale": 1.0}
+    LARGE    = {"dodge_mod": 0.75, "defense_mod": 1.25, "hp_scale": 2.0,  "attack_scale": 1.25}
+    HUGE     = {"dodge_mod": 0.5,  "defense_mod": 1.5,  "hp_scale": 4.0,  "attack_scale": 1.5}
+    COLOSSAL = {"dodge_mod": 0.25, "defense_mod": 2.0,  "hp_scale": 8.0,  "attack_scale": 1.75}
 
 
 class Reach(Enum):

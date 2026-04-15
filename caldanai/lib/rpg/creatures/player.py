@@ -257,7 +257,10 @@ class Player(Creature):
         return sequence
 
     def _on_attack_resolved(self, source, result) -> None:
-        """Grants skill XP on hits and updates roll counts for each resolved attack."""
+        """Grants skill XP on hits, updates roll counts, and inherits
+        the base hook's drain handling (so a player wielding a
+        future life-drain weapon would heal naturally)."""
+        super()._on_attack_resolved(source, result)
         if result.hit():
             self.gain_skill_experience(source.skill)
         self.update_roll_counts(result.combined)
@@ -585,7 +588,10 @@ class Player(Creature):
         for skill in self.skills.keys():
             bonuses = self.get_skill_bonus(skill)
             msg = f"Current XP: {self.skills[skill]:,}\nAttack Bonus: {bonuses[0]}\nDamage Bonus: {bonuses[1]}"
-            fields.append((f"{skill} ({self.get_skill_level(skill)})", msg, True))
+            # Strip the technical "combined" marker before player-facing
+            # display — DB key is canonical, display is friendly.
+            display = DamageTypes.display_skill_name(skill)
+            fields.append((f"{display} ({self.get_skill_level(skill)})", msg, True))
 
         for f, v, i in fields:
             embed.add_field(name=f, value=v, inline=i)

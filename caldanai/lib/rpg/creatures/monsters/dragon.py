@@ -80,7 +80,7 @@ class Dragon(MonsterPlugin):
 
     def get_dodge(self):
         base = super().get_dodge()
-        if self._has_toes and "flying" not in self.flags:
+        if self._has_toes and not self.is_flying():
             base -= 62
         return max(0, base)
 

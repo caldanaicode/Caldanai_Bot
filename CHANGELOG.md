@@ -4,6 +4,180 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-14 — New Monsters, Classifications, Per-Hit Narration, and Damage-Type Aliases
+
+**New monsters (7):**
+- **Skeleton** (MEDIUM, undead) — bludgeoning ×2, light ×2, dark immune,
+  piercing ×0.25. No eyes (HIT falls back to head). Per-damage-type
+  narration tells the player what's working.
+- **Cyclops** (HUGE) — single named ``eye`` part. Destroying it triggers
+  **blind rage**: three wild swings of 3d10 each instead of one 2d10,
+  with a one-time bellow narrative on the round the eye goes out. -5
+  HIT penalty applies automatically via emergence.
+- **Minotaur** (LARGE) — gore-bias 50% head via target-preference hook.
+- **Pixie** (TINY) — magical-damage faerie sting, eye-poke fixation
+  (~30%), wings + flying flag.
+- **Werewolf** (LARGE) — quadruped lupine form, throat-bite bias (~30%),
+  flees at dawn (``flees_from_time``).
+- **Golem** (LARGE construct) — physical resistance (pierce ×0.25,
+  slash ×0.5), magical vulnerability (×1.5), doesn't flee or die from
+  time.
+- **Spirit** (MEDIUM, undead, **no body parts** by design) — physical
+  ×0.1, light ×2.5. Carries ``drain_ratio=0.5`` on its ethereal touch
+  attack (heals from damage dealt). Cold counter-aura on melee
+  attackers (``_on_attacked`` hook). Fade state at ≤25% HP disables
+  drain. First-physical-hit narrative kicker explains why steel
+  doesn't work.
+
+**Classifications system (Rust-traits-style mixins):**
+- New ``caldanai/lib/rpg/creatures/classifications/`` package.
+- ``Undead`` mixin defines shared damage profile (LIGHT 2.0, FIRE 1.5,
+  DARK 0.0, ICE 0.5) and ``"undead"`` flag, applied via
+  ``setdefault`` so concrete subclasses can override per-creature
+  values without losing the rest. Skeleton and Spirit migrated.
+- ``Creature._resolved_hit_narrations`` walks ``__mro__`` and merges
+  every ``HIT_NARRATIONS`` dict — subclass entries override mixin
+  entries automatically. No ``{**Parent.X, ...}`` boilerplate.
+- Forward-compatible for future Construct, Fae, Lupine, Demonic
+  classifications.
+
+**Per-hit damage-type narration:**
+- ``Creature.HIT_NARRATIONS = {dmg_type: template}`` class-level dict.
+- Surfaces in attack tables as ``extra_text`` when an attack lands.
+- Skeleton example: bludgeoning → "Bones crack and splinter…",
+  piercing → "The shaft whistles cleanly between brittle ribs…",
+  light → "Holy radiance scorches the bone-walker's frame…".
+- Communicates trait profiles in narrative language so players learn
+  weapon choice through play.
+
+**Capability methods on Creature:**
+- ``can_fly()`` — functional flight capability (non-destroyed wings,
+  or override for magical flight).
+- ``is_flying()`` — currently airborne (``"flying"`` flag).
+- ``has_eyes()`` — any eye body part.
+- ``has_body_parts()`` — non-empty anatomy.
+- ``has_target_preference()`` — class overrides the targeting hook.
+- ``Creature.get_dodge`` and ``Dragon.get_dodge`` migrated to use
+  ``is_flying()`` instead of poking ``self.flags`` directly.
+
+**Predator target preference (selective):**
+- Bearowl ~40% head, vampire ~40% head (eye → head after playtest
+  found eye effective dodge of 60 was nat-20-only), bandit ~30% leg,
+  minotaur ~50% head (gore), werewolf ~30% throat, pixie ~30% eye.
+- Most monsters stay "dumb" — exposure-weighted random.
+
+**Unified targeted-dodge math:**
+- ``Creature.get_targeted_dodge(attacker, target_part, source)``
+  becomes the single source of truth for the explicit-target dodge
+  formula. Custom ``do_attack`` / ``attack_random`` overrides
+  (hydra) reuse it instead of re-implementing.
+- **Random targeting now also goes through the helper** — the tax
+  follows the target part, not the intent. Fixes the asymmetry
+  where a blind swinger could land an eye-shot more easily than
+  a deliberate targeter. ``EXPOSURE_FLOOR = 0.3`` (was 0.05) caps
+  the maximum dodge multiplier so eye-shots are reachable on solid
+  rolls / nat 20s instead of nat-20-only.
+
+**Cross-size dodge asymmetry:**
+- ``attack_scale`` field added to Size enum.
+- Effective dodge formula:
+  ``base × clamp(attacker.scale / target.scale, 0.5, 2.0) / max(FLOOR, exposure)``
+- TINY pixie attacking MEDIUM player has an easier time than the
+  reverse. Clamp prevents extreme mismatches (pixie vs colossal
+  dragon) from trivializing the math.
+
+**Hydra multi-target damage routing fix:**
+- ``Hydra.attack_random`` pre-dated the per-part routing refactor
+  and was silently applying damage straight to body HP. Now mirrors
+  ``MonsterPlugin.attack_random`` — picks per-part target via
+  ``pick_random_part``, computes targeted dodge, routes per-result
+  damage to parts, coalesces injury narration per victim per part.
+  First-elemental-hydra fight now does what it should.
+
+**Spirit-specific reactive hook:**
+- New ``Creature._on_attacked(attacker, source, result)`` hook fires
+  on the target after damage is computed. Default no-op. Spirit uses
+  it for cold counter-touch on melee attackers (1d4 WATER damage).
+  Forward-compatible for thorns armor, fire-aura monsters, etc.
+
+**Drain-on-hit mechanic (sharable):**
+- ``NaturalAttackSource`` carries a ``drain_ratio`` field (default
+  0.0). Base ``Creature._on_attack_resolved`` reads it and heals
+  the attacker by ``int(damage × drain_ratio)`` on a successful
+  hit. Spirit declares 0.5; future life-drain monsters or weapons
+  just pass the kwarg.
+- ``Player._on_attack_resolved`` calls ``super()`` so future
+  drain-weapons would just work for players.
+
+**Damage-type elemental aliases:**
+- New aliases on ``DamageTypes`` enum, each including the COMBINED
+  bit so trait matching treats them as compound events:
+  - ``ICE = WATER | DARK | COMBINED``
+  - ``POISON = DARK | AIR | COMBINED``
+  - ``LIGHTNING = LIGHT | AIR | COMBINED``
+  - ``ACID = EARTH | WATER | COMBINED``
+- Each alias gets a dedicated emoji: 🧊 ice, 🧪 poison, ⚡
+  lightning, ⚗️ acid. Combat tables read at a glance instead of
+  showing overloaded multi-emoji concatenations.
+- ``DamageTypes.__str__`` rewritten as alias-aware: greedy match
+  compound aliases first (largest bitmask first), then single-bit
+  accumulation for remaining bits. Subclass output reads
+  "slashing ice" rather than "slashing dark water".
+- ``DamageTypes.canonical`` property returns the lossless storage
+  form, appending "combined" when the COMBINED bit is set without
+  being absorbed by a compound alias. Used for skill keys so
+  COMBINED-bit weapons (torch, bow, wand) don't share storage
+  keys with hypothetical non-COMBINED counterparts.
+- ``DamageTypes.display_skill_name`` strips "combined" for
+  player-facing display surfaces.
+- Existing usages migrated: hydra (swamp/elemental head dmg_types
+  and traits), ice_axe, undead mixin.
+- **Mongo migrations** (``scripts/migrations/``):
+  ``2026_04_14_skill_alias_rename.js`` rewrites legacy "dark water"
+  / "dark air" / etc. skill keys to "ice" / "poison" / etc.
+  ``2026_04_14_skill_combined_suffix.js`` backfills the canonical
+  " combined" suffix on torch/bow/wand skill keys.
+
+**Test invariants (parametrized over the monster registry):**
+- ``tests/test_monster_invariants.py`` — universal invariants run
+  against every ``MonsterPlugin`` (constructs cleanly, valid size /
+  aggression / time_partition, non-negative stats, paired body
+  parts symmetrized, traits non-negative, loot in [0,1], etc.).
+- Capability-grouped tests:
+  - ``TestFlyingCreatures`` — every monster spawning with the
+    ``"flying"`` flag has wings; ``can_fly`` flips to False after
+    wing destruction.
+  - ``TestQuadrupedShape`` — fore/hindleg pairs present.
+  - ``TestEyelessCreatures`` — HIT modifier falls back to heads.
+  - ``TestNoBodyPartMonsters`` — ``render_body_part_status_table``
+    empty; ``get_dodge`` uses raw value.
+  - ``TestTimeFleeingCreatures`` / ``TestTimeDyingCreatures`` —
+    narrative messages declared.
+  - ``TestPredatorPreferences`` — overrides actually return a
+    non-None preference within 200 samples (catches dead-code
+    overrides).
+  - ``TestCapabilityMethodsSelfConsistent`` — capability methods
+    agree with internal state.
+- ``tests/test_classifications.py`` — Undead mixin direct +
+  registry-walking invariants ("every undead has LIGHT vulnerability
+  ≥ 1.0", etc.).
+
+**Other:**
+- ``$inspect_monster`` is unchanged from last session but worth
+  remembering: useful for verifying the new classifications applied
+  the right traits / flags to a spawned monster.
+- ``Giant.on_hugged`` ``len(None)`` crash fix (caught by the new
+  universal ``test_on_hugged_returns_string`` invariant when running
+  with non-Player actors).
+- ``MathTeacher.LORD OF PRIMES`` extra_text dropped the
+  ``__...__`` markers (no markdown effect inside ``\`\`\`diff``).
+- New stackable item: ``bone_dust`` (60% drop from skeletons) +
+  ``giant_toe`` (25% drop from giants).
+
+**Test count:** 1716 passing (+~530 from session start).
+
+---
+
 ### 2026-04-13 — Player Body Parts, Table Polish, and Healing Mechanics
 
 A sprint of work on the body-parts system spanning combat readability,

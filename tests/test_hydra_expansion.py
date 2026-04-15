@@ -77,8 +77,11 @@ def _mock_combatant(name="Hero"):
     m.get_dodge.return_value = 5
     m.get_defense.return_value = 3
     m.body_parts = []
-    # resolve_attack returns a minimal AttackResult
-    m.resolve_attack.side_effect = lambda attacker, source, atk_roll, dmg_roll: AttackResult(
+    # resolve_attack returns a minimal AttackResult. Accepts the
+    # ``target_dodge`` kwarg that matches the real
+    # ``Creature.resolve_attack`` signature — ``Hydra.attack_random``
+    # now passes targeted-dodge math through this kwarg.
+    m.resolve_attack.side_effect = lambda attacker, source, atk_roll, dmg_roll, target_dodge=None: AttackResult(
         source=source,
         combined=MagicMock(isMiss=False, isCritical=False, isFumble=False,
                            result=4, attack=MagicMock(__str__=lambda s: "1d6"),
@@ -86,7 +89,7 @@ def _mock_combatant(name="Hero"):
         damage=4,
         multiplier=1.0,
         defense=3,
-        dodge=5,
+        dodge=target_dodge if target_dodge is not None else 5,
         dmg_type=source.damage_type,
     )
     m.apply_damage.return_value = ""
@@ -140,11 +143,13 @@ class TestVariantSelection:
 class TestVariantTraits:
     """Variant-specific traits and loot overrides are applied."""
 
-    def test_swamp_hydra_has_dark_air_trait(self):
+    def test_swamp_hydra_has_poison_trait(self):
+        """Swamp hydra resists its own poison via the compound POISON
+        alias (was previously ``DARK | AIR`` without COMBINED, which
+        also incidentally resisted pure dark and pure air)."""
         h = _make_variant_hydra("swamp hydra")
-        key = DamageTypes.DARK | DamageTypes.AIR
-        assert key in h.traits
-        assert h.traits[key] == 0.5
+        assert DamageTypes.POISON in h.traits
+        assert h.traits[DamageTypes.POISON] == 0.5
 
     def test_swamp_hydra_loot_override(self):
         h = _make_variant_hydra("swamp hydra")
@@ -186,11 +191,12 @@ class TestPerHeadDamageTypes:
         for head in _live_heads(h):
             assert head.dmg_type == expected
 
-    def test_swamp_hydra_heads_are_dark_air(self):
+    def test_swamp_hydra_heads_are_poison(self):
+        """Swamp hydra heads now declare ``POISON`` (compound alias
+        with COMBINED) rather than the broken-out ``DARK | AIR``."""
         h = _make_variant_hydra("swamp hydra")
-        expected = DamageTypes.DARK | DamageTypes.AIR
         for head in _live_heads(h):
-            assert head.dmg_type == expected
+            assert head.dmg_type == DamageTypes.POISON
 
     def test_hexed_hydra_heads_are_dark_magical(self):
         h = _make_variant_hydra("hexed hydra")
@@ -583,9 +589,8 @@ class TestRegrowthWithTypes:
         heads = _live_heads(h)
         heads[0].health = 0
         h.on_combat_round({})
-        expected = DamageTypes.DARK | DamageTypes.AIR
         for head in _live_heads(h):
-            assert head.dmg_type == expected
+            assert head.dmg_type == DamageTypes.POISON
 
     def test_hexed_regrown_heads_match_variant_type(self):
         h = _make_variant_hydra("hexed hydra")

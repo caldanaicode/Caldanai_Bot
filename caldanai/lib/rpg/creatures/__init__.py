@@ -19,7 +19,19 @@ from caldanai.lib.rpg.helpers.roll_data import (
     AttackRoll, DamageRoll, CombinedRoll)
 
 
-EXPOSURE_FLOOR = 0.05  # Minimum exposure for per-part dodge calculations.
+# Minimum effective exposure for per-part dodge calculations. Caps the
+# maximum dodge multiplier at ``1 / EXPOSURE_FLOOR`` so aiming at a
+# low-exposure part (eye 0.1, guarded dragon head 0.05) is harder but
+# not "nat-20-only harder." At 0.3 the cap is ~3.33×. Below 0.3 feels
+# punishing; above 0.5 makes targeting small parts trivial.
+EXPOSURE_FLOOR = 0.3
+
+# Attacker/target size-scale ratio is clamped to this range before
+# entering the dodge calc. Prevents a TINY pixie from treating a
+# COLOSSAL dragon as a stationary wall (32× ratio would collapse
+# defense), while still letting cross-size mismatches matter.
+SIZE_RATIO_MIN = 0.5
+SIZE_RATIO_MAX = 2.0
 
 
 class Creature:
@@ -255,42 +267,40 @@ class Creature:
         results: List[AttackResult] = []
         sources = self.get_attack_sources()
         for i, source in enumerate(sources):
-            # Explicit target for this source (cycle: last target fills remaining).
-            explicit_hit = False
+            # Choose the target part: explicit player choice > monster
+            # preference > exposure-weighted random. All three paths
+            # land at a concrete ``target_part`` (or ``None`` if the
+            # target has no body parts).
             if explicit_parts:
                 idx = min(i, len(explicit_parts) - 1)
                 resolved = explicit_parts[idx]
                 if resolved and not resolved.is_destroyed():
                     target_part = resolved
-                    explicit_hit = True
                 else:
                     target_part = pick_random_part(target.get_targetable_parts(), source.reach)
             elif target.body_parts:
-                # No explicit targets — consult the attacker's targeting
-                # preference (for predatory / tactical monsters), then
-                # fall back to exposure-weighted random ("dumb" striking).
-                # Honored preferences pay the exposure tax on dodge, the
-                # same way a player's explicit target does: smart
-                # targeting costs accuracy.
                 target_part = None
                 preference_name = self.get_target_part_preference(target, source)
                 if preference_name:
                     resolved = _resolve_name(preference_name)
                     if resolved:
                         target_part = resolved
-                        explicit_hit = True
                 if target_part is None:
                     target_part = pick_random_part(target.get_targetable_parts(), source.reach)
             else:
                 target_part = None
 
-            # Per-part dodge scaling: only when the explicit target was
-            # honored. Random targeting already pays the exposure tax via
-            # weighted selection.
+            # Targeted-dodge math applies whenever a part is on the
+            # receiving end, regardless of how it was chosen. The tax
+            # lives with the *target* (small/hard-to-reach parts are
+            # harder to hit), not with the *intent* — otherwise a
+            # random swing that happens to land on an eye would hit it
+            # easier than a deliberate eye-poke, which is the wrong
+            # narrative. Shared with custom ``do_attack`` overrides
+            # via ``Creature.get_targeted_dodge``.
             target_dodge: Optional[int] = None
-            if explicit_hit and target_part is not None:
-                exp = target_part.exposure.get(source.reach, 1.0)
-                target_dodge = int(target.get_dodge() / max(EXPOSURE_FLOOR, exp))
+            if target_part is not None:
+                target_dodge = target.get_targeted_dodge(self, target_part, source)
 
             atk_roll, dmg_roll = source.make_attack_rolls(self)
             result = target.resolve_attack(
@@ -304,8 +314,35 @@ class Creature:
     def _on_attack_resolved(self, source: AttackSource, result: AttackResult) -> None:
         """Hook called after each attack source resolves.
 
-        Subclasses override to react to individual results (e.g., grant
-        skill XP on a hit). No-op by default.
+        Default behavior: applies life-drain healing if ``source``
+        carries a non-zero ``drain_ratio``. Spirit and future
+        drain-attack monsters set this on their natural attack
+        sources to heal a fraction of damage dealt.
+
+        Subclasses that override should call ``super()`` to retain
+        the drain behavior (Player does this — adds skill XP on top).
+        """
+        drain = getattr(source, "drain_ratio", 0.0)
+        if drain > 0 and result.damage > 0:
+            heal = int(result.damage * drain)
+            if heal > 0:
+                self.apply_damage(-heal)
+
+    def _on_attacked(
+        self,
+        attacker: "Creature",
+        source: AttackSource,
+        result: AttackResult,
+    ) -> None:
+        """Hook called on the *target* after an attack resolves
+        against it. Default no-op.
+
+        Subclasses override for reactive damage / counter-effects:
+        spirits deal cold counter-damage on melee, future "thorns"
+        armor would damage the attacker, fire-aura monsters singe
+        attackers who came in close. Fires regardless of hit/miss
+        — the override decides what to do based on ``result.damage``
+        and ``source.reach``.
         """
         pass
 
@@ -335,6 +372,114 @@ class Creature:
         at a low-exposure part makes the attack harder to land, which
         captures the tactical tradeoff of "smart but obvious."
         """
+        return None
+
+    # ------------------------------------------------------------------
+    # Capability queries
+    #
+    # These are the canonical "what can this creature do?" predicates.
+    # Tests filter over the monster registry using these methods so
+    # adding a new flyer / predator / eyeless creature auto-joins the
+    # relevant capability test groups without touching test files.
+    # Combat code uses them too (e.g. ``get_dodge`` checks
+    # ``is_flying``) so rewiring how a capability is stored is a
+    # single-method change.
+    # ------------------------------------------------------------------
+
+    def can_fly(self) -> bool:
+        """Does this creature have a functional flight capability right
+        now? Default: at least one non-destroyed wing part. Override
+        for magical flight that doesn't need wings (a djinn, say), or
+        for conditional flight (only when a specific flag is set)."""
+        wings = [p for p in self.body_parts if _part_base_name(p) == "wing"]
+        if not wings:
+            return False
+        return any(not p.is_destroyed() for p in wings)
+
+    def is_flying(self) -> bool:
+        """Is this creature currently airborne? True when the
+        ``"flying"`` state flag is set (the flag is the authoritative
+        state — wing destruction discards it via
+        ``WingPlugin.on_injury_change``, grounding the creature)."""
+        return "flying" in self.flags
+
+    def has_eyes(self) -> bool:
+        """Does this creature have any eye parts? Distinguishes
+        classical humanoids (eyeless by convention via
+        ``BodyPart.humanoid``) from players / cyclopes / pixies who
+        declare eye parts explicitly. Drives HIT emergence: if there
+        are eyes, they're the HIT source; otherwise heads are."""
+        return any(_part_base_name(p) == "eye" for p in self.body_parts)
+
+    def has_body_parts(self) -> bool:
+        """``True`` for any creature with a non-empty anatomy. The
+        negative case (spirits, by design) routes combat through the
+        legacy whole-body damage path."""
+        return len(self.body_parts) > 0
+
+    def has_target_preference(self) -> bool:
+        """``True`` if this class overrides ``get_target_part_preference``.
+        Distinguishes predators (bearowl, vampire, minotaur, werewolf,
+        bandit, pixie) from 'dumb' attackers that rely purely on
+        exposure-weighted random targeting."""
+        return type(self).get_target_part_preference is not Creature.get_target_part_preference
+
+    # ------------------------------------------------------------------
+    # Per-hit narration
+    #
+    # Class-level dict mapping damage-type bits to flavor templates
+    # ("@1d shrugs off the blow", etc.). The base ``get_hit_narration``
+    # scans this dict and picks the first matching damage type, parsing
+    # the template with the target as ``@1`` and attacker as ``@2``.
+    #
+    # Lets monsters with strong trait identities (skeleton vulnerable
+    # to bludgeoning, golem shrugging off arrows) communicate the
+    # interaction in narrative language without players needing to
+    # read trait tables. Subclasses just declare ``HIT_NARRATIONS`` —
+    # no method override needed for the static-string case.
+    # ------------------------------------------------------------------
+
+    HIT_NARRATIONS: Dict[DamageTypes, str] = {}
+
+    @classmethod
+    def _resolved_hit_narrations(cls) -> Dict[DamageTypes, str]:
+        """Walk ``__mro__`` and merge every ``HIT_NARRATIONS`` dict
+        encountered into a single resolved dict.
+
+        Walks base → derived (via ``reversed(__mro__)``), so a
+        subclass's entry for the same damage-type key overwrites the
+        mixin's value. Lets classification mixins (Undead, future
+        Construct/Fae/etc.) provide defaults that concrete monsters
+        can selectively override without ``{**Parent.X, ...}``
+        merge boilerplate at every declaration site.
+
+        Cached implicitly via standard class introspection — cheap
+        enough that we don't memoize.
+        """
+        merged: Dict[DamageTypes, str] = {}
+        for klass in reversed(cls.__mro__):
+            entries = klass.__dict__.get("HIT_NARRATIONS")
+            if entries:
+                merged.update(entries)
+        return merged
+
+    def get_hit_narration(
+        self,
+        attacker: "Creature",
+        source: AttackSource,
+        result: AttackResult,
+    ) -> Optional[str]:
+        """Return a short flavor line describing how this attack
+        landed against this creature. Default: look up the
+        MRO-merged ``HIT_NARRATIONS`` by damage type, return the
+        first match (or None if no entry matches). Override for
+        dynamic narration (varying by hit intensity, current
+        state, etc.)."""
+        if not result.hit() or source.damage_type is None:
+            return None
+        for dmg_type, template in self._resolved_hit_narrations().items():
+            if source.damage_type & dmg_type:
+                return parse(template, self, attacker)
         return None
 
     def resolve_attack(
@@ -369,7 +514,7 @@ class Creature:
         multiplier = self.get_trait_multiplier(source.damage_type)
         sub_dmg = int(multiplier * combined.result)
         damage = 0 if combined.isMiss else max(0, sub_dmg)
-        return AttackResult(
+        result = AttackResult(
             source=source,
             combined=combined,
             damage=damage,
@@ -378,6 +523,17 @@ class Creature:
             dodge=dodge,
             dmg_type=source.damage_type,
         )
+        # Per-hit narration: trait-aware flavor (e.g. "bones crack"
+        # for bludgeoning vs skeleton). Surfaces in extra_text so it
+        # renders below the attack row.
+        narration = self.get_hit_narration(attacker, source, result)
+        if narration:
+            result.extra_text = narration
+        # Reactive hook: gives the target a chance to retaliate
+        # (spirit cold-touch, thorns armor, etc.) or surface flavor
+        # of its own. Reactive overrides may append to extra_text.
+        self._on_attacked(attacker, source, result)
+        return result
 
     def render_body_part_status_table(self, show_hp: bool = True) -> str:
         """Render this creature's per-part status as an ansi-fenced
@@ -544,7 +700,7 @@ class Creature:
             return max(0, self.dodge)
 
         # Determine mobility sources: wings if flying, else legs
-        if "flying" in self.flags:
+        if self.is_flying():
             sources = [p for p in self.body_parts if _part_base_name(p) == "wing"]
         else:
             sources = [p for p in self.body_parts if _part_base_name(p) == "leg"]
@@ -556,6 +712,44 @@ class Creature:
         ratio = _functionality_ratio(sources)
         size_mod = self.size.value["dodge_mod"]
         return max(0, int(self.dodge * ratio * size_mod) + self.core_agility)
+
+    def get_targeted_dodge(
+        self,
+        attacker: "Creature",
+        target_part: BodyPart,
+        source: AttackSource,
+    ) -> int:
+        """Effective dodge when ``attacker`` is deliberately aiming at
+        ``target_part`` on this creature. Composes three factors on top
+        of ``get_dodge()``:
+
+        - **Exposure**: the part's ``exposure[source.reach]`` value.
+          Lower exposure → the part is harder to pinpoint → effective
+          dodge scales up. Bounded below by ``EXPOSURE_FLOOR`` to keep
+          the math from exploding on near-zero exposures.
+        - **Size ratio**: ``attacker.attack_scale / self.attack_scale``,
+          clamped to ``[SIZE_RATIO_MIN, SIZE_RATIO_MAX]``. Captures the
+          "nimble vs massive" asymmetry — a TINY attacker finds a
+          MEDIUM target's parts easier, a HUGE attacker finds a TINY
+          target's parts harder. Clamp prevents extreme mismatches
+          (pixie vs colossal dragon) from trivializing combat.
+
+        Called from the base :meth:`do_attack` when a preferred or
+        explicit target is honored. Custom ``do_attack`` / ``attack_random``
+        overrides (hydra, future multi-target monsters) can call this
+        method directly instead of re-implementing the formula. Monsters
+        with bespoke targeting rules may override this method; the base
+        :meth:`do_attack` will still use the override via normal dispatch.
+        """
+        base = self.get_dodge()
+        exp = target_part.exposure.get(source.reach, 1.0)
+        attacker_scale = attacker.size.value.get("attack_scale", 1.0)
+        target_scale = self.size.value.get("attack_scale", 1.0)
+        size_ratio = max(
+            SIZE_RATIO_MIN,
+            min(SIZE_RATIO_MAX, attacker_scale / target_scale),
+        )
+        return int(base * size_ratio / max(EXPOSURE_FLOOR, exp))
 
     def get_health_max(self) -> int:
         return self.health_max

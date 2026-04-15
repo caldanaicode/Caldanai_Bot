@@ -1,0 +1,115 @@
+"""``Minotaur`` monster plugin — LARGE bull-headed bruiser.
+
+Design notes
+============
+
+The signature feature is the **horn-gore** preference: the minotaur
+aims for the head about 50% of the time, attempting to run people
+through with its horns. This uses the ``get_target_part_preference``
+hook shipped with the per-part dodge system — when the preference is
+honored, the attack pays the dodge exposure tax on heads (0.7 MELEE
+exposure → effective dodge ~1.43×), so the gore is scarier *and* more
+avoidable than a random swing.
+
+Standard humanoid anatomy (the bull head is still a "head" part —
+the body-part system doesn't model horns separately). Trait profile
+leans into "muscle and momentum": bludgeoning weapons don't do great
+against a half-ton of meat, piercing weapons find the soft spots
+between slabs of muscle.
+"""
+
+from random import choice, random
+from typing import Optional
+
+from caldanai.lib.rpg.combat.attack_source import AttackSource
+from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.helpers.enums import (
+    AggressionLevels, DamageTypes, Size, TimePartitions,
+)
+
+
+class Minotaur(MonsterPlugin):
+    def __init__(self):
+        super().__init__(
+            name="minotaur",
+            atk="2d8",
+            defense="2d6",
+            dodge="1d8",
+            health_max="6d10",
+        )
+
+        self.time_partition = TimePartitions.CATHEMERAL
+        self.image = None
+        self.aggression = AggressionLevels.RAMPAGE
+
+        self.arrival = choice([
+            "The earth thunders under cloven hooves as @1i charges into "
+            "view, head lowered and horns gleaming.",
+            "A bellowing roar echoes through the area; @1i emerges from "
+            "a swirl of kicked-up dust, nostrils flaring.",
+            "@1ic paws at the ground, a line of breath steaming from its "
+            "bull-like nose. It has decided @2 look like a problem.",
+        ])
+
+        self.flavor = choice([
+            "A massive humanoid from the shoulders down, and unmistakably "
+            "bull from the shoulders up. @1a horns look very, very sharp.",
+            "Corded muscle and a head full of hostile intent. "
+            "@1s appears to take personal offense at being looked at.",
+            "This @1 smells of hot sweat and hay, but nothing about @1o "
+            "suggests domestication.",
+        ])
+
+        self.escape = (
+            "@1dc snorts one last time, shakes @1a great horned head, and "
+            "trots off with the deliberate calm of something that will be back."
+        )
+
+        self.death = choice([
+            "@1dc collapses onto @1a side with a final, thunderous snort.",
+            "The light leaves @1d's dark eyes; @1s sags to @1a knees, then "
+            "topples like a fallen pillar.",
+        ])
+
+        # Trait profile: muscle mass laughs at bludgeoning, soft spots
+        # give way to piercing.
+        self.traits[DamageTypes.BLUDGEONING] = 0.75
+        self.traits[DamageTypes.PIERCING] = 1.25
+        self.traits[DamageTypes.FIRE] = 1.25   # flammable coat
+
+        # Loot: weapons and maybe a hunk of what-was-it.
+        self.loot["warhammer"] = 0.3
+        self.loot["sledgehammer"] = 0.2
+        self.loot["spear"] = 0.3
+        self.loot["leather"] = 0.5
+        self.loot["cheese_sandwich"] = 0.1  # took it from someone else
+
+        # Standard humanoid shape; the bull head is still just a "head"
+        # part from the body-parts system's perspective.
+        self.body_parts = BodyPart.humanoid()
+
+        self.size = Size.LARGE
+        self._scale_part_hp()
+
+    def get_target_part_preference(
+        self, target: Creature, source: AttackSource,
+    ) -> Optional[str]:
+        """Gore bias: ~50% of attacks aim for the head. The preference
+        pays the dodge exposure tax (heads are ~0.7 MELEE exposure →
+        effective dodge ~1.43×), so horn strikes are distinctive but
+        not free accuracy."""
+        if random() < 0.5:
+            return "head"
+        return None
+
+    def on_hugged(self, actor: Creature, invocation: str) -> str:
+        return choice([
+            f"@1dc pauses mid-{invocation}, confused by the sudden "
+            "absence of stabbing. @1s snorts hot breath down @2's neck.",
+            "@1dc's tail lashes once, then twice, then @1s shoves @2 "
+            "away with the flat of a calloused palm.",
+            "A low, threatening rumble vibrates through @1a chest as @2 "
+            f"{invocation}s @1o. The {invocation} does not continue long.",
+        ])

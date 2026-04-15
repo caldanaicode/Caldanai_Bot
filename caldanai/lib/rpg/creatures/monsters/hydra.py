@@ -102,7 +102,7 @@ _REPERTOIRE_SWAMP = {
                "label": "poison cloud", "cooldown": 3},
     "spit":   {"cost": 1, "weight": 0.05, "dice": "1d4",
                "label": "acid spit",
-               "dmg_type": DamageTypes.EARTH | DamageTypes.WATER | DamageTypes.RANGED,
+               "dmg_type": DamageTypes.ACID | DamageTypes.RANGED,
                "reach": Reach.RANGED},
 }
 
@@ -189,10 +189,14 @@ VARIANTS = [
         "weight": 3,
         "size": Size.LARGE,
         "starting_heads": 3,
-        "head_dmg_types": [DamageTypes.DARK | DamageTypes.AIR],
+        "head_dmg_types": [DamageTypes.POISON],
         "head_repertoire": _REPERTOIRE_SWAMP,
         "stats": {},
-        "traits": {DamageTypes.DARK | DamageTypes.AIR: 0.5},
+        # Swamp hydra resists ITS OWN poison specifically (compound
+        # match via COMBINED in the alias). Pure dark or pure air
+        # attacks pass through normally now — previously this trait
+        # covered both, which was a quiet over-resistance.
+        "traits": {DamageTypes.POISON: 0.5},
         "loot_overrides": {"toad_slime": 1.0, "wool": 0},
         "arrival": (
             "Poisonous vapors roll across the ground as @1i drags "
@@ -249,11 +253,11 @@ VARIANTS = [
         "size": Size.HUGE,
         "starting_heads": 5,
         "head_dmg_types": [
-            DamageTypes.FIRE,                          # fire
-            DamageTypes.DARK | DamageTypes.WATER,      # ice
-            DamageTypes.DARK | DamageTypes.AIR,        # poison
-            DamageTypes.LIGHT | DamageTypes.AIR,       # lightning
-            DamageTypes.EARTH | DamageTypes.WATER,     # acid
+            DamageTypes.FIRE,         # fire (single bit, no alias needed)
+            DamageTypes.ICE,          # ice = WATER | DARK | COMBINED
+            DamageTypes.POISON,       # poison = DARK | AIR | COMBINED
+            DamageTypes.LIGHTNING,    # lightning = LIGHT | AIR | COMBINED
+            DamageTypes.ACID,         # acid = EARTH | WATER | COMBINED
         ],
         "head_repertoire": _REPERTOIRE_ELEMENTAL,
         "stats": {
@@ -263,8 +267,12 @@ VARIANTS = [
             "health_max": "50d12",
         },
         "traits": {
+            # Elemental hydra resists fire and ice (its two coldest
+            # heads). Pure water and pure dark are no longer
+            # incidentally resisted — only compound ice attacks fire
+            # the 0.75 multiplier.
             DamageTypes.FIRE: 0.75,
-            DamageTypes.DARK | DamageTypes.WATER: 0.75,
+            DamageTypes.ICE:  0.75,
         },
         "loot_overrides": {"small_gem": 0.9, "wand": 0.2, "wool": 0},
         "arrival": (
@@ -644,17 +652,26 @@ class Hydra(MonsterPlugin):
             )
 
             # Pick a target part on the victim weighted by exposure
-            # for this attack's reach. Random targeting keeps base
-            # dodge (no exposure tax) — the tax is already baked into
-            # the weighted selection.
+            # for this attack's reach, then compute the targeted-dodge
+            # the same way the base ``Creature.do_attack`` does. Tax
+            # lives with the target, not the intent — a head's bite
+            # that happens to find an eye should be just as hard to
+            # land as a head deliberately going for the eye.
             target_part = None
+            target_dodge = None
             if getattr(victim, "body_parts", None):
                 target_part = pick_random_part(
                     victim.get_targetable_parts(), reach,
                 )
+                if target_part is not None:
+                    target_dodge = victim.get_targeted_dodge(
+                        self, target_part, source,
+                    )
 
             atk_roll, dmg_roll = source.make_attack_rolls(self)
-            result = victim.resolve_attack(self, source, atk_roll, dmg_roll)
+            result = victim.resolve_attack(
+                self, source, atk_roll, dmg_roll, target_dodge=target_dodge,
+            )
             result.target_part = target_part
             results.append(result)
             if result.damage > 0:
