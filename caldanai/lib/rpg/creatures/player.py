@@ -632,7 +632,17 @@ class Player(Creature):
 
         for skill in self.skills.keys():
             bonuses = self.get_skill_bonus(skill)
-            msg = f"Current XP: {self.skills[skill]:,}\nAttack Bonus: {bonuses[0]}\nDamage Bonus: {bonuses[1]}"
+            # Damage-type emoji on its own row (self-explanatory; no
+            # label text needed). Falls back silently when the skill
+            # has no damage-type component (``unarmed``, ``natural``).
+            dmg_type = DamageTypes.from_skill_key(skill)
+            emoji_row = f"{dmg_type.emoji}\n" if dmg_type else ""
+            msg = (
+                f"{emoji_row}"
+                f"Current XP: {self.skills[skill]:,}\n"
+                f"Attack Bonus: {bonuses[0]}\n"
+                f"Damage Bonus: {bonuses[1]}"
+            )
             # Strip the technical "combined" marker before player-facing
             # display — DB key is canonical, display is friendly.
             display = DamageTypes.display_skill_name(skill)

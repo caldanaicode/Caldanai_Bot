@@ -141,7 +141,7 @@ class TestSerialization:
             "items": [],
             "rolls": {"d4": [0]*4, "d6": [0]*6, "d8": [0]*8,
                        "d10": [0]*10, "d12": [0]*12, "d20": [0]*20},
-            "skills": {"unarmed": 100},
+            "skills": {"unarmed bludgeoning": 100},
             "gender": "female",
             "pronouns": "she,her,hers,her",
             "equip_slots": {s.name: None for s in EquipmentSlots
@@ -155,7 +155,7 @@ class TestSerialization:
         assert p.clarks == 42
         assert p.health == 15
         assert p.health_regen == 3
-        assert p.skills == {"unarmed": 100}
+        assert p.skills == {"unarmed bludgeoning": 100}
 
 
 # ---------------------------------------------------------------------------
@@ -403,8 +403,8 @@ class TestDoAttack:
         target.get_dodge.return_value = 10
 
         p.do_attack(target)
-        assert "unarmed" in p.skills
-        assert p.skills["unarmed"] > 0
+        assert "unarmed bludgeoning" in p.skills
+        assert p.skills["unarmed bludgeoning"] > 0
 
     def test_no_skill_xp_on_miss(self):
         p = _make_player()
@@ -413,7 +413,7 @@ class TestDoAttack:
         target.get_dodge.return_value = 10
 
         p.do_attack(target)
-        assert p.skills.get("unarmed", 0) == 0
+        assert p.skills.get("unarmed bludgeoning", 0) == 0
 
     def test_monster_can_modify_damage(self):
         p = _make_player()

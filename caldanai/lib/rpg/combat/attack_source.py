@@ -86,7 +86,13 @@ class UnarmedAttackSource(AttackSource):
 
     @property
     def skill(self) -> str:
-        return "unarmed"
+        # Canonical form matches the weapon-skill pattern: "<qualifier>
+        # <damage-type-canonical>". Unarmed has no hand qualifier (no
+        # weapon is held) but does carry the damage-type suffix so the
+        # skill key round-trips through ``DamageTypes.from_skill_key``
+        # for uniform emoji / trait lookups. Player-facing display
+        # reads "unarmed bludgeoning" naturally.
+        return "unarmed bludgeoning"
 
     def make_attack_rolls(self, attacker: "Creature") -> Tuple[AttackRoll, DamageRoll]:
         atk_bonus, dmg_bonus = _get_skill_bonus(attacker, self.skill)

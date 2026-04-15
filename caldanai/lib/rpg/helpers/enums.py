@@ -182,6 +182,33 @@ class DamageTypes(IntFlag):
         skill keys without the marker pass through unchanged."""
         return skill_key.replace(" combined", "").strip()
 
+    @staticmethod
+    def from_skill_key(skill_key: str) -> "Optional[DamageTypes]":
+        """Reverse of ``canonical``: parse a skill key (e.g.
+        ``"one-handed slashing ice"``, ``"two-handed bludgeoning
+        fire combined"``) back into a ``DamageTypes`` bitmask.
+
+        Tokenizes the key and OR-accumulates any word that matches
+        a ``DamageTypes`` member name (case-insensitive). Words that
+        don't match (``"one-handed"``, ``"two-handed"``, ``"unarmed"``,
+        or skill keys without damage bits at all like ``"natural"``)
+        contribute nothing. Returns ``None`` when no damage-type bits
+        were found so callers can short-circuit.
+
+        Intended for display layers that want to render an emoji
+        or icon alongside a skill name without pre-storing the
+        damage type separately.
+        """
+        if not skill_key:
+            return None
+        members = DamageTypes.__members__
+        bits = DamageTypes(0)
+        for word in skill_key.split():
+            name = word.upper()
+            if name in members:
+                bits |= members[name]
+        return bits if int(bits) else None
+
     @property
     def emoji(self) -> str:
         """Returns a string of emoji representing this damage type.
@@ -255,8 +282,14 @@ _DAMAGE_TYPE_EMOJI = {
     DamageTypes.ACID: "⚗️",
 }
 
-# Display order for combined damage types — ranged/magical modifiers first,
-# then physical attack shapes, then elemental flavors.
+# Display order for the single-bit fallback loop in ``DamageTypes.emoji``.
+# *Only single-bit damage types belong here* — compound aliases (ICE,
+# POISON, LIGHTNING, ACID) are matched strictly (all-bits-present) in
+# the compound-alias loop above; the fallback loop uses a loose
+# ``val & base`` test that would spuriously fire on any alias that
+# shares the COMBINED bit (e.g. a non-ice RANGED|MAGICAL|COMBINED wand
+# would leak a 🧊). Ranged / magical modifiers first, then physical
+# attack shapes, then elemental single bits.
 _DAMAGE_TYPE_EMOJI_ORDER = (
     DamageTypes.RANGED,
     DamageTypes.MAGICAL,
@@ -270,10 +303,6 @@ _DAMAGE_TYPE_EMOJI_ORDER = (
     DamageTypes.EARTH,
     DamageTypes.AIR,
     DamageTypes.MATHEMAGICAL,
-    DamageTypes.ICE,
-    DamageTypes.POISON,
-    DamageTypes.LIGHTNING,
-    DamageTypes.ACID,
 )
 
 

@@ -24,7 +24,7 @@ class TestUnarmedAttackSource:
     def test_produces_d4_bludgeoning(self):
         src = UnarmedAttackSource(label="Left")
         assert src.damage_type == DamageTypes.BLUDGEONING
-        assert src.skill == "unarmed"
+        assert src.skill == "unarmed bludgeoning"
         assert src.label == "Left"
 
     def test_make_attack_rolls_returns_d20_and_d4(self):

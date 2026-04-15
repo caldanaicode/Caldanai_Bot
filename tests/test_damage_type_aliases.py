@@ -163,6 +163,27 @@ class TestAliasEmojiDisplay:
     def test_zero_emoji_is_empty(self):
         assert DamageTypes(0).emoji == ""
 
+    def test_combined_without_alias_does_not_leak_alias_emoji(self):
+        """Regression: a compound damage type with COMBINED set but
+        with bits that don't match any alias (e.g. wand: RANGED |
+        MAGICAL | COMBINED, bow: RANGED | PIERCING | COMBINED) must
+        NOT pick up a spurious alias emoji via the single-bit
+        fallback loop. The loose ``val & base`` check there used to
+        fire on any alias sharing the COMBINED bit (produced 🧊 for
+        wands because ICE was in the fallback order list)."""
+        wand = DamageTypes.RANGED | DamageTypes.MAGICAL | DamageTypes.COMBINED
+        assert wand.emoji == "🏹✨"
+        assert "🧊" not in wand.emoji
+        assert "🧪" not in wand.emoji
+        assert "⚡" not in wand.emoji
+        assert "⚗️" not in wand.emoji
+
+        bow = DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.COMBINED
+        assert bow.emoji == "🏹🪡"
+
+        torch = DamageTypes.BLUDGEONING | DamageTypes.FIRE | DamageTypes.COMBINED
+        assert torch.emoji == "🔨🔥"
+
 
 # ---------------------------------------------------------------------------
 # Canonical (storage / keying) form preserves the COMBINED marker
@@ -234,9 +255,62 @@ class TestDisplaySkillName:
         ) == "one-handed slashing ice"
 
     def test_passthrough_for_non_damage_skill(self):
-        assert DamageTypes.display_skill_name("unarmed") == "unarmed"
+        assert DamageTypes.display_skill_name("natural") == "natural"
 
     def test_idempotent(self):
         once = DamageTypes.display_skill_name("two-handed poison combined")
         twice = DamageTypes.display_skill_name(once)
         assert once == twice == "two-handed poison"
+
+
+class TestFromSkillKey:
+    """``from_skill_key`` is the inverse of ``canonical``: parse a
+    skill key back into a DamageTypes bitmask. Used by display
+    layers that want an emoji without storing the damage type
+    separately."""
+
+    def test_single_physical_bit(self):
+        assert DamageTypes.from_skill_key("one-handed slashing") == DamageTypes.SLASHING
+        assert DamageTypes.from_skill_key("two-handed bludgeoning") == DamageTypes.BLUDGEONING
+        assert DamageTypes.from_skill_key("one-handed piercing") == DamageTypes.PIERCING
+
+    def test_compound_alias_round_trip(self):
+        """SLASHING | ICE → canonical "slashing ice" → back to SLASHING | ICE."""
+        axe = DamageTypes.SLASHING | DamageTypes.ICE
+        key = f"one-handed {axe.canonical}"
+        assert DamageTypes.from_skill_key(key) == axe
+
+    def test_non_alias_combined_round_trip(self):
+        """Torch: BLUDGEONING | FIRE | COMBINED; canonical carries
+        ``"combined"`` explicitly and parses back whole."""
+        torch = DamageTypes.BLUDGEONING | DamageTypes.FIRE | DamageTypes.COMBINED
+        key = f"one-handed {torch.canonical}"
+        assert DamageTypes.from_skill_key(key) == torch
+
+    def test_ranged_compound_round_trip(self):
+        """Bow: PIERCING | RANGED | COMBINED."""
+        bow = DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED
+        key = f"one-handed {bow.canonical}"
+        assert DamageTypes.from_skill_key(key) == bow
+
+    def test_non_damage_skill_returns_none(self):
+        """Skills without damage-type words (e.g. ``natural`` for
+        monster attacks) return None so display layers can short-
+        circuit the emoji lookup cleanly."""
+        assert DamageTypes.from_skill_key("natural") is None
+
+    def test_unarmed_bludgeoning_parses_to_bludgeoning(self):
+        """The unarmed skill carries an explicit damage-type suffix
+        (``"unarmed bludgeoning"``) so it round-trips through the
+        parser like every weapon skill does — no special case."""
+        assert DamageTypes.from_skill_key("unarmed bludgeoning") == DamageTypes.BLUDGEONING
+
+    def test_empty_string_returns_none(self):
+        assert DamageTypes.from_skill_key("") is None
+
+    def test_hand_qualifier_tokens_dont_contribute(self):
+        """``one-handed`` / ``two-handed`` are skipped cleanly — they
+        aren't DamageTypes member names (case-folded) so they add no
+        bits."""
+        assert DamageTypes.from_skill_key("one-handed") is None
+        assert DamageTypes.from_skill_key("two-handed") is None
