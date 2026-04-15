@@ -500,6 +500,24 @@ class TestPlayerBodyParts:
         for name in ("arm.left", "leg.right", "eye.left"):
             assert parts_by_name[name].is_critical is False
 
+    def test_default_anatomy_is_deterministic(self):
+        """Every player shares identical starting anatomy. Regression
+        guard against the old behavior where each part's ``health_max``
+        was rolled per-construction (inherited from the monster path),
+        giving every player a slightly different constitution."""
+        expected = {
+            "head": 15, "torso": 30,
+            "arm.left": 10, "arm.right": 10,
+            "leg.left": 12, "leg.right": 12,
+            "eye.left": 4, "eye.right": 4,
+        }
+        # Construct two players and assert anatomy is identical.
+        a = _make_player()
+        b = _make_player()
+        for player in (a, b):
+            actual = {part.name: part.health_max for part in player.body_parts}
+            assert actual == expected
+
     def test_body_parts_health_override_restores_injury_state(self):
         """Passing a body_parts_health dict through __init__ sets current
         health per part (clamped), matching the DB rehydration flow."""
@@ -536,6 +554,69 @@ class TestPlayerBodyPartPersistence:
             "leg.left", "leg.right",
             "eye.left", "eye.right",
         }
+
+    def test_to_dict_persists_health_max_per_part(self):
+        """Every part must persist both ``health`` and ``health_max``
+        so anatomy is stable across sessions (was a bug: only health
+        was saved, so ``health_max`` rerolled every login and saved
+        health got silently clamped to the new random max)."""
+        p = _make_player()
+        d = p.to_dict()
+        for name, entry in d["body_parts_health"].items():
+            assert isinstance(entry, dict), (
+                f"{name} persisted as {type(entry).__name__}, "
+                f"expected dict with health + health_max"
+            )
+            assert "health" in entry
+            assert "health_max" in entry
+            assert entry["health_max"] > 0
+
+    @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
+    def test_anatomy_stable_across_round_trip(self, _):
+        """Saving + loading a player must preserve each part's
+        ``health_max`` exactly. Before the fix, to_dict only saved
+        ``health`` and ``health_max`` was rerolled on load; this test
+        catches any regression of that behavior."""
+        p = _make_player()
+        original_maxes = {
+            part.name: part.health_max for part in p.body_parts
+        }
+
+        payload = p.to_dict()
+        restored = Player.from_dict(payload)
+
+        restored_maxes = {
+            part.name: part.health_max for part in restored.body_parts
+        }
+        assert restored_maxes == original_maxes
+
+    @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
+    def test_legacy_int_overrides_still_load(self, _):
+        """DB documents written before the dict-of-dict migration used
+        ``{name: int}`` for body_parts_health. Loading those must not
+        crash — current health is clamped to the freshly-rolled max
+        (legacy behavior) and the next save will upgrade the shape."""
+        d = {
+            "_id": ObjectId(),
+            "user_id": 1, "guild_id": 2,
+            "weight_limit": 100, "joined": None,
+            "clarks": 0, "defense": 6, "dodge": 6,
+            "health": 20, "health_max": 20, "items": [],
+            "rolls": {"d4": [0]*4, "d6": [0]*6, "d8": [0]*8,
+                      "d10": [0]*10, "d12": [0]*12, "d20": [0]*20},
+            "skills": {},
+            "gender": "female", "pronouns": "she,her,hers,her",
+            "equip_slots": {},
+            "last_active": None, "health_regen": 0,
+            # Legacy int-form overrides.
+            "body_parts_health": {"leg.left": 2, "head": 5},
+        }
+        restored = Player.from_dict(d)
+        parts = {part.name: part for part in restored.body_parts}
+        # Clamped to freshly-rolled max (whatever it came out to),
+        # but never negative and never above max.
+        assert 0 <= parts["leg.left"].health <= parts["leg.left"].health_max
+        assert 0 <= parts["head"].health <= parts["head"].health_max
 
     @patch("caldanai.lib.rpg.creatures.player.Inventory.from_list", return_value=Inventory())
     def test_round_trip_preserves_injury_state(self, _):

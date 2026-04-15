@@ -28,42 +28,89 @@ from datetime import datetime
 # but isn't lethal on its own. Persistence only saves each part's
 # current health, keyed by instance name, so the schema evolves
 # freely if we ever add or rename parts.
-_DEFAULT_PARTS: Dict[str, str] = {
-    "head":      "head",
-    "torso":     "torso",
-    "arm.left":  "arm",
-    "arm.right": "arm",
-    "leg.left":  "leg",
-    "leg.right": "leg",
-    "eye.left":  "eye",
-    "eye.right": "eye",
+# Part spec: (plugin_name, fixed default health_max). Players share
+# the same baseline anatomy — the random dice rolls on part plugins
+# are kept for monsters (where anatomical variance is a gameplay
+# feature) but overridden here so every player starts with the same
+# deterministic HP pool per part. Values chosen to roughly match the
+# prior rolled averages while landing on cleaner round numbers:
+#   head 3d10 (avg 16.5) → 15
+#   torso 6d10 (avg 33)  → 30
+#   arm 2d8 (avg 9)      → 10
+#   leg 2d10 (avg 11)    → 12
+#   eye 1d6 (avg 3.5)    → 4
+# Per-part armor scaling lands in a follow-up pass; for now the
+# body-pool ``health_max`` bonus behavior is unchanged.
+_DEFAULT_PARTS: Dict[str, Tuple[str, int]] = {
+    "head":      ("head",  15),
+    "torso":     ("torso", 30),
+    "arm.left":  ("arm",   10),
+    "arm.right": ("arm",   10),
+    "leg.left":  ("leg",   12),
+    "leg.right": ("leg",   12),
+    "eye.left":  ("eye",    4),
+    "eye.right": ("eye",    4),
 }
 
 
 def _build_default_body_parts() -> List[BodyPart]:
-    """Construct a fresh humanoid body-part list at full health.
+    """Construct a fresh humanoid body-part list at full health, with
+    fixed ``health_max`` per part type. Every player gets identical
+    starting anatomy so character build is deterministic across
+    sessions and consistent across the playerbase.
 
-    Symmetrization (left/right HP matching) and optional DB-persisted
-    health restoration are applied by the caller in the correct order
-    — see ``Player.__init__``."""
+    DB-persisted ``health_max`` still wins via
+    ``_apply_body_parts_health`` (dict-of-dict shape) — players who
+    had rolled maxes before this change keep whatever's in their save
+    until the next save cycle, after which the deterministic values
+    are written back.
+    """
     return [
-        BodyPart.make(plugin_name, name=instance_name)
-        for instance_name, plugin_name in _DEFAULT_PARTS.items()
+        BodyPart.make(plugin_name, name=instance_name, health_max=default_max)
+        for instance_name, (plugin_name, default_max) in _DEFAULT_PARTS.items()
     ]
 
 
 def _apply_body_parts_health(
     parts: List[BodyPart],
-    overrides: Optional[Dict[str, int]],
+    overrides: Optional[Dict[str, object]],
 ) -> None:
-    """Restore per-part current health from a persisted dict, clamped
-    to ``[0, health_max]``. Unknown keys (renamed / removed parts) are
-    silently ignored so old DB entries load cleanly."""
+    """Restore per-part persisted anatomy (``health_max``) and current
+    ``health`` from a saved dict, clamped to ``[0, health_max]``.
+
+    Two schemas are accepted for backwards compatibility:
+
+    - **Current (dict-of-dict)**: ``{name: {"health": h, "health_max": hm}}``.
+      Both fields are restored; this is the stable form that makes a
+      character's anatomy deterministic across sessions.
+    - **Legacy (dict-of-int)**: ``{name: h}``. Only current health was
+      persisted — ``health_max`` was rerolled on every load, causing
+      anatomy drift (and silent HP loss when a reroll came up lower
+      than the saved health). Loading this shape applies just the
+      current health clamped to the freshly-rolled max; the next save
+      writes the new shape, so documents self-migrate in place.
+
+    Unknown keys (renamed / removed parts) are silently ignored so the
+    anatomy definition can evolve without bricking old saves.
+    """
     if not overrides:
         return
     for part in parts:
-        if part.name in overrides:
-            part.health = max(0, min(part.health_max, int(overrides[part.name])))
+        entry = overrides.get(part.name)
+        if entry is None:
+            continue
+        if isinstance(entry, dict):
+            # Current shape: restore max first so the health clamp
+            # below uses the persisted max, not the fresh roll.
+            saved_max = entry.get("health_max")
+            if saved_max is not None:
+                part.health_max = int(saved_max)
+            saved_health = entry.get("health")
+            if saved_health is not None:
+                part.health = max(0, min(part.health_max, int(saved_health)))
+        else:
+            # Legacy shape: int health only, clamp to freshly-rolled max.
+            part.health = max(0, min(part.health_max, int(entry)))
 
 
 class Player(Creature):
@@ -102,14 +149,12 @@ class Player(Creature):
             gender=gender,
             pronouns=pronouns,
         )
-        # Humanoid anatomy. Order matters:
-        # 1. Build fresh at full health (each part independently rolled).
-        # 2. Symmetrize left/right pairs so a character isn't born with
-        #    one strong arm and one weak arm. This also resets both
-        #    sides to full health, which is why overrides come AFTER.
-        # 3. Restore any persisted per-part health from the DB.
+        # Humanoid anatomy. Every player gets the same deterministic
+        # starting anatomy (see ``_DEFAULT_PARTS``), so there's no
+        # symmetrization step — left/right pairs are identical by
+        # construction. Persisted per-part health / health_max from
+        # the DB still wins via ``_apply_body_parts_health``.
         self.body_parts = _build_default_body_parts()
-        self._symmetrize_paired_parts()
         _apply_body_parts_health(self.body_parts, body_parts_health)
         self.uses_article = False  # "Caels", not "the Caels"
         self.id = pid
@@ -737,11 +782,15 @@ class Player(Creature):
             "equip_slots": {},
             "last_active": self.last_active,
             "health_regen": self.health_regen,
-            # Persist only current per-part health keyed by instance name.
-            # The anatomy shape is defined in code; if it changes, old DB
-            # entries with extra/missing keys are handled gracefully on
-            # load (extras ignored, missing keys default to full health).
-            "body_parts_health": {p.name: p.health for p in self.body_parts},
+            # Persist per-part anatomy (``health_max``) and current
+            # ``health`` keyed by instance name. Both fields are saved
+            # so anatomy is stable across sessions — see
+            # ``_apply_body_parts_health`` for the load path and
+            # legacy (int-only) back-compat.
+            "body_parts_health": {
+                p.name: {"health": p.health, "health_max": p.health_max}
+                for p in self.body_parts
+            },
         }
 
         for slot, item in self.equip_slots.items():
