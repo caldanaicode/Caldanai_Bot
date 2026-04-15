@@ -881,8 +881,26 @@ class Creature:
         :return: A string representing the creature's reaction.
         """
         if self.is_dead():
-            return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
+            return parse("@1cnp corpse rolls lifelessly in @2np arms.", self, actor)
         return parse("@1dc glances at @2 and sidesteps @2a hug.", self, actor)
+
+    @property
+    def plural_verbs(self) -> bool:
+        """``True`` when the creature takes plural-verb agreement with
+        a pronoun subject (they/them by default; extensible via
+        ``PLURAL_VERB_SUBJECTIVES`` in the parser). Used by the verb-
+        agreement token ``@<n>v(singular|plural)`` in narration.
+
+        Best-effort detection from ``pronouns[Pronouns.SUBJECTIVE]``:
+        known plural-agreeing values match, everything else falls back
+        to singular — the conventional default for English neopronouns
+        (xe/ze/etc., all singular-agreeing). Players with unusual
+        pronoun choices may see imperfect verbs until/unless we add an
+        explicit override knob."""
+        # Local import to avoid circular dependency on parser module.
+        from caldanai.lib.rpg.helpers.parser import PLURAL_VERB_SUBJECTIVES
+        subj = self.pronouns.get(Pronouns.SUBJECTIVE, "").lower()
+        return subj in PLURAL_VERB_SUBJECTIVES
 
     def update_pronouns(self):
         """Auto-updates the creature's pronouns, if the gender matches a preset."""

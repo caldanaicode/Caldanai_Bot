@@ -766,7 +766,7 @@ class Player(Creature):
         :return: A string representing the creature's reaction.
         """
         if self.is_dead():
-            return parse("@1c's corpse rolls lifelessly in @2's arms.", self, actor)
+            return parse("@1cnp corpse rolls lifelessly in @2np arms.", self, actor)
         return parse("@1 glances at @2 and sidesteps @2a hug.", self, actor)
 
     def to_dict(self) -> dict:

@@ -70,7 +70,7 @@ class Cyclops(MonsterPlugin):
 
         self.flavor = choice([
             "A mountain of pale muscle topped with a single unblinking "
-            "eye. @1s seems surprised to see anyone so small.",
+            "eye. @1sc seems surprised to see anyone so small.",
             "This @1 smells of wet stone and old meat. Its gaze is "
             "bewildered, then murderous.",
             "Easily twice the height of a tall man, with one great eye "
@@ -148,7 +148,7 @@ class Cyclops(MonsterPlugin):
             self._has_raged = True
             return parse(
                 "@1dc bellows in blinding agony, gore streaming from the "
-                "ruined socket. @1s lashes out wildly in every direction, "
+                "ruined socket. @1sc lashes out wildly in every direction, "
                 "no longer caring what @1s hits!",
                 self,
             )

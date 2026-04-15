@@ -4,6 +4,79 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — Parser Enrichment: Verb Agreement, Noun Possessive, and Order-Agnostic Casing
+
+**Verb-agreement token** — ``@<n>v(singular|plural)``:
+- Picks the singular or plural form based on ``actor.plural_verbs``.
+  Used after a pronoun subject where English requires agreement with
+  the pronoun's number (e.g. ``"they attack"`` vs ``"she attacks"``).
+- ``Creature.plural_verbs`` property derives from the subjective
+  pronoun via ``PLURAL_VERB_SUBJECTIVES`` (currently ``{"they"}``).
+  Neopronouns (xe/ze/etc.) default to singular per convention; can
+  be extended by adding entries to the frozenset.
+- Name subjects ("Caels winces") still take singular verbs
+  regardless of the player's pronoun — grammatical agreement follows
+  the noun, not the person's identity. ``v(...)`` is only needed
+  after a pronoun subject.
+- Malformed tokens log WARNING: missing ``|``, extra ``|``, out-of-
+  range actor reference. Unbalanced parens pass through literally
+  (regex doesn't match), surfaced by the unknown-form-letter warning
+  on the leftover ``v``.
+
+**Noun-mode prefix** — ``n``:
+- ``@1np`` renders the actor's name in possessive form. Modern AP
+  style (``"Caels's"``, ``"the werewolf's"``) regardless of whether
+  the name ends in 's'.
+- ``n`` applies only to the immediately-following letter, then resets.
+  Non-possessive combos (``ns``, ``no``, ``na``, ``nr``) collapse to
+  bare name (no-op) since English names don't have distinct
+  subjective/objective/etc. morphology.
+- Composes with articles (``@1dnp`` → ``"the werewolf's"``) and
+  casing (``@1cnp`` / ``@1npc`` → both capitalize the final output).
+- Sweep: replaced literal ``@X's`` with ``@Xnp`` in player-facing
+  narration (``rpg_user_commands.py``, ``player.py``,
+  ``creatures/__init__.py``, ``body_part.py``). Monster files kept
+  as-is — their ``@1d's``-style strings are uniformly singular and
+  the conversion would be pure churn.
+
+**Order-agnostic casing** (previously committed in the same parser
+rewrite cycle):
+- Content forms (articles, pronouns, noun-mode) apply in written
+  order; casing forms (``c/l/t/u``) defer to the end regardless of
+  position. ``@1cs`` and ``@1sc`` both produce the capitalized
+  pronoun. Fixes a footgun where casing written before a pronoun
+  would be silently clobbered by the pronoun substitution.
+
+**Unknown-letter warnings**:
+- Any form letter not recognized as article / pronoun / noun-mode /
+  casing logs WARNING with the offending letter and surrounding
+  token. Typos like ``@1x`` now surface during playtesting instead
+  of producing silently-wrong narration.
+
+**Form-letter constants and docstring**:
+- Named constants at the top of ``parser.py`` (e.g.
+  ``FORM_DEFINITE_ARTICLE``) replace implicit dict-key knowledge.
+  Pronoun form letters derive from a new ``Pronouns.form`` property
+  (first-char of the enum name by default), so adding a pronoun
+  member auto-extends the parser grammar.
+- Module docstring documents the full token grammar at a glance.
+
+**Tests** (``tests/test_parser.py``, 49 total):
+- Basic substitution (name, articles, pronouns, casing).
+- Order-agnostic casing regression guards.
+- Named-entity ``uses_article=False`` opt-out.
+- Indefinite-article override (``"a unicorn"``).
+- Unknown-form-letter warning + silent drop.
+- Noun-possessive: all variants, composition with articles/casing,
+  no-op for non-possessive noun-mode combos.
+- Verb agreement: singular / plural / multi-actor independence /
+  literal capitalization in verb content.
+- Verb-agreement malformed inputs: missing pipe, extra pipes,
+  unbalanced parens, out-of-range actor.
+- ``Creature.plural_verbs`` derivation for they, she, he, and
+  neopronouns.
+- ``Pronouns.form`` first-char convention lock-in.
+
 ### 2026-04-14 — New Monsters, Classifications, Per-Hit Narration, and Damage-Type Aliases
 
 **New monsters (7):**

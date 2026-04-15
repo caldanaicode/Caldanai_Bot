@@ -97,16 +97,18 @@ class BodyPart(ABC):
         display = self.display_name  # "left arm", "right foreleg", "head"
 
         if level == InjuryLevels.MINOR:
-            return f"@1's {display} is nearly back to full strength."
+            return f"@1np {display} is nearly back to full strength."
 
         if level == InjuryLevels.MODERATE:
-            return f"@1's {display} is starting to mend."
+            return f"@1np {display} is starting to mend."
 
         if level == InjuryLevels.SEVERE:
+            # Name subject ("Caels winces") takes singular verb regardless
+            # of the player's pronouns — no verb-agreement token needed.
             return f"@1 winces as feeling returns to @1a {display}."
 
         if level == InjuryLevels.NONE:
-            return f"@1's {display} feels as good as new."
+            return f"@1np {display} feels as good as new."
 
         # USELESS is not a "recovery" destination — if we healed
         # INTO it, something's gone very wrong.

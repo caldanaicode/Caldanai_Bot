@@ -344,29 +344,29 @@ class RpgUserCommands(Cog):
             if haunted.is_dead():
                 msgs = [
                     f"The spirit of @1 attempts to bond with that of @2, but a slight burst of pressure repels @1o.",
-                    f"@1's shade investigates the remains of @2.",
-                    f"As @1's ghostly form approaches the remains of @2, @1 flickers rapidly before suddenly "
+                    f"@1np shade investigates the remains of @2.",
+                    f"As @1np ghostly form approaches the remains of @2, @1 flickers rapidly before suddenly "
                     f"teleporting back to @1a own corpse.",
                 ]
 
             else:
                 msgs = [
                     f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
-                    f"senses the unearthly presence of @1.",
-                    f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2's ears as @1's spirit toys with @2o.",
-                    f"{'The ' if not isinstance(haunted, Player) else ''}@2's breath suddenly catches as @1's shade wisps through @2o.",
+                    f"@2v(senses|sense) the unearthly presence of @1.",
+                    f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2np ears as @1np spirit toys with @2o.",
+                    f"{'The ' if not isinstance(haunted, Player) else ''}@2np breath suddenly catches as @1np shade wisps through @2o.",
                 ]
 
         else:
             msgs = [
                 f"The ghostly presence of @1 floods into the area briefly before ebbing away.",
-                f"A sudden chill blankets the area as @1's spirit wafts through.",
-                f"@1's forlorn lament brings with it a cold, solemn feeling.",
+                f"A sudden chill blankets the area as @1np spirit wafts through.",
+                f"@1np forlorn lament brings with it a cold, solemn feeling.",
             ]
 
         if player.is_dead():
             if haunted and isinstance(haunted, Player) and haunted.member == player.member:
-                msg = f"@1's spirit tries to fuse back into @1a body, but merely passes right through it."
+                msg = f"@1np spirit tries to fuse back into @1a body, but merely passes right through it."
             else:
                 msg = choice(msgs)
         else:
@@ -400,7 +400,7 @@ class RpgUserCommands(Cog):
                     "It seems, @1, that if anyone is listening, they no longer care...",
                     "The power of prayer eludes the dead, @1.",
                     "Hideous cackling erupts from unseen places as the spirit of @1 seeks salvation.",
-                    "A sense of dread settles over @1's shade, and @1s cries out forlornly.",
+                    "A sense of dread settles over @1np shade, and @1s @1v(cries|cry) out forlornly.",
                 ]
             )
             Dispatcher.add(game.channel, parse(msg, player))
@@ -409,8 +409,8 @@ class RpgUserCommands(Cog):
         msgs = [
             "@1 offers a solemn prayer, seeking forgiveness and humility.",
             "@1 seeks the guidance of the Divine.",
-            "@1 falls to @1a knees in reverence, face lifted to the sky as @1s basks in a divine embrace.",
-            "@1's eyes turn skyward as @1s entreats the Divine for benevolence.",
+            "@1 falls to @1a knees in reverence, face lifted to the sky as @1s @1v(basks|bask) in a divine embrace.",
+            "@1np eyes turn skyward as @1s @1v(entreats|entreat) the Divine for benevolence.",
             "@1 proffers words of hope, attempting to sooth the splintered souls of comrades.",
         ]
 

@@ -397,6 +397,14 @@ class Pronouns(Enum):
     REFLEXIVE = "reflexive"
     """Herself, Himself, Themself, etc."""
 
+    @property
+    def form(self) -> str:
+        """Single-character form letter used by the narration parser
+        (``@1s``, ``@1o``, ``@1p``, ``@1a``, ``@1r``). First letter of
+        the enum name, lowered. Override per-member if a future
+        pronoun's initial would collide with an existing one."""
+        return self.name[0].lower()
+
 
 class Qualities(Enum):
     JUNK = {"color": 0x777777, "frequency": 0.6, "multiplier": 0.75}
