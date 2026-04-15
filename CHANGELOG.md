@@ -4,6 +4,58 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — Werewolf Dawn Mechanics and Attacker-Side Part-Destruction Hook
+
+**Base hooks on ``MonsterPlugin``** (reusable by future monsters):
+- ``on_target_part_destroyed(victim, part)`` — attacker-side hook
+  called from ``attack_random`` on the USELESS transition. Monster-
+  specific narration counterpart to ``BodyPart.on_destroyed``
+  (which describes the injury from the victim's perspective). Both
+  feed the same injury feedback block in ``attack_random``. Default
+  no-op.
+- ``flee_loot: Dict[str, float]`` + ``get_flee_loot()`` — mirrors
+  ``loot`` / ``get_loot()`` for items potentially left behind on a
+  time-based flee (e.g. a dawn-bolting werewolf dropping a shred of
+  clothing). **Dead hook for now** — no engine caller yet; wiring
+  into ``Game.check_time`` (or an equivalent escape path) is a
+  follow-up when we generalize "monster leaves evidence" as a
+  first-class concept.
+
+**Werewolf — dawn-adjacent layered mechanics:**
+- **Dawn desperation** — ``on_spawn`` stashes ``game.game_clock``;
+  ``_is_near_dawn()`` returns true within ~1 in-game hour of the
+  next ``MORNING`` transition. When desperate, ``get_attack_sources``
+  appends a ``Desperate Lunge`` (2d8) alongside the normal bite —
+  roughly doubles expected round damage. ``on_combat_round`` emits
+  a one-time announcement the round desperation kicks in. The base
+  engine's ``flees_from_time`` handling still manages the actual
+  dawn-retreat; desperation is the narrative/mechanical lead-up.
+- **Throat-bite narration** — ``on_target_part_destroyed`` fires
+  a distinctive predator-kill beat when the destroyed part is the
+  head. Reinforces the 30% throat-bite target preference that was
+  already biasing head-selection.
+- **Partial-human reveal on death** — fatal ``apply_damage`` appends
+  a separate revelation sentence (three variants: "pelt thins in
+  patches; a clavicle here, a human jawline there…", etc.). Death
+  openers strengthened to pair cleanly with it. Two-beat reveal:
+  the kill, then the recognition of what was killed.
+- **Flee loot declaration** — ``flee_loot = {"leather": 0.5}``.
+  Semantic declaration; rendering waits on engine wiring.
+
+**Tests** — 11 new in ``test_new_monsters.py``:
+- ``_is_near_dawn`` correctness (inside/outside window, wrong next-
+  tod, missing clock handle).
+- Desperate-lunge attack-source addition.
+- Once-per-encounter desperation announcement.
+- Throat-bite narration (head vs non-head).
+- Flee loot declaration.
+- Death revelation (fatal appends, non-fatal doesn't).
+
+**Note**: ``self._clock = game.game_clock`` is an interim approach.
+The in-progress clock-registry refactor (``GameClock.for_game(id)``
+with module-level read/write functions) will migrate this to
+``get_time_components(self._game_id)`` as its proving ground.
+
 ### 2026-04-15 — Parser Enrichment: Verb Agreement, Noun Possessive, and Order-Agnostic Casing
 
 **Verb-agreement token** — ``@<n>v(singular|plural)``:

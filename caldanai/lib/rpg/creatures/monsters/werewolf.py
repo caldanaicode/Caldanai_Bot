@@ -19,21 +19,53 @@ not pure apex predators, so they're slightly less disciplined.
 Trait profile: the traditional werewolf weakness is silver, but the
 game doesn't model silver as a damage type. ``LIGHT * 2.0`` stands
 in for holy/blessed vulnerability; otherwise standard physical.
+
+Dawn-adjacent layered mechanics
+-------------------------------
+
+The base engine already handles the actual dawn-flee (see
+``Game.check_time``). On top of that, this plugin layers:
+
+- **Dawn desperation** — once the current hour is within ~1h of
+  ``MORNING``, ``get_attack_sources`` adds a second "Desperate Lunge"
+  alongside the normal bite, and ``on_combat_round`` emits a
+  one-time announcement. Mechanically: the werewolf *knows* time is
+  running out and gets reckless. Untargeted (normal exposure
+  weighting) — the desperation is about urgency, not precision.
+- **Throat-bite narration** — when an attack destroys the target's
+  head part, the attacker-side ``on_target_part_destroyed`` hook
+  emits a distinctive predator-kill beat. Reinforces the throat-bite
+  target preference that was already biasing head-selection.
+- **Partial-human reveal on death** — the death narration is
+  strengthened from "seems almost to flicker" into an explicit
+  partial reversion, with an extra second line appended via
+  ``apply_damage`` so the player gets the full reveal beat.
+- **Flee loot (dead hook)** — ``flee_loot`` declares what the
+  werewolf leaves behind on a dawn retreat (a shred of bloody
+  clothing torn off as it bolts). ``get_flee_loot`` is not yet
+  wired into the engine; this is the forward-compatible stub.
 """
 
 from random import choice, random
-from typing import Optional
+from typing import List, Optional
 
-from caldanai.lib.rpg.combat.attack_source import AttackSource
+from caldanai.lib.rpg.combat.attack_source import (
+    AttackSource, NaturalAttackSource,
+)
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, DamageTypes, Size, TimePartitions,
+    AggressionLevels, DamageTypes, Size, TimePartitions, TimesOfDay,
 )
+from caldanai.lib.rpg.helpers.parser import parse
 
 
 class Werewolf(MonsterPlugin):
+    # Window, in game-hours, before the current time rolls over into
+    # MORNING during which the werewolf is considered "desperate".
+    _DESPERATION_WINDOW_HOURS = 1.0
+
     def __init__(self):
         super().__init__(
             name="werewolf",
@@ -76,11 +108,30 @@ class Werewolf(MonsterPlugin):
             "the forest with a final snarl."
         )
 
+        # Death strings describe the fatal blow; the partial-human
+        # reveal is appended afterward in ``apply_damage`` so it
+        # consistently lands regardless of which opener rolled.
         self.death = choice([
-            "@1dc collapses with a rattling whine; as the last breath "
-            "leaves @1o, the body seems almost to flicker, then is still.",
-            "@1dc sags onto @1a side, fur going slack. @1a dying gaze "
-            "looks oddly human in the moonlight.",
+            "@1dc collapses with a rattling whine, a final tremor running "
+            "the length of @1a frame.",
+            "@1dc sags onto @1a side, the great ribcage shuddering once "
+            "and then going still.",
+            "@1dc drops mid-lunge, claws scoring the earth in a last "
+            "reflexive spasm before @1s stops moving.",
+        ])
+
+        # Post-death revelation appended by ``apply_damage``. Separated
+        # from the fatal-blow line so the moment lands as its own beat.
+        self._death_revelation = choice([
+            "As the body cools, the pelt thins in patches; a clavicle "
+            "here, a human jawline there, push up through the fur. "
+            "Whatever @1s was in life, @1s was not only a wolf.",
+            "The carcass gives a slow, dry shiver — and when it stills "
+            "again the proportions are subtly wrong for a wolf. Long "
+            "fingers curl inside what had been paws.",
+            "Under the moonlight the dead shape seems to *remember* "
+            "itself: snout shortening by degrees, spine uncoiling, until "
+            "what lies in the grass is almost — almost — a person.",
         ])
 
         # Weakness to holy (silver-stand-in via LIGHT).
@@ -93,11 +144,95 @@ class Werewolf(MonsterPlugin):
         self.loot["shortsword"] = 0.1  # presumably human's gear
         self.loot["wallet"] = 0.2
 
+        # Dawn-flee evidence. Not yet wired into the engine (see base
+        # ``MonsterPlugin.flee_loot`` comment) — declaring it here so
+        # the hook is meaningful once a caller exists.
+        self.flee_loot["leather"] = 0.5
+
         # Quadruped shape for the wolf form (head, torso, 4 legs, tail).
         self.body_parts = BodyPart.quadruped()
 
         self.size = Size.LARGE
         self._scale_part_hp()
+
+        # Stashed in ``on_spawn``. ``None`` outside of an active game
+        # (unit tests instantiate the plugin without a game) — all
+        # time-of-day checks gate on this being set.
+        self._clock = None
+        self._announced_desperation = False
+
+    # -- Dawn desperation -----------------------------------------------
+
+    def on_spawn(self, game) -> str:
+        """Grab the game clock so combat-round code can check how close
+        we are to dawn. Returns no narration — the arrival line
+        already covers the entrance."""
+        self._clock = game.game_clock
+        return ""
+
+    def _is_near_dawn(self) -> bool:
+        """True when the next time-of-day boundary is ``MORNING`` and
+        we're within ``_DESPERATION_WINDOW_HOURS`` of crossing it.
+
+        The base engine's ``check_time`` already handles the actual
+        flee transition — this window is strictly narrative/desperate
+        territory in the lead-up.
+        """
+        if self._clock is None:
+            return False
+        h, m, _ = self._clock.get_time_components()
+        next_name, next_h, next_m = self._clock.get_next_time()
+        if next_name != TimesOfDay.MORNING.name:
+            return False
+        remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
+        return remaining < self._DESPERATION_WINDOW_HOURS
+
+    def get_attack_sources(self) -> List[AttackSource]:
+        """Standard bite normally. When dawn is near, a second
+        ``Desperate Lunge`` joins the bite — roughly doubles expected
+        damage output, mirroring cyclops-style multi-source emergence.
+        Normal exposure weighting on target selection (desperation is
+        about urgency, not aim)."""
+        sources = super().get_attack_sources()
+        if self._is_near_dawn():
+            sources = list(sources) + [
+                NaturalAttackSource(
+                    atk="2d8",
+                    label="Desperate Lunge",
+                    skill="natural",
+                ),
+            ]
+        return sources
+
+    def on_combat_round(self, damage_by_player) -> str:
+        """One-time announcement when desperation kicks in. Subsequent
+        rounds stay desperate (get_attack_sources keeps adding the
+        lunge) but don't re-announce."""
+        if self._is_near_dawn() and not self._announced_desperation:
+            self._announced_desperation = True
+            return parse(
+                "@1dc's nostrils flare toward the eastern horizon. "
+                "Dawn's weight settles on @1o and @1s bolts forward "
+                "with teeth bared — nothing to lose now.",
+                self,
+            )
+        return ""
+
+    # -- Throat-bite narration ------------------------------------------
+
+    def on_target_part_destroyed(
+        self, victim: Creature, part: BodyPart,
+    ) -> str:
+        """Predator-signature narration when the werewolf's attack
+        destroys the victim's head (throat bite connecting). Other
+        parts defer to the default (no attacker-side beat)."""
+        if part.name == "head":
+            return parse(
+                "Jaws close around @2's throat with a sickening crunch; "
+                "@1dc worries the grip once, twice, and does not let go.",
+                self, victim,
+            )
+        return ""
 
     def get_target_part_preference(
         self, target: Creature, source: AttackSource,
@@ -109,6 +244,28 @@ class Werewolf(MonsterPlugin):
         if random() < 0.3:
             return "head"
         return None
+
+    # -- Death: fatal blow + partial-human reveal -----------------------
+
+    def apply_damage(
+        self,
+        amount: int,
+        dmg_type: Optional[DamageTypes] = None,
+        target_part: Optional[BodyPart] = None,
+    ) -> str:
+        """Extends the base death message with the transformation
+        reveal when the damage is fatal. The reveal renders as a
+        second sentence so combat narration reads as two distinct
+        beats: the kill, then the recognition of what they killed."""
+        msg = super().apply_damage(
+            amount, dmg_type=dmg_type, target_part=target_part,
+        )
+        if msg and self._death_revelation:
+            # msg is already the death string; parser tokens inside
+            # the revelation are resolved against ``self`` (the dying
+            # werewolf).
+            msg = f"{msg}\n{self._death_revelation}"
+        return msg
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([

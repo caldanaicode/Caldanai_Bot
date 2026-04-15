@@ -354,6 +354,127 @@ class TestWerewolf:
         ):
             assert w.get_target_part_preference(None, fake_source) == "head"
 
+    # -- Dawn desperation -------------------------------------------
+
+    def _make_clock(self, hours_to_morning: float):
+        """Build a mock game clock positioned so that MORNING is
+        ``hours_to_morning`` away. The werewolf reads ``get_next_time``
+        and ``get_time_components`` to compute the window."""
+        clock = MagicMock()
+        # Pretend current time is (h=5, m=30) and MORNING hits at
+        # (h=5+delta). Remaining is just the delta.
+        clock.get_time_components.return_value = (5, 0, 0)
+        next_h = 5 + int(hours_to_morning)
+        next_m = int((hours_to_morning - int(hours_to_morning)) * 60)
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        clock.get_next_time.return_value = (TimesOfDay.MORNING.name, next_h, next_m)
+        return clock
+
+    def test_is_near_dawn_off_without_clock(self):
+        """Without a game, desperation logic must be inert — the
+        plugin is constructable in tests and shouldn't fire stateful
+        behavior based on missing infrastructure."""
+        w = Werewolf()
+        assert w._is_near_dawn() is False
+
+    def test_is_near_dawn_true_inside_window(self):
+        w = Werewolf()
+        w._clock = self._make_clock(0.5)  # 30 min to dawn
+        assert w._is_near_dawn() is True
+
+    def test_is_near_dawn_false_outside_window(self):
+        w = Werewolf()
+        w._clock = self._make_clock(3.0)  # 3h to dawn
+        assert w._is_near_dawn() is False
+
+    def test_is_near_dawn_false_when_next_tod_is_not_morning(self):
+        """Night → NIGHT transition (or any non-MORNING next-tod)
+        must not trigger desperation."""
+        w = Werewolf()
+        clock = MagicMock()
+        clock.get_time_components.return_value = (22, 0, 0)
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        clock.get_next_time.return_value = (TimesOfDay.NIGHT.name, 23, 0)
+        w._clock = clock
+        assert w._is_near_dawn() is False
+
+    def test_desperate_adds_bonus_attack(self):
+        """Near dawn, ``get_attack_sources`` adds a second source
+        alongside the normal bite."""
+        w = Werewolf()
+        baseline = len(w.get_attack_sources())
+        w._clock = self._make_clock(0.5)
+        desperate = w.get_attack_sources()
+        assert len(desperate) == baseline + 1
+        assert any("Lunge" in (s.label or "") for s in desperate)
+
+    def test_desperate_announcement_fires_once(self):
+        """``on_combat_round`` returns the announcement the first
+        time desperation kicks in, then goes quiet on subsequent
+        rounds even while still desperate."""
+        w = Werewolf()
+        w._clock = self._make_clock(0.5)
+        first = w.on_combat_round([])
+        second = w.on_combat_round([])
+        assert "dawn" in first.lower() or "horizon" in first.lower()
+        assert second == ""
+
+    # -- Throat-bite narration --------------------------------------
+
+    def test_throat_bite_narration_on_head_destruction(self):
+        w = Werewolf()
+        victim = MagicMock()
+        victim.name = "adventurer"
+        victim.pronouns = "they/them/their/theirs/themself"
+        head = MagicMock()
+        head.name = "head"
+        msg = w.on_target_part_destroyed(victim, head)
+        assert msg
+        assert "throat" in msg.lower() or "jaws" in msg.lower()
+
+    def test_non_head_destruction_has_no_attacker_beat(self):
+        """Only the head triggers the throat-bite line; other parts
+        fall through to the base (empty) hook."""
+        w = Werewolf()
+        leg = MagicMock()
+        leg.name = "foreleg.left"
+        assert w.on_target_part_destroyed(MagicMock(), leg) == ""
+
+    # -- Flee loot ---------------------------------------------------
+
+    def test_declares_flee_loot(self):
+        """Dead-hook declaration that the dawn-flee leaves a shred
+        behind. No engine caller yet — this just asserts the
+        declaration exists for when the caller is wired."""
+        w = Werewolf()
+        assert "leather" in w.flee_loot
+        assert 0 < w.flee_loot["leather"] <= 1.0
+
+    # -- Partial-human reveal on death ------------------------------
+
+    def test_death_appends_revelation(self):
+        """Fatal ``apply_damage`` returns death string + revelation,
+        separated by a newline so combat narration reads as two
+        beats."""
+        w = Werewolf()
+        w.health = 1
+        msg = w.apply_damage(999)
+        assert msg
+        assert "\n" in msg
+        # Both halves non-empty.
+        fatal, revelation = msg.split("\n", 1)
+        assert fatal.strip()
+        assert revelation.strip()
+
+    def test_non_fatal_damage_no_revelation(self):
+        """Partial-health hits must NOT emit the revelation — the
+        reveal only reads as earned when the creature actually dies."""
+        w = Werewolf()
+        w.health = w.health_max  # starts healthy
+        msg = w.apply_damage(1)  # scratch
+        # apply_damage returns death string only on fatal transitions.
+        assert msg == ""
+
 
 # ---------------------------------------------------------------------------
 # Golem

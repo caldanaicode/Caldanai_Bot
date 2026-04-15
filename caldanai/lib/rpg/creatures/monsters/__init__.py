@@ -51,6 +51,14 @@ class MonsterPlugin(Creature):
         self.escape = ""
         self.death = ""
         self.loot: Dict[str, float] = {}
+        # Items potentially left behind on a time-based flee (e.g. a
+        # werewolf bolting at dawn drops a shred of the human form's
+        # clothing). Same ``name -> drop_chance`` shape as ``loot``.
+        # NOTE: ``get_flee_loot`` is currently a dead hook — no engine
+        # caller yet. Wiring into ``Game.check_time`` (and/or
+        # equivalent escape paths) is a follow-up when we generalize
+        # "monster leaves evidence behind" as a first-class concept.
+        self.flee_loot: Dict[str, float] = {}
 
     def on_combat_round(self, damage_by_player: list) -> str:
         """Called after players attack but before the monster retaliates.
@@ -67,6 +75,21 @@ class MonsterPlugin(Creature):
 
         :param game: The Game instance this monster was spawned into.
         :return: An optional message string to display, or empty string.
+        """
+        return ""
+
+    def on_target_part_destroyed(
+        self, victim: Creature, part: "BodyPart",
+    ) -> str:
+        """Hook called by ``attack_random`` the first time one of this
+        monster's attacks destroys a target's body part. Override to
+        emit monster-specific narration (e.g. werewolf throat-bite on a
+        destroyed head). Default: no-op.
+
+        Fires in addition to ``part.on_destroyed`` — the part-side hook
+        describes the injury from the victim's perspective, this one
+        describes it from the attacker's. Both feed the same injury
+        feedback block in ``attack_random``.
         """
         return ""
 
@@ -96,6 +119,30 @@ class MonsterPlugin(Creature):
             return None
 
         return choice(candidates)()
+
+    def get_flee_loot(self) -> list:
+        """Returns items potentially left behind when the monster flees
+        due to time-of-day (``flees_from_time``). Mirrors ``get_loot``
+        but rolls against ``self.flee_loot`` instead.
+
+        Not yet wired into the engine — see ``flee_loot`` attribute
+        comment. Available as a hook point for monster implementations
+        that want to declare "what I leave in my wake".
+        """
+        items: List[Item] = []
+        for name, freq in self.flee_loot.items():
+            if name not in Inventory.ITEMS.keys():
+                Inventory.discover_items()
+
+            if name in Inventory.ITEMS.keys():
+                if random() <= freq:
+                    item = Inventory.ITEMS[name].from_plugin(name, {})
+                    if item:
+                        items.append(item)
+            else:
+                _log.warning(f"No such item '{name}' found in the Inventory.ITEMS list.")
+
+        return items
 
     # Returns a list of loot items
     def get_loot(self) -> list:
@@ -183,6 +230,12 @@ class MonsterPlugin(Creature):
                     destroyed_msg = part.on_destroyed(victim)
                     if destroyed_msg:
                         injury_feedback.append(f"   {destroyed_msg}")
+                    # Attacker-side perspective on the same destruction —
+                    # lets a monster layer its own flavor (e.g. werewolf
+                    # throat-bite) on top of the part's own narration.
+                    attacker_msg = self.on_target_part_destroyed(victim, part)
+                    if attacker_msg:
+                        injury_feedback.append(f"   {attacker_msg}")
 
             # Body HP: apply post-defense total once via the whole-body
             # path so the victim's death-transition messaging fires.
