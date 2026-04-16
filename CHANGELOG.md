@@ -4,6 +4,44 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-16 — Item Favoriting
+
+Players can now flag items to protect them from bulk-sell (and other
+future destructive operations). Groundwork for the planned
+``$sell duplicates`` command.
+
+**Item model** (``caldanai/lib/rpg/inventory/item.py``):
+- New ``Item.favorited: bool`` attribute, default ``False``.
+- ``to_dict`` only writes ``"favorited": True`` when the flag is set
+  — legacy item docs stay bit-for-bit identical until a player
+  actually favorites something, so no migration is needed.
+
+**Inventory** (``caldanai/lib/rpg/inventory/__init__.py``):
+- ``load_item`` restores ``favorited`` from the data dict after the
+  subclass ``from_plugin`` runs, so Stackable / Weapon / Armor /
+  Usable / Consumable all inherit the round-trip for free.
+- New ``Inventory.favorites()`` helper returning the tuple of
+  favorited items — will be consumed by the upcoming
+  ``$sell duplicates`` work.
+
+**Commands** (``caldanai/lib/cogs/rpg_inventory_commands.py``):
+- ``$favorite <item>`` (aliases ``fav``, ``lock``) — sets the flag on
+  every match of the usual fuzzy item filter.
+- ``$unfavorite <item>`` (aliases ``unfav``, ``unlock``) — clears it.
+- ``$sell`` now strips favorited items from the sell list before
+  dispatching ``player.sell``, emitting a
+  ``Protected by favorite (★): ...`` notice so the player knows what
+  was saved.
+
+**Display** (``caldanai/lib/rpg/creatures/player.py``):
+- ``get_inventory`` appends a ★ marker to each favorited row,
+  alongside the existing ``[slot]`` suffix.
+
+**Tests** (``tests/test_inventory.py``, ``TestFavorites`` class):
+- Default ``False``, ``to_dict`` omits when false / writes when
+  true, ``favorites()`` filters correctly, ``load_item`` restores
+  the flag from data and leaves it ``False`` when absent.
+
 ### 2026-04-16 — Fuzzy Body-Part Targeting + Round-Robin Multi-Source
 
 Body-part targeting now accepts abbreviations the same way inventory

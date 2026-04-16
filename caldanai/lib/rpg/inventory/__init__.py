@@ -56,7 +56,12 @@ class Inventory:
                 Inventory.discover_items()
 
             if name in Inventory.ITEMS.keys():
-                return Inventory.ITEMS[name].from_plugin(name, data or {})
+                item = Inventory.ITEMS[name].from_plugin(name, data or {})
+                # Common attributes live here so subclass from_plugin
+                # methods don't each need to thread them through.
+                if item is not None and data and data.get("favorited"):
+                    item.favorited = True
+                return item
 
         return None
 
@@ -210,6 +215,11 @@ class Inventory:
         """Returns a tuple containing all inventory items."""
 
         return tuple(self.__items)
+
+    def favorites(self) -> Tuple[Item]:
+        """Returns the tuple of items flagged ``favorited``."""
+
+        return tuple(i for i in self.__items if i.favorited)
 
     def to_list(self) -> List[Dict]:
         """Returns a sorted and stacked list of items as data dictionaries."""

@@ -290,3 +290,63 @@ class TestAll:
     def test_all_empty(self):
         inv = Inventory()
         assert inv.all() == ()
+
+
+# ---------------------------------------------------------------------------
+# favorited flag + favorites() helper + round-trip persistence
+# ---------------------------------------------------------------------------
+
+class TestFavorites:
+    def test_new_item_defaults_to_not_favorited(self):
+        assert _make_item().favorited is False
+
+    def test_to_dict_omits_flag_when_false(self):
+        """Legacy DB docs stay bit-for-bit identical until a player
+        actually favorites something — zero migration surface."""
+        d = _make_item().to_dict()
+        assert "favorited" not in d
+
+    def test_to_dict_writes_flag_when_true(self):
+        item = _make_item()
+        item.favorited = True
+        assert item.to_dict()["favorited"] is True
+
+    def test_favorites_filters_inventory(self):
+        inv = Inventory()
+        plain = _make_item(name="rock")
+        starred = _make_item(name="sword")
+        starred.favorited = True
+        inv.add(plain)
+        inv.add(starred)
+
+        assert inv.favorites() == (starred,)
+
+    def test_favorites_empty_when_none_favorited(self):
+        inv = Inventory()
+        inv.add(_make_item())
+        inv.add(_make_item(name="rock"))
+        assert inv.favorites() == ()
+
+    def test_load_item_restores_favorited_from_data(self):
+        """The flag round-trips through ``load_item`` so subclasses
+        don't each need to thread it through ``from_plugin``."""
+        fake_item = _make_item()
+        fake_item.favorited = False  # ensure baseline
+        fake_class = MagicMock()
+        fake_class.from_plugin.return_value = fake_item
+
+        with patch.dict(Inventory.ITEMS, {"rock": fake_class}, clear=False):
+            loaded = Inventory.load_item(data={"plugin": "rock", "favorited": True})
+
+        assert loaded is fake_item
+        assert loaded.favorited is True
+
+    def test_load_item_leaves_favorited_false_when_missing(self):
+        fake_item = _make_item()
+        fake_class = MagicMock()
+        fake_class.from_plugin.return_value = fake_item
+
+        with patch.dict(Inventory.ITEMS, {"rock": fake_class}, clear=False):
+            loaded = Inventory.load_item(data={"plugin": "rock"})
+
+        assert loaded.favorited is False

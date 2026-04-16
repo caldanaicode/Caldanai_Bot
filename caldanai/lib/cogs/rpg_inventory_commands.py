@@ -267,6 +267,63 @@ class RpgInventoryCommands(Cog):
 
         Dispatcher.add(game.channel, msg)
 
+    @command(name='favorite', aliases=['fav', 'lock'], brief='Favorites items to protect them from bulk-sell.')
+    @cooldown(1, 2, BucketType.member)
+    async def favorite(self, ctx: Context, *, item: str = None):
+        """
+        Flags matching items as favorited. Favorited items get a ★ in
+        ``$inventory`` and are skipped by ``$sell``. Fuzzy-matches the
+        same way as every other item command, so ``$favorite sword``
+        flags every sword in your bag.
+
+        (2-second cool-down)
+
+        :param item: An item name, item.n, item.quality, item.quality.n, or index.
+        """
+        await self._toggle_favorite(ctx, item, value=True)
+
+    @command(name='unfavorite', aliases=['unfav', 'unlock'], brief='Unfavorites items so they can be sold again.')
+    @cooldown(1, 2, BucketType.member)
+    async def unfavorite(self, ctx: Context, *, item: str = None):
+        """
+        Clears the favorited flag on matching items. Use before
+        selling an item you previously protected.
+
+        (2-second cool-down)
+
+        :param item: An item name, item.n, item.quality, item.quality.n, or index.
+        """
+        await self._toggle_favorite(ctx, item, value=False)
+
+    async def _toggle_favorite(self, ctx: Context, item: Optional[str], value: bool):
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+
+        channel = game.channel if ctx.guild is not None else ctx
+
+        if not item:
+            Dispatcher.add(channel, "You must specify an item.")
+            return
+
+        matches = [i for i in player.inventory.filter(item) if i is not None]
+        if not matches:
+            Dispatcher.add(channel, f"I'm afraid you don't have any {item}.")
+            return
+
+        changed = [i for i in matches if i.favorited != value]
+        for i in changed:
+            i.favorited = value
+
+        if not changed:
+            verb = "favorited" if value else "unfavorited"
+            Dispatcher.add(channel, f"Already {verb}: {item_list_to_string(matches)}.")
+            return
+
+        player.is_dirty = True
+        verb = "favorites" if value else "un-favorites"
+        Dispatcher.add(channel, f"{player.name} {verb} {item_list_to_string(changed)}.")
+
     @cooldown(1, 2, BucketType.member)
     @guild_only()
     @command(name='sell', brief='Sells an item, range of items, unequipped items, or items having a given rarity.')
@@ -336,6 +393,15 @@ class RpgInventoryCommands(Cog):
 
             else:
                 msg += f"\nI'm afraid you don't have any {_item}."
+
+        # Favorited items are protected from bulk-sell. Strip them
+        # from whatever paths above put them into the sell list and
+        # tell the player what was saved so they can un-favorite if
+        # they really meant to sell it.
+        favorited = [i for i in sell if i.favorited]
+        if favorited:
+            sell = [i for i in sell if not i.favorited]
+            msg += f"\nProtected by favorite (★): {item_list_to_string(favorited)}."
 
         if len(sell) > 0:
             for item in sell:

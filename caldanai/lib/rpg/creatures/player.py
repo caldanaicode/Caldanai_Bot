@@ -580,6 +580,8 @@ class Player(Creature):
             msg += f"\n{absolute_idx + 1}: {item.get_full_name()}"
             for s, i in self.equip_slots.items():
                 msg += f"{' [' + s + ']' if i == item and not EquipmentSlots.exclude_from_output(s) else ''}"
+            if item.favorited:
+                msg += " ★"
 
         if len(msg) == 0 and not filtr:
             msg = "\nYou have no items."

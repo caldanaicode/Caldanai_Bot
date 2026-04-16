@@ -37,6 +37,10 @@ class Item:
         self.image = image
         self.plugin = plugin or os.path.splitext(os.path.basename(inspect.getfile(self.__class__)))[0]
         self.item_type = item_type
+        # Favorited items are protected from bulk-sell and flagged in
+        # inventory display. Restored by ``Inventory.load_item`` from
+        # the persisted doc; plugins don't need to thread it through.
+        self.favorited = False
 
     def get_weight(self) -> float:
         return self.unit_weight
@@ -82,4 +86,6 @@ class Item:
 
         if self.id is None:
             del d["_id"]
+        if self.favorited:
+            d["favorited"] = True
         return d
