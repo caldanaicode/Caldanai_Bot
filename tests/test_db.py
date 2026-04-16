@@ -123,12 +123,18 @@ class TestQueueOperations:
         assert len(ops) == 1
         assert isinstance(ops[0], DeleteMany)
 
-    def test_insert_server_enqueues_insert_one(self, fresh_db):
+    def test_insert_server_enqueues_idempotent_upsert(self, fresh_db):
+        """Server inserts are idempotent: an UpdateOne with upsert=True
+        and ``$setOnInsert`` so repeated calls produce exactly one row
+        per guild_id and don't overwrite an existing prefix."""
         DB = fresh_db
         DB.insert_server(guild_id=1, name="Test", prefix="!")
         ops = list(DB._queues[DB._servers].get_all())
         assert len(ops) == 1
-        assert isinstance(ops[0], InsertOne)
+        assert isinstance(ops[0], UpdateOne)
+        # Filter is by guild_id; update uses $setOnInsert so the
+        # prefix is only written for new rows.
+        assert ops[0]._filter == {"guild_id": 1}
 
     def test_delete_server_enqueues_across_collections(self, fresh_db):
         DB = fresh_db

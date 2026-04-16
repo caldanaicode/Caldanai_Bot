@@ -261,8 +261,24 @@ class DB:
 
     @staticmethod
     def insert_server(guild_id, name=None, prefix="$"):
-        """Enqueues a server insert."""
-        DB._queues[DB._servers].put(InsertOne({"guild_id": guild_id, "name": name, "prefix": prefix}))
+        """Enqueues a server upsert — idempotent. Multiple call
+        paths can invoke this for the same guild (``on_guild_join``
+        fires once; ``get_prefix`` fires on the first message the
+        bot sees from a guild that isn't yet cached). Using UpdateOne
+        with ``upsert=True`` and ``$setOnInsert`` means concurrent
+        or repeated calls produce exactly one row per guild_id,
+        never duplicates.
+
+        ``$setOnInsert`` (not ``$set``) is deliberate: if the row
+        already exists, we don't overwrite a user-configured prefix
+        with the default. Only the initial insert writes values."""
+        DB._queues[DB._servers].put(
+            UpdateOne(
+                {"guild_id": guild_id},
+                {"$setOnInsert": {"guild_id": guild_id, "name": name, "prefix": prefix}},
+                upsert=True,
+            )
+        )
 
     @staticmethod
     def delete_server(guild_id):
