@@ -31,17 +31,70 @@ from caldanai.db import DB
 _log = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Per-guild prefix cache
+# ---------------------------------------------------------------------------
+#
+# discord.py calls the prefix resolver on *every message the bot sees* to
+# decide whether a given line of chat begins a command. Without caching,
+# that's one DB round-trip per message — multiplied across every guild,
+# every channel, every non-command chatter line. The prefix changes almost
+# never, so an in-memory dict gets us essentially all the DB hits back.
+#
+# Invalidation touches three spots:
+#   - ``$prefix`` admin command updates the cache after writing the DB.
+#   - ``on_guild_remove`` evicts when the bot leaves a guild.
+#   - ``get_prefix`` itself populates on miss (lazy warm-up).
+#
+# The cache stores only the prefix string keyed by guild_id, so there's
+# no stale-document risk — only the prefix needs to stay in sync.
+
+_DEFAULT_PREFIX = "$"
+_prefix_cache: Dict[int, str] = {}
+
+
+def cache_prefix(guild_id: int, prefix: str) -> None:
+    """Record / overwrite the cached prefix for a guild. Call after any
+    successful DB write that changes the prefix."""
+    _prefix_cache[guild_id] = prefix
+
+
+def evict_prefix(guild_id: int) -> None:
+    """Drop the cached prefix entry for a guild (no-op if absent). Call
+    on guild removal so a future rejoin re-reads from DB."""
+    _prefix_cache.pop(guild_id, None)
+
+
+def clear_prefix_cache() -> None:
+    """Wipe every entry. Intended for tests; production code shouldn't
+    need this outside of reconfiguration scenarios."""
+    _prefix_cache.clear()
+
+
 def get_prefix(_bot, message):
-    prefix = "$"
-    try:
-        if message.guild:
-            if server := DB.get_server_by_guild_id(message.guild.id):
+    """Discord.py prefix resolver. Cached per-guild; falls back to DB
+    on miss, populating the cache. See the cache docstring above for
+    invalidation points."""
+    if not message.guild:
+        return when_mentioned_or(_DEFAULT_PREFIX)(_bot, message)
+
+    gid = message.guild.id
+    prefix = _prefix_cache.get(gid)
+    if prefix is None:
+        try:
+            server = DB.get_server_by_guild_id(gid)
+            if server:
                 prefix = server["prefix"]
             else:
-                DB.insert_server(message.guild.id, message.guild.name)
+                # First-seen guild without a DB row — insert a default
+                # so the next prefix change has a document to update.
+                DB.insert_server(gid, message.guild.name)
+                prefix = _DEFAULT_PREFIX
+        except Exception as e:
+            _log.error(e)
+            prefix = _DEFAULT_PREFIX
 
-    except Exception as e:
-        _log.error(e)
+        _prefix_cache[gid] = prefix
 
     return when_mentioned_or(prefix)(_bot, message)
 
@@ -185,6 +238,7 @@ class Bot(BotBase, Subject):
             DB.delete_server(guild.id)
             DB.delete_game(guild.id)
             DB.delete_all_players(guild.id)
+            evict_prefix(guild.id)
             _log.info(f"Guild left: {guild.name} ({guild.id})")
         except Exception as e:
             _log.error(f"Unable to remove guild {guild.id} due to database error.", exc_info=True)

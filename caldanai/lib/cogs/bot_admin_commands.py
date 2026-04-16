@@ -5,6 +5,7 @@ from discord.ext.commands import Cog, CheckFailure, command, has_permissions, gu
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
+from caldanai.lib.bot import cache_prefix
 
 import asyncio
 
@@ -37,6 +38,11 @@ class BotAdminCommands(Cog):
                     DB.update_server_prefix(ctx.guild.id, prefix)
                 else:
                     DB.insert_server(ctx.guild.id, ctx.guild.name, prefix)
+
+                # Keep the in-memory cache in sync so the very next
+                # message in this guild uses the new prefix without
+                # a DB round-trip.
+                cache_prefix(ctx.guild.id, prefix)
 
                 Dispatcher.add(ctx, f"Prefix set to {prefix}.")
 

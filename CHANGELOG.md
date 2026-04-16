@@ -4,6 +4,41 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — Per-Guild Prefix Cache
+
+Eliminates a per-message DB round-trip that fired on every chat line
+the bot observed, not just commands. ``get_prefix`` (discord.py's
+prefix resolver) was doing ``DB.get_server_by_guild_id`` for every
+guild message to look up a prefix that almost never changes.
+
+**Cache** in ``caldanai/lib/bot/__init__.py``:
+- Module-level ``_prefix_cache: Dict[int, str]`` keyed by guild id.
+- ``get_prefix`` now hits the DB only on cache miss; first lookup
+  populates, subsequent lookups are O(1) dict access.
+- DB exception → fall back to default ``"$"``, still caches so we
+  don't hammer a broken DB. Regained throughput at the cost of one
+  stale entry per guild in a hypothetical DB outage; ``$prefix``
+  or a process bounce clears the stale state.
+
+**Invalidation covered at three points**:
+- ``$prefix`` admin command (``bot_admin_commands.py``) calls
+  ``cache_prefix(guild_id, new_prefix)`` after the DB write.
+- ``on_guild_remove`` handler calls ``evict_prefix(guild_id)`` when
+  the bot leaves a guild.
+- ``get_prefix`` itself lazy-populates on cache miss.
+
+**Tests** (``tests/test_prefix_cache.py``, 13 new):
+- Cache population / reuse / per-guild independence.
+- DM bypass (``message.guild is None``).
+- Explicit ops: ``cache_prefix``, ``evict_prefix``,
+  ``clear_prefix_cache``.
+- First-seen-guild path (DB miss → insert + cache default).
+- DB failure fallback (caches default, doesn't crash).
+
+Net effect: one DB query per guild per bot-lifetime instead of one
+per message. On any active server this is the single biggest load
+reduction since we added persistent players.
+
 ### 2026-04-15 — Clock Registry and Channel Routing (Step 1 of GameClock Refactor)
 
 **Per-game clock registry on ``GameClock``:**
