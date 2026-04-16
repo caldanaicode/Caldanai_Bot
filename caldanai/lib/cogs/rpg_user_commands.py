@@ -64,7 +64,7 @@ class RpgUserCommands(Cog):
         if game is None or player is None:
             return
 
-        await game.player_manager.remove_player(ctx.author.id, game.guild.id)
+        await game.player_manager.remove_player(ctx.author.id, game.guild.id, game.channel.id)
         game.save()
         Dispatcher.add(game.channel, f"You have been removed from the game, {ctx.author.display_name}!")
 

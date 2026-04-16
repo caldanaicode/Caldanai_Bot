@@ -162,8 +162,13 @@ class Bot(BotBase, Subject):
         self.last_command = entry
 
     async def on_command_completion(self, ctx: Context):
-        if guild := ctx.guild:
-            if game := self.games.get(guild.id):
+        if ctx.guild and ctx.channel:
+            # bot.games is channel-keyed post-rekey (2026-04-15);
+            # this hook was still using guild.id, so set_player_active
+            # never fired and players stayed ``is_dirty=False`` after
+            # commands — breaking last_active tracking and save-on-
+            # activity semantics.
+            if game := self.games.get(ctx.channel.id):
                 if ctx.author.id in game.player_manager.players.keys() and (
                     player := game.player_manager.players[ctx.author.id]
                 ):
