@@ -47,4 +47,4 @@ class HelpCommand(CommandPlugin):
             if not found:
                 stdout(f"There is no command or alias for `{cmd}` 🤨  ")
         else:
-            stdout(HelpCommand.append_commands(HelpCommand.__doc__), False)
+            stdout(HelpCommand.append_commands(), False)

@@ -102,7 +102,17 @@ async def cmd_loop(state: BotState):
 
         for Command in PluginManager.LOADED_PLUGINS.get(CommandPlugin):
             if Command.has_alias(cmd):
-                await Command.execute(tokens, state)
+                # A console command raising must not take down the
+                # whole bot process. Log and continue; operator can
+                # retry or fix the command.
+                try:
+                    await Command.execute(tokens, state)
+                except Exception as e:
+                    _log.error(
+                        f"Console command `{cmd}` raised: {e}",
+                        exc_info=True,
+                    )
+                    stdout(f"Command `{cmd}` failed: {e}")
                 handled = True
                 break
 
