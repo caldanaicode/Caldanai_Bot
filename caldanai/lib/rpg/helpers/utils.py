@@ -235,15 +235,33 @@ class RpgUtilities:
     @staticmethod
     async def get_game(ctx, game_idx: int = None) -> Union[Game, None]:
         """
-        Returns a Game associated with a context, or by index, if it exists. Otherwise returns None.
+        Returns a Game associated with a context, or by index, if it
+        exists. Otherwise returns None.
+
+        ``ctx`` is most often a ``Context`` (command invocation), but
+        is also sometimes a ``Member`` or ``User`` when a caller
+        passes a mention straight through (e.g. ``$smite @player``
+        iterating ``ctx.message.mentions``). Members have ``.guild``
+        but no ``.channel``, so we detect the shape via ``hasattr``
+        and fall back to the user-lookup path — matching the DM
+        case where there's no channel context either.
         """
 
         game: Union[Game, None] = None
         games: List[Game] = []
-        if ctx.guild is None:
-            games = RpgUtilities.get_games_for_user(ctx.author.id)
+
+        # Member / User objects have no .channel — route via user
+        # lookup rather than the channel-keyed map. DM context
+        # (``ctx.guild is None``) uses the same path.
+        ctx_channel = getattr(ctx, "channel", None)
+        if ctx.guild is None or ctx_channel is None:
+            # ``Context`` exposes the invoker as ``ctx.author``; a
+            # bare ``Member`` / ``User`` IS the invoker and uses
+            # ``.id`` directly.
+            uid = ctx.author.id if hasattr(ctx, "author") else ctx.id
+            games = RpgUtilities.get_games_for_user(uid)
         else:
-            game = RpgUtilities.bot.games.get(ctx.channel.id)
+            game = RpgUtilities.bot.games.get(ctx_channel.id)
 
         if len(games) == 0 and game is None:
             Dispatcher.add(ctx, f"You are not a member of any games at this time.")
