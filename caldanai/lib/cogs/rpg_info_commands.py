@@ -495,9 +495,7 @@ class RpgInfoCommands(Cog):
     )
     async def weather(self, ctx: Context):
         """
-        Describes the current weather for the game. Admin subcommands
-        (status, force, clear, roll) let operators poke at the state
-        for testing without waiting on the weather tick.
+        Describes the current weather for the game.
 
         (10-second cool-down)
         """
