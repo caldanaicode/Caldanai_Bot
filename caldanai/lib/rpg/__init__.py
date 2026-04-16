@@ -122,7 +122,11 @@ class Game:
         self.spawn_timer_range = spawn_range
         self.enable_ambience = enable_ambience
         self.game_clock = GameClock(game_time=game_time)
-        self.weather = None
+        # WeatherDaemon is created here but not started — starting
+        # schedules routines on the clock registry, which requires
+        # the game to be registered. Both happen below together.
+        from caldanai.lib.rpg.ambience.weather import WeatherDaemon
+        self.weather = WeatherDaemon(channel.id) if channel else None
         self._last_ambience_tick = self.game_clock.get_seconds()
         self.room0: Area = None
         self.monster_statics: Dict[str, int] = {}
@@ -156,6 +160,14 @@ class Game:
         if self.channel_id is not None:
             GameClock._register(self.channel_id, self.game_clock)
             self.register_channel(self.channel_id)
+            # Start the weather daemon *after* clock registration
+            # (it schedules itself via the clock-registry façade).
+            # Ambience subsystems are enabled under the same gate as
+            # the existing ambience loop — ``enable_ambience=False``
+            # is used by tests / headless contexts.
+            if self.weather is not None and self.enable_ambience:
+                from caldanai.lib.rpg.helpers.enums import Seasons
+                self.weather.start(Seasons(self.game_clock.get_season()))
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -620,6 +632,9 @@ class Game:
             "game_time": self.game_clock.get_seconds(),
         }
 
+        if self.weather is not None:
+            d["weather"] = self.weather.to_dict()
+
         if self.id is not None:
             d["_id"] = self.id
 
@@ -685,6 +700,20 @@ class Game:
         if game.channel is None:
             _log.error(f"Failed to load game {d['_id']}: channel not found for guild {d['guild_id']}.")
             return None
+
+        # Now that channel is bound, register with clock / channel
+        # routing and spin up the weather daemon with persisted state.
+        # ``__init__`` skipped this path because ``channel`` wasn't
+        # supplied to the constructor on the load path.
+        from caldanai.lib.rpg.ambience.weather import WeatherDaemon
+        from caldanai.lib.rpg.helpers.enums import Seasons
+        GameClock._register(game.channel.id, game.game_clock)
+        game.register_channel(game.channel.id)
+        game.weather = WeatherDaemon(game.channel.id)
+        if d.get("weather"):
+            game.weather.load_dict(d["weather"])
+        if game.enable_ambience:
+            game.weather.start(Seasons(game.game_clock.get_season()))
 
         await game.player_manager.load_players(game.guild, game.channel.id)
         game.game_clock.add_routine(game.player_manager.update_inactive_roles, 3600)

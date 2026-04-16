@@ -4,6 +4,81 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — Weather Daemon (First Subsystem on the Clock Registry)
+
+First real use of the clock-registry architecture from earlier today.
+Weather is now a live per-channel state machine rather than a stubbed
+``Game.weather = None``, with narrative announcements, persistence,
+admin tooling, and an almanac forecast.
+
+**``WeatherDaemon``** (``caldanai/lib/rpg/ambience/weather.py``):
+- Holds state as ``Dict[WeatherPatterns, WeatherSeverities]`` —
+  each component (PRECIPITATION, WIND, FOG, CLOUDY) carries its own
+  severity. Heavy rain in light wind is modeled distinctly from
+  heavy wind driving a drizzle — useful for narration today and
+  for per-component combat modifiers later.
+- ``WeatherSeverities`` converted from ``IntFlag`` to plain ``Enum``
+  (a single component has one severity level; combining LIGHT |
+  HEAVY was never meaningful).
+- Transitions roll new states on a randomized duration (60–480
+  game-minutes), weighted by season: BRIGHTBLOOM mild, SOLSTIME
+  occasional storms, LEAFGLOW windy/foggy, FROSTFALL heavy and
+  windy. Physical invariants enforced (heavy wind disperses fog;
+  precipitation absorbs standalone cloud).
+- Daemon owns no Game reference — lives purely on ``channel_id``
+  via the time-façade helpers + ``Game.for_channel`` for dispatch.
+- ``schedule_routine`` / ``cancel_routine`` called on ``start`` /
+  ``stop`` so the tick stops cleanly with ``remove_game``.
+- Weather change announced as narrative text, not raw state
+  ("Heavy rain drums steadily against the ground." not "state =
+  PRECIPITATION:HEAVY").
+
+**``Game`` integration:**
+- Weather daemon constructed in ``Game.__init__`` (given a channel)
+  and in ``Game.from_dict`` (given a loaded game).
+- State persisted in ``Game.to_dict`` / restored in ``from_dict``
+  so weather survives bot restarts with its current duration.
+- ``remove_game`` stops the daemon before dropping the game from
+  memory (no routines firing against a defunct channel).
+- Startup "Caldanai Bot has just started!" now appends the current
+  weather description so players don't have to ``$weather`` to
+  orient themselves.
+
+**Player-facing commands** (group: ``$weather``):
+- Bare ``$weather`` — current weather description (anyone).
+- ``$weather status`` — raw state + durations with real-time
+  conversion (admin).
+- ``$weather force <pattern> [severity]`` — override a component
+  on top of current state (admin).
+- ``$weather clear`` — wipe all components to clear skies (admin).
+- ``$weather roll`` — skip the transition timer and re-roll based
+  on current season (admin).
+- Each admin subcommand individually guarded with
+  ``is_owner`` / ``manage_guild`` checks — bare call stays open.
+
+**Almanac forecast** (``$almanac``):
+- New ``WeatherDaemon.forecast(season)`` method narrates likely
+  weather based on seasonal weights, with a ~20% chance of a mild
+  mispredict (swapping one forecast line with a slightly-wrong
+  sibling). In-world almanacs should lie sometimes.
+
+**Tests** (``tests/test_weather_daemon.py``, 21 new):
+- Initial-state, ``describe()`` across patterns, per-component
+  severity independence, wind-interacts-with-precipitation flavor
+  distinctions, persistence round-trip, tick decrement + transition
+  trigger, transition invariants (fog dispersal, cloud absorption),
+  lifecycle hooks (start / stop scheduling).
+
+**Exploration points deferred** (design + hooks ready, not built):
+- Weather-dependent monster spawns via a new
+  ``MonsterPlugin.weather_partition`` filter.
+- Combat modifiers (RANGED penalty in wind, FIRE reduction in rain,
+  HIT penalty in fog) reading ``weather.severity_of(component)``.
+- Player body temperature accumulation in FROSTFALL + WIND, tying
+  into the deferred status-effects system.
+- Ambience plugin system (scaffolded design in memory) replacing
+  the hardcoded ``do_ambience`` once we're ready to modularize.
+
 ### 2026-04-15 — One Game Per Channel: Runtime Rekey and Game-Scoped Players
 
 Shifts the entire runtime from one-game-per-guild to one-game-per-

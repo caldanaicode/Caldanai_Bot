@@ -560,11 +560,18 @@ class WeatherPatterns(IntFlag):
     """Windy"""
 
 
-class WeatherSeverities(IntFlag):
+class WeatherSeverities(Enum):
+    """Intensity of a single weather component. Ordered: LIGHT < MODERATE
+    < HEAVY < SEVERE. Plain ``Enum`` rather than ``IntFlag`` because a
+    single component has one severity level at a time — combining
+    LIGHT | HEAVY has no meaningful interpretation. Weather state
+    holds ``Dict[WeatherPatterns, WeatherSeverities]`` so different
+    components can have independent severities (heavy rain with only
+    light wind, etc.)."""
     LIGHT = 1
-    MODERATE = 1 << 1
-    HEAVY = 1 << 2
-    SEVERE = 1 << 3
+    MODERATE = 2
+    HEAVY = 3
+    SEVERE = 4
 
 
 class TrophicLevels(IntFlag):

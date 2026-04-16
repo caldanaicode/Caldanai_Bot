@@ -197,7 +197,12 @@ class RpgUtilities:
         game.room0 = room0
         RpgUtilities.bot.games[game.channel.id] = game
         _log.info(f"Game added for guild: {game.guild.name} ({game.guild.id})")
-        Dispatcher.add(game.channel, "Caldanai Bot has just started!")
+        startup_msg = "Caldanai Bot has just started!"
+        if getattr(game, "weather", None) is not None:
+            # Surface current weather at startup so players don't have
+            # to ``$weather`` to know what they woke up to.
+            startup_msg += f"\n\n{game.weather.describe()}"
+        Dispatcher.add(game.channel, startup_msg)
 
     # Gets a list of games to which a user belongs.
     @staticmethod
@@ -335,10 +340,12 @@ class RpgUtilities:
                 DB.delete_game(guild_id, channel_id)
                 await RpgUtilities.delete_roles(game)
 
-                # Stop the clock tick loop FIRST so no routines fire
-                # against a defunct channel, then unhook from the
-                # registry and channel routing.
+                # Stop per-game daemons + clock tick FIRST so no
+                # routines fire against a defunct channel, then
+                # unhook from the registry and channel routing.
                 if game is not None:
+                    if getattr(game, "weather", None) is not None:
+                        game.weather.stop()
                     if game.game_clock.tick.is_running():
                         game.game_clock.tick.stop()
                     game.unregister_channel(channel_id)

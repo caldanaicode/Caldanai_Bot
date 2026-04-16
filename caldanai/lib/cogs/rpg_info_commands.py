@@ -1,6 +1,9 @@
 from io import BytesIO
 
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, Context
+from discord.ext.commands import (
+    Cog, command, cooldown, BucketType, guild_only, Context,
+    check_any, group, has_permissions, is_owner,
+)
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed, File
 from typing import Optional
@@ -483,6 +486,152 @@ class RpgInfoCommands(Cog):
 
         Dispatcher.add(game.channel, msg)
 
+    @cooldown(1, 10, BucketType.member)
+    @guild_only()
+    @group(
+        name="weather",
+        brief="Describes the current weather, or admin subcommands.",
+        invoke_without_command=True,
+    )
+    async def weather(self, ctx: Context):
+        """
+        Describes the current weather for the game. Admin subcommands
+        (status, force, clear, roll) let operators poke at the state
+        for testing without waiting on the weather tick.
+
+        (10-second cool-down)
+        """
+        game = await RpgUtilities.get_game(ctx)
+        if game is None:
+            return
+        if game.weather is None:
+            Dispatcher.add(game.channel, "The weather is unremarkable.")
+            return
+        Dispatcher.add(game.channel, game.weather.describe())
+
+    # -- Weather admin subcommands --------------------------------------
+    # Colocated with the bare ``$weather`` command so ``$help weather``
+    # resolves to a single group with all subcommands listed. Each
+    # admin subcommand guards itself with the standard
+    # is_owner / manage_guild check — the bare call stays open so any
+    # player can check the weather.
+
+    @weather.command(name="status", brief="Show raw weather state + time left.")
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def weather_status(self, ctx: Context):
+        """Show the weather daemon's internal state — active components,
+        per-component severity, and remaining game-minutes (with a
+        real-time conversion) until the next transition roll."""
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.weather is None:
+            Dispatcher.add(ctx, "No weather daemon running on this channel.")
+            return
+
+        w = game.weather
+        if w.is_clear():
+            state_lines = ["(clear skies)"]
+        else:
+            state_lines = [
+                f"  {p.name}: {s.name}" for p, s in w.severities.items()
+            ]
+
+        # Real-time conversion: game_clock.time_scale is how many
+        # game-hours per real hour.
+        time_scale = max(1, game.game_clock.time_scale)
+        real_minutes = w._duration_remaining / time_scale
+        if real_minutes >= 60:
+            rh, rm = divmod(int(real_minutes), 60)
+            real_str = f"~{rh}h {rm}m real"
+        else:
+            real_str = f"~{real_minutes:.1f}m real"
+
+        msg = (
+            f"```\n"
+            f"Weather state:\n"
+            f"{chr(10).join(state_lines)}\n"
+            f"Duration remaining: {w._duration_remaining} game-minutes ({real_str})\n"
+            f"Current description: {w.describe()}\n"
+            f"```"
+        )
+        Dispatcher.add(ctx, msg)
+
+    @weather.command(
+        name="force",
+        brief="Force a weather pattern and severity.",
+        usage="<pattern> [severity]",
+    )
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def weather_force(
+        self, ctx: Context, pattern: str, severity: str = "MODERATE",
+    ):
+        """Force a weather component to a specific severity. ``pattern``
+        is a ``WeatherPatterns`` name (``CLOUDY``, ``FOG``,
+        ``PRECIPITATION``, ``WIND``). Severities: ``LIGHT``,
+        ``MODERATE``, ``HEAVY``, ``SEVERE``. Adds the component on top
+        of existing state — use ``clear`` first to wipe the slate.
+
+        Does NOT reset the transition timer; use ``roll`` for that.
+        """
+        from caldanai.lib.rpg.helpers.enums import (
+            WeatherPatterns, WeatherSeverities,
+        )
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.weather is None:
+            Dispatcher.add(ctx, "No weather daemon running on this channel.")
+            return
+
+        pattern_name = pattern.upper()
+        severity_name = severity.upper()
+        if pattern_name not in WeatherPatterns.__members__ or pattern_name == "CLEAR":
+            valid = [
+                n for n in WeatherPatterns.__members__ if n != "CLEAR"
+            ]
+            Dispatcher.add(
+                ctx,
+                f"Unknown pattern `{pattern}`. Valid: {', '.join(valid)}.",
+            )
+            return
+        if severity_name not in WeatherSeverities.__members__:
+            Dispatcher.add(
+                ctx,
+                f"Unknown severity `{severity}`. Valid: "
+                f"{', '.join(WeatherSeverities.__members__)}.",
+            )
+            return
+
+        p = WeatherPatterns[pattern_name]
+        s = WeatherSeverities[severity_name]
+        game.weather.severities[p] = s
+        Dispatcher.add(game.channel, game.weather.describe())
+
+    @weather.command(name="clear", brief="Clear the weather (no active components).")
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def weather_clear(self, ctx: Context):
+        """Wipe all active weather components. Leaves duration alone —
+        next transition will roll fresh."""
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.weather is None:
+            Dispatcher.add(ctx, "No weather daemon running on this channel.")
+            return
+
+        game.weather.severities = {}
+        Dispatcher.add(game.channel, game.weather.describe())
+
+    @weather.command(name="roll", brief="Immediately roll a new weather state.")
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def weather_roll(self, ctx: Context):
+        """Skip the transition timer and roll a new weather state based
+        on the current season."""
+        from caldanai.lib.rpg.helpers.enums import Seasons
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.weather is None:
+            Dispatcher.add(ctx, "No weather daemon running on this channel.")
+            return
+
+        season = Seasons(game.game_clock.get_season())
+        game.weather._roll_new_state(season)
+        Dispatcher.add(game.channel, game.weather.describe())
+
     @cooldown(1, 5, BucketType.member)
     @guild_only()
     @command(name="almanac", brief="Displays information about the current game-day.")
@@ -500,6 +649,14 @@ class RpgInfoCommands(Cog):
         msg = game.game_clock.get_full_date()
         msg += f" Sunrise {'is' if time <= sunrise else 'was'} at {sunrise.get_time()}."
         msg += f" Sunset {'is' if time <= sunset else 'was'} at {sunset.get_time()}."
+
+        # Weather forecast — best-effort, occasionally wrong (as an
+        # in-world almanac should be).
+        if game.weather is not None:
+            from caldanai.lib.rpg.helpers.enums import Seasons
+            season = Seasons(game.game_clock.get_season())
+            msg += f"\n\nForecast: {game.weather.forecast(season)}"
+
         Dispatcher.add(game.channel, msg)
 
     @cooldown(1, 5, BucketType.member)
