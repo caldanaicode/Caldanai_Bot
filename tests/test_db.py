@@ -102,17 +102,19 @@ class TestConnectionState:
 class TestQueueOperations:
     def test_update_player_enqueues_update_one(self, fresh_db):
         DB = fresh_db
-        DB.update_player(guild_id=1, user_id=2, player_dict={"name": "test"})
+        DB.update_player(guild_id=1, channel_id=888, user_id=2, player_dict={"name": "test"})
         ops = list(DB._queues[DB._players].get_all())
         assert len(ops) == 1
         assert isinstance(ops[0], UpdateOne)
+        assert ops[0]._filter == {"guild_id": 1, "channel_id": 888, "user_id": 2}
 
     def test_delete_player_enqueues_delete_one(self, fresh_db):
         DB = fresh_db
-        DB.delete_player(guild_id=1, user_id=2)
+        DB.delete_player(guild_id=1, channel_id=888, user_id=2)
         ops = list(DB._queues[DB._players].get_all())
         assert len(ops) == 1
         assert isinstance(ops[0], DeleteOne)
+        assert ops[0]._filter == {"guild_id": 1, "channel_id": 888, "user_id": 2}
 
     def test_delete_all_players_enqueues_delete_many(self, fresh_db):
         DB = fresh_db
@@ -153,6 +155,8 @@ class TestQueueOperations:
         assert game_ops[0]._filter == {"guild_id": 1, "channel_id": 999}
         assert len(player_ops) == 1
         assert isinstance(player_ops[0], DeleteMany)
+        # Player deletion is now game-scoped too.
+        assert player_ops[0]._filter == {"guild_id": 1, "channel_id": 999}
 
     def test_update_game_enqueues_update_one(self, fresh_db):
         DB = fresh_db

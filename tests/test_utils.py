@@ -147,8 +147,8 @@ class TestSaveGameData:
         # Game data always saved with compound (guild_id, channel_id) key
         mock_db.update_game.assert_called_once_with(999, 888, {"guild_id": 999})
 
-        # Only dirty player saved
-        mock_db.update_player.assert_called_once_with(999, 1, {"user_id": 1})
+        # Only dirty player saved with compound (guild_id, channel_id, user_id) key
+        mock_db.update_player.assert_called_once_with(999, 888, 1, {"user_id": 1})
         assert player_dirty.is_dirty is False
 
     @pytest.mark.asyncio
@@ -181,6 +181,7 @@ class TestSaveGameData:
         new_player = MagicMock()
         new_player.id = None
         new_player.guild_id = 50
+        new_player.channel_id = 500
         new_player.user_id = 7
 
         # save_game_data reads p["_id"] (round-3 fix `5bb7059`), not p.id —
@@ -189,6 +190,7 @@ class TestSaveGameData:
 
         game = MagicMock()
         game.guild.id = 50
+        game.channel.id = 500
         game.to_dict.return_value = {}
         game.player_manager.players.values.return_value = []
 
@@ -199,5 +201,5 @@ class TestSaveGameData:
         coro = save_game_data.coro if hasattr(save_game_data, "coro") else save_game_data
         await coro()
 
-        mock_db.get_player.assert_called_once_with(50, 7)
+        mock_db.get_player.assert_called_once_with(50, 500, 7)
         assert new_player.id == "resolved_id"

@@ -19,7 +19,11 @@ class PlayerManager:
         self.players: Dict[int, Player] = {}
         self.roles: Dict[Roles, Optional[Role]] = {}
 
-    async def load_players(self, guild: Guild):
+    async def load_players(self, guild: Guild, channel_id: int = None):
+        """Load all players for a guild into memory. ``channel_id``
+        is stamped onto each loaded player so they know which game
+        they belong to. Legacy DB docs missing ``channel_id`` are
+        adopted on load and self-migrate on next save."""
         if not guild:
             _log.error("No guild supplied to PlayerManager.load_players()")
             return
@@ -30,6 +34,10 @@ class PlayerManager:
             self.roles[r] = matches[0] if len(matches) > 0 else None
 
         try:
+            # Guild-scoped query for backward compat — legacy docs
+            # lack channel_id, so a compound query would miss them.
+            # Players are bound to *this* game at runtime by stamping
+            # channel_id below; next save writes it to the doc.
             players = (p for p in DB.find_players_by_guild_id(guild.id))
         except Exception as e:
             _log.error(e)
@@ -38,6 +46,11 @@ class PlayerManager:
         for p in players:
             uid = p["user_id"]
             player = Player.from_dict(p)
+            # Bind the player to this game's channel. For legacy docs
+            # that pre-date game-scoped players, this is the one-time
+            # adoption that makes subsequent saves write channel_id.
+            if channel_id is not None:
+                player.channel_id = channel_id
             try:
                 player.member = guild.get_member(uid) or await guild.fetch_member(uid)
                 player.name = player.member.display_name
@@ -45,7 +58,7 @@ class PlayerManager:
 
             except NotFound as e:
                 if e.code == 10007:
-                    await self.remove_player(uid, guild.id)
+                    await self.remove_player(uid, guild.id, channel_id)
                     _log.warning(f"Removed player {uid} from game on {guild.id}. Unknown member on server.")
 
             except Exception as e:
@@ -164,7 +177,7 @@ class PlayerManager:
     async def add_player(self, ctx: Context) -> bool:
         joined = datetime.now()
         if ctx.author.id not in self.players and (
-            player := Player(gid=ctx.guild.id, uid=ctx.author.id, joined=joined, last_active=joined)
+            player := Player(gid=ctx.guild.id, cid=ctx.channel.id, uid=ctx.author.id, joined=joined, last_active=joined)
         ):
             from caldanai.lib.rpg.helpers.utils import RpgUtilities
 
@@ -179,7 +192,7 @@ class PlayerManager:
             return True
         return False
 
-    async def remove_player(self, user_id: int, guild_id: int):
+    async def remove_player(self, user_id: int, guild_id: int, channel_id: int = None):
         if user_id in self.players and (player := self.players[user_id]):
             if (
                 player.member
@@ -195,4 +208,4 @@ class PlayerManager:
                 )
             del self.players[user_id]
 
-        DB.delete_player(guild_id, user_id)
+        DB.delete_player(guild_id, channel_id, user_id)

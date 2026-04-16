@@ -146,8 +146,8 @@ class Game:
             self.game_clock.add_routine(self.do_ambience, 1)
 
         self.bot = bot
-        if bot and guild:
-            bot.games[self.guild.id] = self
+        if bot and guild and channel:
+            bot.games[channel.id] = self
 
         # Register with the per-game clock registry + channel routing
         # map so downstream subsystems can find this game's clock
@@ -686,7 +686,7 @@ class Game:
             _log.error(f"Failed to load game {d['_id']}: channel not found for guild {d['guild_id']}.")
             return None
 
-        await game.player_manager.load_players(game.guild)
+        await game.player_manager.load_players(game.guild, game.channel.id)
         game.game_clock.add_routine(game.player_manager.update_inactive_roles, 3600)
         game.prefix = DB.get_server_by_guild_id(game.guild.id)["prefix"]
 

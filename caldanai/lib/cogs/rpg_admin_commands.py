@@ -118,13 +118,8 @@ class RpgAdminCommands(Cog):
         """
 
         try:
-            # Guild-wide check: the in-memory ``bot.games`` dict is
-            # still keyed by guild id, so a second game would
-            # silently clobber the first. Once multi-game-per-guild
-            # is actually supported at the runtime level, this can
-            # relax to the per-channel ``DB.get_game`` check.
-            if DB.find_any_game_in_guild(ctx.guild.id) is not None:
-                Dispatcher.add(ctx, "Only a single game per server is supported.")
+            if DB.get_game(ctx.guild.id, ctx.channel.id) is not None:
+                Dispatcher.add(ctx, "There is already a game running in this channel.")
 
             else:
                 DB.insert_game(ctx.guild.id, ctx.channel.id)
@@ -147,7 +142,7 @@ class RpgAdminCommands(Cog):
         if not await RpgUtilities.check_game_exists(ctx):
             return
 
-        await RpgUtilities.remove_game(ctx.guild.id)
+        await RpgUtilities.remove_game(ctx.guild.id, ctx.channel.id)
         Dispatcher.add(ctx, "The game has been removed.")
 
     @group(brief="Role settings for the game.")
@@ -308,7 +303,7 @@ class RpgAdminCommands(Cog):
 
         if ctx.invoked_subcommand is None:
             guild: Guild = ctx.guild
-            game = self.bot.games.get(ctx.guild.id)
+            game = self.bot.games.get(ctx.channel.id)
             r, i = game.game_clock.find_routine("do_spawn")
             routine = r[i] if r else None
 
@@ -340,7 +335,7 @@ class RpgAdminCommands(Cog):
         :param minutes: The minimum number of minutes before another monster can spawn after the previous monster is removed.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if minutes is None:
@@ -373,7 +368,7 @@ class RpgAdminCommands(Cog):
         :param minutes: The maximum number of minutes before another monster can be spawned after the previous is removed.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if minutes is None:
@@ -404,7 +399,7 @@ class RpgAdminCommands(Cog):
         :param minutes: The number of minutes that a monster will wait for combat on the first round. This time is halved for additional rounds of combat.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if minutes is None:
@@ -428,7 +423,7 @@ class RpgAdminCommands(Cog):
         :param minutes: The number of minutes that loot will be available before removal.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if minutes is None:
@@ -452,7 +447,7 @@ class RpgAdminCommands(Cog):
         :param msg: To enable spawning use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if msg is None:
@@ -491,7 +486,7 @@ class RpgAdminCommands(Cog):
         :param monster: the filename of the monster to spawn. If not provided, randomly chooses an available monster.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if game.monster is None:
@@ -508,7 +503,7 @@ class RpgAdminCommands(Cog):
         Forces the current monster to die.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if game.monster is None:
@@ -526,7 +521,7 @@ class RpgAdminCommands(Cog):
         :param item_name: The item name.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         target: Player = None
@@ -563,7 +558,7 @@ class RpgAdminCommands(Cog):
 
         if ctx.invoked_subcommand is None:
             guild: Guild = ctx.guild
-            game = self.bot.games.get(ctx.guild.id)
+            game = self.bot.games.get(ctx.channel.id)
             embed = Embed(title="Current Ambience Settings")
             embed.set_thumbnail(url=guild.icon.url)
             embed.add_field(name="Ambience Enabled", value=f"{game.enable_ambience}", inline=True)
@@ -577,7 +572,7 @@ class RpgAdminCommands(Cog):
         :param value: To enable ambience use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
         """
 
-        game = self.bot.games.get(ctx.guild.id)
+        game = self.bot.games.get(ctx.channel.id)
         if not game:
             return
         if value is None:
@@ -625,7 +620,7 @@ class RpgAdminCommands(Cog):
 
         Section flags are exclusive — passing more than one falls back to the full dump.
         """
-        game = self.bot.games.get(ctx.guild.id) if ctx.guild else None
+        game = self.bot.games.get(ctx.channel.id) if ctx.guild else None
         if not game or game.monster is None:
             Dispatcher.add(ctx, "There is no monster present to inspect.")
             return

@@ -121,6 +121,7 @@ class Player(Creature):
         *,
         pid: Optional[int] = None,
         gid: Optional[int] = None,
+        cid: Optional[int] = None,
         uid: Optional[int] = None,
         weight_limit: Optional[int] = None,
         joined: Optional[datetime] = None,
@@ -159,6 +160,7 @@ class Player(Creature):
         self.uses_article = False  # "Caels", not "the Caels"
         self.id = pid
         self.guild_id = gid
+        self.channel_id = cid  # game-scoped: which channel's game this player belongs to
         self.user_id = uid
         self.member: Optional[Member] = None
         self.weight_limit = weight_limit or 100
@@ -399,6 +401,7 @@ class Player(Creature):
         player = cls(
             pid=p["_id"],
             gid=p["guild_id"],
+            cid=p.get("channel_id"),  # None for legacy docs; set at runtime by PlayerManager
             uid=p["user_id"],
             weight_limit=p["weight_limit"],
             joined=p["joined"],
@@ -776,6 +779,7 @@ class Player(Creature):
             "_id": self.id,
             "user_id": self.user_id,
             "guild_id": self.guild_id,
+            "channel_id": self.channel_id,
             "name": self.name,
             "defense": self.defense,
             "dodge": self.dodge,

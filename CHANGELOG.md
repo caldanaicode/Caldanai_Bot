@@ -4,6 +4,50 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — One Game Per Channel: Runtime Rekey and Game-Scoped Players
+
+Shifts the entire runtime from one-game-per-guild to one-game-per-
+channel. Multiple games can now coexist in the same guild (on
+different channels) without clobbering each other in memory or the
+DB.
+
+**``bot.games`` rekeyed from ``guild.id`` to ``channel.id``:**
+- All 13 admin-command lookups in ``rpg_admin_commands.py`` now
+  resolve via ``ctx.channel.id`` instead of ``ctx.guild.id``.
+- ``check_game_exists`` checks channel-level, not guild-level.
+- ``get_game(ctx)`` resolves via ``ctx.channel.id``.
+- ``add_game`` registers under ``game.channel.id``.
+- ``remove_game(guild_id, channel_id)`` takes both ids.
+- ``$game create`` guard relaxed from "one per server" to "one per
+  channel" using ``DB.get_game(guild_id, channel_id)`` instead of
+  ``find_any_game_in_guild``.
+
+**Game-scoped players:**
+- ``Player`` gains ``channel_id`` attribute; ``to_dict`` persists it,
+  ``from_dict`` reads it (``None`` for legacy docs). Players are now
+  identified by (guild_id, channel_id, user_id) in the DB.
+- ``DB.get_player``, ``update_player``, ``delete_player`` all take
+  compound (guild_id, channel_id, user_id) filters.
+- ``DB.delete_game`` now uses compound filter for player cleanup too
+  — removing a game only deletes its own players, not every player
+  in the guild.
+- ``PlayerManager.load_players(guild, channel_id)`` stamps
+  ``channel_id`` onto each loaded player at runtime, providing
+  one-time adoption for legacy docs that pre-date game-scoping.
+  Next ``save_game_data`` cycle writes ``channel_id`` to the doc.
+- ``PlayerManager.add_player`` passes ``ctx.channel.id`` on new
+  player creation. ``remove_player`` passes ``channel_id`` through
+  to ``DB.delete_player``.
+- ``get_games_for_user`` (DM command path) falls back gracefully
+  for legacy player docs missing ``channel_id``.
+
+**Backward compatibility:**
+- ``find_players_by_guild_id`` remains for the load path — old docs
+  without ``channel_id`` won't match a compound query. The guild-
+  scoped load + runtime ``channel_id`` stamp = lazy migration.
+- ``delete_all_players(guild_id)`` remains guild-wide for server-
+  level cleanup (``delete_server``).
+
 ### 2026-04-15 — DB Layer: Per-Game Compound Filter (Step 2 of GameClock Refactor)
 
 Follow-on to the clock registry work — shifts every per-game DB

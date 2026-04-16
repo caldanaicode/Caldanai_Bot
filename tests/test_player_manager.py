@@ -86,16 +86,16 @@ class TestAddRemovePlayer:
         player = _make_player(uid=42, gid=mock_guild.id)
         pm.players[42] = player
 
-        await pm.remove_player(42, mock_guild.id)
+        await pm.remove_player(42, mock_guild.id, channel_id=888)
         assert 42 not in pm.players
-        mock_db.delete_player.assert_called_once_with(mock_guild.id, 42)
+        mock_db.delete_player.assert_called_once_with(mock_guild.id, 888, 42)
 
     @pytest.mark.asyncio
     @patch("caldanai.lib.rpg.player_manager.DB")
     async def test_remove_player_not_present(self, mock_db, mock_guild):
         pm = PlayerManager()
-        await pm.remove_player(999, mock_guild.id)
-        mock_db.delete_player.assert_called_once_with(mock_guild.id, 999)
+        await pm.remove_player(999, mock_guild.id, channel_id=888)
+        mock_db.delete_player.assert_called_once_with(mock_guild.id, 888, 999)
 
 
 # ---------------------------------------------------------------------------

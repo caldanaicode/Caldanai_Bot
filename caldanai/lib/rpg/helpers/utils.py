@@ -108,8 +108,8 @@ class RpgUtilities:
     async def check_game_exists(ctx) -> bool:
         if ctx.guild is None:
             Dispatcher.add(ctx, f"I'm afraid I can't do that from here, {ctx.author.display_name}.")
-        elif ctx.guild.id not in RpgUtilities.bot.games.keys():
-            Dispatcher.add(ctx, f"I'm afraid there is no game on this server, {ctx.author.display_name}")
+        elif ctx.channel.id not in RpgUtilities.bot.games.keys():
+            Dispatcher.add(ctx, f"I'm afraid there is no game in this channel, {ctx.author.display_name}")
         else:
             return True
         return False
@@ -186,7 +186,7 @@ class RpgUtilities:
                     spawn_duration,
                     loot_duration,
                 )
-                await game.player_manager.load_players(guild)
+                await game.player_manager.load_players(guild, channel.id)
                 await RpgUtilities.create_roles(game)
                 game.save()
 
@@ -195,7 +195,7 @@ class RpgUtilities:
 
         room0 = Area.from_plugin("0")
         game.room0 = room0
-        RpgUtilities.bot.games[game.guild.id] = game
+        RpgUtilities.bot.games[game.channel.id] = game
         _log.info(f"Game added for guild: {game.guild.name} ({game.guild.id})")
         Dispatcher.add(game.channel, "Caldanai Bot has just started!")
 
@@ -212,8 +212,13 @@ class RpgUtilities:
         try:
             players = DB.find_players_by_user_id(uid)
             for player in players:
-                game = RpgUtilities.bot.games[player["guild_id"]]
-                games.append(game)
+                # Player docs gain ``channel_id`` on first save after
+                # migration. Legacy docs without it fall back to
+                # guild_id for the lookup — this may miss in a
+                # channel-keyed dict, but resolves after first save.
+                key = player.get("channel_id") or player.get("guild_id")
+                if key in RpgUtilities.bot.games:
+                    games.append(RpgUtilities.bot.games[key])
 
             return games
 
@@ -233,7 +238,7 @@ class RpgUtilities:
         if ctx.guild is None:
             games = RpgUtilities.get_games_for_user(ctx.author.id)
         else:
-            game = RpgUtilities.bot.games.get(ctx.guild.id)
+            game = RpgUtilities.bot.games.get(ctx.channel.id)
 
         if len(games) == 0 and game is None:
             Dispatcher.add(ctx, f"You are not a member of any games at this time.")
@@ -320,15 +325,14 @@ class RpgUtilities:
 
     # Removes a game from the bot's list of games
     @staticmethod
-    async def remove_game(guild_id: int):
-        if guild_id in RpgUtilities.bot.games.keys():
+    async def remove_game(guild_id: int, channel_id: int):
+        """Remove the game keyed by ``channel_id`` from memory, the
+        DB, the clock registry, and channel routing. ``guild_id`` is
+        still required for the DB compound key."""
+        if channel_id in RpgUtilities.bot.games.keys():
             try:
-                game = RpgUtilities.bot.games.get(guild_id)
-                # DB delete is keyed by (guild_id, channel_id). Skip
-                # the delete if the in-memory game has no channel
-                # bound (shouldn't happen in practice — defensive).
-                if game is not None and game.channel_id is not None:
-                    DB.delete_game(guild_id, game.channel_id)
+                game = RpgUtilities.bot.games.get(channel_id)
+                DB.delete_game(guild_id, channel_id)
                 await RpgUtilities.delete_roles(game)
 
                 # Unhook from the clock registry + channel routing
@@ -336,11 +340,11 @@ class RpgUtilities:
                 # the clock keeps ticking with nobody to drive it and
                 # stale channel routes linger in the class-level map.
                 from caldanai.lib.rpg.time import GameClock
-                if game is not None and game.channel_id is not None:
-                    GameClock._unregister(game.channel_id)
-                    game.unregister_channel(game.channel_id)
+                GameClock._unregister(channel_id)
+                if game is not None:
+                    game.unregister_channel(channel_id)
 
-                del RpgUtilities.bot.games[guild_id]
+                del RpgUtilities.bot.games[channel_id]
 
             except Exception as e:
                 _log.error(f"Error in utils.py --> remove_game(): {e}")
@@ -383,12 +387,12 @@ async def save_game_data():
             DB.update_game(g.guild.id, g.channel.id, g.to_dict())
             for p in g.player_manager.players.values():
                 if p.is_dirty:
-                    DB.update_player(g.guild.id, p.user_id, p.to_dict())
+                    DB.update_player(g.guild.id, g.channel.id, p.user_id, p.to_dict())
                     p.is_dirty = False
 
         for player in RpgUtilities.new_players.copy():
             if player.id is None:
-                p = DB.get_player(player.guild_id, player.user_id)
+                p = DB.get_player(player.guild_id, player.channel_id, player.user_id)
                 if p:
                     player.id = p["_id"]
                     RpgUtilities.new_players.remove(player)

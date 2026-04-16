@@ -185,9 +185,13 @@ class DB:
 
     @check_connection
     @staticmethod
-    def get_player(guild_id, user_id):
-        """Returns the player associated with a guild ID and user ID."""
-        return DB._mongoDB.players.find_one({"guild_id": guild_id, "user_id": user_id})
+    def get_player(guild_id, channel_id, user_id):
+        """Returns the player identified by (guild_id, channel_id,
+        user_id), or ``None``. Players are game-scoped: one character
+        per (guild, channel) pair per user."""
+        return DB._mongoDB.players.find_one(
+            {"guild_id": guild_id, "channel_id": channel_id, "user_id": user_id}
+        )
 
     @check_connection
     @staticmethod
@@ -209,19 +213,17 @@ class DB:
 
     @staticmethod
     def delete_game(guild_id, channel_id):
-        """Enqueues deletion of a single game document identified by
-        the (guild_id, channel_id) pair, plus all players in the guild.
-
-        NOTE: player deletion is still guild-scoped rather than game-
-        scoped — if a guild ever hosts multiple games simultaneously,
-        removing one will wipe players shared with the others. Not a
-        problem today since in-memory ``bot.games`` is still keyed by
-        guild_id (one-game-per-guild in practice), but worth
-        revisiting if multi-game-per-guild ships for real."""
+        """Enqueues deletion of a single game document and all its
+        associated players, identified by the (guild_id, channel_id)
+        pair. Players are game-scoped so this only removes players
+        belonging to this specific game, not players in other games
+        on the same guild."""
         DB._queues[DB._games].put(
             DeleteOne({"guild_id": guild_id, "channel_id": channel_id})
         )
-        DB._queues[DB._players].put(DeleteMany({"guild_id": guild_id}))
+        DB._queues[DB._players].put(
+            DeleteMany({"guild_id": guild_id, "channel_id": channel_id})
+        )
 
     @staticmethod
     def update_game(guild_id, channel_id, guild_dict, upsert=False):
@@ -246,10 +248,15 @@ class DB:
         DB._queues[DB._command_statics].put(InsertOne(doc))
 
     @staticmethod
-    def update_player(guild_id, user_id, player_dict):
-        """Enqueues a player upsert."""
+    def update_player(guild_id, channel_id, user_id, player_dict):
+        """Enqueues a player upsert. Players are game-scoped:
+        identified by (guild_id, channel_id, user_id)."""
         DB._queues[DB._players].put(
-            UpdateOne({"guild_id": guild_id, "user_id": user_id}, {"$set": player_dict}, upsert=True)
+            UpdateOne(
+                {"guild_id": guild_id, "channel_id": channel_id, "user_id": user_id},
+                {"$set": player_dict},
+                upsert=True,
+            )
         )
 
     @staticmethod
@@ -271,9 +278,12 @@ class DB:
         return DB._players.find({"guild_id": guild_id})
 
     @staticmethod
-    def delete_player(guild_id, user_id):
-        """Deletes a player from the database."""
-        DB._queues[DB._players].put(DeleteOne({"guild_id": guild_id, "user_id": user_id}))
+    def delete_player(guild_id, channel_id, user_id):
+        """Deletes a player from the database. Game-scoped: compound
+        (guild_id, channel_id, user_id) filter."""
+        DB._queues[DB._players].put(
+            DeleteOne({"guild_id": guild_id, "channel_id": channel_id, "user_id": user_id})
+        )
 
     @staticmethod
     def delete_all_players(guild_id):
