@@ -31,6 +31,48 @@ _log = get_logger(__name__)
 
 
 class Game:
+    # Class-level routing map: Discord channel_id -> Game instance.
+    # Populated when a Game registers its primary channel (in
+    # ``__init__``) and extended by ``register_channel`` for any
+    # spill-over channels (dungeon threads, etc.). Cleared by
+    # ``RpgUtilities.remove_game``. Subsystems that need to find
+    # the game that owns an arbitrary channel id call ``for_channel``
+    # instead of keeping Game references directly — avoids widening
+    # Game's surface area across the codebase.
+    _channel_routes: "Dict[int, Game]" = {}
+
+    @classmethod
+    def for_channel(cls, channel_id: int) -> "Optional[Game]":
+        """Return the ``Game`` whose channel-routing set contains
+        ``channel_id``, or ``None`` if the channel isn't registered
+        with any game. Does NOT perform thread parent-fallback — the
+        caller registers thread channels explicitly when a dungeon or
+        side-channel opens."""
+        return cls._channel_routes.get(channel_id)
+
+    def register_channel(self, channel_id: int) -> None:
+        """Route ``channel_id`` to this game. Called automatically
+        for the primary channel in ``__init__``; extensible for
+        future dungeon / thread channels that want messages from
+        ``for_channel`` lookups to resolve to this game."""
+        Game._channel_routes[channel_id] = self
+
+    def unregister_channel(self, channel_id: int) -> None:
+        """Stop routing ``channel_id`` to this game. Used when a
+        dungeon thread closes. No-op if the channel wasn't
+        registered."""
+        Game._channel_routes.pop(channel_id, None)
+
+    @property
+    def channel_id(self) -> "Optional[int]":
+        """Primary channel id — the routing key used by the clock
+        registry and ``for_channel`` lookups. Derived from
+        ``self.channel.id`` (Discord object), or ``None`` when the
+        Game has no channel bound (tests, pre-spawn constructions).
+        Kept as a property rather than a stored field so it can't
+        drift out of sync with ``self.channel``."""
+        return self.channel.id if self.channel else None
+
     def __init__(
         self,
         bot: "Bot" = None,
@@ -59,9 +101,13 @@ class Game:
         :param game_time: The game's internal time value.
         """
         self.bot = bot
-        self.id = game_id
+        self.id = game_id  # Mongo ObjectId — DB document identity only.
         self.guild = guild
         self.channel = channel
+        # Primary Discord channel id (``self.channel.id``) is the
+        # routing key for the clock registry and ``for_channel``
+        # lookups. Accessed via the ``channel_id`` property below so
+        # it can't drift out of sync with ``self.channel``.
         self.player_manager: PlayerManager = PlayerManager()
         self.monster: Optional[MonsterPlugin] = None
         self.monsters: List[str] = []
@@ -102,6 +148,14 @@ class Game:
         self.bot = bot
         if bot and guild:
             bot.games[self.guild.id] = self
+
+        # Register with the per-game clock registry + channel routing
+        # map so downstream subsystems can find this game's clock
+        # without holding a Game reference. Both are idempotent no-ops
+        # when ``channel_id`` is None (tests / pre-spawn contexts).
+        if self.channel_id is not None:
+            GameClock._register(self.channel_id, self.game_clock)
+            self.register_channel(self.channel_id)
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -201,6 +255,11 @@ class Game:
 
         embed, file = self.monster.get_embed()
         Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
+        # Populate the structural channel id before on_spawn so that
+        # any override (or anything on_spawn dispatches to) can
+        # already use the time façade. Keeps per-monster ``on_spawn``
+        # focused on flavor / narrative, not plumbing.
+        self.monster._channel_id = self.channel_id
         if spawn_msg := self.monster.on_spawn(self):
             Dispatcher.add(self.channel, parse(spawn_msg, self.monster))
         if self.monster.dies_from_time or self.monster.flees_from_time:

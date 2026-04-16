@@ -355,65 +355,91 @@ class TestWerewolf:
             assert w.get_target_part_preference(None, fake_source) == "head"
 
     # -- Dawn desperation -------------------------------------------
+    #
+    # The werewolf reads time-of-day via the module-level
+    # ``get_time_components`` / ``get_next_time`` façade in
+    # ``caldanai.lib.rpg.time``, keyed by ``self._channel_id``. Tests
+    # stub those two functions via ``monkeypatch`` so we don't have
+    # to spin up a real ``GameClock`` + registry just to assert on
+    # dawn-window math.
 
-    def _make_clock(self, hours_to_morning: float):
-        """Build a mock game clock positioned so that MORNING is
-        ``hours_to_morning`` away. The werewolf reads ``get_next_time``
-        and ``get_time_components`` to compute the window."""
-        clock = MagicMock()
-        # Pretend current time is (h=5, m=30) and MORNING hits at
-        # (h=5+delta). Remaining is just the delta.
-        clock.get_time_components.return_value = (5, 0, 0)
+    _FAKE_CHANNEL_ID = 999001  # arbitrary distinct int
+
+    def _stub_time(self, monkeypatch, hours_to_morning: float):
+        """Install fakes for ``get_time_components`` / ``get_next_time``
+        that position the game clock ``hours_to_morning`` ahead of the
+        next MORNING boundary. Current time is fixed at (5, 0)."""
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        from caldanai.lib.rpg.creatures.monsters import werewolf as werewolf_mod
         next_h = 5 + int(hours_to_morning)
         next_m = int((hours_to_morning - int(hours_to_morning)) * 60)
-        from caldanai.lib.rpg.helpers.enums import TimesOfDay
-        clock.get_next_time.return_value = (TimesOfDay.MORNING.name, next_h, next_m)
-        return clock
+        monkeypatch.setattr(
+            werewolf_mod, "get_time_components",
+            lambda gid: (5, 0, 0) if gid == self._FAKE_CHANNEL_ID else None,
+        )
+        monkeypatch.setattr(
+            werewolf_mod, "get_next_time",
+            lambda gid: (TimesOfDay.MORNING.name, next_h, next_m) if gid == self._FAKE_CHANNEL_ID else None,
+        )
 
-    def test_is_near_dawn_off_without_clock(self):
-        """Without a game, desperation logic must be inert — the
+    def test_is_near_dawn_off_without_channel_id(self):
+        """Without a game_id, desperation logic must be inert — the
         plugin is constructable in tests and shouldn't fire stateful
         behavior based on missing infrastructure."""
         w = Werewolf()
         assert w._is_near_dawn() is False
 
-    def test_is_near_dawn_true_inside_window(self):
+    def test_is_near_dawn_off_when_clock_not_registered(self, monkeypatch):
+        """If ``_channel_id`` is set but the façade returns None (no
+        clock registered at that id), desperation stays inert."""
+        from caldanai.lib.rpg.creatures.monsters import werewolf as werewolf_mod
+        monkeypatch.setattr(werewolf_mod, "get_time_components", lambda gid: None)
+        monkeypatch.setattr(werewolf_mod, "get_next_time", lambda gid: None)
         w = Werewolf()
-        w._clock = self._make_clock(0.5)  # 30 min to dawn
+        w._channel_id = self._FAKE_CHANNEL_ID
+        assert w._is_near_dawn() is False
+
+    def test_is_near_dawn_true_inside_window(self, monkeypatch):
+        self._stub_time(monkeypatch, 0.5)  # 30 min to dawn
+        w = Werewolf()
+        w._channel_id = self._FAKE_CHANNEL_ID
         assert w._is_near_dawn() is True
 
-    def test_is_near_dawn_false_outside_window(self):
+    def test_is_near_dawn_false_outside_window(self, monkeypatch):
+        self._stub_time(monkeypatch, 3.0)  # 3h to dawn
         w = Werewolf()
-        w._clock = self._make_clock(3.0)  # 3h to dawn
+        w._channel_id = self._FAKE_CHANNEL_ID
         assert w._is_near_dawn() is False
 
-    def test_is_near_dawn_false_when_next_tod_is_not_morning(self):
+    def test_is_near_dawn_false_when_next_tod_is_not_morning(self, monkeypatch):
         """Night → NIGHT transition (or any non-MORNING next-tod)
         must not trigger desperation."""
-        w = Werewolf()
-        clock = MagicMock()
-        clock.get_time_components.return_value = (22, 0, 0)
         from caldanai.lib.rpg.helpers.enums import TimesOfDay
-        clock.get_next_time.return_value = (TimesOfDay.NIGHT.name, 23, 0)
-        w._clock = clock
+        from caldanai.lib.rpg.creatures.monsters import werewolf as werewolf_mod
+        monkeypatch.setattr(werewolf_mod, "get_time_components", lambda gid: (22, 0, 0))
+        monkeypatch.setattr(werewolf_mod, "get_next_time", lambda gid: (TimesOfDay.NIGHT.name, 23, 0))
+        w = Werewolf()
+        w._channel_id = self._FAKE_CHANNEL_ID
         assert w._is_near_dawn() is False
 
-    def test_desperate_adds_bonus_attack(self):
+    def test_desperate_adds_bonus_attack(self, monkeypatch):
         """Near dawn, ``get_attack_sources`` adds a second source
         alongside the normal bite."""
         w = Werewolf()
         baseline = len(w.get_attack_sources())
-        w._clock = self._make_clock(0.5)
+        self._stub_time(monkeypatch, 0.5)
+        w._channel_id = self._FAKE_CHANNEL_ID
         desperate = w.get_attack_sources()
         assert len(desperate) == baseline + 1
         assert any("Lunge" in (s.label or "") for s in desperate)
 
-    def test_desperate_announcement_fires_once(self):
+    def test_desperate_announcement_fires_once(self, monkeypatch):
         """``on_combat_round`` returns the announcement the first
         time desperation kicks in, then goes quiet on subsequent
         rounds even while still desperate."""
+        self._stub_time(monkeypatch, 0.5)
         w = Werewolf()
-        w._clock = self._make_clock(0.5)
+        w._channel_id = self._FAKE_CHANNEL_ID
         first = w.on_combat_round([])
         second = w.on_combat_round([])
         assert "dawn" in first.lower() or "horizon" in first.lower()

@@ -478,3 +478,95 @@ class TestCancelCombat:
         assert len(game.loot) == 0
         assert len(game.looters) == 0
         game.set_spawn_timer.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Channel routing (Game._channel_routes + for_channel)
+# ---------------------------------------------------------------------------
+
+
+class TestChannelRouting:
+    """``Game._channel_routes`` maps Discord channel ids to their owning
+    Game so arbitrary subsystems can find the game a channel belongs
+    to without holding a Game reference. Primary channel is auto-
+    registered at construction; dungeon / thread channels extend via
+    ``register_channel``."""
+
+    def setup_method(self):
+        from caldanai.lib.rpg import Game
+        Game._channel_routes.clear()
+
+    def teardown_method(self):
+        from caldanai.lib.rpg import Game
+        Game._channel_routes.clear()
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_primary_channel_auto_registered(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        assert game.channel_id == channel.id
+        assert Game.for_channel(channel.id) is game
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_register_channel_adds_route(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        # Simulate a dungeon thread opening at channel_id 9999.
+        game.register_channel(9999)
+        assert Game.for_channel(9999) is game
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_unregister_channel_removes_route(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        game.register_channel(9999)
+        game.unregister_channel(9999)
+        assert Game.for_channel(9999) is None
+        # Primary channel still routes (unregister only touches 9999).
+        assert Game.for_channel(channel.id) is game
+
+    def test_for_channel_returns_none_for_unknown_channel(self):
+        from caldanai.lib.rpg import Game
+        assert Game.for_channel(424242) is None

@@ -220,3 +220,134 @@ class TestTimeCalculations:
         # 4 seasons = 1 year, so season 4 wraps to 0
         clock = GameClock(game_time=4 * 7776000)
         assert clock.get_season() == 0
+
+
+# ---------------------------------------------------------------------------
+# Per-game registry + module-level façade
+# ---------------------------------------------------------------------------
+
+
+_FAKE_ID_A = 888001
+_FAKE_ID_B = 888002
+
+
+@pytest.fixture(autouse=False)
+def clean_registry():
+    """Ensures the ``GameClock._clocks`` registry is empty before and
+    after each registry/façade test so tests don't cross-contaminate."""
+    GameClock._clocks.clear()
+    yield
+    GameClock._clocks.clear()
+
+
+class TestClockRegistry:
+    def test_for_channel_returns_registered_clock(self, clean_registry):
+        clock = GameClock(game_time=0)
+        GameClock._register(_FAKE_ID_A, clock)
+        assert GameClock.for_channel(_FAKE_ID_A) is clock
+
+    def test_for_channel_returns_none_when_unregistered(self, clean_registry):
+        assert GameClock.for_channel(_FAKE_ID_A) is None
+
+    def test_unregister_removes_clock(self, clean_registry):
+        clock = GameClock(game_time=0)
+        GameClock._register(_FAKE_ID_A, clock)
+        GameClock._unregister(_FAKE_ID_A)
+        assert GameClock.for_channel(_FAKE_ID_A) is None
+
+    def test_unregister_is_idempotent(self, clean_registry):
+        # Removing a never-registered id must not raise.
+        GameClock._unregister(_FAKE_ID_A)
+        assert GameClock.for_channel(_FAKE_ID_A) is None
+
+    def test_registry_isolates_games(self, clean_registry):
+        """Two games have independent clocks under distinct ids."""
+        clock_a = GameClock(game_time=100)
+        clock_b = GameClock(game_time=200)
+        GameClock._register(_FAKE_ID_A, clock_a)
+        GameClock._register(_FAKE_ID_B, clock_b)
+        assert GameClock.for_channel(_FAKE_ID_A) is clock_a
+        assert GameClock.for_channel(_FAKE_ID_B) is clock_b
+
+
+class TestModuleLevelReadSurface:
+    """Façade functions hand out concrete values rather than the clock
+    object. Return ``None`` when no game is registered so callers
+    don't have to guard every call."""
+
+    def test_get_time_of_day_with_registered_clock(self, clean_registry):
+        from caldanai.lib.rpg.time import get_time_of_day
+        clock = GameClock(game_time=0)
+        GameClock._register(_FAKE_ID_A, clock)
+        # At game_time=0 the default map may not be populated yet;
+        # force it so get_time_of_day returns something meaningful.
+        clock.update_times_of_day()
+        assert get_time_of_day(_FAKE_ID_A) is not None
+
+    def test_get_time_of_day_returns_none_for_unknown_game(self, clean_registry):
+        from caldanai.lib.rpg.time import get_time_of_day
+        assert get_time_of_day(_FAKE_ID_A) is None
+
+    def test_get_time_components_returns_none_for_unknown_game(self, clean_registry):
+        from caldanai.lib.rpg.time import get_time_components
+        assert get_time_components(_FAKE_ID_A) is None
+
+    def test_get_next_time_returns_none_for_unknown_game(self, clean_registry):
+        from caldanai.lib.rpg.time import get_next_time
+        assert get_next_time(_FAKE_ID_A) is None
+
+    def test_get_seconds_for_registered_clock(self, clean_registry):
+        from caldanai.lib.rpg.time import get_seconds
+        clock = GameClock(game_time=1234)
+        GameClock._register(_FAKE_ID_A, clock)
+        assert get_seconds(_FAKE_ID_A) == 1234
+
+    def test_get_seconds_returns_none_for_unknown_game(self, clean_registry):
+        from caldanai.lib.rpg.time import get_seconds
+        assert get_seconds(_FAKE_ID_A) is None
+
+
+class TestModuleLevelSchedulingSurface:
+    def test_schedule_routine_on_registered_clock(self, clean_registry):
+        from caldanai.lib.rpg.time import schedule_routine
+        clock = GameClock(game_time=0)
+        GameClock._register(_FAKE_ID_A, clock)
+
+        def r():
+            pass
+
+        assert schedule_routine(_FAKE_ID_A, r, seconds=60) is True
+        # Routine is actually registered on the clock.
+        lst, idx = clock.find_routine("r")
+        assert lst is not None and idx >= 0
+
+    def test_schedule_routine_fails_cleanly_for_unknown_game(self, clean_registry):
+        from caldanai.lib.rpg.time import schedule_routine
+
+        def r():
+            pass
+
+        assert schedule_routine(_FAKE_ID_A, r, seconds=60) is False
+
+    def test_cancel_routine_removes_from_clock(self, clean_registry):
+        from caldanai.lib.rpg.time import schedule_routine, cancel_routine
+        clock = GameClock(game_time=0)
+        GameClock._register(_FAKE_ID_A, clock)
+
+        def r():
+            pass
+
+        schedule_routine(_FAKE_ID_A, r, seconds=60)
+        assert cancel_routine(_FAKE_ID_A, r) is True
+        # ``find_routine`` returns ``(None, None)`` when the routine
+        # has been removed.
+        lst, idx = clock.find_routine("r")
+        assert lst is None and idx is None
+
+    def test_cancel_routine_returns_false_for_unknown_game(self, clean_registry):
+        from caldanai.lib.rpg.time import cancel_routine
+
+        def r():
+            pass
+
+        assert cancel_routine(_FAKE_ID_A, r) is False

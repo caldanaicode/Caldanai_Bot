@@ -59,6 +59,7 @@ from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions, TimesOfDay,
 )
 from caldanai.lib.rpg.helpers.parser import parse
+from caldanai.lib.rpg.time import get_time_components, get_next_time
 
 
 class Werewolf(MonsterPlugin):
@@ -155,20 +156,14 @@ class Werewolf(MonsterPlugin):
         self.size = Size.LARGE
         self._scale_part_hp()
 
-        # Stashed in ``on_spawn``. ``None`` outside of an active game
-        # (unit tests instantiate the plugin without a game) — all
-        # time-of-day checks gate on this being set.
-        self._clock = None
+        # ``self._channel_id`` is inherited from Creature and populated
+        # by ``Game.get_monster`` at spawn. Narrow access to time
+        # state goes through the ``caldanai.lib.rpg.time`` façade —
+        # the werewolf can't accidentally mutate the clock or reach
+        # into arbitrary Game internals.
         self._announced_desperation = False
 
     # -- Dawn desperation -----------------------------------------------
-
-    def on_spawn(self, game) -> str:
-        """Grab the game clock so combat-round code can check how close
-        we are to dawn. Returns no narration — the arrival line
-        already covers the entrance."""
-        self._clock = game.game_clock
-        return ""
 
     def _is_near_dawn(self) -> bool:
         """True when the next time-of-day boundary is ``MORNING`` and
@@ -178,10 +173,14 @@ class Werewolf(MonsterPlugin):
         flee transition — this window is strictly narrative/desperate
         territory in the lead-up.
         """
-        if self._clock is None:
+        if self._channel_id is None:
             return False
-        h, m, _ = self._clock.get_time_components()
-        next_name, next_h, next_m = self._clock.get_next_time()
+        components = get_time_components(self._channel_id)
+        next_time = get_next_time(self._channel_id)
+        if components is None or next_time is None:
+            return False
+        h, m, _ = components
+        next_name, next_h, next_m = next_time
         if next_name != TimesOfDay.MORNING.name:
             return False
         remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)

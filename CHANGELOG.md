@@ -4,6 +4,94 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — Clock Registry and Channel Routing (Step 1 of GameClock Refactor)
+
+**Per-game clock registry on ``GameClock``:**
+- Class-level ``_clocks: Dict[int, GameClock]`` keyed by ``game_id``
+  (the primary Discord channel id).
+- ``GameClock.for_game(game_id)`` returns the registered clock or
+  ``None``. Module-level façade (below) is the preferred access path.
+- Registration lifecycle in ``Game.__init__`` /
+  ``RpgUtilities.remove_game`` — no clock leaks on teardown.
+- One-way ownership preserved: clocks have no back-reference to their
+  Game, avoiding circular-dependency hazards.
+
+**Module-level façade in ``caldanai.lib.rpg.time``:**
+- Read surface hands out concrete values, not the clock object:
+  ``get_time_of_day(game_id)``, ``get_time_components(game_id)``,
+  ``get_next_time(game_id)``, ``get_seconds(game_id)``. All return
+  ``None`` when no clock is registered for ``game_id`` so callers
+  don't have to defensively guard.
+- Scheduling surface separate and explicit:
+  ``schedule_routine(game_id, fn, seconds, run_once, only_instance)``
+  and ``cancel_routine(game_id, fn)``. Grep for these call sites to
+  find every subsystem touching tick scheduling.
+- Subsystems no longer need a ``Game`` reference or a ``GameClock``
+  handle to read time; a single ``game_id`` (opaque int) is enough.
+  Weather daemons, monsters, ambience, and future dungeon ticks all
+  use the same narrow surface.
+
+**Channel routing on ``Game``:**
+- Class-level ``_channel_routes: Dict[int, Game]`` maps Discord
+  channel ids to their owning Game. Primary channel auto-registered
+  at construction. Dungeon threads / side channels extend via
+  ``register_channel(channel_id)`` / ``unregister_channel(channel_id)``
+  when they open / close.
+- ``Game.for_channel(channel_id)`` resolves an arbitrary channel to
+  its owning game. Does not do thread parent-fallback automatically —
+  callers register explicit routes, keeping the routing state
+  predictable.
+- ``Game.channel_id`` is a property deriving from ``self.channel.id``
+  (no stored field — can't drift out of sync with ``self.channel``).
+  ``None`` in pre-spawn / unit-test contexts where no channel is
+  bound. Separate from ``Game.id`` which remains the Mongo ObjectId
+  for DB identity.
+
+**``_channel_id`` on Creature base:**
+- ``Creature._channel_id: Optional[int]`` is the structural routing
+  key every creature has — populated by ``Game.get_monster`` at
+  spawn (right before ``on_spawn``). Creatures that need time-of-
+  day or other game-scoped state use
+  ``get_time_components(self._channel_id)`` etc. without any per-
+  class plumbing.
+- Populating at the caller (Game.get_monster) rather than in
+  subclass ``on_spawn`` overrides means concrete monster plugins
+  don't have to remember ``super().on_spawn(game)`` — they stay
+  focused on flavor / narrative.
+
+**Werewolf migrated to the façade:**
+- ``self._clock = game.game_clock`` stash gone. ``on_spawn`` override
+  removed entirely — inherits the base no-op now that ``_channel_id``
+  is populated centrally.
+- ``_is_near_dawn`` reads time via ``get_time_components(self._channel_id)``
+  and ``get_next_time(self._channel_id)``. Narrow access — no scheduling,
+  no clock object, can't accidentally mutate game state.
+- Proves the façade end-to-end.
+
+**What's not yet done (deferred to a second commit):**
+- DB layer still filters by ``guild_id`` alone. Compound
+  ``{guild_id, channel_id}`` filter to support multiple games per
+  guild is the follow-up.
+- Existing ``Game`` methods (``check_time``, ``do_health_regen``, etc.)
+  still drive the clock directly. Opportunistic migration only when
+  we touch them for feature reasons; no churn-for-churn.
+- Thread parent-fallback in ``for_channel`` for auto-routing Discord
+  threads to their parent channel's game. Not needed until dungeons.
+
+**Tests** (19 new):
+- ``TestClockRegistry`` — register / unregister / for_game / isolation
+  between games.
+- ``TestModuleLevelReadSurface`` — each façade function returns value
+  for registered clocks, ``None`` for unknown ``game_id``.
+- ``TestModuleLevelSchedulingSurface`` — schedule / cancel via façade
+  correctly mutate the underlying clock; fail gracefully on unknown
+  ``game_id``.
+- ``TestChannelRouting`` on Game — auto-registration of primary
+  channel, register / unregister of additional channels, ``for_channel``
+  returns None for unknown.
+- Werewolf dawn-desperation tests refactored to stub the façade
+  functions via ``monkeypatch`` instead of wiring a mock clock.
+
 ### 2026-04-15 — Werewolf Dawn Mechanics and Attacker-Side Part-Destruction Hook
 
 **Base hooks on ``MonsterPlugin``** (reusable by future monsters):

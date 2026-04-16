@@ -323,8 +323,19 @@ class RpgUtilities:
     async def remove_game(guild_id: int):
         if guild_id in RpgUtilities.bot.games.keys():
             try:
+                game = RpgUtilities.bot.games.get(guild_id)
                 DB.delete_game(guild_id)
-                await RpgUtilities.delete_roles(RpgUtilities.bot.games.get(guild_id))
+                await RpgUtilities.delete_roles(game)
+
+                # Unhook from the clock registry + channel routing
+                # before dropping the Game reference itself — otherwise
+                # the clock keeps ticking with nobody to drive it and
+                # stale channel routes linger in the class-level map.
+                from caldanai.lib.rpg.time import GameClock
+                if game is not None and game.channel_id is not None:
+                    GameClock._unregister(game.channel_id)
+                    game.unregister_channel(game.channel_id)
+
                 del RpgUtilities.bot.games[guild_id]
 
             except Exception as e:

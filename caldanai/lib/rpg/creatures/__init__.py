@@ -94,6 +94,15 @@ class Creature:
         self.size: Size = Size.MEDIUM
         self.core_agility: int = 0
         self.core_toughness: int = 0
+        # Owning game's primary channel id — the routing key for
+        # subsystems that need time-of-day or other game-scoped state
+        # via the ``caldanai.lib.rpg.time`` façade
+        # (``get_time_components(self._channel_id)`` etc.). Populated
+        # at spawn by ``Game.get_monster`` and when a Player is bound
+        # to an active game. ``None`` in unit-test / pre-bind contexts
+        # — façade functions return ``None`` gracefully so callers
+        # don't need extra guards.
+        self._channel_id: Optional[int] = None
 
         if pronouns:
             s = pronouns.split(",")

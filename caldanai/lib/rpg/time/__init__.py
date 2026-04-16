@@ -12,7 +12,51 @@ _log = get_logger(__name__)
 
 
 class GameClock:
-    """Tracks game time and date, and performs time related tasking."""
+    """Tracks game time and date, and performs time related tasking.
+
+    Per-channel registry
+    --------------------
+    Each ``Game`` owns one ``GameClock`` and registers it under the
+    game's primary Discord channel id (``game.channel_id``) via
+    :meth:`_register`. Downstream subsystems (monsters, weather,
+    ambience, dungeon daemons) look up the clock with
+    :meth:`for_channel` — or, preferably, the module-level
+    ``get_time_of_day(channel_id)`` / ``schedule_routine(channel_id, …)``
+    façade functions which expose a narrow read/write surface without
+    handing out the full clock object.
+
+    The clock itself has no back-reference to its game, preserving
+    one-way ownership: ``Game → GameClock``, not the reverse.
+    """
+
+    # channel_id -> GameClock. Populated by :meth:`_register` at Game
+    # construction and cleared by :meth:`_unregister` on teardown.
+    _clocks: "Dict[int, GameClock]" = {}
+
+    @classmethod
+    def for_channel(cls, channel_id: int) -> "Optional[GameClock]":
+        """Returns the ``GameClock`` registered for ``channel_id``,
+        or ``None`` if no game is active on that channel. Callers
+        that only need to *read* time state should prefer the module-
+        level façade functions (``get_time_of_day`` etc.) — this
+        direct accessor is for subsystems that legitimately need to
+        schedule routines or hold a reference across ticks."""
+        return cls._clocks.get(channel_id)
+
+    @classmethod
+    def _register(cls, channel_id: int, clock: "GameClock") -> None:
+        """Register ``clock`` under ``channel_id``. Called by
+        ``Game.__init__``. Overwrites any existing registration for
+        that channel — if a prior game on the same channel didn't
+        clean up, its clock leak is already the bug; we don't
+        preserve it."""
+        cls._clocks[channel_id] = clock
+
+    @classmethod
+    def _unregister(cls, channel_id: int) -> None:
+        """Remove the clock registered for ``channel_id`` (no-op if
+        absent). Called by ``RpgUtilities.remove_game`` on teardown."""
+        cls._clocks.pop(channel_id, None)
 
     class _Routine:
         """GameClock's internal representation of tasks for use in the tick loop."""
@@ -399,3 +443,89 @@ class GameClock:
             if (self._ticks - self._tick_run_once[i].time_added) % self._tick_run_once[i].seconds == 0:
                 routine = self._tick_run_once.pop(i)
                 routine.run()
+
+
+# ---------------------------------------------------------------------------
+# Module-level façade — narrow read/write surface keyed by channel_id.
+#
+# These functions are the *preferred* way for subsystems (monsters,
+# weather daemons, ambience, dungeon logic) to interact with a game's
+# clock. They hand out only the concrete piece of information the
+# caller needs, rather than the whole clock object — which means
+# downstream code can't accidentally mutate scheduling, tick state,
+# or any other internal. Callers that genuinely need to schedule
+# routines use the explicit ``schedule_routine`` / ``cancel_routine``
+# functions below.
+#
+# All functions accept a ``channel_id`` (the Game's primary Discord
+# channel id) and return ``None`` (for read functions) or quietly
+# no-op (for scheduling functions) when no clock is registered for
+# that channel — so callers operating in test / pre-spawn contexts
+# don't have to defensively guard every access.
+# ---------------------------------------------------------------------------
+
+
+# -- Read surface -----------------------------------------------------------
+
+
+def get_time_of_day(channel_id: int) -> Optional[str]:
+    """Current time-of-day label (``"dawn"``, ``"morning"``, etc.)
+    for the game on ``channel_id``, or ``None`` if no game is
+    registered for that channel."""
+    clock = GameClock.for_channel(channel_id)
+    return clock.get_time_of_day() if clock else None
+
+
+def get_time_components(channel_id: int) -> Optional[Tuple[int, int, int]]:
+    """Current ``(hour, minute, second)`` components for the game on
+    ``channel_id``, or ``None`` if no game is registered for that
+    channel."""
+    clock = GameClock.for_channel(channel_id)
+    return clock.get_time_components() if clock else None
+
+
+def get_next_time(channel_id: int) -> Optional[Tuple[str, int, int]]:
+    """Next time-of-day boundary as ``(name, hour, minute)`` for the
+    game on ``channel_id``, or ``None`` if no game is registered for
+    that channel."""
+    clock = GameClock.for_channel(channel_id)
+    return clock.get_next_time() if clock else None
+
+
+def get_seconds(channel_id: int) -> Optional[int]:
+    """Total game-seconds elapsed for the game on ``channel_id``, or
+    ``None`` if no game is registered for that channel."""
+    clock = GameClock.for_channel(channel_id)
+    return clock.get_seconds() if clock else None
+
+
+# -- Scheduling surface -----------------------------------------------------
+
+
+def schedule_routine(
+    channel_id: int,
+    fn: Callable,
+    seconds: int,
+    run_once: bool = False,
+    only_instance: bool = True,
+) -> bool:
+    """Register ``fn`` to run every ``seconds`` game-seconds on the
+    clock for ``channel_id``. Returns ``True`` on success, ``False``
+    if no game is registered for that channel. Thin wrapper over
+    ``GameClock.add_routine`` so callers don't need a clock reference."""
+    clock = GameClock.for_channel(channel_id)
+    if clock is None:
+        return False
+    clock.add_routine(fn, seconds, run_once=run_once, only_instance=only_instance)
+    return True
+
+
+def cancel_routine(channel_id: int, fn: Callable) -> bool:
+    """Remove ``fn`` from the scheduled routines on the clock for
+    ``channel_id``. Returns the underlying ``remove_routine`` result
+    (``True`` if removed), or ``False`` if no game is registered for
+    that channel."""
+    clock = GameClock.for_channel(channel_id)
+    if clock is None:
+        return False
+    return clock.remove_routine(fn)
