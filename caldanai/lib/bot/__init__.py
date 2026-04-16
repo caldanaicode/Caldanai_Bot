@@ -7,6 +7,7 @@ from discord.ext.commands import Bot as BotBase
 from discord.ext.commands import (
     CommandNotFound,
     BadArgument,
+    CheckFailure,
     CommandOnCooldown,
     MissingRequiredArgument,
     when_mentioned_or,
@@ -199,7 +200,12 @@ class Bot(BotBase, Subject):
         elif isinstance(exc, CommandNotFound):
             pass
 
-        elif isinstance(exc, (Forbidden, MissingPermissions, NoPrivateMessage)):
+        elif isinstance(exc, (Forbidden, MissingPermissions, NoPrivateMessage, CheckFailure)):
+            # CheckFailure is the parent of MissingPermissions,
+            # NoPrivateMessage, CheckAnyFailure, NotOwner, etc. —
+            # any failed permission / context check gets the
+            # "you can't do that" flavor response rather than a
+            # generic error.
             Dispatcher.add(ctx, await Bot.get_forbidden_response(ctx))
 
         elif hasattr(exc, "original"):

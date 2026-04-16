@@ -152,6 +152,23 @@ class HelpCommands(Cog):
 
     @staticmethod
     async def cmd_help(ctx: Context, cmd: Command):
+        # Guard: if the invoker can't run this command, treat the
+        # help lookup as "no such command" rather than showing its
+        # docs. Prevents admin-only subcommand details from leaking
+        # to players who looked them up by name (e.g. someone who
+        # saw a moderator run ``$weather force`` and typed
+        # ``$help weather force``). Groups themselves bypass the
+        # check — their bare call is what determines visibility;
+        # subcommands are filtered individually below.
+        if not isinstance(cmd, Group):
+            try:
+                runnable = await cmd.can_run(ctx)
+            except Exception:
+                runnable = False
+            if not runnable:
+                Dispatcher.add(ctx, f"No such command exists: {cmd}")
+                return
+
         # For groups, hide subcommands the invoker can't run so admin
         # tooling doesn't leak into player help output. The bare group
         # itself is shown regardless — whether it's visible at all is
