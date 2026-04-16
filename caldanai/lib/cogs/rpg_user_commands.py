@@ -143,10 +143,17 @@ class RpgUserCommands(Cog):
     def _parse_part_targets(self, target_str, monster):
         """Parse body-part names from the player's command input.
 
-        Returns a list of matched part-name strings (may be empty).
+        Returns a list of canonical part-name strings (may be empty).
         Accepts: ``"arm.left"``, ``"arm.left leg.right"``,
         ``"goblin arm.left"`` (unrecognized tokens like the monster
-        name are silently skipped).
+        name are silently skipped). Fuzzy-matches per dotted segment so
+        ``"leg.r"`` resolves to ``"leg.right"``.
+
+        Every match expands to the part's canonical ``name`` so that
+        ``_display_part_name`` always renders cleanly. A token that
+        resolves to multiple parts (e.g. ``"leg"`` → both legs, or
+        ``"h"`` → head plus hands) contributes one canonical entry per
+        match; ``do_attack`` then distributes one name per source slot.
         """
         if not target_str or not monster.body_parts:
             return []
@@ -154,20 +161,11 @@ class RpgUserCommands(Cog):
         seen = set()
         matched = []
         for token in target_str.strip().split():
-            if token in seen:
-                continue
-            exact = monster.get_part(token)
-            if exact:
-                seen.add(token)
-                matched.append(token)
-                continue
-            prefix_matches = [
-                p for p in monster.get_targetable_parts()
-                if p.name.startswith(token + ".") or p.name == token
-            ]
-            if prefix_matches:
-                seen.add(token)
-                matched.append(token)
+            for p in monster.find_parts(token):
+                if p.name in seen:
+                    continue
+                seen.add(p.name)
+                matched.append(p.name)
         return matched
 
     @command(name="target", aliases=["aim", "focus"], brief="Changes your attack target to specific body parts.")

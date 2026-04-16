@@ -246,9 +246,12 @@ class Creature:
         (from ``$kill arm.left leg.right`` or ``$target``).  When provided:
 
         - One name → ALL sources target that part.
-        - N names → source[i] targets name[i]; extra sources use the last
-          name; extra names are ignored.
-        - Each name is resolved via exact match then prefix match.
+        - N names → source[i] targets name[i % N]; extra sources cycle
+          through the list (so a 5-head hydra given two targets rips
+          through both rather than dogpiling the second).
+        - Each name is resolved via ``find_parts``: case-insensitive
+          exact match wins, else case-insensitive segment-prefix match
+          (``leg.r`` → ``leg.right``).
 
         When ``None`` or empty, each source independently picks a random
         target part weighted by reach.
@@ -256,15 +259,9 @@ class Creature:
 
         def _resolve_name(name: str) -> Optional["BodyPart"]:
             """Resolve a part-name string to a BodyPart instance."""
-            part = target.get_part(name)
-            if part and not part.is_destroyed():
-                return part
-            prefix_matches = [
-                p for p in target.get_targetable_parts()
-                if p.name.startswith(name + ".") or p.name == name
-            ]
-            if prefix_matches:
-                return random.choice(prefix_matches)
+            matches = target.find_parts(name)
+            if matches:
+                return random.choice(matches)
             return None
 
         # Pre-resolve explicit targets (one per source slot).
@@ -281,7 +278,7 @@ class Creature:
             # land at a concrete ``target_part`` (or ``None`` if the
             # target has no body parts).
             if explicit_parts:
-                idx = min(i, len(explicit_parts) - 1)
+                idx = i % len(explicit_parts)
                 resolved = explicit_parts[idx]
                 if resolved and not resolved.is_destroyed():
                     target_part = resolved
@@ -854,6 +851,42 @@ class Creature:
         both consume this list.
         """
         return [p for p in self.body_parts if not p.is_destroyed()]
+
+    def find_parts(self, name: str) -> List[BodyPart]:
+        """Fuzzy, case-insensitive lookup over non-destroyed body parts.
+
+        Matches per dotted segment: each ``.``-separated segment of
+        ``name`` must be a prefix of the corresponding segment of the
+        part name. So ``leg.r`` matches ``leg.right`` (and not
+        ``leg.left``), ``leg`` matches both sided legs, and ``h`` on a
+        monster with ``head``/``hand.left``/``hand.right`` matches all
+        three but never stray parts whose later segments merely happen
+        to contain ``h`` (e.g. ``arm.right``). Exact matches
+        short-circuit so a bare ``leg`` part beats its dotted variants
+        when the user types ``leg`` exactly.
+        """
+        q = name.lower().strip()
+        if not q:
+            return []
+        candidates = self.get_targetable_parts()
+        exact = [p for p in candidates if p.name.lower() == q]
+        if exact:
+            return exact
+        query_segs = q.split(".")
+        # A trailing or leading dot (e.g. ``"leg."`` or ``".r"``) leaves
+        # an empty segment that would otherwise prefix-match anything;
+        # treat such queries as non-matches rather than inventing weird
+        # semantics around them.
+        if any(seg == "" for seg in query_segs):
+            return []
+
+        def segment_match(part: BodyPart) -> bool:
+            name_segs = part.name.lower().split(".")
+            if len(query_segs) > len(name_segs):
+                return False
+            return all(ns.startswith(qs) for qs, ns in zip(query_segs, name_segs))
+
+        return [p for p in candidates if segment_match(p)]
 
     def get_health_scale(self) -> float:
         return self.health / self.get_health_max()

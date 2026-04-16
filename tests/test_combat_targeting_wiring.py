@@ -132,6 +132,53 @@ class TestDoAttackPartlessTarget:
 
 
 # ---------------------------------------------------------------------------
+# Test 3b: fuzzy explicit targeting end-to-end
+# ---------------------------------------------------------------------------
+
+class TestDoAttackFuzzyExplicitTargeting:
+    def test_abbreviated_name_resolves_uniquely(self):
+        """``do_attack(explicit_part_names=["leg.r"])`` must land on
+        ``leg.right`` via ``find_parts``'s segment-prefix match — the
+        full chain that powers ``$kill leg.r``."""
+        left = _make_part("leg.left", 10)
+        right = _make_part("leg.right", 10)
+        target = _make_creature("target", health_max=100, body_parts=[left, right])
+        attacker = _make_creature("attacker", atk="1d4")
+
+        sequence = attacker.do_attack(target, explicit_part_names=["leg.r"])
+
+        for result in sequence.results:
+            assert result.target_part is right, (
+                f"Expected leg.right, got {result.target_part.name}"
+            )
+
+    def test_multi_source_cycles_through_expanded_targets(self):
+        """A 5-source attacker given two explicit targets (as the cog
+        produces when the player types an ambiguous token like
+        ``$kill leg``) must cycle round-robin rather than dogpile the
+        last name. Guards against the regression the reviewer flagged
+        where extras clamped to ``explicit_parts[-1]``."""
+        left = _make_part("leg.left", 100)
+        right = _make_part("leg.right", 100)
+        target = _make_creature("target", health_max=500, body_parts=[left, right])
+
+        attacker = _make_creature("hydra", atk="2d6")
+        sources = [
+            NaturalAttackSource(atk="2d6", label=f"Head {i}", skill="natural")
+            for i in range(5)
+        ]
+        attacker.get_attack_sources = lambda: sources
+
+        sequence = attacker.do_attack(
+            target, explicit_part_names=["leg.left", "leg.right"]
+        )
+
+        hits = [r.target_part for r in sequence.results]
+        # Round-robin: indices 0,2,4 → left; 1,3 → right.
+        assert hits == [left, right, left, right, left]
+
+
+# ---------------------------------------------------------------------------
 # Test 4: multi-source picks independently
 # ---------------------------------------------------------------------------
 

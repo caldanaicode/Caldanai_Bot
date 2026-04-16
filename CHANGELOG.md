@@ -4,6 +4,62 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-16 — Fuzzy Body-Part Targeting + Round-Robin Multi-Source
+
+Body-part targeting now accepts abbreviations the same way inventory
+lookup does, so ``$kill leg.r`` lands on ``leg.right`` and
+``$target h.1`` lands on ``head.1``. The resolver also fans out
+ambiguous tokens to every match (``$target leg`` → both legs), and
+``do_attack`` cycles round-robin through multiple targets rather than
+clamping extras to the last name.
+
+**``Creature.find_parts(name)``**
+(``caldanai/lib/rpg/creatures/__init__.py``):
+- New method. Case-insensitive exact match wins; otherwise splits the
+  query on ``.`` and each segment must be a prefix of the
+  corresponding segment of the part name. Destroyed parts are
+  filtered out.
+- Segment-prefix (not raw substring) was picked after a review pass:
+  substring let ``h`` falsely match ``arm.right`` because "right"
+  contains an ``h``. Segment-prefix only matches ``h`` → head,
+  hand.\*.
+- Guards empty and degenerate queries (``""``, ``"   "``, ``".r"``,
+  ``"leg."``, ``"leg..right"``) so they return ``[]`` instead of
+  wildcard-matching.
+
+**``_parse_part_targets``**
+(``caldanai/lib/cogs/rpg_user_commands.py``):
+- Rewritten on top of ``find_parts``. Every match expands to its
+  canonical part name, deduped via ``seen``. Fixes the display bug
+  where an ambiguous ``$target h`` rendered as "Caels shifts focus to
+  the h!".
+
+**``Creature.do_attack`` extras semantics**
+(``caldanai/lib/rpg/creatures/__init__.py``):
+- Changed from ``idx = min(i, len - 1)`` to ``idx = i % len``. Extra
+  sources now cycle through the explicit-target list instead of
+  pinning to the last name. A 5-head hydra given ``[leg.left,
+  leg.right]`` now hits ``[left, right, left, right, left]`` rather
+  than piling four heads onto ``leg.right``.
+- ``_resolve_name`` closure simplified to delegate to ``find_parts``.
+
+**Tests** (6 new + 1 existing file extended):
+- ``tests/test_targeting_helpers.py`` — ``TestFindParts``: exact
+  match, sided-prefix, abbreviation resolution, case-insensitive,
+  destroyed-part exclusion, exact-match precedence over fuzzy, reject
+  later-segment substring matches, over-length query, empty query,
+  degenerate dotted query.
+- ``tests/test_part_target_parsing.py`` (new) — 
+  ``TestParsePartTargets``: canonical dotted names, fuzzy
+  abbreviation, ambiguous expansion, ``h``-style multi-match,
+  multi-token, unknown tokens dropped, duplicate dedup, empty input,
+  partless monster, destroyed part skipped, bare-plus-dotted exact
+  precedence, whitespace-only input.
+- ``tests/test_combat_targeting_wiring.py`` —
+  ``TestDoAttackFuzzyExplicitTargeting``: end-to-end chain
+  (``leg.r`` → ``leg.right``) plus a 5-source hydra regression test
+  verifying round-robin cycling.
+
 ### 2026-04-16 — Weather-Dependent Monster Spawns
 
 First mechanical hook into the weather daemon: monsters can now

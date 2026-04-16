@@ -2,6 +2,8 @@
 
 Covers:
 - ``Creature.get_part(name)`` — exact-match lookup by part name.
+- ``Creature.find_parts(name)`` — fuzzy segment-prefix lookup (powers
+  ``$kill leg.r`` → ``leg.right``).
 - ``Creature.get_targetable_parts()`` — filters out destroyed parts.
 - ``pick_random_part(parts, reach)`` — module-level free function that
   picks a random part weighted by ``part.exposure.get(reach, 1.0)``.
@@ -80,6 +82,111 @@ class TestGetPart:
         c.body_parts = [first, second]
 
         assert c.get_part("leg") is first
+
+
+# ---------------------------------------------------------------------------
+# Creature.find_parts
+# ---------------------------------------------------------------------------
+
+class TestFindParts:
+    def test_exact_match_returns_that_part(self):
+        c = _make_creature()
+        left = _make_part("leg.left")
+        right = _make_part("leg.right")
+        c.body_parts = [left, right]
+
+        assert c.find_parts("leg.left") == [left]
+
+    def test_bare_prefix_matches_all_dotted_siblings(self):
+        c = _make_creature()
+        left = _make_part("leg.left")
+        right = _make_part("leg.right")
+        c.body_parts = [left, right]
+
+        result = c.find_parts("leg")
+        assert left in result and right in result
+        assert len(result) == 2
+
+    def test_dotted_substring_resolves_uniquely(self):
+        """``leg.r`` must resolve to ``leg.right`` alone — the core
+        UX goal of the fuzzy-match change."""
+        c = _make_creature()
+        left = _make_part("leg.left")
+        right = _make_part("leg.right")
+        c.body_parts = [left, right]
+
+        assert c.find_parts("leg.r") == [right]
+        assert c.find_parts("leg.l") == [left]
+
+    def test_case_insensitive(self):
+        c = _make_creature()
+        head = _make_part("head")
+        c.body_parts = [head]
+
+        assert c.find_parts("HEAD") == [head]
+        assert c.find_parts("Head") == [head]
+
+    def test_excludes_destroyed_parts(self):
+        c = _make_creature()
+        left = _make_part("leg.left")
+        right = _make_part("leg.right")
+        left.health = 0
+        c.body_parts = [left, right]
+
+        assert c.find_parts("leg") == [right]
+
+    def test_empty_when_no_match(self):
+        c = _make_creature()
+        c.body_parts = [_make_part("head"), _make_part("torso")]
+
+        assert c.find_parts("tail") == []
+
+    def test_exact_match_wins_over_fuzzy(self):
+        """When a bare ``leg`` part exists alongside ``leg.left``/
+        ``leg.right``, typing ``leg`` must hit only the bare part."""
+        c = _make_creature()
+        bare = _make_part("leg")
+        left = _make_part("leg.left")
+        right = _make_part("leg.right")
+        c.body_parts = [bare, left, right]
+
+        assert c.find_parts("leg") == [bare]
+
+    def test_does_not_match_later_segment_content(self):
+        """Pure substring would have matched ``h`` to ``arm.right``
+        (the ``h`` in ``right``); segment-prefix correctly rejects it."""
+        c = _make_creature()
+        head = _make_part("head")
+        arm_right = _make_part("arm.right")
+        c.body_parts = [head, arm_right]
+
+        assert c.find_parts("h") == [head]
+
+    def test_query_with_more_segments_than_part_does_not_match(self):
+        c = _make_creature()
+        c.body_parts = [_make_part("head")]
+
+        assert c.find_parts("head.left") == []
+
+    def test_empty_query_returns_empty(self):
+        """Empty or whitespace-only queries must not match anything —
+        otherwise ``"".split(".")`` would leave a single empty segment
+        that prefix-matches every part."""
+        c = _make_creature()
+        c.body_parts = [_make_part("head"), _make_part("torso")]
+
+        assert c.find_parts("") == []
+        assert c.find_parts("   ") == []
+
+    def test_degenerate_dotted_query_returns_empty(self):
+        """A query with leading, trailing, or consecutive dots leaves
+        empty segments; those shouldn't wildcard-match."""
+        c = _make_creature()
+        c.body_parts = [_make_part("leg.left"), _make_part("leg.right")]
+
+        assert c.find_parts(".r") == []
+        assert c.find_parts("leg.") == []
+        assert c.find_parts("leg..right") == []
 
 
 # ---------------------------------------------------------------------------
