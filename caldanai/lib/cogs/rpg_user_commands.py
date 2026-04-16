@@ -294,7 +294,7 @@ class RpgUserCommands(Cog):
                 Dispatcher.add(
                     game.channel, parse(game.monster.on_hugged(player, ctx.invoked_with), game.monster, player)
                 )
-            elif (target := await RpgUtilities.get_player(mention)) is not None:
+            elif (target := await RpgUtilities.get_player(mention, game=game, notify=False)) is not None:
                 Dispatcher.add(game.channel, parse(target.on_hugged(player, ctx.invoked_with), target, player))
 
         elif msg is not None and len(msg) > 0:
@@ -333,7 +333,7 @@ class RpgUserCommands(Cog):
                 if self.bot.user in ctx.message.mentions:
                     Dispatcher.add(game.channel, parse("You cannot haunt a figment of your imagination, @1.", player))
                     return
-                haunted = await RpgUtilities.get_player(ctx.message.mentions[0])
+                haunted = await RpgUtilities.get_player(ctx.message.mentions[0], game=game, notify=False)
             elif game.monster is not None and game.monster.name == target.lower():
                 haunted = game.monster
 

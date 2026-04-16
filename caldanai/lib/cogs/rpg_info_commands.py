@@ -695,7 +695,7 @@ class RpgInfoCommands(Cog):
             return
 
         elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-            p = await RpgUtilities.get_player(ctx.message.mentions[0])
+            p = await RpgUtilities.get_player(ctx.message.mentions[0], game=game, notify=False)
             if p:
                 embed = p.get_profile(game.guild.name)
                 Dispatcher.add(game.channel, embed=embed)

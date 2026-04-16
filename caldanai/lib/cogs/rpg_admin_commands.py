@@ -215,7 +215,7 @@ class RpgAdminCommands(Cog):
                 )
 
                 for mention in ctx.message.mentions:
-                    target = await RpgUtilities.get_player(mention)
+                    target = await RpgUtilities.get_player(mention, game=game, notify=False)
                     if target:
                         target.apply_damage(target.health)
                         msg += parse(
@@ -249,7 +249,7 @@ class RpgAdminCommands(Cog):
 
                 corpses = []
                 for mention in ctx.message.mentions:
-                    target = await RpgUtilities.get_player(mention)
+                    target = await RpgUtilities.get_player(mention, game=game, notify=False)
                     if target is None:
                         continue
                     # "Needs healing" covers both body-HP damage and
@@ -527,10 +527,10 @@ class RpgAdminCommands(Cog):
         target: Player = None
 
         if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-            target = await RpgUtilities.get_player(ctx.message.mentions[0])
+            target = await RpgUtilities.get_player(ctx.message.mentions[0], game=game, notify=False)
 
         if target is None:
-            target = await RpgUtilities.get_player(ctx)
+            target = await RpgUtilities.get_player(ctx, game=game, notify=False)
 
         if target is None or item_name is None:
             return
