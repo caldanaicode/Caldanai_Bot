@@ -14,7 +14,13 @@ _log = get_logger(__name__)
 paramRegex = re.compile(r":param (?P<name>[^:]+):")
 
 
-def syntax(cmd: Command, prefix: str, verbose: bool = False):
+def syntax(cmd: Command, prefix: str, verbose: bool = False, filtered_subs=None):
+    """Render a help embed body for ``cmd``. When ``cmd`` is a
+    :class:`Group`, ``filtered_subs`` — if provided — replaces
+    ``cmd.commands`` as the list of subcommands to display. Callers
+    that know the invoker's context should pre-filter via
+    ``can_run`` so players don't see admin-only subcommands in help.
+    """
     aliases = [*cmd.aliases]
     aliases.sort()
     params = []
@@ -25,7 +31,8 @@ def syntax(cmd: Command, prefix: str, verbose: bool = False):
     subs = []
 
     if isinstance(cmd, Group):
-        subs = [s.name if "_" not in s.name or not len(s.aliases) else choice(s.aliases) for s in cmd.commands]
+        sub_source = filtered_subs if filtered_subs is not None else list(cmd.commands)
+        subs = [s.name if "_" not in s.name or not len(s.aliases) else choice(s.aliases) for s in sub_source]
         subs.sort()
         subs = ", ".join(subs)
 
@@ -76,8 +83,25 @@ class HelpMenu(ListPageSource):
         fields = []
 
         for cmd in commands:
+            # For groups, pre-filter subcommands by ``can_run`` so the
+            # top-level help listing hides admin-only operations from
+            # players who couldn't invoke them anyway.
+            filtered_subs = None
+            if isinstance(cmd, Group):
+                filtered_subs = []
+                for sub in cmd.commands:
+                    try:
+                        if await sub.can_run(self.ctx):
+                            filtered_subs.append(sub)
+                    except Exception:
+                        pass
+
             fields.append(
-                (cmd.name, f"{syntax(cmd, self.ctx.prefix)}\n" + ("\u2581" * 20 if cmd != commands[-1] else ""))
+                (
+                    cmd.name,
+                    f"{syntax(cmd, self.ctx.prefix, filtered_subs=filtered_subs)}\n"
+                    + ("\u2581" * 20 if cmd != commands[-1] else ""),
+                )
             )
         return await self.write_page(menu, fields)
 
@@ -128,7 +152,27 @@ class HelpCommands(Cog):
 
     @staticmethod
     async def cmd_help(ctx: Context, cmd: Command):
-        embed = Embed(title=f"Help for `{cmd}`", description=syntax(cmd, ctx.prefix, True), color=0xFF7700)
+        # For groups, hide subcommands the invoker can't run so admin
+        # tooling doesn't leak into player help output. The bare group
+        # itself is shown regardless — whether it's visible at all is
+        # governed by the top-level filter in ``show_help``.
+        filtered_subs = None
+        if isinstance(cmd, Group):
+            filtered_subs = []
+            for sub in cmd.commands:
+                try:
+                    if await sub.can_run(ctx):
+                        filtered_subs.append(sub)
+                except Exception:
+                    # ``can_run`` can raise on failed checks; treat as
+                    # "not runnable" and omit the subcommand.
+                    pass
+
+        embed = Embed(
+            title=f"Help for `{cmd}`",
+            description=syntax(cmd, ctx.prefix, True, filtered_subs=filtered_subs),
+            color=0xFF7700,
+        )
         Dispatcher.add(ctx, embed=embed)
 
     @Cog.listener()
