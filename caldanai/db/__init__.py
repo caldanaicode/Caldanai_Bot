@@ -208,15 +208,32 @@ class DB:
         return DB._mongoDB.servers.find_one({"guild_id": id})
 
     @staticmethod
-    def delete_game(guild_id):
-        """Enqueues deletion of a game and its associated players from the database."""
-        DB._queues[DB._games].put(DeleteOne({"guild_id": guild_id}))
+    def delete_game(guild_id, channel_id):
+        """Enqueues deletion of a single game document identified by
+        the (guild_id, channel_id) pair, plus all players in the guild.
+
+        NOTE: player deletion is still guild-scoped rather than game-
+        scoped — if a guild ever hosts multiple games simultaneously,
+        removing one will wipe players shared with the others. Not a
+        problem today since in-memory ``bot.games`` is still keyed by
+        guild_id (one-game-per-guild in practice), but worth
+        revisiting if multi-game-per-guild ships for real."""
+        DB._queues[DB._games].put(
+            DeleteOne({"guild_id": guild_id, "channel_id": channel_id})
+        )
         DB._queues[DB._players].put(DeleteMany({"guild_id": guild_id}))
 
     @staticmethod
-    def update_game(guild_id, guild_dict, upsert=False):
-        """Enqueues an update for a game object in the database."""
-        DB._queues[DB._games].put(UpdateOne({"guild_id": guild_id}, {"$set": guild_dict}, upsert=upsert))
+    def update_game(guild_id, channel_id, guild_dict, upsert=False):
+        """Enqueues an update for a single game document identified
+        by the (guild_id, channel_id) pair."""
+        DB._queues[DB._games].put(
+            UpdateOne(
+                {"guild_id": guild_id, "channel_id": channel_id},
+                {"$set": guild_dict},
+                upsert=upsert,
+            )
+        )
 
     @staticmethod
     def update_statistic(guild_id, inc_doc):
@@ -270,8 +287,25 @@ class DB:
 
     @check_connection
     @staticmethod
-    def get_game_by_guild_id(guild_id):
-        """Retrieves a game by guild ID."""
+    def get_game(guild_id, channel_id):
+        """Retrieves the game document identified by the
+        (guild_id, channel_id) pair, or ``None`` if none exists.
+        Returning None does not imply the guild is gameless — use
+        ``find_any_game_in_guild`` / ``find_all_games`` for that."""
+        return DB._games.find_one(
+            {"guild_id": guild_id, "channel_id": channel_id}
+        )
+
+    @check_connection
+    @staticmethod
+    def find_any_game_in_guild(guild_id):
+        """Returns the first game document found for ``guild_id``, or
+        ``None`` if the guild has no games. Used by the ``$game create``
+        admin check — current runtime assumes one-game-per-guild
+        (``bot.games`` is still keyed by guild id), so this guards
+        against accidentally creating a second game that would
+        clobber the first in memory. Distinct from ``get_game`` which
+        requires both guild_id and channel_id."""
         return DB._games.find_one({"guild_id": guild_id})
 
     @staticmethod

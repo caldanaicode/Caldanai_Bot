@@ -118,7 +118,12 @@ class RpgAdminCommands(Cog):
         """
 
         try:
-            if DB.get_game_by_guild_id(ctx.guild.id) is not None:
+            # Guild-wide check: the in-memory ``bot.games`` dict is
+            # still keyed by guild id, so a second game would
+            # silently clobber the first. Once multi-game-per-guild
+            # is actually supported at the runtime level, this can
+            # relax to the per-channel ``DB.get_game`` check.
+            if DB.find_any_game_in_guild(ctx.guild.id) is not None:
                 Dispatcher.add(ctx, "Only a single game per server is supported.")
 
             else:

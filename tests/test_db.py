@@ -143,20 +143,27 @@ class TestQueueOperations:
 
     def test_delete_game_enqueues_game_and_players(self, fresh_db):
         DB = fresh_db
-        DB.delete_game(guild_id=1)
+        DB.delete_game(guild_id=1, channel_id=999)
         game_ops = list(DB._queues[DB._games].get_all())
         player_ops = list(DB._queues[DB._players].get_all())
         assert len(game_ops) == 1
         assert isinstance(game_ops[0], DeleteOne)
+        # Query filter carries both ids so only the specific game is
+        # dropped, not every game in the guild.
+        assert game_ops[0]._filter == {"guild_id": 1, "channel_id": 999}
         assert len(player_ops) == 1
         assert isinstance(player_ops[0], DeleteMany)
 
     def test_update_game_enqueues_update_one(self, fresh_db):
         DB = fresh_db
-        DB.update_game(guild_id=1, guild_dict={"status": "active"}, upsert=True)
+        DB.update_game(
+            guild_id=1, channel_id=999,
+            guild_dict={"status": "active"}, upsert=True,
+        )
         ops = list(DB._queues[DB._games].get_all())
         assert len(ops) == 1
         assert isinstance(ops[0], UpdateOne)
+        assert ops[0]._filter == {"guild_id": 1, "channel_id": 999}
 
     def test_insert_game_enqueues_insert_one(self, fresh_db):
         DB = fresh_db

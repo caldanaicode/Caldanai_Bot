@@ -235,9 +235,13 @@ class Bot(BotBase, Subject):
 
     async def on_guild_remove(self, guild: Guild):
         try:
+            # ``delete_server`` already DeleteMany's every game and
+            # every player for this guild; the explicit delete_game
+            # / delete_all_players calls that used to be here were
+            # redundant (and delete_game's signature is now per-
+            # channel, so it couldn't express the bulk-cleanup
+            # intent anyway).
             DB.delete_server(guild.id)
-            DB.delete_game(guild.id)
-            DB.delete_all_players(guild.id)
             evict_prefix(guild.id)
             _log.info(f"Guild left: {guild.name} ({guild.id})")
         except Exception as e:

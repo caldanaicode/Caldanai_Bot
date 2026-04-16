@@ -132,6 +132,7 @@ class TestSaveGameData:
 
         game = MagicMock()
         game.guild.id = 999
+        game.channel.id = 888
         game.to_dict.return_value = {"guild_id": 999}
         game.player_manager.players.values.return_value = [player_dirty, player_clean]
 
@@ -143,8 +144,8 @@ class TestSaveGameData:
         coro = save_game_data.coro if hasattr(save_game_data, "coro") else save_game_data
         await coro()
 
-        # Game data always saved
-        mock_db.update_game.assert_called_once_with(999, {"guild_id": 999})
+        # Game data always saved with compound (guild_id, channel_id) key
+        mock_db.update_game.assert_called_once_with(999, 888, {"guild_id": 999})
 
         # Only dirty player saved
         mock_db.update_player.assert_called_once_with(999, 1, {"user_id": 1})

@@ -324,7 +324,11 @@ class RpgUtilities:
         if guild_id in RpgUtilities.bot.games.keys():
             try:
                 game = RpgUtilities.bot.games.get(guild_id)
-                DB.delete_game(guild_id)
+                # DB delete is keyed by (guild_id, channel_id). Skip
+                # the delete if the in-memory game has no channel
+                # bound (shouldn't happen in practice — defensive).
+                if game is not None and game.channel_id is not None:
+                    DB.delete_game(guild_id, game.channel_id)
                 await RpgUtilities.delete_roles(game)
 
                 # Unhook from the clock registry + channel routing
@@ -376,7 +380,7 @@ async def save_game_data():
     """Database loop to save player and game data."""
     try:
         for g in RpgUtilities.bot.games.values():
-            DB.update_game(g.guild.id, g.to_dict())
+            DB.update_game(g.guild.id, g.channel.id, g.to_dict())
             for p in g.player_manager.players.values():
                 if p.is_dirty:
                     DB.update_player(g.guild.id, p.user_id, p.to_dict())

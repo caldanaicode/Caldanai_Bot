@@ -4,6 +4,68 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-15 — DB Layer: Per-Game Compound Filter (Step 2 of GameClock Refactor)
+
+Follow-on to the clock registry work — shifts every per-game DB
+operation from ``{guild_id}`` to ``{guild_id, channel_id}`` compound
+filters. Schema was already compatible (``insert_game`` has written
+``channel_id`` for a long time); this is strictly a code refactor
+plus a sanity script.
+
+**DB method changes (``caldanai/db/__init__.py``):**
+- ``get_game_by_guild_id(guild_id)`` → ``get_game(guild_id, channel_id)``.
+  Filter: ``{"guild_id": gid, "channel_id": cid}``.
+- ``delete_game(guild_id)`` → ``delete_game(guild_id, channel_id)``.
+  Game doc is dropped by compound key; player deletion stays guild-
+  wide (flagged in the docstring as too aggressive for a real
+  multi-game-per-guild world, but preserved since ``bot.games`` is
+  still guild-keyed in memory).
+- ``update_game(guild_id, dict, upsert)`` →
+  ``update_game(guild_id, channel_id, dict, upsert)``.
+- New ``find_any_game_in_guild(guild_id)`` — used by the
+  ``$game create`` admin check to preserve the "one game per server"
+  constraint without letting an in-memory collision silently clobber
+  an existing game. Distinct method, distinct semantics.
+- ``insert_game``, ``find_all_games``, ``delete_server`` unchanged.
+
+**Call site updates:**
+- ``Game.save()`` passes ``self.guild.id, self.channel.id``.
+- ``Game.load(guild_id, bot)`` →
+  ``Game.load(guild_id, channel_id, bot)``.
+- ``$game create`` admin check uses ``find_any_game_in_guild`` so
+  the "single game per server" message remains accurate.
+- ``RpgUtilities.remove_game`` passes the game's channel id to the
+  DB delete. No-ops cleanly when the in-memory game has no channel
+  bound.
+- ``save_game_data`` loop passes ``g.channel.id`` per iteration.
+- ``Bot.on_guild_remove`` simplified: ``delete_server`` already
+  DeleteMany's every game and player for the guild, so the
+  redundant ``delete_game`` / ``delete_all_players`` calls are
+  gone. Drop-through comment notes the previous redundancy.
+
+**Sanity script** —
+``scripts/migrations/2026_04_15_game_docs_sanity.js``:
+- Reports any game doc missing ``channel_id`` (would be invisible
+  to the new queries).
+- Strips any stray legacy ``channelId`` (camelCase) field from
+  game docs — user flagged having possibly seen these lurking.
+
+**Tests updated:**
+- ``tests/test_db.py`` — delete_game / update_game signatures;
+  assertions extended to check the compound filter.
+- ``tests/test_utils.py`` — ``save_game_data`` expectation now
+  passes ``(guild_id, channel_id, dict)``.
+- ``tests/conftest.py`` — shared DB mock now stubs ``get_game``
+  and ``find_any_game_in_guild`` (was ``get_game_by_guild_id``).
+
+**Remaining deferred work:**
+- Players are still guild-scoped (``player.guild_id`` only), so
+  a true multi-game-per-guild would have players shared across all
+  games in the guild. Flagged in ``delete_game``'s docstring.
+- ``bot.games`` is still keyed by ``guild.id``, enforcing one-game-
+  per-guild at the runtime level. Relaxing this needs a separate
+  look since add_game would need to route into a per-channel map.
+
 ### 2026-04-15 — Per-Guild Prefix Cache
 
 Eliminates a per-message DB round-trip that fired on every chat line

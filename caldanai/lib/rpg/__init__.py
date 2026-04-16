@@ -630,22 +630,25 @@ class Game:
         """Adds or updates a game object in the database."""
 
         try:
-            DB.update_game(self.guild.id, self.to_dict(), upsert=True)
+            DB.update_game(
+                self.guild.id, self.channel.id, self.to_dict(), upsert=True,
+            )
             if self.id is None:
-                game = DB.get_game_by_guild_id(self.guild.id)
+                game = DB.get_game(self.guild.id, self.channel.id)
                 self.id = game["_id"] if game else None
         except Exception as e:
             _log.error(e)
 
     @classmethod
-    async def load(cls, guild_id: int, bot: "Bot") -> Optional["Game"]:
-        """Returns a game loaded from the database."""
+    async def load(cls, guild_id: int, channel_id: int, bot: "Bot") -> Optional["Game"]:
+        """Returns the game on ``(guild_id, channel_id)`` loaded from
+        the database, or ``None`` if no such game exists."""
 
-        if guild_id is None:
+        if guild_id is None or channel_id is None:
             return None
 
         try:
-            g = DB.get_game_by_guild_id(guild_id)
+            g = DB.get_game(guild_id, channel_id)
             if g is None or bot is None:
                 return None
 

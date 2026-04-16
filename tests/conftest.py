@@ -97,5 +97,6 @@ def mock_db():
         db.find_all_games.return_value = []
         db.find_players_by_guild_id.return_value = []
         db.get_player.return_value = None
-        db.get_game_by_guild_id.return_value = None
+        db.get_game.return_value = None
+        db.find_any_game_in_guild.return_value = None
         yield db
