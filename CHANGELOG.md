@@ -4,6 +4,49 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-16 — Weather-Dependent Monster Spawns
+
+First mechanical hook into the weather daemon: monsters can now
+declare which weather conditions they spawn in, and
+``get_random_monster`` filters the candidate pool by the game's
+active weather alongside the existing time-of-day filter.
+
+**``WeatherPatterns`` flag shift:**
+- ``CLEAR`` moved from the sentinel value ``0`` to ``1`` — a real
+  flag bit so it can participate in ``weather_partition`` bitwise
+  masks. A sun-lover monster can now declare "only spawns in clear
+  weather" as a proper flag.
+- New ``WeatherPatterns.ALL`` = ``CLEAR | CLOUDY | FOG |
+  PRECIPITATION | WIND`` as the permissive default.
+- ``WeatherDaemon.active_patterns`` adjusted so it only OR's the
+  currently-active components — no stray ``CLEAR`` bit when other
+  patterns are active.
+
+**``MonsterPlugin.weather_partition``:**
+- New attribute, default ``WeatherPatterns.ALL`` (spawns in any
+  weather). Per-monster override as a flag mask.
+- ``get_random_monster(clock, weather=...)`` filters candidates by
+  bitwise overlap with the active weather pattern. Weather arg is
+  optional; omission defaults to ``ALL`` for backward compatibility.
+- ``Game.get_monster`` passes ``game.weather.active_patterns``
+  through automatically.
+
+**Tagged monsters (thematic first pass):**
+- **Spirit**: ``CLEAR | CLOUDY | FOG``. Dispersed by wind (matches
+  the daemon's fog-dispersal invariant); rain drives them back.
+- **Pixie**: ``CLEAR | CLOUDY | FOG``. Stained-glass wings tucked
+  away in rough weather.
+- Every other monster (skeleton, cyclops, werewolf, dragon,
+  goblin, etc.) keeps the default ``ALL`` — any weather.
+
+**Tests** (``tests/test_weather_spawn_filter.py``, 9 new):
+- Default partition matches every pattern including CLEAR.
+- Spirit and pixie weather profiles (regression guards).
+- ``get_random_monster`` filter semantics: weather narrows
+  candidates, no weather arg = permissive, time+weather compose,
+  empty candidate pool returns None.
+- ``WeatherPatterns.ALL`` covers every single bit.
+
 ### 2026-04-15 — Weather Daemon (First Subsystem on the Clock Registry)
 
 First real use of the clock-registry architecture from earlier today.

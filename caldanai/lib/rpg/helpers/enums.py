@@ -548,16 +548,19 @@ class TimePartitions(IntFlag):
 
 
 class WeatherPatterns(IntFlag):
-    CLEAR = 0
-    """No particular weather effects, nice clear sky"""
-    CLOUDY = 1
+    CLEAR = 1
+    """No active weather components — explicitly a flag so monster
+    ``weather_partition`` masks can opt-in to clear-weather spawning."""
+    CLOUDY = 1 << 1
     """Clouds without precipitation"""
-    FOG = 1 << 1
+    FOG = 1 << 2
     """Extremely low clouds with no wind"""
-    PRECIPITATION = 1 << 2
+    PRECIPITATION = 1 << 3
     """Rain / Snow, depending on environment and season"""
-    WIND = 1 << 3
+    WIND = 1 << 4
     """Windy"""
+    ALL = CLEAR | CLOUDY | FOG | PRECIPITATION | WIND
+    """Default for ``weather_partition`` — monster spawns in any weather."""
 
 
 class WeatherSeverities(Enum):

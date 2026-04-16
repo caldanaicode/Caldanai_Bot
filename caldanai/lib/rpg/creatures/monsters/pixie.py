@@ -32,7 +32,7 @@ from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, DamageTypes, Size, TimePartitions,
+    AggressionLevels, DamageTypes, Size, TimePartitions, WeatherPatterns,
 )
 
 
@@ -48,6 +48,14 @@ class Pixie(MonsterPlugin):
 
         self.time_partition = (
             TimePartitions.CREPUSCULAR | TimePartitions.NOCTURNAL
+        )
+        # Pixies are stained-glass-wing creatures — they stay
+        # hidden in rough weather. Clear / cloudy / foggy conditions
+        # are fair game; rain and strong wind keep them tucked away.
+        self.weather_partition = (
+            WeatherPatterns.CLEAR
+            | WeatherPatterns.CLOUDY
+            | WeatherPatterns.FOG
         )
         self.image = None
         self.aggression = AggressionLevels.SURVIVE

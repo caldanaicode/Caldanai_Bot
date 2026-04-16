@@ -87,12 +87,14 @@ class WeatherDaemon:
 
     @property
     def active_patterns(self) -> WeatherPatterns:
-        """Union of all active pattern flags, or ``CLEAR`` if none.
-        Useful for monster spawn filters ("any foggy weather?") and
-        terse state inspection."""
+        """Union of all active pattern flags, or ``CLEAR`` if none
+        are active. ``CLEAR`` is NOT OR'd onto a weather with active
+        components — it's the explicit "no weather" state, useful for
+        monster spawn filters to opt-in to clear-weather spawning."""
         if not self.severities:
             return WeatherPatterns.CLEAR
-        result = WeatherPatterns.CLEAR
+        # Start from a bare flag and OR active components only.
+        result = WeatherPatterns(0)
         for p in self.severities:
             result |= p
         return result

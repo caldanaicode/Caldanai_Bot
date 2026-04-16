@@ -64,6 +64,7 @@ from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Reach, Size, TimePartitions,
+    WeatherPatterns,
 )
 from caldanai.lib.rpg.helpers.parser import parse
 
@@ -79,6 +80,16 @@ class Spirit(Undead, MonsterPlugin):
         )
 
         self.time_partition = TimePartitions.NOCTURNAL | TimePartitions.CREPUSCULAR
+        # Spirits manifest in still, spooky weather — clear nights,
+        # overcast skies, and especially fog. Strong wind disperses
+        # them (matches the daemon's fog/wind dispersal invariant),
+        # and rain's chaotic movement drives them back to whatever
+        # rest they're fleeing.
+        self.weather_partition = (
+            WeatherPatterns.CLEAR
+            | WeatherPatterns.CLOUDY
+            | WeatherPatterns.FOG
+        )
         self.flees_from_time = True
         self.time_flee = (
             "@1dc thins at the edges as the first light of day filters in; "

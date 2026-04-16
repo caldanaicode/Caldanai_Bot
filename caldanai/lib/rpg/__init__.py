@@ -233,7 +233,12 @@ class Game:
 
     def get_monster(self, monster: Optional[str] = None) -> bool:
         if monster is None:
-            self.monster = MonsterPlugin.get_random_monster(self.game_clock)
+            weather_patterns = (
+                self.weather.active_patterns if self.weather is not None else None
+            )
+            self.monster = MonsterPlugin.get_random_monster(
+                self.game_clock, weather=weather_patterns,
+            )
             if self.monster is None:
                 _log.debug("No monster available for current time of day; skipping spawn.")
                 return False

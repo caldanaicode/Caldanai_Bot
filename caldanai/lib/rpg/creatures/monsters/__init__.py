@@ -6,7 +6,8 @@ from caldanai import PluginManager
 from caldanai.lib.rpg import GameClock, parse
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (AggressionLevels, InjuryLevels,
-                                            TimePartitions, TimesOfDay)
+                                            TimePartitions, TimesOfDay,
+                                            WeatherPatterns)
 from caldanai.lib.rpg.inventory import Inventory, Item
 from caldanai.logger import get_logger
 
@@ -42,6 +43,14 @@ class MonsterPlugin(Creature):
 
         self.aggression = AggressionLevels.PASSIVE
         self.time_partition = TimePartitions.CATHEMERAL
+        # Weather mask: which weather conditions can this monster
+        # spawn into? Default = any. Override per-monster with flag
+        # masks like ``WeatherPatterns.FOG`` (fog wraiths, only
+        # spawns in fog), ``WeatherPatterns.PRECIPITATION |
+        # WeatherPatterns.WIND`` (storm elementals), or
+        # ``WeatherPatterns.CLEAR`` (sun-lovers). Matched against
+        # ``game.weather.active_patterns`` in ``get_random_monster``.
+        self.weather_partition = WeatherPatterns.ALL
         self.dies_from_time = False
         self.time_death = ""
         self.flees_from_time = False
@@ -107,14 +116,33 @@ class MonsterPlugin(Creature):
         return ""
 
     @staticmethod
-    def get_random_monster(clock: GameClock) -> Optional['MonsterPlugin']:
-        """Retrieves a random"""
-        time = TimesOfDay[clock.get_time_of_day().upper()].value
+    def get_random_monster(
+        clock: GameClock,
+        weather: Optional[WeatherPatterns] = None,
+    ) -> Optional['MonsterPlugin']:
+        """Retrieves a random monster plugin appropriate for the
+        current time-of-day and (if supplied) weather.
 
-        candidates = [
-            cls for cls in PluginManager.LOADED_PLUGINS[MonsterPlugin]
-            if bool(time & cls().time_partition)
-        ]
+        Time filter: bitwise overlap between the current
+        ``TimesOfDay`` and the monster's ``time_partition``.
+        Weather filter: bitwise overlap between the current
+        ``WeatherPatterns`` and the monster's ``weather_partition``.
+        Weather defaults to ``ALL`` both for the argument (caller may
+        not have weather state) and for per-monster partitions, so
+        the filter is permissive unless explicitly narrowed.
+        """
+        time = TimesOfDay[clock.get_time_of_day().upper()].value
+        active_weather = weather if weather is not None else WeatherPatterns.ALL
+
+        candidates = []
+        for cls in PluginManager.LOADED_PLUGINS[MonsterPlugin]:
+            instance = cls()
+            if not bool(time & instance.time_partition):
+                continue
+            if not bool(active_weather & instance.weather_partition):
+                continue
+            candidates.append(cls)
+
         if not candidates:
             return None
 
