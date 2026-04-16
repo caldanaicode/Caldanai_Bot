@@ -131,11 +131,17 @@ class HelpCommands(Cog):
 
             await menu.start(ctx)
         else:
-            if c := get(self.bot.commands, name=cmd):
-                if sub is None or not isinstance(c, Group):
+            # Case-insensitive lookups — command / alias names are
+            # canonically lowercase, so lowercasing user input makes
+            # ``$help Weather`` resolve the same as ``$help weather``.
+            cmd_key = cmd.lower()
+            sub_key = sub.lower() if sub else None
+
+            if c := get(self.bot.commands, name=cmd_key):
+                if sub_key is None or not isinstance(c, Group):
                     await self.cmd_help(ctx, c)
                 elif isinstance(c, Group) and (
-                    s := get(c.commands, name=sub) or list(filter(lambda sc: sub in sc.aliases, c.commands))
+                    s := get(c.commands, name=sub_key) or list(filter(lambda sc: sub_key in sc.aliases, c.commands))
                 ):
                     await self.cmd_help(ctx, s[0] if isinstance(s, list) and len(s) > 0 else s)
 
@@ -143,7 +149,7 @@ class HelpCommands(Cog):
                 found = False
                 for c in self.bot.commands:
                     s = None
-                    if cmd in c.aliases or (isinstance(c, Group) and (s := get(c.commands, name=sub))):
+                    if cmd_key in c.aliases or (isinstance(c, Group) and (s := get(c.commands, name=sub_key))):
                         found = True
                         await self.cmd_help(ctx, s or c)
 
