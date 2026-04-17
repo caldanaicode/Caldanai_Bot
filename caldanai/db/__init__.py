@@ -238,9 +238,14 @@ class DB:
         )
 
     @staticmethod
-    def update_statistic(guild_id, inc_doc):
-        """Enqueues an update for the server statistics."""
-        DB._queues[DB._statics].put(UpdateOne({"guild_id": guild_id}, {"$inc": inc_doc}, upsert=True))
+    def update_statistic(guild_id, inc_doc, channel_id=None):
+        """Enqueues an update for the server statistics. When
+        ``channel_id`` is provided the doc is game-scoped; otherwise
+        guild-scoped for backward compat with legacy callers."""
+        query = {"guild_id": guild_id}
+        if channel_id is not None:
+            query["channel_id"] = channel_id
+        DB._queues[DB._statics].put(UpdateOne(query, {"$inc": inc_doc}, upsert=True))
 
     @staticmethod
     def update_user_statics(doc):
@@ -344,6 +349,54 @@ class DB:
     def get_last_command(guild_id):
         """Retrieves the last command recorded in the database."""
         return DB._command_statics.find_one({"guild_id": guild_id}, sort=[("timestamp", DESCENDING)])
+
+    @check_connection
+    @staticmethod
+    def get_command_usage(guild_id=None, channel_id=None, user_id=None,
+                          limit=None, ascending=False):
+        """Aggregates command usage counts. Filter by guild, channel,
+        and/or user — omit all for bot-wide. ``limit=None`` returns
+        all; negative-style "bottom N" is handled by the caller via
+        ``ascending=True``."""
+        match = {}
+        if guild_id is not None:
+            match["guild_id"] = guild_id
+        if channel_id is not None:
+            match["channel_id"] = channel_id
+        if user_id is not None:
+            match["user_id"] = user_id
+        pipeline = [
+            {"$group": {"_id": "$command", "count": {"$sum": 1}}},
+            {"$sort": {"count": 1 if ascending else -1}},
+        ]
+        if match:
+            pipeline.insert(0, {"$match": match})
+        if limit:
+            pipeline.append({"$limit": limit})
+        return list(DB._command_statics.aggregate(pipeline))
+
+    @check_connection
+    @staticmethod
+    def get_alias_breakdown(command, guild_id=None, channel_id=None,
+                            user_id=None, limit=None, ascending=False):
+        """Breaks down usage of a single command by alias — what users
+        actually type to invoke it. Returns ``{"_id": alias, "count":
+        int}``."""
+        match = {"command": command}
+        if guild_id is not None:
+            match["guild_id"] = guild_id
+        if channel_id is not None:
+            match["channel_id"] = channel_id
+        if user_id is not None:
+            match["user_id"] = user_id
+        pipeline = [
+            {"$match": match},
+            {"$group": {"_id": "$alias", "count": {"$sum": 1}}},
+            {"$sort": {"count": 1 if ascending else -1}},
+        ]
+        if limit:
+            pipeline.append({"$limit": limit})
+        return list(DB._command_statics.aggregate(pipeline))
 
     @tasks.loop(minutes=5)
     async def watchdog():

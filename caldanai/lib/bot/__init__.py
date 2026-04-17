@@ -157,7 +157,8 @@ class Bot(BotBase, Subject):
         cmd = ctx.command.qualified_name.lower()
         alias = ctx.invoked_with.lower()
         dt = datetime.now().isoformat()
-        entry = {"guild_id": guild, "user_id": player, "command": cmd, "alias": alias, "timestamp": dt}
+        channel = ctx.channel.id if ctx.channel else None
+        entry = {"guild_id": guild, "channel_id": channel, "user_id": player, "command": cmd, "alias": alias, "timestamp": dt}
         self.command_usage.append(entry)
         self.last_command = entry
 

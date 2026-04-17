@@ -315,6 +315,99 @@ class RpgInfoCommands(Cog):
         Dispatcher.add(ctx, file=file)
         Dispatcher.add(ctx, f"Count: {rolls:,}, Mean: {mean:.2f}")
 
+    @cooldown(1, 10, BucketType.member)
+    @guild_only()
+    @command(name="usage", aliases=["commands"], brief="Shows a chart of most-used commands.")
+    async def usage(self, ctx: Context, scope: str = None, arg: str = None):
+        """
+        Shows a horizontal bar chart of the most frequently used
+        commands. Defaults to your personal usage in this game.
+
+        (10-second cool-down)
+
+        :param scope: ``game`` for this game, ``guild`` for server-wide, ``bot`` for bot-wide (admin only), ``command <name>`` for alias breakdown, or a number to limit results. Negative numbers show the least-used (e.g. ``-5``).
+        :param arg: A limit when scope is a keyword (``$usage game 10``), or a command/alias name for ``$usage command kill``.
+        """
+        scope_str = (scope or "").lower()
+        limit = None
+        ascending = False
+
+        if scope_str.lstrip("-").isnumeric() and scope_str:
+            n = int(scope_str)
+            ascending = n < 0
+            limit = abs(n)
+            scope_str = ""
+
+        if arg and arg.lstrip("-").isnumeric():
+            n = int(arg)
+            ascending = n < 0
+            limit = abs(n)
+            arg = None
+
+        if scope_str == "command":
+            if not arg:
+                Dispatcher.add(ctx, "Specify a command name: `$usage command kill`")
+                return
+            cmd = ctx.bot.get_command(arg.lower())
+            canonical = cmd.qualified_name.lower() if cmd else arg.lower()
+            data = DB.get_alias_breakdown(
+                canonical, channel_id=ctx.channel.id,
+                limit=limit, ascending=ascending,
+            )
+            title = f"Alias Breakdown: ${canonical}"
+        elif scope_str == "bot":
+            if not (ctx.author.id in getattr(ctx.bot, "owner_ids", set())
+                    or await ctx.bot.is_owner(ctx.author)):
+                Dispatcher.add(ctx, "Bot-wide usage is admin-only.")
+                return
+            data = DB.get_command_usage(limit=limit, ascending=ascending)
+            title = "Bot-Wide Command Usage"
+        elif scope_str == "guild":
+            data = DB.get_command_usage(
+                guild_id=ctx.guild.id, limit=limit, ascending=ascending,
+            )
+            title = f"{ctx.guild.name} Command Usage"
+        elif scope_str == "game":
+            data = DB.get_command_usage(
+                channel_id=ctx.channel.id, limit=limit, ascending=ascending,
+            )
+            title = "Game Command Usage"
+        else:
+            data = DB.get_command_usage(
+                channel_id=ctx.channel.id, user_id=ctx.author.id,
+                limit=limit, ascending=ascending,
+            )
+            title = f"{ctx.author.display_name}'s Command Usage"
+
+        if not data:
+            Dispatcher.add(ctx, "No command usage recorded yet.")
+            return
+
+        labels = [row["_id"] for row in reversed(data)]
+        counts = [row["count"] for row in reversed(data)]
+
+        tcolor = "#DDDDDD"
+        fig, ax = plt.subplots(figsize=(8, max(3, len(labels) * 0.4)))
+        ax.barh(labels, counts, color="#5865F2")
+        ax.set_xlabel("Uses", color=tcolor)
+        ax.set_title(title, color=tcolor, fontsize=14)
+        ax.tick_params(axis="both", colors=tcolor)
+        ax.grid(True, axis="x", color=tcolor, alpha=0.25)
+        for spine in ax.spines.values():
+            spine.set_color(tcolor)
+        fig.patch.set_alpha(0)
+        ax.set_facecolor((0, 0, 0, 0))
+
+        buffer = BytesIO()
+        plt.savefig(buffer, format="png", transparent=True, bbox_inches="tight")
+        plt.close()
+        buffer.seek(0)
+
+        total = sum(row["count"] for row in data)
+        file = File(buffer, filename="usage.png")
+        Dispatcher.add(ctx, file=file)
+        Dispatcher.add(ctx, f"Total tracked: {total:,}")
+
     # Returns a string to display games in which a user is currently playing.
     @cooldown(1, 60, BucketType.user)
     @command(name="games", brief="Sends a DM to the calling player with a list of games in which they are a member.")

@@ -4,6 +4,29 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-16 — `$usage` Command Usage Charts
+
+New ``$usage`` command renders horizontal bar charts of command
+frequency from the ``user_command_statics`` collection.
+
+**Scopes:**
+- ``$usage`` — personal usage in this game.
+- ``$usage game`` — all players in this game.
+- ``$usage guild`` — server-wide across all games.
+- ``$usage bot`` — bot-wide (admin only).
+- ``$usage command <name>`` — alias breakdown for a single command
+  (e.g. how often ``kill`` vs ``slay`` vs ``murder`` is typed).
+- Optional numeric limit: ``$usage 10`` (top 10), ``$usage -5``
+  (bottom 5). No number shows all.
+
+**Channel-scoped statics:**
+- ``on_command`` now records ``channel_id`` alongside ``guild_id``
+  so per-game queries work going forward.
+- ``update_statistic`` accepts optional ``channel_id`` for
+  game-scoped aggregate counters (monster kills, command totals).
+- ``update_statics`` passes ``channel_id`` from the game for both
+  command totals and monster statics.
+
 ### 2026-04-16 — `$equip <name>.best` QoL Qualifier
 
 New dotted qualifier for the equip command: ``$equip rock.best`` (or

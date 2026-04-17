@@ -379,7 +379,7 @@ class RpgUtilities:
     @staticmethod
     def update_statics():
         command_totals = {}
-        server_totals = {}
+        game_totals = {}
         try:
             cmd_copy, RpgUtilities.bot.command_usage = RpgUtilities.bot.command_usage, []
             mon_copy = {}
@@ -388,18 +388,22 @@ class RpgUtilities:
 
             for entry in cmd_copy:
                 DB.update_user_statics(entry)
-                gid = entry["guild_id"]
+                key = (entry["guild_id"], entry.get("channel_id"))
                 cmd = f'commands.{entry["command"]}.{entry["alias"]}'
-                guild_totals = command_totals.setdefault(gid, {})
-                guild_totals[cmd] = guild_totals.get(cmd, 0) + 1
-                server_totals[gid] = server_totals.get(gid, 0) + 1
+                totals = command_totals.setdefault(key, {})
+                totals[cmd] = totals.get(cmd, 0) + 1
+                game_totals[key] = game_totals.get(key, 0) + 1
 
-            for guild_id, commands in command_totals.items():
-                DB.update_statistic(guild_id, {**commands, "total": server_totals.get(guild_id, 0)})
+            for (guild_id, channel_id), commands in command_totals.items():
+                DB.update_statistic(
+                    guild_id,
+                    {**commands, "total": game_totals.get((guild_id, channel_id), 0)},
+                    channel_id=channel_id,
+                )
 
             for g, statics in mon_copy.items():
                 for key, count in statics.items():
-                    DB.update_statistic(g.guild.id, {f"monsters.{key}": count})
+                    DB.update_statistic(g.guild.id, {f"monsters.{key}": count}, channel_id=g.channel.id)
 
         except Exception:
             e = sys.exception()
