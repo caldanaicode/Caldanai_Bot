@@ -224,11 +224,14 @@ class TestCombatantRoles:
         player.member.remove_roles.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_clear_combatant_skips_if_no_role(self):
+    async def test_clear_combatant_fires_unconditionally(self):
+        """remove_roles is called even when the cache says the player
+        doesn't have the role — the cached role list can be stale after
+        reconnects, and Discord is idempotent about redundant removals."""
         pm = PlayerManager()
         _setup_roles(pm)
         player = _make_player()
         player.member.roles = []
 
         await pm.clear_player_combatant(player, "Combat over.")
-        player.member.remove_roles.assert_not_awaited()
+        player.member.remove_roles.assert_awaited_once()

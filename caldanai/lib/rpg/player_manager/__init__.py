@@ -122,11 +122,16 @@ class PlayerManager:
             _log.warning(f"Addition of combat role failed for {player.name}", exc_info=1)
 
     async def clear_player_combatant(self, player: Player, reason: str):
-        """Removes a player's role as a combatant."""
+        """Removes a player's combat role unconditionally.
+
+        Does NOT gate on ``player.member.roles`` — the cached role
+        list can drift from server-side state after reconnects, so
+        trusting it would silently skip removals. Discord is
+        idempotent about removing a role the member doesn't have.
+        """
         if not (
             Roles.COMBAT_MAIN in self.roles.keys()
             and self.roles[Roles.COMBAT_MAIN]
-            and self.roles[Roles.COMBAT_MAIN] in player.member.roles
         ):
             return
 
@@ -136,30 +141,23 @@ class PlayerManager:
         except (Forbidden, HTTPException):
             _log.warning(f"Removal of combat role failed for {player.name}", exc_info=1)
 
-    async def clear_combat_roles(self):
-        """Clears all combatant roles and warns if any stragglers remain."""
-        if Roles.COMBAT_MAIN not in self.roles.keys():
+    async def clear_combat_roles(self, participants):
+        """Remove the combat role from every player who participated.
+
+        ``participants`` is the authoritative list of players who
+        received the role (``Game.looters``). Does NOT filter on
+        the cached ``member.roles`` — the cache drifts after
+        reconnects. Discord is idempotent about removing a role
+        the member doesn't have.
+        """
+        if not self.roles.get(Roles.COMBAT_MAIN):
             return
 
         reason = "Combat terminated."
-        combatants: list[Player] = [
-            p for p in self.players.values() if self.roles[Roles.COMBAT_MAIN] in p.member.roles
-        ]
-
-        if not combatants:
-            return
-
-        await asyncio.gather(*[self.clear_player_combatant(p, reason) for p in combatants])
-
-        # Sanity check: verify everyone was cleared (accounts for Discord cache lag
-        # or a remove_roles call that failed but was silently caught)
-        stragglers = [
-            p.name for p in self.players.values() if self.roles[Roles.COMBAT_MAIN] in p.member.roles
-        ]
-        if stragglers:
-            _log.warning(
-                f"Players still have combat role after cleanup: {', '.join(stragglers)}"
-            )
+        await asyncio.gather(*[
+            self.clear_player_combatant(p, reason)
+            for p in participants
+        ])
 
     async def get_player(self, ctx: Context) -> Union[Player, None]:
         """
@@ -200,12 +198,14 @@ class PlayerManager:
                 and self.roles.get(Roles.ACTIVE)
                 and self.roles.get(Roles.INACTIVE)
             ):
-                await player.member.remove_roles(
+                to_remove = [
                     self.roles[Roles.ALL],
                     self.roles[Roles.ACTIVE],
                     self.roles[Roles.INACTIVE],
-                    reason="Player left game.",
-                )
+                ]
+                if self.roles.get(Roles.COMBAT_MAIN):
+                    to_remove.append(self.roles[Roles.COMBAT_MAIN])
+                await player.member.remove_roles(*to_remove, reason="Player left game.")
             del self.players[user_id]
 
         DB.delete_player(guild_id, channel_id, user_id)

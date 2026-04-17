@@ -4,6 +4,62 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-16 — Combat Cleanup: Single Source of Truth
+
+Combat teardown was scattered across ``on_monster_death``,
+``cancel_combat``, ``kill_monster``, and inline code in
+``do_combat``, each doing a different subset of cleanup. A player
+whose combat role wasn't removed by one path might not be caught by
+another. This consolidates all cleanup into ``Game.end_combat()``.
+
+**``Game.end_combat()``** (``caldanai/lib/rpg/__init__.py``):
+- New method — single source of truth for combat teardown. Clears
+  monster, combatants, targets, removes the ``do_combat`` routine,
+  and clears combat roles from participants (via ``self.looters`` —
+  the authoritative list of players who received the role) before
+  clearing looters.
+- Does NOT touch ``self.loot`` — callers manage the loot lifecycle
+  (generate, timer, or clear) before calling ``end_combat``.
+- Does NOT start the spawn timer — callers follow up with
+  ``set_spawn_timer`` when appropriate.
+
+**Callers rewritten:**
+- ``on_monster_death``: generates loot from ``self.looters``, then
+  calls ``end_combat``, then schedules loot timer + spawn timer.
+- ``cancel_combat``: clears loot, calls ``end_combat``, spawn
+  timer.
+- ``kill_monster``: admin kill no longer generates loot (was
+  incorrectly piggybacking on ``on_monster_death``). Clears loot,
+  calls ``end_combat``, spawn timer, shows death message only.
+- ``do_combat`` error path (monster is None): calls ``end_combat``
+  + spawn timer.
+- ``set_spawn_timer``: no longer calls ``clear_combat_roles`` —
+  that responsibility moved to ``end_combat``.
+
+**``PlayerManager.clear_combat_roles``** / **``clear_player_combatant``**
+(``caldanai/lib/rpg/player_manager/__init__.py``):
+- ``clear_combat_roles`` now takes an explicit ``participants`` list
+  instead of iterating every player in the game — targets only the
+  players who actually received the role.
+- ``clear_player_combatant`` dropped the ``in player.member.roles``
+  guard. Role removal fires unconditionally — the cached role list
+  drifts from server-side state after reconnects, so trusting it
+  silently skipped removals. Discord is idempotent about removing a
+  role the member doesn't have.
+
+**``PlayerManager.remove_player``** — now includes ``COMBAT_MAIN``
+in the roles stripped on ``$leave``, closing the theoretical leak
+where a player leaving mid-combat kept the combat role.
+
+**Tests** (``tests/test_game.py``, ``tests/test_player_manager.py``):
+- ``TestEndCombat``: clears all combat state, doesn't touch loot,
+  idempotent when no combat active.
+- ``TestCancelCombat``: updated to verify loot + roles cleared.
+- ``TestKillMonster``: no loot generated, spawn timer fires, roles
+  cleaned.
+- ``test_clear_combatant_fires_unconditionally``: replaces the old
+  ``skips_if_no_role`` test — removal fires regardless of cache.
+
 ### 2026-04-16 — Item Favoriting
 
 Players can now flag items to protect them from bulk-sell (and other

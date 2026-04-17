@@ -226,7 +226,6 @@ class Game:
             Dispatcher.add(self.channel, parse(msg, monster))
 
     async def set_spawn_timer(self):
-        await self.player_manager.clear_combat_roles()
         r = randint(*self.spawn_timer_range)
         _log.debug(f"Setting spawn timer for {r} seconds.")
         self.game_clock.add_routine(self.do_spawn, r, True)
@@ -290,14 +289,30 @@ class Game:
         if self.get_monster(monster):
             self.game_clock.add_routine(self.do_combat, self.spawn_duration, True)
 
-    async def cancel_combat(self):
-        """Clears the current monster, combatants, and loot."""
+    async def end_combat(self):
+        """Single source of truth for combat teardown.
+
+        Clears combat state (monster, combatants, targets, looters)
+        and unconditionally removes combat roles from everyone who
+        participated (tracked via ``self.looters`` — the authoritative
+        list of players who received the combat role). Does NOT touch
+        ``self.loot`` — callers manage the loot lifecycle (generate,
+        timer, or clear) before calling this.
+
+        Does NOT start the spawn timer — callers follow up with
+        ``set_spawn_timer`` when appropriate.
+        """
         self.monster = None
         self.combatants.clear()
         self.combat_targets.clear()
-        self.loot.clear()
-        self.looters.clear()
         self.game_clock.remove_routine(self.do_combat)
+        await self.player_manager.clear_combat_roles(self.looters)
+        self.looters.clear()
+
+    async def cancel_combat(self):
+        """Monster escapes — no loot, full combat cleanup."""
+        self.loot.clear()
+        await self.end_combat()
         await self.set_spawn_timer()
 
     async def loot_expires(self):
@@ -310,7 +325,7 @@ class Game:
         self.loot.clear()
 
     async def on_monster_death(self) -> str:
-        """Generates loot, shows monster death, and clears combatants."""
+        """Generates loot, ends combat, and sets up respawn."""
         has_loot = False
         for player in self.looters:
             loot = self.monster.get_loot()
@@ -318,21 +333,16 @@ class Game:
                 has_loot = True
             self.loot[player.user_id] = loot
 
-        self.monster = None
-        self.combatants.clear()
-        self.combat_targets.clear()
-        self.looters.clear()
-        self.game_clock.remove_routine(self.do_combat)
+        await self.end_combat()
+        await self.set_spawn_timer()
 
         if has_loot:
             self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
-            await self.set_spawn_timer()
             msg = (
                 f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\nThere might be something to "
                 f"`{self.prefix}loot`..."
             )
         else:
-            await self.set_spawn_timer()
             msg = "\nThere does not appear to be anything to loot, this time."
         return msg
 
@@ -412,6 +422,7 @@ class Game:
 
         if self.monster is None:
             _log.error(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
+            await self.end_combat()
             await self.set_spawn_timer()
             return
 
@@ -572,13 +583,15 @@ class Game:
                 await self.cancel_combat()
 
     async def kill_monster(self):
-        """Cancels combat and forces monster death."""
-
-        self.game_clock.remove_routine(self.do_combat)
+        """Admin kill — forces monster death with no loot."""
         monster = self.monster
-        msg = await self.on_monster_death()
-        if len(msg) > 0:
-            Dispatcher.add(self.channel, parse(msg, monster))
+        self.loot.clear()
+        await self.end_combat()
+        await self.set_spawn_timer()
+        if monster:
+            msg = parse(monster.death or "", monster)
+            if msg:
+                Dispatcher.add(self.channel, msg)
 
     async def do_ambience(self):
         """Small chance to display a random ambience message."""

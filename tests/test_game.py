@@ -439,38 +439,84 @@ class TestDoHealthRegen:
 
 
 # ---------------------------------------------------------------------------
-# cancel_combat
+# end_combat / cancel_combat / kill_monster
 # ---------------------------------------------------------------------------
+
+def _make_combat_game(mock_db, mock_gc_cls):
+    """Create a Game with active combat state for cleanup tests."""
+    guild, channel = _make_game_guild_channel(mock_db)
+
+    mock_gc = MagicMock()
+    mock_gc.get_seconds.return_value = 0
+    mock_gc.time_scale = 4
+    mock_gc_cls.return_value = mock_gc
+
+    from caldanai.lib.rpg import Game
+    game = Game(
+        guild=guild,
+        channel=channel,
+        use_spawn_timer=False,
+        enable_ambience=False,
+    )
+    monster = MagicMock()
+    monster.death = "The creature falls."
+    game.monster = monster
+    game.combatants = [MagicMock(), MagicMock()]
+    game.combat_targets = {1: ["head"], 2: ["torso"]}
+    game.loot = {1: [MagicMock()]}
+    game.looters = [MagicMock()]
+
+    game.player_manager.clear_combat_roles = AsyncMock()
+    game.set_spawn_timer = AsyncMock()
+    return game
+
+
+class TestEndCombat:
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_clears_all_combat_state(self, mock_gc_cls, mock_pm_cls, mock_db):
+        game = _make_combat_game(mock_db, mock_gc_cls)
+        await game.end_combat()
+
+        assert game.monster is None
+        assert len(game.combatants) == 0
+        assert len(game.combat_targets) == 0
+        assert len(game.looters) == 0
+        game.player_manager.clear_combat_roles.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_does_not_touch_loot(self, mock_gc_cls, mock_pm_cls, mock_db):
+        """Loot is the caller's responsibility — end_combat leaves it."""
+        game = _make_combat_game(mock_db, mock_gc_cls)
+        loot_before = dict(game.loot)
+        await game.end_combat()
+        assert game.loot == loot_before
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_idempotent_when_no_combat(self, mock_gc_cls, mock_pm_cls, mock_db):
+        game = _make_combat_game(mock_db, mock_gc_cls)
+        game.monster = None
+        game.combatants.clear()
+        game.looters.clear()
+        await game.end_combat()
+        assert game.monster is None
+
 
 class TestCancelCombat:
     @pytest.mark.asyncio
     @patch("caldanai.lib.rpg.DB")
     @patch("caldanai.lib.rpg.player_manager")
     @patch("caldanai.lib.rpg.GameClock")
-    async def test_cancel_combat_clears_state(self, mock_gc_cls, mock_pm_cls, mock_db):
-        from caldanai.lib.rpg import Game
-
-        guild, channel = _make_game_guild_channel(mock_db)
-
-        mock_gc = MagicMock()
-        mock_gc.get_seconds.return_value = 0
-        mock_gc.time_scale = 4
-        mock_gc_cls.return_value = mock_gc
-
-        game = Game(
-            guild=guild,
-            channel=channel,
-            use_spawn_timer=False,
-            enable_ambience=False,
-        )
-        game.monster = MagicMock()
-        game.combatants = [MagicMock(), MagicMock()]
-        game.loot = {1: [MagicMock()]}
-        game.looters = [MagicMock()]
-
-        # Patch set_spawn_timer to avoid side effects
-        game.set_spawn_timer = AsyncMock()
-
+    async def test_cancel_combat_clears_state_and_loot(self, mock_gc_cls, mock_pm_cls, mock_db):
+        game = _make_combat_game(mock_db, mock_gc_cls)
         await game.cancel_combat()
 
         assert game.monster is None
@@ -478,6 +524,23 @@ class TestCancelCombat:
         assert len(game.loot) == 0
         assert len(game.looters) == 0
         game.set_spawn_timer.assert_awaited_once()
+        game.player_manager.clear_combat_roles.assert_awaited_once()
+
+
+class TestKillMonster:
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_kill_monster_drops_no_loot(self, mock_gc_cls, mock_pm_cls, mock_db):
+        """Admin kill clears loot and does not generate new loot."""
+        game = _make_combat_game(mock_db, mock_gc_cls)
+        await game.kill_monster()
+
+        assert game.monster is None
+        assert len(game.loot) == 0
+        game.set_spawn_timer.assert_awaited_once()
+        game.player_manager.clear_combat_roles.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
