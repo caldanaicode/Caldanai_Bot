@@ -4,6 +4,26 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-16 — `$equip <name>.best` QoL Qualifier
+
+New dotted qualifier for the equip command: ``$equip rock.best`` (or
+``$equip rock.best left``) picks the highest-quality matching item
+from inventory and equips it. Includes a no-demote rule — if an
+equipped item of the same type already has equal-or-better quality,
+it short-circuits with "already wielding the finest".
+
+**``_resolve_best``**
+(``caldanai/lib/cogs/rpg_inventory_commands.py``):
+- Filters inventory via the existing ``filter(base)`` for Equipment
+  matches, sorts by ``quality.value["multiplier"]`` descending, and
+  compares the winner against any equipped same-plugin item.
+- Empty base name (``$equip .best``) falls through to the normal
+  path rather than matching every item in inventory.
+
+Also removes the stale ``TODO`` from ``do_combat`` line 442 — the
+combat-role reliability concern it flagged was resolved by the
+``end_combat`` consolidation in the same session.
+
 ### 2026-04-16 — Combat Cleanup: Single Source of Truth
 
 Combat teardown was scattered across ``on_monster_death``,

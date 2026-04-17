@@ -441,7 +441,6 @@ class Game:
             if not player.is_dead():
                 player.health_regen = 0
                 if player not in self.looters:
-                    # TODO: This may need to be disabled because the role cannot be reliably removed after combat.
                     await self.player_manager.set_player_combatant(player)
                     self.looters.append(player)
                 explicit_targets = self.combat_targets.get(player.user_id)

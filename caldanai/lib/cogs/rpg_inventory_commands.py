@@ -28,7 +28,7 @@ class RpgInventoryCommands(Cog):
 
         (5-second cool-down)
 
-        :param item: An item name, item.n, item.quality, item.quality.n, or index to equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory.
+        :param item: An item name, item.n, item.quality, item.quality.n, item.best, or index to equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory. 'rock.best' picks the highest-quality rock — but won't swap out an equipped one that's already equal or better.
 
         :param slot: If not provided, the item will be auto-equipped to the best slot, if possible. For weapons or other one-hand-equipped items like rings, the slot will be 'left' or 'right'. Most armor can auto-equip, but you may specify the slot such as 'head', 'torso', or 'waist'. For a full list of slots, see your `gear`.
 
@@ -45,16 +45,20 @@ class RpgInventoryCommands(Cog):
             Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
             return
 
-        _item, *_ = player.inventory.filter(item)
         _slot = None
 
-        if not _item:
-            Dispatcher.add(channel, "You don't seem to have such an item.")
-            return
-
-        if not isinstance(_item, Equipment):
-            Dispatcher.add(channel, f"That item cannot be equipped.")
-            return
+        if isinstance(item, str) and item.lower().endswith(".best") and len(item) > 5:
+            _item = self._resolve_best(item[:-5], player, channel)
+            if _item is None:
+                return
+        else:
+            _item, *_ = player.inventory.filter(item)
+            if not _item:
+                Dispatcher.add(channel, "You don't seem to have such an item.")
+                return
+            if not isinstance(_item, Equipment):
+                Dispatcher.add(channel, f"That item cannot be equipped.")
+                return
 
         if slot:
             if slot.lower() in ('l', 'left'):
@@ -79,6 +83,39 @@ class RpgInventoryCommands(Cog):
 
         else:
             Dispatcher.add(channel, result[1])
+
+    @staticmethod
+    def _resolve_best(base, player, channel):
+        """Pick the highest-quality equipment matching ``base`` from
+        inventory, applying the no-demote rule: if an equipped item of
+        the same type is already equal-or-better, keep it."""
+        candidates = [
+            i for i in player.inventory.filter(base)
+            if i is not None and isinstance(i, Equipment)
+        ]
+        if not candidates:
+            Dispatcher.add(channel, "You don't seem to have such an item.")
+            return None
+
+        candidates.sort(
+            key=lambda i: i.quality.value["multiplier"], reverse=True,
+        )
+        best = candidates[0]
+
+        for s, eq in player.equip_slots.items():
+            if (
+                eq
+                and eq.plugin == best.plugin
+                and not EquipmentSlots.exclude_from_output(s)
+                and eq.quality.value["multiplier"] >= best.quality.value["multiplier"]
+            ):
+                Dispatcher.add(
+                    channel,
+                    f"{player.name} is already wielding the finest {base}.",
+                )
+                return None
+
+        return best
 
     @command(aliases=['slots', 'gear'], brief="Shows a player's equipment.")
     @cooldown(1, 10, BucketType.member)
