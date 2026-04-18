@@ -5,6 +5,7 @@ import textwrap
 from collections import Counter
 from datetime import datetime
 from email.message import EmailMessage
+from random import choice
 import traceback
 from typing import List, Tuple, Union
 
@@ -14,6 +15,7 @@ from discord.ext import tasks
 from caldanai.lib.bot import Bot
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
@@ -103,6 +105,45 @@ class RpgUtilities:
     bot: Bot = None
     is_initialized: bool = False
     new_players = set()
+
+    @staticmethod
+    def dead_invoker_guard(channel, player, flavor: Union[str, List[str]]) -> bool:
+        """Short-circuit guard for commands that don't apply when the
+        invoker is dead.
+
+        When ``player.is_dead()`` is ``True``, emits one flavor line
+        to ``channel`` and returns ``True``; the calling handler
+        should immediately ``return``. Otherwise returns ``False``
+        and the handler proceeds with its real body.
+
+        ``flavor`` is either a parse-template string (single fixed
+        line — the common case for inventory / attack / hug) or a
+        list of them (random pick — used by the goofy fun-commands
+        that want variety). The parse engine is applied with the
+        invoker as ``@1`` so templates can use ``@1``/``@1np``/etc.
+        for natural noun/pronoun forms. Handlers that want to
+        reference both the invoker and a target should handle death
+        checks inline rather than via this helper — it's
+        deliberately one-actor by design so the call-site stays a
+        one-liner.
+
+        Usage::
+
+            if RpgUtilities.dead_invoker_guard(
+                game.channel, player, "A ghostly moan escapes the corpse of @1."
+            ):
+                return
+
+        Does NOT cover the inverse case (commands where dead is a
+        required or meaningful state, e.g. ``$haunt`` and ``$pray``)
+        — those branch on death deliberately and don't fit the
+        guard shape.
+        """
+        if not player.is_dead():
+            return False
+        line = choice(flavor) if isinstance(flavor, list) else flavor
+        Dispatcher.add(channel, parse(line, player))
+        return True
 
     # Checks the given context to see if a game exists for it.
     @staticmethod
@@ -391,8 +432,8 @@ class RpgUtilities:
                 if game is not None:
                     if getattr(game, "weather", None) is not None:
                         game.weather.stop()
-                    if getattr(game, "sunrise_sunset", None) is not None:
-                        game.sunrise_sunset.stop()
+                    if getattr(game, "celestial", None) is not None:
+                        game.celestial.stop()
                     if game.game_clock.tick.is_running():
                         game.game_clock.tick.stop()
                     game.unregister_channel(channel_id)
@@ -434,9 +475,21 @@ class RpgUtilities:
             _log.error(f"Error in utils.py --> update_games() for guild_id {e}")
 
 
-@tasks.loop(minutes=1)
-async def save_game_data():
-    """Database loop to save player and game data."""
+def save_all_now() -> None:
+    """Enqueue a DB write for every game and every dirty player.
+
+    Extracted from the body of :func:`save_game_data` so it can be
+    invoked once on shutdown without waiting for the next minute-
+    boundary tick. Does not itself write to Mongo — it only
+    populates ``DB._queues`` via the usual ``DB.update_*`` helpers.
+    A follow-up :meth:`DB.flush_all` drains those queues
+    synchronously.
+
+    Safe to call while the :func:`save_game_data` task is still
+    running; both paths just enqueue, and the double-buffer handles
+    concurrent puts. The shutdown path stops the task first anyway
+    to keep the ordering unambiguous.
+    """
     try:
         for g in RpgUtilities.bot.games.values():
             DB.update_game(g.guild.id, g.channel.id, g.to_dict())
@@ -455,7 +508,17 @@ async def save_game_data():
         RpgUtilities.update_statics()
     except Exception:
         error_info = traceback.format_exc()
-        _log.error(f"Error in save_game_data loop: {error_info}")
+        _log.error(f"Error in save_all_now(): {error_info}")
+
+
+@tasks.loop(minutes=1)
+async def save_game_data():
+    """Database loop to save player and game data.
+
+    Delegates to :func:`save_all_now` so the periodic save and the
+    one-shot shutdown save share a single implementation.
+    """
+    save_all_now()
 
 
 @save_game_data.error

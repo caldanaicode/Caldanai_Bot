@@ -532,72 +532,164 @@ class RpgAdminCommands(Cog):
 
         Dispatcher.add(game.channel, "Unable to spawn item. Please check the spelling of the item name.")
 
-    @group(brief="Displays or sets various ambience options.")
+    # Accepted boolean strings for the ambience on/off commands.
+    _AMBIENCE_TRUTHY = {"1", "on", "true", "enabled"}
+    _AMBIENCE_FALSY = {"0", "off", "false", "disabled"}
+
+    @staticmethod
+    def _parse_ambience_bool(value: Optional[str]) -> Optional[bool]:
+        """Map a user-supplied value to a bool, or ``None`` if the
+        value isn't recognized. Accepts the existing truthy/falsy
+        aliases so the split toggles speak the same vocabulary as the
+        legacy ``$ambience set`` command."""
+        if value is None:
+            return None
+        v = value.lower()
+        if v in RpgAdminCommands._AMBIENCE_TRUTHY:
+            return True
+        if v in RpgAdminCommands._AMBIENCE_FALSY:
+            return False
+        return None
+
+    @group(brief="Displays or sets ambience options.", invoke_without_command=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)
-    async def ambience(self, ctx: Context):
+    async def ambience(self, ctx: Context, value: str = None):
         """
-        Displays or sets various ambience options.
+        Displays or toggles ambience settings.
+
+        ``$ambience`` — show every subsystem's current state.
+        ``$ambience on/off`` — master kill-switch across all
+        subsystems.
+        ``$ambience <subsystem> on/off`` — toggle one subsystem
+        (``local``, ``celestial``, ``weather``). Master ANDs with
+        each subsystem: both must be on for a subsystem to emit.
+
         (5-second cool-down server-wide)
         """
 
+        # ``invoke_without_command=True`` means this body only runs
+        # when no subcommand matched (the parent's ``value`` arg
+        # would otherwise greedily consume ``"local"``/``"celestial"``
+        # etc. before the subcommand dispatcher got a chance to
+        # see them).
         if not await RpgUtilities.check_game_exists(ctx):
             return
 
-        if ctx.invoked_subcommand is None:
-            guild: Guild = ctx.guild
-            game = self.bot.games.get(ctx.channel.id)
-            embed = Embed(title="Current Ambience Settings")
-            embed.set_thumbnail(url=guild.icon.url)
-            embed.add_field(name="Ambience Enabled", value=f"{game.enable_ambience}", inline=True)
-            Dispatcher.add(ctx, embed=embed)
-
-    @ambience.command(aliases=["set"], brief="Sets ambience for a game on or off.")
-    async def ambience_set(self, ctx: Context, value: str = None):
-        """
-        Sets ambience for a game on or off. If no setting is supplied, displays the current setting.
-
-        :param value: To enable ambience use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
-        """
-
         game = self.bot.games.get(ctx.channel.id)
-        if not game:
+        if game is None:
+            return
+
+        if value is not None:
+            # Bare on/off sets the master flag — lets ``$ambience
+            # on`` stand in for the legacy ``$ambience set on``
+            # without requiring the intermediate word.
+            parsed = self._parse_ambience_bool(value)
+            if parsed is None:
+                Dispatcher.add(game.channel, f"I'm afraid I didn't understand that.")
+                return
+            self._apply_ambience_flag(game, "enable_ambience", parsed, label="Ambience")
+            return
+
+        self._dispatch_ambience_status(ctx, game)
+
+    def _dispatch_ambience_status(self, ctx, game) -> None:
+        """Render the per-subsystem state embed."""
+        guild: Guild = ctx.guild
+        embed = Embed(title="Current Ambience Settings")
+        if guild.icon is not None:
+            embed.set_thumbnail(url=guild.icon.url)
+        embed.add_field(
+            name="Master",
+            value=f"{game.enable_ambience}",
+            inline=False,
+        )
+        for subsystem in game.AMBIENCE_SUBSYSTEMS:
+            flag = getattr(game, f"enable_ambience_{subsystem}", True)
+            effective = game.ambience_enabled(subsystem)
+            value = f"{flag}" if flag == effective else f"{flag} (suppressed by master)"
+            embed.add_field(name=subsystem.capitalize(), value=value, inline=True)
+        Dispatcher.add(ctx, embed=embed)
+
+    @ambience.command(aliases=["set"], brief="Toggles the master ambience flag.")
+    async def ambience_set(self, ctx: Context, value: str = None):
+        """Legacy alias for the master toggle. ``$ambience set on/off``
+        or simply ``$ambience on/off`` both drive the master flag."""
+        game = self.bot.games.get(ctx.channel.id)
+        if game is None:
             return
         if value is None:
-            Dispatcher.add(game.channel, f"Ambience is currently {'en' if game.enable_ambience else 'dis'}abled.")
+            Dispatcher.add(
+                game.channel,
+                f"Ambience is currently {'en' if game.enable_ambience else 'dis'}abled.",
+            )
             return
-
-        value = value.lower()
-        if value.lower() in ["1", "on", "true", "enabled"]:
-            if not game.enable_ambience:
-                game.enable_ambience = True
-                game.game_clock.add_routine(game.do_ambience, 1)
-                # Sunrise/sunset is a sibling daemon now; track the
-                # same on/off toggle so its kill-switch behavior
-                # matches pre-refactor expectations.
-                if getattr(game, "sunrise_sunset", None) is not None:
-                    game.sunrise_sunset.start()
-            else:
-                Dispatcher.add(game.channel, "Ambience is already enabled.")
-                return
-
-        elif value.lower() in ["0", "off", "false", "disabled"]:
-            if game.enable_ambience:
-                game.enable_ambience = False
-                game.game_clock.remove_routine(game.do_ambience)
-                if getattr(game, "sunrise_sunset", None) is not None:
-                    game.sunrise_sunset.stop()
-            else:
-                Dispatcher.add(game.channel, "Ambience is already disabled.")
-                return
-
-        else:
+        parsed = self._parse_ambience_bool(value)
+        if parsed is None:
             Dispatcher.add(game.channel, f"I'm afraid I didn't understand that.")
             return
+        self._apply_ambience_flag(game, "enable_ambience", parsed, label="Ambience")
 
+    @ambience.command(brief="Toggles the local (random flavor) ambience subsystem.")
+    async def local(self, ctx: Context, value: str = None):
+        """Toggle the ``local`` subsystem — random wildlife / breeze /
+        distant-sounds flavor lines. Gated behind the master flag."""
+        await self._handle_subsystem_toggle(ctx, "local", value)
+
+    @ambience.command(brief="Toggles the celestial (sunrise/sunset) ambience subsystem.")
+    async def celestial(self, ctx: Context, value: str = None):
+        """Toggle the ``celestial`` subsystem — sunrise and sunset
+        narration. Gated behind the master flag."""
+        await self._handle_subsystem_toggle(ctx, "celestial", value)
+
+    @ambience.command(brief="Toggles the weather ambience subsystem.")
+    async def weather(self, ctx: Context, value: str = None):
+        """Toggle the ``weather`` subsystem — weather-pattern
+        narration. Gated behind the master flag."""
+        await self._handle_subsystem_toggle(ctx, "weather", value)
+
+    async def _handle_subsystem_toggle(
+        self, ctx: Context, subsystem: str, value: Optional[str],
+    ) -> None:
+        """Shared body for the three per-subsystem toggle commands.
+        With no ``value``, reports the current state; otherwise parses
+        on/off and applies it via :meth:`_apply_ambience_flag`."""
+        game = self.bot.games.get(ctx.channel.id)
+        if game is None:
+            return
+        attr = f"enable_ambience_{subsystem}"
+        if value is None:
+            Dispatcher.add(
+                game.channel,
+                f"{subsystem.capitalize()} ambience is currently "
+                f"{'en' if getattr(game, attr) else 'dis'}abled.",
+            )
+            return
+        parsed = self._parse_ambience_bool(value)
+        if parsed is None:
+            Dispatcher.add(game.channel, f"I'm afraid I didn't understand that.")
+            return
+        self._apply_ambience_flag(game, attr, parsed, label=f"{subsystem.capitalize()} ambience")
+
+    @staticmethod
+    def _apply_ambience_flag(game, attr: str, new_value: bool, *, label: str) -> None:
+        """Set ``attr`` on ``game`` if it changed, resync the daemons,
+        persist, and announce. No-op (with an already-enabled message)
+        when the flag is already in the requested state. Covers both
+        the master and subsystem flags so the state-change message
+        stays consistent."""
+        current = getattr(game, attr)
+        if current == new_value:
+            Dispatcher.add(
+                game.channel,
+                f"{label} is already {'en' if current else 'dis'}abled.",
+            )
+            return
+        setattr(game, attr, new_value)
+        game.sync_ambience_daemons()
         game.save()
-        Dispatcher.add(game.channel, "Ambience has been set.")
+        Dispatcher.add(game.channel, f"{label} has been {'en' if new_value else 'dis'}abled.")
 
     @is_owner()
     @command(name="inspect_monster", aliases=["im"], brief="DM a recursive dump of the current monster. Owner only.")

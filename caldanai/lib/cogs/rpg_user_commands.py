@@ -17,6 +17,31 @@ from caldanai.lib.rpg.helpers.parser import parse
 _log = get_logger(__name__)
 
 
+# Dead-invoker flavor pools shared by the combat and fun commands.
+# Each matches the emotional register of its command — attack
+# leans into thwarted-combat frustration, hug into affectionate
+# longing. All run through ``RpgUtilities.dead_invoker_guard``
+# which parses ``@1`` against the invoking player.
+_DEAD_INVOKER_ATTACK_FLAVOR = [
+    "A ghostly moan escapes the corpse of @1.",
+    "@1np spectral hand twitches toward a weapon that is no longer there.",
+    "A sound like a distant war-drum rolls through the bones of @1 and fades.",
+    "The corpse of @1 cannot strike, but the impulse lingers.",
+    "@1np death-mask sets in grim determination at no one in particular.",
+    "A cold draught hisses through the remains of @1 — perhaps a battle-cry, perhaps only the wind.",
+    "@1np fingers curl around the memory of a hilt.",
+]
+
+_DEAD_INVOKER_HUG_FLAVOR = [
+    "A lonely sigh slips from the corpse of @1.",
+    "The shade of @1 reaches out, but @1np arms close on nothing.",
+    "A faint warmth gathers over the remains of @1 for a moment, then dissipates.",
+    "@1np stillness seems a little lonelier than a moment ago.",
+    "Somewhere beyond the veil, @1 accepts the gesture.",
+    "The chill near @1np body softens briefly, as if remembering how to be held.",
+]
+
+
 class RpgUserCommands(Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -105,8 +130,9 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, "You see nothing to attack!")
             return
 
-        if player.is_dead():
-            Dispatcher.add(game.channel, f"A ghostly moan escapes the corpse of {player.name}.")
+        if RpgUtilities.dead_invoker_guard(
+            game.channel, player, _DEAD_INVOKER_ATTACK_FLAVOR,
+        ):
             return
 
         already_in_combat = player in game.combatants
@@ -168,26 +194,154 @@ class RpgUserCommands(Cog):
                 matched.append(p.name)
         return matched
 
+    # Flavor pools for `$target <@player>` — a goofy, non-mechanical
+    # branch in the same spirit as ``$smite`` / ``$hug`` / ``$haunt``.
+    # Self-targeting leans into "wait, am *I* the problem?" humor;
+    # other-player targeting leans into "you aren't actually going to
+    # do it and you know it."
+    _TARGET_SELF_FLAVOR = [
+        "@1 contemplates the precise angle for a proper seppuku, then thinks better of it.",
+        "@1 draws a weapon, squints at @1a own navel, and quietly changes @1a mind.",
+        "@1 takes aim at @1a own shadow. The shadow flinches first.",
+        "@1 adopts a thousand-yard stare pointed inward.",
+        "@1 squares up to the nearest mirror. The mirror squares back.",
+        "@1 arrives at the uncomfortable suspicion that *@1s* has been the monster all along.",
+        "@1 stares down at @1a boots with a long, introspective sigh.",
+        "@1np hand drifts to @1a hilt; @1np other hand gently guides it away.",
+    ]
+
+    _TARGET_OTHER_FLAVOR = [
+        "@1 takes aim at @2, who visibly decides to notice something more interesting.",
+        "@1 lines up a heroic stance in @2np direction. @2 yawns.",
+        "@1 contemplates @2, weighs the cost of friendship, and sheathes the impulse.",
+        "@1 squints meaningfully at @2. @2 does not respond to the squint.",
+        "@1 pretends to draw a bead on @2 for at least one dramatic beat.",
+        "@1 considers whether @2 is, in fact, the real threat here. Verdict: pending.",
+        "@1 levels a finger at @2 and mouths *bang*. @2 clutches at nothing in particular.",
+    ]
+
+    _TARGET_BOT_FLAVOR = [
+        "You cannot target the narrator, mortal. The narrator targets you.",
+        "@1 trains @1a weapon on a ghost in the machine. The machine does not flinch.",
+        "@1 aims at the sky itself. Somewhere, a server shrugs.",
+    ]
+
+    # Pool fires whenever the *invoker* is dead, regardless of who
+    # they targeted — the dead can't meaningfully line up a swing.
+    # Kept target-agnostic (no @2) so one pool covers self-targeting,
+    # other-player-targeting, and dead-player-targeting from beyond
+    # the grave.
+    _TARGET_DEAD_INVOKER_FLAVOR = [
+        "The corpse of @1 stares skyward, undecided on any particular target.",
+        "@1 is in no condition to aim at anything — the dead declare no targets.",
+        "@1np spirit flickers at the idea, but the body stays put.",
+        "A non-committal glare escapes @1np still form. Hard to say at what.",
+        "@1 would very much like to pick a target, but the dead have no hands to point with.",
+    ]
+
+    # Pool fires when a live invoker targets a dead player — a dead
+    # teammate isn't going to notice and the line leans into that.
+    _TARGET_DEAD_TARGET_FLAVOR = [
+        "@2 is in no condition to notice @1np attention. Best to let @2o rest.",
+        "@1 levels a finger at the corpse of @2, who remains resolutely uninterested.",
+        "The dead do not flinch. @2 is no exception.",
+        "@1 squints meaningfully at @2. @2 does not squint back. @2 does not do much of anything, really.",
+    ]
+
     @command(name="target", aliases=["aim", "focus"], brief="Changes your attack target to specific body parts.")
     @guild_only()
     async def target_part(self, ctx: Context, *, part: str = None):
         """
         Changes your attack focus mid-combat.
         Use ``$target arm.left`` to focus all weapons on one part,
-        ``$target arm.left leg.right`` to split (one per weapon), or
-        ``$target`` alone to clear targeting and attack randomly.
+        ``$target arm.left leg.right`` to split (one per weapon),
+        ``$target`` alone to clear targeting and attack randomly, or
+        ``$target @someone`` for a bit of fun.
         """
         game, player = await RpgUtilities.get_game_and_player(ctx)
 
         if game is None or player is None:
             return
 
-        if player not in game.combatants:
-            Dispatcher.add(game.channel, f"{player.name} is not in combat. Use $kill to join!")
+        # Player-mention branch: `$target @someone` is a flavor-only,
+        # non-mechanical response. Keep it above the combat-state
+        # guards so targeting a friend doesn't have to wait for
+        # combat to exist. The doppelganger case (monster whose
+        # ``name`` matches a player's ``display_name``) routes to
+        # the body-part flow — mirrors the ``$hug`` pattern.
+        if ctx.message.mentions:
+            mention = ctx.message.mentions[0]
+
+            # Dead-invoker check runs FIRST, before bot / doppelganger
+            # / target-player dispatch. A dead player can't
+            # meaningfully aim at anything, so the dead pool always
+            # wins regardless of who was mentioned — matches the
+            # other-command convention (``$kill @something`` also
+            # hits the dead-invoker pool, not the target-specific
+            # response).
+            if RpgUtilities.dead_invoker_guard(
+                game.channel, player, self._TARGET_DEAD_INVOKER_FLAVOR,
+            ):
+                return
+
+            if self.bot.user in ctx.message.mentions:
+                Dispatcher.add(
+                    game.channel, parse(choice(self._TARGET_BOT_FLAVOR), player),
+                )
+                return
+            if (
+                game.monster is not None
+                and game.monster.name.lower() == mention.display_name.lower()
+            ):
+                Dispatcher.add(
+                    game.channel,
+                    f"Even in that shape, there's still a {game.monster.name} "
+                    f"under it. Try $target <part>.",
+                )
+                return
+            target_player = await RpgUtilities.get_player(
+                mention, game=game, notify=False,
+            )
+            if target_player is None:
+                return
+
+            # Dead-target check: live invoker (we cleared the dead
+            # branch above) is aiming at a dead teammate. Two-actor
+            # pool doesn't fit the single-actor guard shape, stays
+            # inline.
+            if (
+                target_player.is_dead()
+                and target_player.member != player.member
+            ):
+                Dispatcher.add(
+                    game.channel,
+                    parse(
+                        choice(self._TARGET_DEAD_TARGET_FLAVOR),
+                        player, target_player,
+                    ),
+                )
+                return
+
+            if target_player.member == player.member:
+                Dispatcher.add(
+                    game.channel, parse(choice(self._TARGET_SELF_FLAVOR), player),
+                )
+            else:
+                Dispatcher.add(
+                    game.channel,
+                    parse(choice(self._TARGET_OTHER_FLAVOR), player, target_player),
+                )
             return
 
+        # Order matters: "no monster" is the more fundamental state
+        # than "not in combat" — if there's nothing to target, "use
+        # $kill to join" is misleading (nothing to join).
         if game.monster is None:
             Dispatcher.add(game.channel, "There's nothing to target!")
+            return
+
+        if player not in game.combatants:
+            Dispatcher.add(game.channel, f"{player.name} is not in combat. Use $kill to join!")
             return
 
         if not part or not part.strip():
@@ -258,10 +412,12 @@ class RpgUserCommands(Cog):
         if game is None or player is None:
             return
 
-        if player.is_dead():
-            Dispatcher.add(game.channel, f"A lonely sigh slips from the corpse of {player.name}.")
+        if RpgUtilities.dead_invoker_guard(
+            game.channel, player, _DEAD_INVOKER_HUG_FLAVOR,
+        ):
+            return
 
-        elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
+        if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
             if self.bot.user in ctx.message.mentions:
                 responses = [
                     "Get your filthy paws off me, you damned dirty ape!",

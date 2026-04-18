@@ -4,6 +4,268 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-18 — Durable Shutdown + Signal Integration
+
+The ``shutdown`` console command used to hang until operator
+SIGINT, and nothing flushed the DB write buffers before exit.
+Restarts between ``batch_write``'s 1-minute drain cycles silently
+lost player state — worst for DM-originated commands with no
+operator visibility. ``SIGINT`` and container-stop signals didn't
+reach the shutdown path at all. A redundant Discord-side
+``$shutdown`` command duplicated the process-kill power from an
+inappropriate surface.
+
+Rebuilt as a single arc:
+
+**New synchronous drain primitives:**
+- ``DB.flush_all()`` — drains every collection's double-buffer
+  plus the Mongo log-handler queue; swallows ``BulkWriteError``
+  per collection so one failing collection doesn't eat the rest.
+- ``save_all_now()`` in ``utils.py`` — extracted from the
+  ``save_game_data`` task body so the periodic save and the
+  shutdown save share one implementation.
+
+**Rewritten ``ShutdownCommand`` — ordered contract:**
+1. Announce and drain Dispatcher (30 s timeout).
+2. Stop per-game clock ticks + ambience daemons.
+3. ``state.set_shutdown()`` **before** ``await bot.close()`` —
+   otherwise ``main.start_bot``'s
+   ``while state.should_restart()`` loop sees ``bot.start``
+   return and stands up a replacement bot mid-shutdown
+   (regression caught in playtest).
+4. ``await bot.close()``.
+5. Cancel + await the ``watchdog``, ``save_game_data``, and
+   ``batch_write`` task loops in that order — watchdog first so
+   it can't restart ``batch_write``; cancel + await (not
+   ``.stop()``, which is cooperative) so no mid-execution tick
+   races the flush.
+6. ``save_all_now()`` → ``DB.flush_all()`` — atomic by
+   construction (no ``await`` between them on the single-
+   threaded loop).
+7. Mongo client close.
+8. ``os._exit(0)`` — escapes the blocking ``input()`` thread
+   that would otherwise hold the interpreter open.
+
+**Signal handlers in ``main.py``:** ``SIGINT`` / ``SIGTERM`` /
+``SIGBREAK`` route via ``loop.call_soon_threadsafe`` onto the
+same command queue ``cmd_loop`` reads, so a Ctrl+C fires the
+exact same ``ShutdownCommand.execute`` sequence as typed input.
+Missing signals on a given platform are silently skipped. The
+handler logs the received signal name — diagnostic win for
+hosting platforms whose stop semantics aren't documented.
+``SIGKILL`` / Windows ``TerminateProcess`` remain uncatchable.
+
+**Companion fix in ``input_loop``:** Windows Ctrl+C closes stdin
+as a side effect, raising ``EOFError`` back into the input-loop
+coroutine. Without handling, ``asyncio.gather`` cancelled
+``cmd_task`` mid-shutdown. Input loop now catches ``EOFError``
+and exits cleanly, letting the already-enqueued shutdown
+complete.
+
+**Removed the Discord ``$shutdown`` command** in
+``bot_admin_commands.py`` along with the ``wait_to_close`` and
+``flush_dispatcher`` helpers that only it used. Process control
+doesn't belong on Discord — the console path is the legitimate
+kill path and hosting panels cover the rest. No replacement
+added; ``$game remove`` covers per-channel cleanup.
+
+**Tradeoffs:** Ctrl+C now takes ~1.5 s (Dispatcher drain + DB
+flush) instead of aborting instantly — durability over
+responsiveness. ``os._exit`` skips ``atexit`` handlers and
+Python's stdio flush; nothing load-bearing lives there.
+
+**Tests:** ``test_db.py::TestFlushAll``,
+``test_utils.py::TestSaveAllNow``, ``test_shutdown_command.py``,
+``test_main_signal_handlers.py`` — drain correctness,
+save/loop equivalence, full shutdown ordering (including the
+set-shutdown-before-bot-close regression), cancel + await
+semantics, and signal-handler platform tolerance.
+
+### 2026-04-18 — Ambience Kill-Switches Split Per Subsystem
+
+``$ambience`` was a single master flag that silenced three
+unrelated subsystems at once (random local flavor, sunrise/sunset,
+weather daemon). Split into a master plus three per-subsystem
+flags; the master ANDs with each.
+
+**New on ``Game``:**
+
+```python
+AMBIENCE_SUBSYSTEMS = ("local", "celestial", "weather")
+
+def ambience_enabled(self, subsystem: str) -> bool:
+    return self.enable_ambience and bool(
+        getattr(self, f"enable_ambience_{subsystem}", True)
+    )
+```
+
+Plus ``sync_ambience_daemons()`` which brings every daemon's
+scheduling state in line with the current flags — called after
+any toggle.
+
+**Command surface:**
+
+```
+$ambience                       # show master + per-subsystem state
+$ambience on | off              # master toggle
+$ambience <subsystem> on | off  # local | celestial | weather
+$ambience set on | off          # legacy alias for master
+```
+
+**Renamed:** ``SunriseSunsetDaemon`` → ``CelestialDaemon`` (file
+``sunrise_sunset.py`` → ``celestial.py``) to make room for
+planned sun/moon-traversal expansion without another rename.
+
+**Persistence:** all four flags round-trip via ``to_dict`` /
+``from_dict``; ``from_dict`` uses ``.get(..., True)`` so pre-
+split documents load with every subsystem on.
+
+**Pre-existing bug fixed:** the old ``ambience_set`` command
+restarted the sunrise/sunset daemon on toggle but never the
+weather daemon, orphaning weather narration at runtime.
+``sync_ambience_daemons`` now handles all three uniformly.
+
+**Routine-registry collision fix (playtest-surfaced):**
+``GameClock._Routine.name`` was keyed on ``function.__name__``,
+so ``WeatherDaemon.tick`` and ``CelestialDaemon.tick`` both
+registered as ``"tick"`` and evicted each other under
+``only_instance=True`` — the clock could only drive one of them
+at a time. Keyed on ``__qualname__`` instead. ``add_routine``
+is now **skip-if-found** instead of evict-and-replace (old
+behavior silently reset ``time_added`` phase anchors and daemon
+state on every ``sync_ambience_daemons`` call).
+``CelestialDaemon.start`` made idempotent so repeated
+``start()`` calls don't reset ``_last_tick_seconds``.
+``find_routine`` logs on hits as well as misses for clearer
+diagnosis.
+
+**Tests:** ``Game.ambience_enabled`` truth table, ``to_dict``
+flag emission, routine-registry collision regressions, skip-if-
+found semantics, idempotent daemon start.
+
+### 2026-04-18 — `$target` Command Polish
+
+Three changes:
+
+1. **Guard reorder:** when no monster is active, ``$target`` now
+   answers ``"There's nothing to target!"`` regardless of
+   combatants-list membership. The old order surfaced ``"Use
+   $kill to join!"`` in idle channels — nonsense.
+
+2. **Player-mention flavor:** ``$target <@mention>`` emits
+   flavor-only responses in the spirit of ``$smite`` / ``$hug``.
+   Five pools on ``RpgUserCommands``:
+   - ``_TARGET_SELF_FLAVOR`` — self-targeting humor.
+   - ``_TARGET_OTHER_FLAVOR`` — other-player humor.
+   - ``_TARGET_BOT_FLAVOR`` — targeting the bot.
+   - ``_TARGET_DEAD_INVOKER_FLAVOR`` / ``_TARGET_DEAD_TARGET_FLAVOR``
+     — dead-invoker and live-targets-dead-player cases. Dead-invoker
+     check runs first, before bot / doppelganger / target-player
+     dispatch (regression fix — initial version had the bot branch
+     bypass the death check).
+
+3. **Doppelganger cooperation:** when the mentioned player's
+   ``display_name`` matches the current monster's ``name``,
+   nudge toward the body-part flow instead of emitting player
+   flavor. Mirrors the ``$hug`` detection pattern.
+
+**Tests:** flavor-pool structure + parse-token correctness,
+guard-order regression, mention-type routing (self / other /
+bot / doppelganger / dead-invoker across all mention types).
+
+### 2026-04-18 — Shared Dead-Invoker Guard + Flavor-Pool Expansion
+
+Eight commands had inline ``if player.is_dead(): dispatch
+f-string; return`` blocks; four inventory handlers repeated
+the exact same f-string. Consolidated into a shared helper with
+per-command flavor pools.
+
+**New on ``RpgUtilities``:**
+
+```python
+@staticmethod
+def dead_invoker_guard(channel, player, flavor) -> bool:
+    """Emit flavor and return True when player is dead; no-op False otherwise.
+    ``flavor`` is a parse-template string OR a list (random pick)."""
+```
+
+Handlers now read ``if RpgUtilities.dead_invoker_guard(...):
+return`` — one line, consistent shape.
+
+**Migrated:** ``$kill`` / ``$attack``, ``$hug``, ``$target``,
+and the four inventory commands (``$equip`` / ``$stow`` /
+``$sell`` / ``$item`` — the four identical inline f-strings
+collapsed to one shared pool).
+
+**Not migrated (by design):** ``$haunt`` uses death as a
+required *input* (dead players can haunt; live can't). ``$pray``
+has its own specialized dead-flavor branching. Neither fits the
+gate-and-return shape.
+
+**Variety bump:** each migrated command got a 5–7-line flavor
+pool matching its emotional register — war-drum echoes for
+attack, affectionate chill-against-the-veil for hug, dry
+frustration for inventory.
+
+**Tests:** guard behavior (alive/dead/string/list/parse-tokens);
+every registered pool is non-empty and every line parses with
+no surviving ``@`` tokens.
+
+### 2026-04-18 — Partless-Creature Double-Damage Fix
+
+Playtest: Spirit (16 HP) died to a single 10-damage crit that
+should have left it at 7 HP. Leftover from the Phase 1 per-part
+combat refactor:
+
+- **Parts creatures:** ``Creature.apply_damage(amount,
+  target_part)`` routes to the part; ``Game.do_combat`` applies
+  body HP post-sequence via ``monster.health -= final_body_dmg``.
+- **Partless creatures (Spirit):** ``target_part`` is always
+  ``None``, so ``apply_damage`` used the legacy whole-body path
+  and decremented ``self.health`` directly — *and* the caller
+  subtracted again afterwards. Double-applied.
+
+Fix in ``apply_sequence_to_target``: skip ``apply_damage`` when
+the target has no body parts. Body HP is the caller's sole
+responsibility across both paths. Partless death flows through
+the caller's existing ``monster.health == 0`` fallback.
+
+**Tests:** ``test_combat_resolution.py`` — the test that used to
+pin the buggy behavior now pins the inverse (body HP unchanged
+by the resolver; totals still accumulate for the caller).
+Renamed to name the regression explicitly.
+
+### 2026-04-18 — Spirit Intangibility Narration Fix
+
+Spirit's "blade passes through like mist" callout was supposed
+to surface on physical hits. It never fired: the flag gating it
+lived in ``Spirit.apply_damage``, but ``apply_sequence_to_target``
+skips ``apply_damage`` when damage is ``≤ 0`` — and physical vs.
+Spirit always multiplies to ``0`` after the ``0.1`` multiplier.
+
+Moved the narration into ``_on_attacked``, appending to
+``result.extra_text`` on every landed physical hit. Two
+improvements:
+
+1. **Placement:** ``extra_text`` renders inline with the attack-
+   table row (same home as the ``"chill saps N from the
+   attacker"`` snippet), not tucked into a post-round footer.
+2. **Per-hit, not one-shot:** the line is an observation of the
+   current attack, not a teaching moment. Dual-wielders see it
+   on both hits, return-engagers see it every time.
+   ``_has_announced_intangibility`` flag removed.
+
+Wording changed from ``"@2's blade passes through…"`` to
+``"the blow passes through like mist"`` — weapon-agnostic
+(blades, sticks, wands all look the same to a ghost). Spirit's
+``apply_damage`` override removed; ``MonsterPlugin.apply_damage``
+covers the death-string return.
+
+**Tests:** ``_on_attacked`` now end-to-end — injects the mist
+line on landed physical hits, fires every hit (not just the
+first), skips non-physical and misses, composes with the melee
+chill-counter snippet on the same ``extra_text``.
+
 ### 2026-04-18 — Target Preferences as Declarative Dict on `Creature`
 
 Six monsters (Bearowl, Werewolf, Vampire, Pixie, Minotaur, Bandit)

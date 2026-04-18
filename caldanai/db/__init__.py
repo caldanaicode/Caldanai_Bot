@@ -111,6 +111,56 @@ class DB:
         DB.batch_write.stop()
         DB._mongoClient.close()
 
+    @staticmethod
+    def flush_all() -> None:
+        """Synchronously drain every queued write to Mongo — call
+        during shutdown after stopping :func:`batch_write` so no
+        pending DB operations are lost when the process exits.
+
+        Mirrors the queue-draining portion of
+        :func:`batch_write`'s body (sans the periodic ping and the
+        watchdog-timestamp bump) so the two paths agree on which
+        queues get drained and how errors are logged. Single-shot,
+        not scheduled on the clock.
+
+        Intentionally skips the connection-check decorator: on
+        shutdown we want to attempt the write regardless of the
+        cached ``_is_connected`` flag — if Mongo is genuinely down
+        we'll log the error and exit with ops left in the queue,
+        but that's no worse than the connectivity check short-
+        circuiting us out.
+        """
+        collections = list(DB._queues.keys())
+        for collection in collections:
+            ops = DB._queues[collection].get_all()
+            if not ops:
+                continue
+            _log.debug(
+                f"flush_all: writing {len(ops)} queued update"
+                f"{'s' if len(ops) != 1 else ''} to '{collection.full_name}'"
+            )
+            try:
+                collection.bulk_write(ops, ordered=False)
+            except BulkWriteError:
+                error_info = traceback.format_exc()
+                _log.error(
+                    f"flush_all: bulk_write on '{collection.full_name}' "
+                    f"failed: {error_info}"
+                )
+
+        # Mongo log handler mirrors the same drain/bulk_write shape
+        # — keep it in lockstep with ``batch_write``.
+        if DB._mongoHandler and (
+            errors := [InsertOne(item) for item in DB._mongoHandler.queue.get_all()]
+        ):
+            try:
+                DB._logs.bulk_write(errors)
+            except BulkWriteError:
+                error_info = traceback.format_exc()
+                _log.error(
+                    f"flush_all: log bulk_write failed: {error_info}"
+                )
+
     @tasks.loop(minutes=1)
     async def batch_write():
         """Performs batch writing to the database for the queued items.

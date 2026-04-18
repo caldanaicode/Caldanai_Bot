@@ -714,6 +714,128 @@ class TestSpirit:
         second = s.on_combat_round([])
         assert "thins" not in second.lower() and "warmth" not in second.lower()
 
+    def _make_spirit_attack_result(
+        self, damage: int, damage_type: DamageTypes, reach=None, is_miss: bool = False,
+    ):
+        """Build a minimal AttackResult carrying the damage-type and
+        miss state we need to poke ``_on_attacked``. Helper shared by
+        the intangibility-narrative tests below."""
+        from caldanai.lib.rpg.combat.attack_result import AttackResult
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        from caldanai.lib.rpg.helpers.roll_data import (
+            AttackRoll, DamageRoll, CombinedRoll,
+        )
+        from caldanai.lib.rpg.helpers.dice import Dice
+        from caldanai.lib.rpg.helpers.enums import Reach
+
+        source = NaturalAttackSource(
+            atk="1d4",
+            dmg_type=damage_type,
+            reach=reach if reach is not None else Reach.RANGED,
+        )
+        atk = AttackRoll(skill_bonus=0)
+        atk.rolls, atk.result = (10,), 10
+        atk.isCritical, atk.isFumble = False, False
+        dmg = DamageRoll(dice=Dice.d4(), skill_bonus=0, weapon_bonus=0)
+        dmg.rolls, dmg.result = (4,), 4
+        combined = CombinedRoll(atk, dmg, 5)
+        combined.isMiss = is_miss
+        result = AttackResult(
+            source=source, combined=combined, damage=damage,
+            multiplier=1.0, defense=0, dodge=5,
+        )
+        return source, result
+
+    def test_physical_landed_hit_injects_passes_through_narration(self):
+        """Landed physical hit → ``result.extra_text`` carries the
+        "passes through like mist" line inline, so it renders under
+        the attack-row in the combat table rather than tucked into
+        a post-round footer."""
+        from caldanai.lib.rpg.creatures import Creature
+        s = Spirit()
+        attacker = Creature(
+            name="player", atk="1d4", defense=0, dodge=5,
+            health_max=20, health=20,
+        )
+        source, result = self._make_spirit_attack_result(
+            damage=0, damage_type=DamageTypes.SLASHING,
+        )
+        s._on_attacked(attacker, source, result)
+        assert "passes through" in (result.extra_text or "").lower()
+        assert "mist" in (result.extra_text or "").lower()
+
+    def test_passes_through_narration_fires_on_every_physical_hit(self):
+        """The line is a per-hit observation, not a one-shot
+        teaching moment — every physical swing against a spirit is
+        evidence of the trait, so each one should carry the line.
+        Dual-wielders see it on both hits, not just the first."""
+        from caldanai.lib.rpg.creatures import Creature
+        s = Spirit()
+        attacker = Creature(
+            name="player", atk="1d4", defense=0, dodge=5,
+            health_max=20, health=20,
+        )
+        for _ in range(3):
+            _, result = self._make_spirit_attack_result(
+                damage=0, damage_type=DamageTypes.SLASHING,
+            )
+            s._on_attacked(attacker, result.source, result)
+            assert "passes through" in (result.extra_text or "").lower()
+
+    def test_non_physical_landed_hit_does_not_inject_passes_through(self):
+        """The callout is specifically about physical weapons passing
+        through — a holy or magical source that connects shouldn't
+        trigger it (extra_text may still carry other text from the
+        attack pipeline, but not the mist line)."""
+        from caldanai.lib.rpg.creatures import Creature
+        s = Spirit()
+        attacker = Creature(
+            name="priest", atk="1d4", defense=0, dodge=5,
+            health_max=20, health=20,
+        )
+        source, result = self._make_spirit_attack_result(
+            damage=5, damage_type=DamageTypes.LIGHT,
+        )
+        s._on_attacked(attacker, source, result)
+        assert "passes through" not in (result.extra_text or "").lower()
+        assert "mist" not in (result.extra_text or "").lower()
+
+    def test_missed_physical_swing_does_not_inject_passes_through(self):
+        """A miss means the blade never reached the ghost — there's
+        nothing for the spirit to demonstrate passes-through on."""
+        from caldanai.lib.rpg.creatures import Creature
+        s = Spirit()
+        attacker = Creature(
+            name="player", atk="1d4", defense=0, dodge=5,
+            health_max=20, health=20,
+        )
+        source, result = self._make_spirit_attack_result(
+            damage=0, damage_type=DamageTypes.SLASHING, is_miss=True,
+        )
+        s._on_attacked(attacker, source, result)
+        assert "passes through" not in (result.extra_text or "").lower()
+
+    def test_passes_through_composes_with_melee_chill_counter(self):
+        """Dual use of ``_on_attacked``: a physical melee hit should
+        render both the mist line (intangibility observation) and
+        the chill-saps snippet (melee counter-touch) on the same
+        ``extra_text``, joined by ' — '."""
+        from caldanai.lib.rpg.creatures import Creature
+        from caldanai.lib.rpg.helpers.enums import Reach
+        s = Spirit()
+        attacker = Creature(
+            name="brawler", atk="1d4", defense=0, dodge=5,
+            health_max=20, health=20,
+        )
+        source, result = self._make_spirit_attack_result(
+            damage=0, damage_type=DamageTypes.BLUDGEONING,
+            reach=Reach.MELEE,
+        )
+        s._on_attacked(attacker, source, result)
+        text = (result.extra_text or "").lower()
+        assert "passes through" in text
+        assert "chill saps" in text
+
 
 # ---------------------------------------------------------------------------
 # Plugin discovery — the monsters actually register at load time

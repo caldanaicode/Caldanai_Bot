@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 import traceback
 import sys
 from logging import Logger
@@ -129,13 +130,83 @@ async def cmd_loop(state: BotState):
 
 async def input_loop(state: BotState):
     while state.should_restart():
-        cmd = await asyncio.get_event_loop().run_in_executor(None, input)
+        try:
+            cmd = await asyncio.get_event_loop().run_in_executor(None, input)
+        except EOFError:
+            # Windows Ctrl+C closes stdin as a side-effect of
+            # raising SIGINT. Our signal handler has already
+            # enqueued the shutdown command on the command queue;
+            # if we let the EOFError propagate, ``asyncio.gather``
+            # in ``main`` sees an unhandled exception and cancels
+            # ``cmd_task`` mid-``ShutdownCommand.execute``, which
+            # kills the graceful shutdown before it can flush.
+            # Exiting the input loop here lets ``gather`` wait on
+            # the other tasks (bot + cmd) and ``cmd_task`` runs
+            # the already-enqueued shutdown to completion.
+            _log.debug("input_loop: stdin closed; exiting.")
+            return
         await state.put_command(cmd)
+
+
+def _install_shutdown_signals(state: BotState, loop: asyncio.AbstractEventLoop) -> None:
+    """Route POSIX-style termination signals through the same
+    graceful shutdown path as the ``shutdown`` console command.
+
+    ``SIGINT`` (Ctrl+C), ``SIGTERM`` (``kill``, ``systemctl stop``,
+    ``docker stop``), and ``SIGBREAK`` (Windows Ctrl+Break) all
+    enqueue a ``"shutdown"`` command onto the state's command queue,
+    which ``cmd_loop`` picks up and dispatches to
+    ``ShutdownCommand.execute`` — so the Dispatcher drain / task
+    cancel / DB flush / ``os._exit`` sequence fires identically
+    regardless of trigger. Durability over responsiveness: Ctrl+C
+    now takes ~1.5 s (bounded by the Dispatcher drain and final DB
+    flush) instead of aborting instantly, but no DB writes are lost.
+
+    Does NOT cover:
+    - ``SIGKILL`` and Windows ``TerminateProcess`` — uncatchable
+      by design. The OS yanks the process; Python never runs
+      cleanup code. Nothing we can do.
+    - Hosting-platform "stop" buttons vary by host. If the host
+      sends SIGTERM first with a grace period, we get the
+      graceful path; if it goes straight to SIGKILL-equivalent,
+      we don't. The log line emitted on signal receipt surfaces
+      which signal the host actually sends, which helps diagnose
+      a given panel's shutdown behavior.
+    """
+    def _handler(signum, _frame):
+        try:
+            sig_name = signal.Signals(signum).name
+        except ValueError:
+            sig_name = f"signal {signum}"
+        _log.info(f"Received {sig_name}; initiating graceful shutdown.")
+        try:
+            loop.call_soon_threadsafe(
+                state._command_queue.put_nowait, "shutdown",
+            )
+        except RuntimeError:
+            # Event loop already closed — shutdown is already in
+            # flight, this signal is just a late echo. Nothing to
+            # do; the process is on its way out.
+            pass
+
+    for sig_name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, sig_name, None)
+        if sig is None:
+            continue  # Signal not defined on this platform.
+        try:
+            signal.signal(sig, _handler)
+            _log.debug(f"Installed shutdown handler for {sig_name}")
+        except (OSError, ValueError) as e:
+            # Signal not settable in this context — e.g. some
+            # platform/runtime combinations reject SIGTERM. Skip
+            # quietly; the other signals still work.
+            _log.debug(f"Couldn't install shutdown handler for {sig_name}: {e}")
 
 
 async def main():
     setup_logging(_log)
     state = BotState()
+    _install_shutdown_signals(state, asyncio.get_running_loop())
     bot_task = asyncio.create_task(start_bot(state))
     cmd_task = asyncio.create_task(cmd_loop(state))
     input_task = asyncio.create_task(input_loop(state))

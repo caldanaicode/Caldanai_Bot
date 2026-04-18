@@ -1,4 +1,4 @@
-"""Tests for ``SunriseSunsetDaemon``.
+"""Tests for ``CelestialDaemon``.
 
 Covers:
 - Sunrise fires exactly once when crossing the dawn boundary.
@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from caldanai.lib.rpg.ambience.sunrise_sunset import (
-    SunriseSunsetDaemon,
+from caldanai.lib.rpg.ambience.celestial import (
+    CelestialDaemon,
     SUNRISE_NARRATION,
     SUNSET_NARRATION,
 )
@@ -37,16 +37,38 @@ def clean_registry():
     Game._channel_routes.clear()
 
 
-def _make_ambience_game(channel_id: int, clock: GameClock, enable_ambience: bool = True):
+def _make_ambience_game(
+    channel_id: int,
+    clock: GameClock,
+    enable_ambience: bool = True,
+    enable_ambience_celestial: bool = True,
+    enable_ambience_local: bool = True,
+    enable_ambience_weather: bool = True,
+):
     """Return a minimal stand-in for ``Game`` suitable for
-    ``Game._channel_routes`` routing: holds ``enable_ambience``, a
+    ``Game._channel_routes`` routing: holds the ambience flags, a
     mock ``channel`` whose id matches ``channel_id``, and the clock
-    (so ``GameClock.for_channel`` resolves through the shim)."""
+    (so ``GameClock.for_channel`` resolves through the shim).
+
+    ``ambience_enabled`` is wired to ANDs the master with the named
+    subsystem flag — matches the real ``Game.ambience_enabled``
+    contract so the daemons' gate logic resolves correctly against
+    this shim."""
     game = MagicMock()
     game.enable_ambience = enable_ambience
+    game.enable_ambience_celestial = enable_ambience_celestial
+    game.enable_ambience_local = enable_ambience_local
+    game.enable_ambience_weather = enable_ambience_weather
     game.channel = MagicMock()
     game.channel.id = channel_id
     game.game_clock = clock
+
+    def _ambience_enabled(subsystem: str) -> bool:
+        if not game.enable_ambience:
+            return False
+        return bool(getattr(game, f"enable_ambience_{subsystem}", True))
+
+    game.ambience_enabled = _ambience_enabled
     return game
 
 
@@ -65,7 +87,7 @@ def _register_clock_and_game(clock: GameClock, game, channel_id: int):
 
 class TestSunriseCrossing:
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_sunrise_fires_once_on_crossing(
         self, mock_dispatch, clean_registry,
     ):
@@ -81,7 +103,7 @@ class TestSunriseCrossing:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         # Advance the clock past sunrise and tick once.
@@ -95,7 +117,7 @@ class TestSunriseCrossing:
         assert args[1] == SUNRISE_NARRATION
 
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_sunrise_does_not_refire_on_same_day(
         self, mock_dispatch, clean_registry,
     ):
@@ -109,7 +131,7 @@ class TestSunriseCrossing:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         # First tick — crossing. Expect 1 dispatch.
@@ -136,7 +158,7 @@ class TestSunriseCrossing:
 
 class TestSunsetCrossing:
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_sunset_fires_once_on_crossing(
         self, mock_dispatch, clean_registry,
     ):
@@ -150,7 +172,7 @@ class TestSunsetCrossing:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         clock._seconds = sunset_s + 1
@@ -162,7 +184,7 @@ class TestSunsetCrossing:
         assert args[1] == SUNSET_NARRATION
 
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_sunset_does_not_fire_outside_crossing_window(
         self, mock_dispatch, clean_registry,
     ):
@@ -177,7 +199,7 @@ class TestSunsetCrossing:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         # Next tick — another minute later, still past sunset.
@@ -193,7 +215,7 @@ class TestSunsetCrossing:
 
 class TestAmbienceKillSwitch:
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_disabled_ambience_suppresses_sunrise(
         self, mock_dispatch, clean_registry,
     ):
@@ -210,7 +232,7 @@ class TestAmbienceKillSwitch:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=False)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         clock._seconds = sunrise_s + 1
@@ -219,7 +241,7 @@ class TestAmbienceKillSwitch:
         mock_dispatch.add.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_disabled_ambience_suppresses_sunset(
         self, mock_dispatch, clean_registry,
     ):
@@ -231,7 +253,7 @@ class TestAmbienceKillSwitch:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=False)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         clock._seconds = sunset_s + 1
@@ -240,7 +262,7 @@ class TestAmbienceKillSwitch:
         mock_dispatch.add.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_no_buffered_crossing_replay_when_reenabled(
         self, mock_dispatch, clean_registry,
     ):
@@ -256,7 +278,7 @@ class TestAmbienceKillSwitch:
         game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=False)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         daemon.start()
 
         # Cross sunrise while disabled → no emission, but window advances.
@@ -279,26 +301,26 @@ class TestAmbienceKillSwitch:
 
 class TestMissingClock:
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_start_without_registered_clock_is_noop(
         self, mock_dispatch, clean_registry,
     ):
         """If no clock is registered for the channel, start() quietly
         no-ops instead of raising — this runs during Game construction
         before the clock is registered in some paths."""
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         # Must not raise.
         daemon.start()
         assert daemon._last_tick_seconds is None
 
     @pytest.mark.asyncio
-    @patch("caldanai.lib.rpg.ambience.sunrise_sunset.Dispatcher")
+    @patch("caldanai.lib.rpg.ambience.celestial.Dispatcher")
     async def test_tick_without_registered_clock_is_noop(
         self, mock_dispatch, clean_registry,
     ):
         """A tick firing after the clock has been unregistered (race
         with teardown) is a no-op."""
-        daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
+        daemon = CelestialDaemon(FAKE_CHANNEL_ID)
         # No clock registered — tick must not raise.
         await daemon.tick()
         mock_dispatch.add.assert_not_called()

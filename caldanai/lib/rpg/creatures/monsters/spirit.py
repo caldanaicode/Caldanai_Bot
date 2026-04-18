@@ -42,9 +42,15 @@ Spirit-specific mechanics layered on top
 - **Cold counter-touch** (``_on_attacked`` override): melee attackers
   take a small amount of cold damage just for closing to melee range.
   Encourages ranged / magical engagement.
-- **First-physical-hit narrative** (``apply_damage`` override): the
-  first time a player swings physical for trivial damage, surface
-  "your blade passes through" as a teaching moment.
+- **First-physical-hit narrative** (also ``_on_attacked``): the first
+  time a player lands a physical swing — regardless of the
+  multiplier-chewed final damage — set a one-shot flag so the next
+  ``on_combat_round`` can surface "your blade passes through" as a
+  teaching moment. Lives on ``_on_attacked`` rather than
+  ``apply_damage`` because the sequence helper skips
+  ``apply_damage`` for zero-damage hits (and physical-vs-spirit is
+  always zero after the 0.1 multiplier), so the flag would never
+  set if it waited for damage to be applied.
 - **Fade state** (≤25% HP): drain stops working ("the stolen warmth
   slips through it now") because the spirit is too thin to siphon.
   Closes the otherwise-exploitable drain-heals-keep-fighting loop
@@ -52,12 +58,8 @@ Spirit-specific mechanics layered on top
 """
 
 from random import choice
-from typing import Optional
 
-from caldanai.lib.rpg.combat.attack_source import (
-    AttackSource, NaturalAttackSource,
-)
-from caldanai.lib.rpg.combat.attack_result import AttackResult
+from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.creatures.classifications import Undead
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures import Creature
@@ -156,8 +158,11 @@ class Spirit(Undead, MonsterPlugin):
         # Don't call _scale_part_hp — nothing to scale, and the
         # symmetrization step is a no-op on an empty list anyway.
 
-        # State trackers for one-time narratives.
-        self._has_announced_intangibility = False
+        # State tracker for the one-time fade announcement.
+        # The per-attack "passes through like mist" line fires
+        # every landed physical hit via ``_on_attacked`` — no flag
+        # needed for that one; it's a per-hit observation, not a
+        # one-shot callout.
         self._has_faded = False
 
     # -- Faded state -----------------------------------------------------
@@ -197,93 +202,73 @@ class Spirit(Undead, MonsterPlugin):
 
     # -- Reactive cold-touch on melee attackers --------------------------
 
-    def _on_attacked(self, attacker, source, result):
-        """Anyone who lands a melee blow takes 1d4 cold/water damage
-        from the spirit's freezing aura. Adds to the incentive to
-        engage at range or with magic. Appends to ``extra_text``
-        rather than overwriting — ``get_hit_narration`` may have
-        already set a flavor line there."""
-        if source.reach != Reach.MELEE:
-            return
-        if not result.hit():
-            return  # no contact, no chill
-        cold = Dice.quick_roll("1d4")
-        if cold <= 0:
-            return
-        attacker.apply_damage(cold, dmg_type=DamageTypes.WATER)
-        chill = f"chill saps {cold} from the attacker"
-        result.extra_text = (
-            f"{result.extra_text} — {chill}" if result.extra_text else chill
-        )
-
-    # -- Apply damage: first-physical-hit narrative kicker ---------------
-
     _PHYSICAL_TYPES = (
         DamageTypes.BLUDGEONING | DamageTypes.SLASHING | DamageTypes.PIERCING
     )
 
-    def apply_damage(
-        self,
-        amount,
-        dmg_type=None,
-        target_part=None,
-    ) -> Optional[str]:
-        """Detect the first time a player lands a (heavily-resisted)
-        physical hit and set the one-shot intangibility-announcement
-        flag; ``on_combat_round`` reads it next round and surfaces the
-        narrative cue. Damage application defers to super.
+    def _on_attacked(self, attacker, source, result):
+        """Runs on every landed attack against the spirit. Two
+        concerns share this hook, both surfacing via
+        ``result.extra_text`` so their narration lands inline with
+        the attack-table row that observed the event (not tucked
+        into a post-round footer).
 
-        Historically returned ``None`` implicitly (dropping the
-        MonsterPlugin death string), and combat paths don't depend on
-        that return — ``Game.do_combat`` falls back to
-        ``monster.death`` directly when the helper produces no death
-        message. The signature is mirrored here for consistency with
-        the rest of the Creature family; returning ``""`` preserves
-        observable behavior (both ``None`` and ``""`` are falsy, so
-        any ``if m:`` caller sees the same result).
+        1. **Physical-passes-through callout** — on every landed
+           physical hit, append "the blow passes through like
+           mist" to ``result.extra_text``. Fires each physical
+           attack, not just the first: the observation is per-hit
+           evidence of the intangibility trait (physical multiplier
+           truncates to 0), not a one-shot teaching moment.
+           Weapon-agnostic wording so it reads correctly whether
+           the player swings a blade, a stick, or a wand.
+           Lives on ``_on_attacked`` (not ``apply_damage``) because
+           physical hits multiply to zero damage and the sequence
+           helper skips ``apply_damage`` on zero-damage results.
+        2. **Melee cold counter-touch** — attackers inside melee
+           reach take 1d4 cold damage from the freezing aura, with
+           "chill saps N from the attacker" appended to
+           ``extra_text``.
+
+        Both append rather than overwrite so they compose cleanly
+        with any prior ``get_hit_narration`` line and with each
+        other (dual-wielded physical attack in melee range =
+        "passes through like mist — chill saps N from the attacker").
         """
-        super().apply_damage(
-            amount,
-            dmg_type=dmg_type,
-            target_part=target_part,
-        )
+        if not result.hit():
+            return  # no contact, no chill, no intangibility reveal
+
         if (
-            not self._has_announced_intangibility
-            and amount > 0
-            and dmg_type is not None
-            and (dmg_type & self._PHYSICAL_TYPES)
+            source.damage_type is not None
+            and (source.damage_type & self._PHYSICAL_TYPES)
         ):
-            self._has_announced_intangibility = True
-        return ""
+            _append_extra_text(result, "the blow passes through like mist")
+
+        if source.reach != Reach.MELEE:
+            return
+        cold = Dice.quick_roll("1d4")
+        if cold <= 0:
+            return
+        attacker.apply_damage(cold, dmg_type=DamageTypes.WATER)
+        _append_extra_text(result, f"chill saps {cold} from the attacker")
 
     # -- Combat round narrative ------------------------------------------
 
     def on_combat_round(self, damage_by_player) -> str:
-        """Two one-time narrative announcements:
-        1. First-physical-resisted hit: 'your blade passes through'.
-        2. Crossing into fade state: 'too thin to siphon now'.
-        Both fire at most once per encounter."""
-        msgs = []
-        if self._has_announced_intangibility and not getattr(
-            self, "_intangibility_msg_emitted", False,
-        ):
-            self._intangibility_msg_emitted = True
-            msgs.append(parse(
-                "@2's blade passes through @1d like mist; what little "
-                "force connects is shrugged off like a chill breeze.",
-                self, *(p[0] for p in damage_by_player[:1]) or (self,),
-            ) if damage_by_player else parse(
-                "Steel passes through @1d like mist.", self,
-            ))
+        """One-time fade-state announcement.
+
+        The first-physical-hit callout lives in ``_on_attacked`` now
+        — surfaced via ``result.extra_text`` so it lands inline with
+        the attack-table row, not after the monster's counter-attack.
+        """
         if self._is_fading() and not self._has_faded:
             self._has_faded = True
-            msgs.append(parse(
+            return parse(
                 "@1dc thins, @1a outline rippling like heat haze. The "
                 "stolen warmth slips through @1o now, leaking back "
                 "into the world.",
                 self,
-            ))
-        return "\n".join(msgs)
+            )
+        return ""
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([
@@ -294,3 +279,13 @@ class Spirit(Undead, MonsterPlugin):
             f"@1dc does not respond to the {invocation} so much as fail "
             "to notice it. The chill lingers for a moment afterward.",
         ])
+
+
+def _append_extra_text(result, snippet: str) -> None:
+    """Append a snippet to an ``AttackResult.extra_text`` field,
+    joining with ' — ' when there's already content. Extracted
+    because ``Spirit._on_attacked`` has two independent hook
+    consumers (intangibility callout + cold counter-touch) that
+    both want to contribute to the same per-hit narration line."""
+    existing = result.extra_text
+    result.extra_text = f"{existing} — {snippet}" if existing else snippet

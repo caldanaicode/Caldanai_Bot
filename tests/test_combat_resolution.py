@@ -558,11 +558,17 @@ class TestEmptySequence:
         assert rr.injury_feedback_lines == []
         assert rr.death_msg == ""
 
-    def test_results_without_target_part_are_routed_to_body(self):
-        """When a result has no ``target_part`` (legacy / partless
-        target), damage still routes via ``apply_damage`` with
-        ``target_part=None`` — matching the behaviour ``do_combat`` and
-        ``attack_random`` already relied on."""
+    def test_partless_target_skips_apply_damage_to_avoid_double_damage(self):
+        """Regression: when a result targets a partless creature
+        (e.g. Spirit), ``apply_sequence_to_target`` must NOT call
+        ``apply_damage`` — the legacy path in ``Creature.apply_damage``
+        would decrement body HP here, and the caller (``do_combat``)
+        ALSO subtracts the post-defense body total afterwards.
+        Letting both fire produced double-damage (playtested
+        2026-04-18: Spirit at 16 HP took 19 damage from a single
+        10-damage crit after defense). Body HP is the caller's sole
+        responsibility across both partless and parts paths; the
+        sequence resolver just accumulates the totals."""
         target = _make_creature(health_max=100)
         # No body_parts on target — target_part=None stays None.
         attacker = _make_creature(name="bandit")
@@ -570,8 +576,9 @@ class TestEmptySequence:
 
         rr = apply_sequence_to_target(seq, target)
 
-        # With no parts, the legacy path in Creature.apply_damage
-        # decrements body HP directly.
-        assert target.health == 90
+        # Body HP unchanged — caller (do_combat) owns body HP for
+        # partless targets.
+        assert target.health == 100
+        # Totals still accumulate so the caller can apply them.
         assert rr.num_hits == 1
         assert rr.body_damage_total == 10

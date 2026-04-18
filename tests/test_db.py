@@ -235,3 +235,96 @@ class TestCheckConnectionDecorator:
         result = my_func()
         assert result is None
         assert DB._is_connected is False
+
+
+class TestFlushAll:
+    """``DB.flush_all`` is the synchronous drain called during
+    shutdown. Must: (1) drain every collection queue that has
+    pending ops, (2) pass those ops to ``collection.bulk_write``,
+    (3) swallow ``BulkWriteError`` so one failing collection doesn't
+    prevent the others from flushing."""
+
+    def test_drains_every_collection_with_pending_ops(self, fresh_db):
+        DB = fresh_db
+        games = MagicMock()
+        games.full_name = "db.games"
+        players = MagicMock()
+        players.full_name = "db.players"
+        DB._queues[games].put(UpdateOne({"_id": 1}, {"$set": {"x": 1}}))
+        DB._queues[games].put(UpdateOne({"_id": 2}, {"$set": {"x": 2}}))
+        DB._queues[players].put(InsertOne({"_id": 3}))
+
+        DB.flush_all()
+
+        games.bulk_write.assert_called_once()
+        games_ops = games.bulk_write.call_args.args[0]
+        assert len(games_ops) == 2
+        assert games.bulk_write.call_args.kwargs == {"ordered": False}
+
+        players.bulk_write.assert_called_once()
+        players_ops = players.bulk_write.call_args.args[0]
+        assert len(players_ops) == 1
+
+        # Queues are drained after flush — re-flushing is a no-op.
+        assert DB._queues[games].get_all() == []
+        assert DB._queues[players].get_all() == []
+
+    def test_skips_empty_collections(self, fresh_db):
+        """A collection with no queued ops should not trigger a
+        ``bulk_write`` call — pymongo errors on empty op lists."""
+        DB = fresh_db
+        games = MagicMock()
+        games.full_name = "db.games"
+        DB._queues[games]  # touch to create the empty queue
+
+        DB.flush_all()
+
+        games.bulk_write.assert_not_called()
+
+    def test_continues_past_collection_with_bulk_write_error(self, fresh_db):
+        """A failing bulk_write on one collection must not abort the
+        rest of the flush — each remaining collection still gets
+        attempted. Protects against a schema issue on one queue
+        eating every pending write across the system."""
+        from pymongo.errors import BulkWriteError
+        DB = fresh_db
+        bad = MagicMock()
+        bad.full_name = "db.bad"
+        bad.bulk_write.side_effect = BulkWriteError({"errmsg": "boom"})
+        good = MagicMock()
+        good.full_name = "db.good"
+        DB._queues[bad].put(UpdateOne({"_id": 1}, {"$set": {"x": 1}}))
+        DB._queues[good].put(InsertOne({"_id": 2}))
+
+        DB.flush_all()
+
+        bad.bulk_write.assert_called_once()
+        good.bulk_write.assert_called_once()
+
+    def test_drains_mongo_log_handler_queue(self, fresh_db):
+        """The Mongo log handler has its own queue that
+        ``batch_write`` drains into ``DB._logs``. ``flush_all`` must
+        mirror that — otherwise in-flight log lines die on shutdown."""
+        DB = fresh_db
+        DB._logs = MagicMock()
+        DB._logs.full_name = "db.logs"
+        DB._mongoHandler = MagicMock()
+        DB._mongoHandler.queue.get_all.return_value = [
+            {"msg": "line1"}, {"msg": "line2"},
+        ]
+
+        DB.flush_all()
+
+        DB._logs.bulk_write.assert_called_once()
+        log_ops = DB._logs.bulk_write.call_args.args[0]
+        assert len(log_ops) == 2
+        assert all(isinstance(op, InsertOne) for op in log_ops)
+
+    def test_no_mongo_handler_is_fine(self, fresh_db):
+        """Early startup / test runs don't have a Mongo log handler
+        — ``flush_all`` must not crash when ``DB._mongoHandler`` is
+        ``None``."""
+        DB = fresh_db
+        DB._mongoHandler = None
+        # Should not raise.
+        DB.flush_all()

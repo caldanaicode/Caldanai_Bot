@@ -19,11 +19,17 @@ duplicated across ``Game.do_combat`` (player -> monster),
 Hook-firing invariants (pinned in ``tests/test_combat_resolution.py``):
 
 - ``target.apply_damage(result.damage, dmg_type=..., target_part=...)``
-  is invoked once per result with positive damage. ``apply_damage`` is
-  a pure damage-application primitive — it does not fire part hooks.
-  The helper below is responsible for the coalesced fire so multi-
-  source sequences don't produce duplicate side effects (wing
-  grounding, doppelganger pain cries, etc.).
+  is invoked once per result with positive damage **when the target
+  has body parts**. ``apply_damage`` is a pure damage-application
+  primitive — it does not fire part hooks. The helper below is
+  responsible for the coalesced fire so multi-source sequences don't
+  produce duplicate side effects (wing grounding, doppelganger pain
+  cries, etc.).
+- For **partless targets** (e.g. Spirit), ``apply_damage`` is
+  **skipped** — its legacy whole-body path would mutate body HP that
+  the caller is already responsible for applying post-defense,
+  producing double-damage. Body HP is the caller's sole owner across
+  both partless and parts paths.
 - ``part.on_injury_change`` fires exactly once per unique hit part
   whose injury level changed across the sequence — the "old" level is
   snapshotted before any hit lands, so multi-source sequences don't
@@ -124,6 +130,18 @@ def apply_sequence_to_target(
         part = result.target_part
         if part is not None and id(part) not in part_starting_levels:
             part_starting_levels[id(part)] = (part, part.get_injury_level())
+
+        # Partless targets (e.g. Spirit): ``Creature.apply_damage``'s
+        # legacy path would mutate body HP here, and the caller
+        # (``do_combat``) ALSO subtracts the post-defense body total
+        # after this helper returns — that produces double-damage.
+        # Skip ``apply_damage`` for partless targets; body HP is the
+        # caller's sole responsibility in both paths, and the
+        # partless-creature death flows through the caller's
+        # ``monster.health == 0 and not death_msg: monster.death``
+        # fallback rather than via ``MonsterPlugin.apply_damage``.
+        if part is None and not target.body_parts:
+            continue
 
         # Pure damage application — ``apply_damage`` doesn't fire part
         # hooks. The helper snapshots old levels, applies all hits,

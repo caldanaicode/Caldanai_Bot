@@ -70,7 +70,17 @@ class GameClock:
             self.function = function
             self.seconds = int(max(0, seconds))
             self.time_added = time_added
-            self.name = self.function.__name__
+            # Use ``__qualname__`` not ``__name__`` so bound methods
+            # on different classes/instances with the same method
+            # name don't collide in the routine registry. Without
+            # this, ``WeatherDaemon.tick`` and
+            # ``CelestialDaemon.tick`` both register under
+            # ``"tick"``, and ``only_instance=True`` silently evicts
+            # one when the other gets added — only the last one
+            # wins, and the clock never drives both.
+            # Plain functions have ``__qualname__ == __name__`` as
+            # their qualname, so non-method callers are unaffected.
+            self.name = getattr(function, "__qualname__", function.__name__)
             self.only_instance = only_instance
 
         def run(self):
@@ -160,23 +170,45 @@ class GameClock:
         """
         Adds a function to the game clock's internal lists.
 
+        With ``only_instance=True`` (the default), this is a
+        **skip-if-found** operation: if a routine with the same
+        qualname is already registered in the matching list, the
+        call is a no-op. The previous implementation used to evict
+        the old entry and append a fresh one, which silently reset
+        the routine's ``time_added`` phase anchor (and, via the
+        daemon ``start()`` paths that drive this, reset
+        per-daemon tracking state like ``_last_tick_seconds``).
+        Skip-if-found avoids that side-effect — callers who want
+        to genuinely restart or change the interval should
+        ``remove_routine`` first, then add.
+
         :param routine: The function to add.
         :param seconds: How often the function should run, in seconds.
         :param run_once: Whether or not the function runs only once.
-        :param only_instance: Whether or not to allow more than one of this routine to coexist. If True, then the new
-            routine will attempt to replace the old routine.
+        :param only_instance: When True (default), skip the add if
+            a same-qualname routine is already registered. When
+            False, always append (duplicates coexist).
         """
 
-        if seconds > 0:
-            r = GameClock._Routine(self._ticks, routine, seconds, only_instance)
-            routines = self._tick_run_once if run_once else self._tick_routines
-            while only_instance and (match := self.find_routine(r.name)) and match[0] == routines:
-                routines.pop(match[1])
-            routines.append(r)
+        if seconds <= 0:
+            return
+        r = GameClock._Routine(self._ticks, routine, seconds, only_instance)
+        routines = self._tick_run_once if run_once else self._tick_routines
 
-            _log.debug(
-                f"Added {'run_once' if run_once else 'recurring'} game routine `{r.name}` with timer of {seconds} seconds"
-            )
+        if only_instance:
+            lst, idx = self.find_routine(r.name)
+            if lst is routines:
+                _log.debug(
+                    f"Routine `{r.name}` already registered (index {idx}, "
+                    f"{routines[idx].seconds}s); skipping add"
+                )
+                return
+
+        routines.append(r)
+        _log.debug(
+            f"Added {'run_once' if run_once else 'recurring'} game routine "
+            f"`{r.name}` with timer of {seconds} seconds"
+        )
 
     def find_routine(self, name: str) -> Tuple[Optional[List["GameClock._Routine"]], Optional[int]]:
         """
@@ -189,21 +221,34 @@ class GameClock:
         _log.debug(f"Seeking routine `{name}`")
         for i in range(len(self._tick_routines)):
             if name == self._tick_routines[i].name:
+                _log.debug(
+                    f"Routine `{name}` found in recurring list at index {i}"
+                )
                 return self._tick_routines, i
 
         for i in range(len(self._tick_run_once)):
             if name == self._tick_run_once[i].name:
+                _log.debug(
+                    f"Routine `{name}` found in run-once list at index {i}"
+                )
                 return self._tick_run_once, i
 
         _log.debug(f"Routine `{name}` not found")
         return None, None
 
     def remove_routine(self, routine: Callable) -> bool:
-        """Removes the first instance of a routine from the game clock's internal lists."""
-        lst, i = self.find_routine(routine.__name__)
+        """Removes the first instance of a routine from the game clock's internal lists.
+
+        Keyed by ``__qualname__`` so bound methods on different
+        classes (``WeatherDaemon.tick`` vs
+        ``CelestialDaemon.tick``) target the right entry
+        instead of colliding on the bare method name.
+        """
+        name = getattr(routine, "__qualname__", routine.__name__)
+        lst, i = self.find_routine(name)
         if lst and i >= 0:
             lst.pop(i)
-            _log.debug(f"{routine.__name__} removed from game clock")
+            _log.debug(f"{name} removed from game clock")
             return True
         return False
 

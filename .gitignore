@@ -5,3 +5,4 @@ __pycache__
 .venv314
 .vscode
 .pytest_cache
+.patch-notes-scratch.md

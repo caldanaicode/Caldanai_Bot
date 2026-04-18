@@ -567,3 +567,127 @@ class TestPlayerLookupShims:
         game.player_manager.players = {}
         assert game.get_player_by_user_id(999) is None
 
+
+# ---------------------------------------------------------------------------
+# Ambience kill-switch split: master + per-subsystem flags
+# ---------------------------------------------------------------------------
+
+
+class TestAmbienceEnabled:
+    """``Game.ambience_enabled(subsystem)`` returns the effective
+    on/off state for each subsystem — master ANDed with the per-
+    subsystem flag. Either side being ``False`` suppresses the
+    subsystem; only both being ``True`` lets it emit."""
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_master_off_suppresses_all_subsystems(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False,
+            enable_ambience=False,
+            enable_ambience_local=True,
+            enable_ambience_celestial=True,
+            enable_ambience_weather=True,
+        )
+        for subsystem in Game.AMBIENCE_SUBSYSTEMS:
+            assert game.ambience_enabled(subsystem) is False, (
+                f"master=False should suppress {subsystem} even when its own flag is True"
+            )
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_subsystem_off_suppresses_only_itself(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.get_season.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False,
+            enable_ambience=True,
+            enable_ambience_local=False,
+            enable_ambience_celestial=True,
+            enable_ambience_weather=True,
+        )
+        assert game.ambience_enabled("local") is False
+        assert game.ambience_enabled("celestial") is True
+        assert game.ambience_enabled("weather") is True
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_unknown_subsystem_falls_back_to_master_only(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """A subsystem name not registered on the Game treats its
+        per-subsystem flag as ``True`` — adding a new subsystem in
+        code without first adding its flag shouldn't silently
+        disable it."""
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.get_season.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=True,
+        )
+        assert game.ambience_enabled("not_a_real_subsystem") is True
+        game.enable_ambience = False
+        assert game.ambience_enabled("not_a_real_subsystem") is False
+
+
+class TestAmbiencePersistence:
+    """Ambience subsystem flags must round-trip through ``to_dict``
+    and be restorable via ``from_dict`` defaults when absent (pre-
+    split documents shouldn't load with subsystems silently off)."""
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_to_dict_emits_all_subsystem_flags(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.get_season.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False,
+            enable_ambience=True,
+            enable_ambience_local=False,
+            enable_ambience_celestial=True,
+            enable_ambience_weather=False,
+        )
+        d = game.to_dict()
+        assert d["enable_ambience"] is True
+        assert d["enable_ambience_local"] is False
+        assert d["enable_ambience_celestial"] is True
+        assert d["enable_ambience_weather"] is False
+

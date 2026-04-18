@@ -16,6 +16,23 @@ from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 _log = get_logger(__name__)
 
+
+# Shared dead-invoker flavor pool for every inventory command —
+# the original code repeated one identical line across four
+# handlers (equip / stow / sell / etc.). One module-level pool +
+# the ``dead_invoker_guard`` helper collapse all four to a single
+# source of truth, and the pool shape (list of parse templates)
+# gives the usual random-variety feel.
+_DEAD_INVOKER_INVENTORY_FLAVOR = [
+    "A frustrated wail escapes the corpse of @1.",
+    "@1np fingers twitch at the idea of gear, but the corpse has no use for it.",
+    "The remains of @1 cannot lift a pebble, let alone sort an inventory.",
+    "A dry rattle — @1np final thought on the matter.",
+    "@1 would very much like to handle that, but @1 is presently dead.",
+    "The inventory of @1 is not going anywhere, and neither is @1.",
+]
+
+
 class RpgInventoryCommands(Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -41,8 +58,9 @@ class RpgInventoryCommands(Cog):
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
         _item: Union[Weapon, Armor, None] = None
 
-        if player.is_dead():
-            Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
+        if RpgUtilities.dead_invoker_guard(
+            channel, player, _DEAD_INVOKER_INVENTORY_FLAVOR,
+        ):
             return
 
         _slot = None
@@ -158,8 +176,9 @@ class RpgInventoryCommands(Cog):
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
-        if player.is_dead():
-            Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
+        if RpgUtilities.dead_invoker_guard(
+            channel, player, _DEAD_INVOKER_INVENTORY_FLAVOR,
+        ):
             return
 
         if not item_or_slot:
@@ -381,8 +400,9 @@ class RpgInventoryCommands(Cog):
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
-        if player.is_dead():
-            Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
+        if RpgUtilities.dead_invoker_guard(
+            channel, player, _DEAD_INVOKER_INVENTORY_FLAVOR,
+        ):
             return
 
         if items is None or len(items) == 0:
@@ -480,8 +500,9 @@ class RpgInventoryCommands(Cog):
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
-        if player.is_dead():
-            Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
+        if RpgUtilities.dead_invoker_guard(
+            channel, player, _DEAD_INVOKER_INVENTORY_FLAVOR,
+        ):
             return
 
         _item, *_ = player.inventory.filter(item)

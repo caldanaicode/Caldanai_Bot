@@ -13,7 +13,7 @@ from caldanai.lib.rpg.time import GameClock
 from caldanai.lib.rpg.helpers import get_random_direction
 from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
 from caldanai.lib.rpg.combat_state import CombatState
-from caldanai.lib.rpg.ambience.sunrise_sunset import SunriseSunsetDaemon
+from caldanai.lib.rpg.ambience.celestial import CelestialDaemon
 from caldanai.lib.rpg.ambience.weather import WeatherDaemon
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.player import Player
@@ -143,6 +143,67 @@ class Game:
         from the underlying ``player_manager.players`` dict shape."""
         return self.player_manager.players.get(user_id)
 
+    def ambience_enabled(self, subsystem: str) -> bool:
+        """Return the effective on/off state of an ambience subsystem.
+
+        The master ``enable_ambience`` flag ANDs with each per-
+        subsystem flag: a subsystem is "on" only when the master is
+        on AND its own flag is on. Subsystem names come from
+        :attr:`AMBIENCE_SUBSYSTEMS`. An unknown name treats the
+        per-subsystem flag as True (subsystems absent from the
+        registry fall back to master-only gating), so adding a new
+        subsystem in code without first adding it to the registry
+        doesn't silently disable it.
+        """
+        if not self.enable_ambience:
+            return False
+        return bool(getattr(self, f"enable_ambience_{subsystem}", True))
+
+    def sync_ambience_daemons(self) -> None:
+        """Align every ambience subsystem's scheduling state with the
+        current master + per-subsystem flags.
+
+        Called after any flag change (master or sub-toggle) so the
+        clock-scheduled routines and per-channel daemons stop or
+        start in lockstep with the declared state. Idempotent —
+        calling it repeatedly is a no-op when nothing changed, since
+        each subsystem's start() / stop() / add_routine() /
+        remove_routine() is itself idempotent on its own registry.
+        """
+        # Local: do_ambience clock routine. add_routine is
+        # idempotent (it no-ops if already scheduled); do_ambience
+        # self-removes on the next tick when the flag is off, so
+        # calling remove_routine directly is defensive but cheap.
+        if self.ambience_enabled("local"):
+            self.game_clock.add_routine(self.do_ambience, 1)
+        else:
+            self.game_clock.remove_routine(self.do_ambience)
+
+        # Celestial: sunrise/sunset daemon.
+        if self.celestial is not None:
+            if self.ambience_enabled("celestial"):
+                self.celestial.start()
+            else:
+                self.celestial.stop()
+
+        # Weather: weather daemon. Requires a season context for
+        # the initial roll — import locally to stay consistent with
+        # __init__'s pattern and avoid a module-level cycle risk.
+        if self.weather is not None:
+            if self.ambience_enabled("weather"):
+                from caldanai.lib.rpg.helpers.enums import Seasons
+                self.weather.start(Seasons(self.game_clock.get_season()))
+            else:
+                self.weather.stop()
+
+    # Canonical list of ambience subsystems. Each name corresponds to
+    # a per-subsystem kill-switch stored as
+    # ``enable_ambience_<name>`` on the Game and gated at emit time
+    # below. Kept as a class-level tuple so the admin command, the
+    # serializer, and the synchronization helper all agree on the set
+    # without duplicating it.
+    AMBIENCE_SUBSYSTEMS: Tuple[str, ...] = ("local", "celestial", "weather")
+
     def __init__(
         self,
         bot: "Bot" = None,
@@ -154,6 +215,9 @@ class Game:
         spawn_duration: int = 10,
         loot_duration: int = 5,
         enable_ambience: bool = True,
+        enable_ambience_local: bool = True,
+        enable_ambience_celestial: bool = True,
+        enable_ambience_weather: bool = True,
         game_time: int = 0,
     ):
         """
@@ -167,7 +231,16 @@ class Game:
         :param spawn_timer_range: The minimum and maximum time between spawns, in seconds.
         :param spawn_duration: Number of minutes before first combat triggers. Additional rounds occur at half this time.
         :param loot_duration: Number of minutes before loot expires.
-        :param enable_ambience: Whether to display ambience messages such as weather, day/night cycles,    and monster ambience messages.
+        :param enable_ambience: Master kill-switch for all ambience
+            subsystems. When ``False``, no subsystem emits regardless
+            of its own flag — the master ANDs with each subsystem.
+        :param enable_ambience_local: Sub-toggle for random local
+            flavor lines (wildlife, breezes, etc.) emitted by
+            :meth:`do_ambience`.
+        :param enable_ambience_celestial: Sub-toggle for sunrise /
+            sunset (and future celestial-traversal) narration.
+        :param enable_ambience_weather: Sub-toggle for weather-
+            pattern narration emitted by the ``WeatherDaemon``.
         :param game_time: The game's internal time value.
         """
         self.bot = bot
@@ -191,13 +264,16 @@ class Game:
         self.loot_countdown = loot_duration * 60
         self.spawn_timer_range = spawn_range
         self.enable_ambience = enable_ambience
+        self.enable_ambience_local = enable_ambience_local
+        self.enable_ambience_celestial = enable_ambience_celestial
+        self.enable_ambience_weather = enable_ambience_weather
         self.game_clock = GameClock(game_time=game_time)
-        # WeatherDaemon + SunriseSunsetDaemon are created here but
+        # WeatherDaemon + CelestialDaemon are created here but
         # not started — starting schedules routines on the clock
         # registry, which requires the game to be registered. Both
         # happen below together.
         self.weather = WeatherDaemon(channel.id) if channel else None
-        self.sunrise_sunset = SunriseSunsetDaemon(channel.id) if channel else None
+        self.celestial = CelestialDaemon(channel.id) if channel else None
         self.room0: Area = None
         self.monster_statics: Counter = Counter()
 
@@ -216,7 +292,12 @@ class Game:
 
         if use_spawn_timer:
             self.game_clock.add_routine(self.set_spawn_timer, 5, True)
-        if enable_ambience:
+        # Random-flavor ambience routine. Gated by the combined
+        # "master AND local" check so a game created with
+        # ``enable_ambience_local=False`` skips scheduling entirely
+        # — same behavior as the old master-only gate, extended with
+        # the subsystem dimension.
+        if self.ambience_enabled("local"):
             self.game_clock.add_routine(self.do_ambience, 1)
 
         self.bot = bot
@@ -238,14 +319,14 @@ class Game:
             # Ambience subsystems are enabled under the same gate as
             # the existing ambience loop — ``enable_ambience=False``
             # is used by tests / headless contexts.
-            if self.weather is not None and self.enable_ambience:
+            if self.weather is not None and self.ambience_enabled("weather"):
                 from caldanai.lib.rpg.helpers.enums import Seasons
                 self.weather.start(Seasons(self.game_clock.get_season()))
             # Sunrise/sunset narration is a separate daemon now
-            # (previously inline in do_ambience); gated by the same
-            # ambience flag to preserve pre-refactor behavior.
-            if self.sunrise_sunset is not None and self.enable_ambience:
-                self.sunrise_sunset.start()
+            # (previously inline in do_ambience); gated by the
+            # combined master + celestial flags.
+            if self.celestial is not None and self.ambience_enabled("celestial"):
+                self.celestial.start()
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -532,12 +613,16 @@ class Game:
         """Small chance to display a random flavor ambience message.
 
         Sunrise/sunset transition narration used to also flow through
-        here; it now lives on a dedicated ``SunriseSunsetDaemon``
+        here; it now lives on a dedicated ``CelestialDaemon``
         scheduled directly on the clock. This method is the random
         flavor-choice roll only — kill-switch guard + the roll.
+
+        Gated by the ``local`` ambience subsystem, which ANDs with
+        the master ``enable_ambience``. Toggling either off self-
+        removes this routine the next time it fires.
         """
 
-        if not self.enable_ambience:
+        if not self.ambience_enabled("local"):
             _log.debug(f"Removing ambience loop for game on {self.guild.name}.")
             self.game_clock.remove_routine(self.do_ambience)
             return
@@ -576,6 +661,9 @@ class Game:
             "loot_duration": int(self.loot_duration / 60),
             "spawn_timer_range": list(self.spawn_timer_range),
             "enable_ambience": self.enable_ambience,
+            "enable_ambience_local": self.enable_ambience_local,
+            "enable_ambience_celestial": self.enable_ambience_celestial,
+            "enable_ambience_weather": self.enable_ambience_weather,
             "game_time": self.game_clock.get_seconds(),
         }
 
@@ -635,6 +723,12 @@ class Game:
             spawn_duration=int(d["spawn_duration"]),
             loot_duration=int(d["loot_duration"]),
             enable_ambience=d["enable_ambience"],
+            # Per-subsystem flags default to True (opt-in parity
+            # with the master-only behavior) so pre-split documents
+            # load without surprise suppression.
+            enable_ambience_local=d.get("enable_ambience_local", True),
+            enable_ambience_celestial=d.get("enable_ambience_celestial", True),
+            enable_ambience_weather=d.get("enable_ambience_weather", True),
             game_time=d["game_time"],
         )
 
@@ -663,12 +757,13 @@ class Game:
         from caldanai.lib.rpg.helpers.enums import Seasons
         game.register_channel(game.channel.id)
         game.weather = WeatherDaemon(game.channel.id)
-        game.sunrise_sunset = SunriseSunsetDaemon(game.channel.id)
+        game.celestial = CelestialDaemon(game.channel.id)
         if d.get("weather"):
             game.weather.load_dict(d["weather"])
-        if game.enable_ambience:
+        if game.ambience_enabled("weather"):
             game.weather.start(Seasons(game.game_clock.get_season()))
-            game.sunrise_sunset.start()
+        if game.ambience_enabled("celestial"):
+            game.celestial.start()
 
         await game.player_manager.load_players(game.guild, game.channel.id)
         game.game_clock.add_routine(game.player_manager.update_inactive_roles, 3600)

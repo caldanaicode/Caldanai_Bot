@@ -1,13 +1,10 @@
 from typing import TYPE_CHECKING
-from discord.ext import tasks
 from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only, is_owner, Context
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
 from caldanai.lib.bot import cache_prefix
-
-import asyncio
 
 if TYPE_CHECKING:
     from caldanai.lib.bot import Bot
@@ -77,35 +74,6 @@ class BotAdminCommands(Cog):
             else:
                 Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 
-    async def wait_to_close(self, seconds=5):
-        await asyncio.sleep(seconds)
-        await self.bot.close()
-
-    @is_owner()
-    @command(name="shutdown", brief="Shuts down the bot with an optional message.")
-    async def shutdown(self, ctx: Context, *msg: str):
-        """
-        Shuts down the bot with an optional message to be sent to servers that the bot is running on.
-
-        :param msg: The message to announce.
-        """
-
-        if msg:
-            try:
-                games = list(DB.find_all_games())
-                for game in games:
-                    Dispatcher.add(self.bot.get_channel(game["channel_id"]), " ".join(msg))
-
-                Dispatcher.flush = True
-                flush_dispatcher.start(self.bot)
-                await self.bot.wait_for("disconnect")
-
-            except Exception as e:
-                _log.error(e)
-
-            finally:
-                exit(0)
-
     @Cog.listener()
     async def on_ready(self):
         _log.info("BotAdminCommands ready.")
@@ -113,12 +81,3 @@ class BotAdminCommands(Cog):
 
 async def setup(bot: "Bot"):
     await bot.add_cog(BotAdminCommands(bot))
-
-
-@tasks.loop(seconds=1)
-async def flush_dispatcher(bot: "Bot"):
-    if Dispatcher.queue.empty():
-        flush_dispatcher.stop()
-        Dispatcher.flush = False
-        await bot.close()
-        _log.info("Connection closed by shutdown command.")

@@ -94,14 +94,36 @@ class TestRoutineManagement:
 # ---------------------------------------------------------------------------
 
 class TestOnlyInstance:
-    def test_only_instance_replaces_existing(self):
+    def test_only_instance_skips_duplicate_adds(self):
+        """With ``only_instance=True``, adding the same routine
+        again is a no-op — the first registration wins. Previous
+        behavior evicted the old entry and appended a fresh one,
+        which silently reset the routine's phase anchor
+        (``time_added``) and any daemon state the ``start()`` call
+        path resets. Skip-if-found is the safer contract for the
+        ``sync_ambience_daemons`` pattern that re-invokes every
+        daemon's ``start()`` on each toggle."""
         clock = GameClock()
         clock.add_routine(_async_dummy, seconds=10, only_instance=True)
         clock.add_routine(_async_dummy, seconds=20, only_instance=True)
-        # Should have only one instance
+        # Should still have only one instance.
         count = sum(1 for r in clock._tick_routines if r.name == "_async_dummy")
         assert count == 1
-        # The surviving one should have seconds=20
+        # And the survivor is the *first* add's interval — the
+        # second add was skipped, not merged.
+        lst, idx = clock.find_routine("_async_dummy")
+        assert lst[idx].seconds == 10
+
+    def test_only_instance_requires_explicit_remove_to_change_interval(self):
+        """Callers that actually want to change a routine's
+        interval must ``remove_routine`` first, then add. Under
+        the old semantics an implicit evict-and-replace did this
+        invisibly; under skip-if-found the change is explicit or
+        it doesn't happen."""
+        clock = GameClock()
+        clock.add_routine(_async_dummy, seconds=10, only_instance=True)
+        clock.remove_routine(_async_dummy)
+        clock.add_routine(_async_dummy, seconds=20, only_instance=True)
         lst, idx = clock.find_routine("_async_dummy")
         assert lst[idx].seconds == 20
 
@@ -355,8 +377,11 @@ class TestModuleLevelSchedulingSurface:
             pass
 
         assert schedule_routine(_FAKE_ID_A, r, seconds=60) is True
-        # Routine is actually registered on the clock.
-        lst, idx = clock.find_routine("r")
+        # Routine is actually registered on the clock. Keyed by
+        # qualname (``__qualname__``) so bound methods on different
+        # classes don't collide on their bare method name — see
+        # the docstring on ``GameClock._Routine.__init__``.
+        lst, idx = clock.find_routine(r.__qualname__)
         assert lst is not None and idx >= 0
 
     def test_schedule_routine_fails_cleanly_for_unknown_game(self, clean_registry):
@@ -389,3 +414,72 @@ class TestModuleLevelSchedulingSurface:
             pass
 
         assert cancel_routine(_FAKE_ID_A, r) is False
+
+    def test_methods_with_same_name_on_different_classes_coexist(self, clean_registry):
+        """Regression: two different classes each with an async
+        ``tick`` method (e.g. ``WeatherDaemon.tick`` and
+        ``CelestialDaemon.tick``) used to collide in the
+        routine registry because the key was ``function.__name__``.
+        Adding the second silently evicted the first via
+        ``only_instance=True``. Qualname-based keying keeps them
+        distinct.
+        """
+        from caldanai.lib.rpg.time import schedule_routine
+        clock = GameClock(game_time=0)
+        _register(_FAKE_ID_A, clock)
+
+        class AlphaDaemon:
+            async def tick(self):
+                pass
+
+        class BetaDaemon:
+            async def tick(self):
+                pass
+
+        a = AlphaDaemon()
+        b = BetaDaemon()
+        schedule_routine(_FAKE_ID_A, a.tick, seconds=1)
+        schedule_routine(_FAKE_ID_A, b.tick, seconds=60)
+
+        alpha_lst, alpha_idx = clock.find_routine(a.tick.__qualname__)
+        beta_lst, beta_idx = clock.find_routine(b.tick.__qualname__)
+        assert alpha_lst is not None and alpha_idx >= 0, (
+            "AlphaDaemon.tick was evicted by BetaDaemon.tick — the "
+            "collision bug is back"
+        )
+        assert beta_lst is not None and beta_idx >= 0
+        assert alpha_lst[alpha_idx].function.__self__ is a
+        assert beta_lst[beta_idx].function.__self__ is b
+
+    def test_cancel_routine_targets_correct_method_by_qualname(
+        self, clean_registry,
+    ):
+        """Regression counterpart: cancelling ``AlphaDaemon.tick``
+        must not also cancel ``BetaDaemon.tick`` — the old
+        ``__name__``-based removal would have hit whichever landed
+        first in the routines list regardless of which instance the
+        caller meant."""
+        from caldanai.lib.rpg.time import schedule_routine, cancel_routine
+        clock = GameClock(game_time=0)
+        _register(_FAKE_ID_A, clock)
+
+        class AlphaDaemon:
+            async def tick(self):
+                pass
+
+        class BetaDaemon:
+            async def tick(self):
+                pass
+
+        a = AlphaDaemon()
+        b = BetaDaemon()
+        schedule_routine(_FAKE_ID_A, a.tick, seconds=1)
+        schedule_routine(_FAKE_ID_A, b.tick, seconds=60)
+
+        assert cancel_routine(_FAKE_ID_A, a.tick) is True
+
+        # AlphaDaemon.tick is gone; BetaDaemon.tick is still live.
+        alpha_lst, alpha_idx = clock.find_routine(a.tick.__qualname__)
+        beta_lst, beta_idx = clock.find_routine(b.tick.__qualname__)
+        assert alpha_lst is None and alpha_idx is None
+        assert beta_lst is not None and beta_idx >= 0
