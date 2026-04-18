@@ -4,6 +4,156 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-18 — Target Preferences as Declarative Dict on `Creature`
+
+Six monsters (Bearowl, Werewolf, Vampire, Pixie, Minotaur, Bandit)
+each had a ``get_target_part_preference`` override that was just
+``if random() < P: return PART``. Consolidated to a class-level
+declarative attribute on ``Creature`` plus a single default method
+implementation that every subclass inherits.
+
+**New on `Creature`:**
+
+```python
+TARGET_PREFERENCES: Dict[str, float] = {}
+
+def get_target_part_preference(self, target, source):
+    for part_name, prob in self.TARGET_PREFERENCES.items():
+        if random() < prob:
+            return part_name
+    return None
+```
+
+Dict iteration order (insertion order on Py3.7+) is significant:
+each entry rolls ``random()`` independently and the first success
+short-circuits. Empty dict = no bias, fall through to
+exposure-weighted random targeting.
+
+``Creature.has_target_preference`` collapses to
+``return bool(self.TARGET_PREFERENCES)`` — no more identity-check
+against ``Creature.get_target_part_preference`` vs an override.
+``MonsterPlugin``'s previous redundant override of both methods
+is gone; the dict is the single source of truth.
+
+**Migrations** (all single-entry, RNG-count-identical to the old
+overrides):
+- Bearowl → ``{"head": 0.4}``
+- Werewolf → ``{"head": 0.3}``
+- Vampire → ``{"head": 0.4}``
+- Pixie → ``{"eye": 0.3}``
+- Minotaur → ``{"head": 0.5}``
+- Bandit → ``{"leg": 0.3}``
+
+Existing docstring rationale for each per-monster preference
+preserved as a class-level comment above each ``TARGET_PREFERENCES``
+declaration — no design intent lost.
+
+Creatures with logic beyond flat-probability rolls (conditional on
+target state, weapon reach, feed mechanics, etc.) override
+``get_target_part_preference`` directly — the dict is for the
+common case, not a straitjacket.
+
+Players inherit the empty-dict default and never populate it;
+their targeting is human-driven (``$kill <part>``) so the
+declarative attribute is inert for them but costs nothing to
+carry.
+
+**Multi-entry semantics for future multi-preference creatures**:
+per-entry independent coin flips, NOT partitioned ranges.
+Documented in the class-level comment so future readers don't
+assume a creature with ``{"head": 0.3, "leg": 0.3}`` always picks
+exactly one.
+
+### 2026-04-18 — `Game.get_player_by_user_id` Helper
+
+Thin read-only façade over ``player_manager.players`` for callers
+outside ``PlayerManager`` that need a user-id → ``Player`` lookup.
+Shields callers (currently just ``Bot.on_command_completion``)
+from the underlying dict shape. Mutation (``add_player`` /
+``remove_player``) remains on ``PlayerManager``.
+
+``Bot.on_command_completion`` migrated from the old
+``in game.player_manager.players.keys() and player :=
+game.player_manager.players[...]`` pattern to a single
+``player := game.get_player_by_user_id(...)`` walrus. Semantically
+identical (``.get()`` returns ``None`` when absent, truthy check
+short-circuits the same way), one less layer of dict spelunking
+in the call site.
+
+Closes review finding 3.8.
+
+### 2026-04-18 — Dead Hook Removed: `BodyPart.get_injury_flavor`
+
+The base ``BodyPart`` class carried a ``get_injury_flavor(level)``
+method defined in 2026-04 but never called by combat narration.
+The actual narration flow goes through ``get_injury_string`` +
+monster-level hooks; ``get_injury_flavor`` was vestigial. Removed
+from the base class; corresponding default-value test dropped.
+
+### 2026-04-18 — `GameClock._clocks` Registry Consolidated
+
+The third parallel channel-id registry is gone. ``GameClock._clocks``
+duplicated the channel → object lookup that ``Game._channel_routes``
+already owns — removed entirely, along with the
+``GameClock._register`` / ``_unregister`` classmethods that fed it.
+
+**New:** ``GameClock.for_channel`` is now a two-line shim that
+defers to ``Game._channel_routes`` via a method-local import:
+
+```python
+@classmethod
+def for_channel(cls, channel_id):
+    from caldanai.lib.rpg import Game
+    game = Game.for_channel(channel_id)
+    return game.game_clock if game is not None else None
+```
+
+All 9 existing ``GameClock.for_channel`` call sites (3 in ambience
+daemons, 6 in the ``time`` module façade functions) keep working
+unchanged — the shim preserves the pre-refactor shape while
+routing through the single source of truth.
+
+**Teardown simplified:** ``RpgUtilities.remove_game`` no longer
+calls ``GameClock._unregister(channel_id)``. Just ``unregister_channel``
+on the game is enough; the clock lookup falls through to ``None``
+automatically.
+
+**Lifecycle check:** verified every production lookup runs between
+``register_channel`` and ``unregister_channel``. Both ``__init__``
+and ``from_dict`` register before any daemon ``start()``; ``remove_game``
+stops daemons and the clock tick before unregistering. No tick can
+race the teardown.
+
+**Completes slice 3 of the Game god-object shrinking** started with
+the ``CombatState`` extraction (slice 1, 2026-04-17) and the
+``do_health_regen`` move to ``PlayerManager`` (slice 2, 2026-04-18).
+Three parallel channel-id registries are now two
+(``Game._channel_routes`` as the truth, ``Bot.games`` as a view).
+
+### 2026-04-18 — `do_health_regen` Moved to `PlayerManager`
+
+Slice 2 of shrinking the ``Game`` god-object. ``Game.do_health_regen``
+(and its private helper ``_most_injured_part``) were closed over
+``player_manager.players`` + ``self.channel`` — no game-scoped state
+they couldn't carry themselves. Moved to ``PlayerManager``.
+
+**Change:**
+- ``PlayerManager.__init__`` now accepts an optional ``channel`` param
+  and stamps ``self.channel = channel``. Game passes it at construction;
+  ``Game.from_dict`` re-stamps after resolving the channel from the bot
+  cache. Routines that fire before the channel is bound silently skip
+  dispatch.
+- ``do_health_regen`` + ``_most_injured_part`` live on ``PlayerManager``.
+- ``Game.__init__`` still owns scheduling:
+  ``self.game_clock.add_routine(self.player_manager.do_health_regen,
+  1800 / self.game_clock.time_scale)``. The routine's ``__name__``
+  is preserved for ``GameClock``'s name-based lookup / deduplication.
+- Five existing tests relocated from ``tests/test_game.py`` to
+  ``tests/test_player_manager.py``; assertions unchanged, setup
+  simplified to direct ``PlayerManager(channel=...)`` instead of full
+  ``Game`` + ``GameClock`` + ``DB`` mocking. Breadcrumb left in
+  ``test_game.py`` for future readers.
+
 ### 2026-04-17 — Monster Name Lookup → Plugin Registry
 
 ``Game.get_monster(name)`` re-globbed

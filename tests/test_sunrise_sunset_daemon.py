@@ -27,34 +27,34 @@ FAKE_CHANNEL_ID = 555321
 
 @pytest.fixture(autouse=False)
 def clean_registry():
-    """Ensures the ``GameClock._clocks`` + ``Game._channel_routes``
-    registries are empty before and after each test so tests don't
-    cross-contaminate."""
+    """Ensures ``Game._channel_routes`` is empty before and after each
+    test so tests don't cross-contaminate. ``GameClock.for_channel``
+    resolves through this same map, so there is no separate clock
+    registry to clear."""
     from caldanai.lib.rpg import Game
-    GameClock._clocks.clear()
     Game._channel_routes.clear()
     yield
-    GameClock._clocks.clear()
     Game._channel_routes.clear()
 
 
-def _make_ambience_game(channel_id: int, enable_ambience: bool = True):
+def _make_ambience_game(channel_id: int, clock: GameClock, enable_ambience: bool = True):
     """Return a minimal stand-in for ``Game`` suitable for
-    ``Game._channel_routes`` routing: holds ``enable_ambience`` and a
-    mock ``channel`` whose id matches ``channel_id``."""
+    ``Game._channel_routes`` routing: holds ``enable_ambience``, a
+    mock ``channel`` whose id matches ``channel_id``, and the clock
+    (so ``GameClock.for_channel`` resolves through the shim)."""
     game = MagicMock()
     game.enable_ambience = enable_ambience
     game.channel = MagicMock()
     game.channel.id = channel_id
+    game.game_clock = clock
     return game
 
 
 def _register_clock_and_game(clock: GameClock, game, channel_id: int):
-    """Wire both the clock registry and the Game channel-routing map
-    so ``Game.for_channel`` and ``GameClock.for_channel`` resolve
-    during daemon tick."""
+    """Wire the Game channel-routing map so ``Game.for_channel`` and
+    ``GameClock.for_channel`` resolve during daemon tick. The clock is
+    already on ``game.game_clock`` — no separate registration step."""
     from caldanai.lib.rpg import Game
-    GameClock._register(channel_id, clock)
     Game._channel_routes[channel_id] = game
 
 
@@ -78,7 +78,7 @@ class TestSunriseCrossing:
         # Seed clock to one second before sunrise.
         clock._seconds = sunrise_s - 1
 
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=True)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
@@ -106,7 +106,7 @@ class TestSunriseCrossing:
         sunrise_s = sunrise.get_seconds()
         clock._seconds = sunrise_s - 1
 
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=True)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
@@ -147,7 +147,7 @@ class TestSunsetCrossing:
         sunset_s = sunset.get_seconds()
         clock._seconds = sunset_s - 1
 
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=True)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
@@ -174,7 +174,7 @@ class TestSunsetCrossing:
         # Seed clock to well after sunset.
         clock._seconds = sunset_s + 600
 
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=True)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=True)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
@@ -207,7 +207,7 @@ class TestAmbienceKillSwitch:
         clock._seconds = sunrise_s - 1
 
         # Ambience disabled on the game.
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=False)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=False)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
@@ -228,7 +228,7 @@ class TestAmbienceKillSwitch:
         sunset_s = sunset.get_seconds()
         clock._seconds = sunset_s - 1
 
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=False)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=False)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)
@@ -253,7 +253,7 @@ class TestAmbienceKillSwitch:
         clock._seconds = sunrise_s - 1
 
         # Start disabled.
-        game = _make_ambience_game(FAKE_CHANNEL_ID, enable_ambience=False)
+        game = _make_ambience_game(FAKE_CHANNEL_ID, clock, enable_ambience=False)
         _register_clock_and_game(clock, game, FAKE_CHANNEL_ID)
 
         daemon = SunriseSunsetDaemon(FAKE_CHANNEL_ID)

@@ -46,7 +46,7 @@ The base engine already handles the actual dawn-flee (see
   wired into the engine; this is the forward-compatible stub.
 """
 
-from random import choice, random
+from random import choice
 from typing import List, Optional
 
 from caldanai.lib.rpg.combat.attack_source import (
@@ -63,6 +63,12 @@ from caldanai.lib.rpg.time import get_time_components, get_next_time
 
 
 class Werewolf(MonsterPlugin):
+    # Throat-bite bias: ~30% of attacks target the head. Less
+    # obsessive than the bearowl (40%) because the werewolf is a
+    # cursed human, not a pure predator — still instinctual but a
+    # little more scattered.
+    TARGET_PREFERENCES = {"head": 0.3}
+
     # Window, in game-hours, before the current time rolls over into
     # MORNING during which the werewolf is considered "desperate".
     _DESPERATION_WINDOW_HOURS = 1.0
@@ -232,17 +238,6 @@ class Werewolf(MonsterPlugin):
                 self, victim,
             )
         return ""
-
-    def get_target_part_preference(
-        self, target: Creature, source: AttackSource,
-    ) -> Optional[str]:
-        """Throat-bite bias: ~30% of attacks target the head. Less
-        obsessive than the bearowl (40%) because the werewolf is a
-        cursed human, not a pure predator — still instinctual but a
-        little more scattered."""
-        if random() < 0.3:
-            return "head"
-        return None
 
     # -- Death: fatal blow + partial-human reveal -----------------------
 

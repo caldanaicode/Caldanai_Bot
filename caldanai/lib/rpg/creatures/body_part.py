@@ -183,11 +183,6 @@ class BodyPart(ABC):
         """
         return self.debuffs.get(self.get_injury_level(), {}).get(stat, 0)
 
-    def get_injury_flavor(self, level: InjuryLevels) -> str:
-        """Flavor text rendered in combat when this part's injury level
-        changes. Override in subclasses; empty string by default."""
-        return ""
-
     def on_injury_change(
         self,
         creature: "Creature",

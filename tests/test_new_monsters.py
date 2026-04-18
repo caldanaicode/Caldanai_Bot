@@ -250,7 +250,7 @@ class TestMinotaur:
         m = Minotaur()
         fake_source = MagicMock()
         with patch(
-            "caldanai.lib.rpg.creatures.monsters.minotaur.random",
+            "caldanai.lib.rpg.creatures.random",
             return_value=0.1,  # below the 0.5 threshold → gore
         ):
             assert m.get_target_part_preference(None, fake_source) == "head"
@@ -259,7 +259,7 @@ class TestMinotaur:
         m = Minotaur()
         fake_source = MagicMock()
         with patch(
-            "caldanai.lib.rpg.creatures.monsters.minotaur.random",
+            "caldanai.lib.rpg.creatures.random",
             return_value=0.9,  # above 0.5 → no preference
         ):
             assert m.get_target_part_preference(None, fake_source) is None
@@ -287,7 +287,7 @@ class TestPixie:
         p = Pixie()
         fake_source = MagicMock()
         with patch(
-            "caldanai.lib.rpg.creatures.monsters.pixie.random",
+            "caldanai.lib.rpg.creatures.random",
             return_value=0.1,
         ):
             assert p.get_target_part_preference(None, fake_source) == "eye"
@@ -349,7 +349,7 @@ class TestWerewolf:
         w = Werewolf()
         fake_source = MagicMock()
         with patch(
-            "caldanai.lib.rpg.creatures.monsters.werewolf.random",
+            "caldanai.lib.rpg.creatures.random",
             return_value=0.1,
         ):
             assert w.get_target_part_preference(None, fake_source) == "head"

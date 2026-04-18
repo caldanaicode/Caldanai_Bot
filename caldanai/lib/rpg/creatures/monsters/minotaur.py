@@ -18,10 +18,8 @@ against a half-ton of meat, piercing weapons find the soft spots
 between slabs of muscle.
 """
 
-from random import choice, random
-from typing import Optional
+from random import choice
 
-from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures import Creature
@@ -31,6 +29,12 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Minotaur(MonsterPlugin):
+    # Gore bias: ~50% of attacks aim for the head. The preference pays
+    # the dodge exposure tax (heads are ~0.7 MELEE exposure → effective
+    # dodge ~1.43×), so horn strikes are distinctive but not free
+    # accuracy.
+    TARGET_PREFERENCES = {"head": 0.5}
+
     def __init__(self):
         super().__init__(
             name="minotaur",
@@ -92,17 +96,6 @@ class Minotaur(MonsterPlugin):
 
         self.size = Size.LARGE
         self._scale_part_hp()
-
-    def get_target_part_preference(
-        self, target: Creature, source: AttackSource,
-    ) -> Optional[str]:
-        """Gore bias: ~50% of attacks aim for the head. The preference
-        pays the dodge exposure tax (heads are ~0.7 MELEE exposure →
-        effective dodge ~1.43×), so horn strikes are distinctive but
-        not free accuracy."""
-        if random() < 0.5:
-            return "head"
-        return None
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([

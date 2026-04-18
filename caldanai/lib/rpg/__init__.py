@@ -131,6 +131,18 @@ class Game:
     def loot(self, value: "Dict[int, List[Union[Item, Weapon]]]") -> None:
         self.combat.loot = value
 
+    # ------------------------------------------------------------------
+    # Player lookup shims
+    # ------------------------------------------------------------------
+    # Thin façade over ``player_manager.players`` so callers outside
+    # ``PlayerManager`` don't reach into the underlying dict shape.
+    # Mutation (add_player / remove_player) stays on PlayerManager.
+    def get_player_by_user_id(self, user_id: int) -> Optional[Player]:
+        """Return the player in this game with the given Discord user
+        id, or ``None`` if they're not in this game. Shields callers
+        from the underlying ``player_manager.players`` dict shape."""
+        return self.player_manager.players.get(user_id)
+
     def __init__(
         self,
         bot: "Bot" = None,
@@ -166,7 +178,7 @@ class Game:
         # routing key for the clock registry and ``for_channel``
         # lookups. Accessed via the ``channel_id`` property below so
         # it can't drift out of sync with ``self.channel``.
-        self.player_manager: PlayerManager = PlayerManager()
+        self.player_manager: PlayerManager = PlayerManager(channel=channel)
         # Combat-runtime state lives on ``self.combat`` (a
         # ``CombatState``) rather than as individual fields on
         # ``Game``. Property accessors below preserve the legacy
@@ -200,7 +212,7 @@ class Game:
             # Regen ticks every 30 game-minutes (7.5 real-min at
             # time_scale=4). Keeps recovery pacing playable in a
             # typical session without making injuries trivial.
-            self.game_clock.add_routine(self.do_health_regen, 1800 / self.game_clock.time_scale)
+            self.game_clock.add_routine(self.player_manager.do_health_regen, 1800 / self.game_clock.time_scale)
 
         if use_spawn_timer:
             self.game_clock.add_routine(self.set_spawn_timer, 5, True)
@@ -209,16 +221,17 @@ class Game:
 
         self.bot = bot
 
-        # Register with the per-game clock registry + channel routing
-        # map so downstream subsystems can find this game's clock
-        # without holding a Game reference. Both are idempotent no-ops
-        # when ``channel_id`` is None (tests / pre-spawn contexts).
+        # Register with the channel routing map so downstream
+        # subsystems can find this game (and its clock) without
+        # holding a Game reference. Idempotent no-op when
+        # ``channel_id`` is None (tests / pre-spawn contexts).
         # ``Bot.games`` is now a read-only property over
         # ``_channel_routes``, so the channel-routing registration
         # below is the one-and-only place the Bot-level map is
         # populated — no separate ``bot.games[...] = self`` write.
+        # ``GameClock.for_channel`` resolves through this same
+        # registry, so there is no separate clock registration step.
         if self.channel_id is not None:
-            GameClock._register(self.channel_id, self.game_clock)
             self.register_channel(self.channel_id)
             # Start the weather daemon *after* clock registration
             # (it schedules itself via the clock-registry façade).
@@ -388,77 +401,6 @@ class Game:
         else:
             msg = "\nThere does not appear to be anything to loot, this time."
         return msg
-
-    async def do_health_regen(self):
-        """Applies per-tick health regen to players.
-
-        Body HP regenerates as before. In addition — until we build a
-        dedicated part-healing mechanic (potions / shrines / skills) —
-        the single most-injured body part also receives the regen
-        amount each tick, clamped to its max. This keeps players from
-        being permanently trapped after a maiming without making every
-        injury trivially self-heal: the regen amount starts at 0,
-        ramps by 1 per tick, and resets only when every part and body
-        HP are back to full. Silent on the part side (no narration per
-        tick) to avoid spam; the returned body-HP resurrection message
-        is still emitted.
-        """
-        msg = ""
-        for player in self.player_manager.players.values():
-            max_health = player.get_health_max()
-            body_needs = player.health < max_health
-
-            if body_needs:
-                m = player.apply_damage(-player.health_regen)
-                if m:
-                    msg += f"\n{m}"
-
-            injured_part = self._most_injured_part(player)
-            if injured_part is not None:
-                # Snapshot before healing so we can detect a level
-                # transition (SEVERE → MODERATE, USELESS → SEVERE,
-                # etc.) and narrate the recovery.
-                old_level = injured_part.get_injury_level()
-                injured_part.apply_damage(-player.health_regen)
-                new_level = injured_part.get_injury_level()
-                if new_level != old_level:
-                    template = injured_part.get_recovery_string()
-                    if template:
-                        # Parse through the @ system so pronouns /
-                        # names come out naturally (e.g. "Caels winces
-                        # as feeling returns to her left arm.").
-                        line = parse(template, player)
-                        msg += f"\n{line[0].upper()}{line[1:]}"
-
-            # Regen grows until all of the player's HP pools (body +
-            # every part) are back at max, then resets. Ramp is +2
-            # per tick so heavy injuries catch up in a reasonable
-            # session window (~75 real-minutes for a full-body heal
-            # at ~100 HP).
-            any_injury = (
-                player.health < max_health
-                or any(
-                    p.health < p.health_max
-                    for p in (player.body_parts or [])
-                )
-            )
-            player.health_regen = (player.health_regen + 2) if any_injury else 0
-
-        if msg:
-            Dispatcher.add(self.channel, msg)
-
-    @staticmethod
-    def _most_injured_part(player):
-        """Return the body part with the lowest health/health_max
-        ratio, or None if all parts are at max health. Used by
-        ``do_health_regen`` to triage: healing flows to the most
-        damaged part first so a destroyed limb recovers before
-        cosmetic bruises."""
-        parts = player.body_parts or []
-        injured = [p for p in parts if p.health < p.health_max]
-        if not injured:
-            return None
-        return min(injured, key=lambda p: p.health / p.health_max)
 
     async def do_combat(self):
         """Tallies and displays combat results."""
@@ -698,6 +640,12 @@ class Game:
 
         game.guild = bot.get_guild(d["guild_id"])
         game.channel = bot.get_channel(d["channel_id"])
+        # Keep PlayerManager's dispatch target in sync with the newly
+        # resolved channel. ``__init__`` ran with ``channel=None`` on
+        # the load path so the manager still holds the None default
+        # until now — update it before any routine (e.g. health
+        # regen) has a chance to fire and silently skip dispatch.
+        game.player_manager.channel = game.channel
 
         if game.guild is None:
             _log.error(f"Failed to load game {d['_id']}: guild {d['guild_id']} not found.")
@@ -706,12 +654,13 @@ class Game:
             _log.error(f"Failed to load game {d['_id']}: channel not found for guild {d['guild_id']}.")
             return None
 
-        # Now that channel is bound, register with clock / channel
-        # routing and spin up the weather daemon with persisted state.
+        # Now that channel is bound, register with channel routing
+        # and spin up the weather daemon with persisted state.
         # ``__init__`` skipped this path because ``channel`` wasn't
         # supplied to the constructor on the load path.
+        # ``GameClock.for_channel`` resolves through the same routing
+        # map, so there is no separate clock registration step.
         from caldanai.lib.rpg.helpers.enums import Seasons
-        GameClock._register(game.channel.id, game.game_clock)
         game.register_channel(game.channel.id)
         game.weather = WeatherDaemon(game.channel.id)
         game.sunrise_sunset = SunriseSunsetDaemon(game.channel.id)

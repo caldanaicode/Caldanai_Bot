@@ -369,13 +369,16 @@ class RpgUtilities:
     @staticmethod
     async def remove_game(guild_id: int, channel_id: int):
         """Remove the game keyed by ``channel_id`` from memory, the
-        DB, the clock registry, and channel routing. ``guild_id`` is
-        still required for the DB compound key.
+        DB, and channel routing. ``guild_id`` is still required for
+        the DB compound key.
 
         ``bot.games`` is a read-only view over
         ``Game._channel_routes``, so dropping the channel from that
         registry (via ``unregister_channel``) is what makes the game
-        disappear from ``bot.games`` — no separate dict delete."""
+        disappear from ``bot.games`` — no separate dict delete.
+        ``GameClock.for_channel`` resolves through the same routing
+        map, so unregistering the channel also makes the clock
+        unfindable — no separate clock-registry teardown."""
         if channel_id in RpgUtilities.bot.games:
             try:
                 game = RpgUtilities.bot.games.get(channel_id)
@@ -384,7 +387,7 @@ class RpgUtilities:
 
                 # Stop per-game daemons + clock tick FIRST so no
                 # routines fire against a defunct channel, then
-                # unhook from the registry and channel routing.
+                # unhook from channel routing.
                 if game is not None:
                     if getattr(game, "weather", None) is not None:
                         game.weather.stop()
@@ -393,9 +396,6 @@ class RpgUtilities:
                     if game.game_clock.tick.is_running():
                         game.game_clock.tick.stop()
                     game.unregister_channel(channel_id)
-
-                from caldanai.lib.rpg.time import GameClock
-                GameClock._unregister(channel_id)
 
             except Exception as e:
                 _log.error(f"Error in utils.py --> remove_game(): {e}")

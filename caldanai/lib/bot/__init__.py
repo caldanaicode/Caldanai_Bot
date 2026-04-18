@@ -191,9 +191,7 @@ class Bot(BotBase, Subject):
             # commands — breaking last_active tracking and save-on-
             # activity semantics.
             if game := self.games.get(ctx.channel.id):
-                if ctx.author.id in game.player_manager.players.keys() and (
-                    player := game.player_manager.players[ctx.author.id]
-                ):
+                if player := game.get_player_by_user_id(ctx.author.id):
                     await game.player_manager.set_player_active(player)
 
     async def on_error(self, err, *args, **kwargs):

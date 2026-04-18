@@ -138,3 +138,124 @@ class TestBasePrefixMatch:
         ):
             seq = attacker.do_attack(target)
         assert seq.results[0].target_part in (left, right)
+
+
+class TestMonsterPluginTargetPreferences:
+    """Tests for the declarative ``TARGET_PREFERENCES`` dict on
+    :class:`MonsterPlugin`. Subclasses populate the dict with
+    ``{part_name: probability}`` and inherit the base
+    ``get_target_part_preference`` loop. Single-entry dicts are
+    RNG-count-identical to the hand-written ``if random() < p:``
+    pattern; multi-entry dicts roll ``random()`` once per entry in
+    insertion order, short-circuiting on first success."""
+
+    def _make_monster(self, preferences):
+        """Fabricate a throwaway MonsterPlugin subclass with the
+        supplied TARGET_PREFERENCES. Avoids touching the real registry
+        and avoids depending on any shipped monster's declared dict."""
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+
+        class _FakeMob(MonsterPlugin):
+            TARGET_PREFERENCES = preferences
+
+            def __init__(self):
+                super().__init__(
+                    name="fake", atk="1d4", defense=0, dodge=0,
+                    health_max=10,
+                )
+
+        return _FakeMob()
+
+    def test_empty_dict_returns_none(self):
+        """Default ``TARGET_PREFERENCES = {}`` means "no bias"; the hook
+        should report ``None`` regardless of RNG."""
+        m = self._make_monster({})
+        # No random() calls should happen, but guard against surprises.
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=0.0,
+        ):
+            assert m.get_target_part_preference(None, None) is None
+
+    def test_single_entry_below_threshold_returns_part(self):
+        """Single ``{"head": 0.4}`` entry with ``random()`` forced below
+        0.4 returns ``"head"``."""
+        m = self._make_monster({"head": 0.4})
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=0.1,
+        ):
+            assert m.get_target_part_preference(None, None) == "head"
+
+    def test_single_entry_above_threshold_returns_none(self):
+        """Single ``{"head": 0.4}`` entry with ``random()`` forced above
+        0.4 returns ``None`` (fall through to random targeting)."""
+        m = self._make_monster({"head": 0.4})
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=0.9,
+        ):
+            assert m.get_target_part_preference(None, None) is None
+
+    def test_multi_entry_first_fires_returns_first(self):
+        """Multi-entry dict: first entry's roll succeeds → returns the
+        first part name, short-circuiting before later entries are even
+        rolled."""
+        m = self._make_monster({"head": 0.5, "leg": 0.5})
+        # side_effect feeds successive values on each random() call.
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            side_effect=[0.1, 0.1],
+        ) as fake_random:
+            assert m.get_target_part_preference(None, None) == "head"
+        # Short-circuited: only one random() call consumed.
+        assert fake_random.call_count == 1
+
+    def test_multi_entry_first_fails_second_fires_returns_second(self):
+        """Multi-entry dict: first entry fails, second succeeds →
+        returns the second part name. Iteration order follows dict
+        insertion order (Py3.7+)."""
+        m = self._make_monster({"head": 0.5, "leg": 0.5})
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            side_effect=[0.9, 0.1],
+        ) as fake_random:
+            assert m.get_target_part_preference(None, None) == "leg"
+        assert fake_random.call_count == 2
+
+    def test_multi_entry_all_fail_returns_none(self):
+        """Multi-entry dict: every roll fails → returns ``None`` and
+        every entry was consulted."""
+        m = self._make_monster({"head": 0.5, "leg": 0.5})
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            side_effect=[0.9, 0.9],
+        ) as fake_random:
+            assert m.get_target_part_preference(None, None) is None
+        assert fake_random.call_count == 2
+
+    def test_iteration_follows_insertion_order(self):
+        """Py3.7+ dict insertion order is part of the contract. When
+        the first entry always fires (``prob=1.0``) the declared-first
+        part wins regardless of alphabetical order."""
+        m = self._make_monster({"zebra": 1.0, "antelope": 1.0})
+        # Both rolls would succeed; the first-inserted "zebra" wins.
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=0.0,
+        ):
+            assert m.get_target_part_preference(None, None) == "zebra"
+
+        m2 = self._make_monster({"antelope": 1.0, "zebra": 1.0})
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=0.0,
+        ):
+            assert m2.get_target_part_preference(None, None) == "antelope"
+
+    def test_base_monsterplugin_default_has_empty_preferences(self):
+        """Base ``MonsterPlugin`` ships an empty dict so monsters that
+        don't declare a bias opt into the "no preference" fallback
+        automatically."""
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+        assert MonsterPlugin.TARGET_PREFERENCES == {}

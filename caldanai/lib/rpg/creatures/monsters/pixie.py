@@ -22,12 +22,9 @@ No new item plugin dependencies — loot is small_gem (pixie trinkets)
 and candy (sweets they've pilfered).
 """
 
-from random import choice, random
-from typing import Optional
+from random import choice
 
-from caldanai.lib.rpg.combat.attack_source import (
-    AttackSource, NaturalAttackSource,
-)
+from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures import Creature
@@ -37,6 +34,14 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Pixie(MonsterPlugin):
+    # Mischief bias: ~30% chance to poke at an eye. With the post-Q.5
+    # dodge math (EXPOSURE_FLOOR 0.3, TINY-vs-MEDIUM size ratio 0.5),
+    # the pixie's effective eye-shot dodge against a MEDIUM player is
+    # ~``base_dodge × 0.5 / 0.3`` — roughly base dodge × 1.67. She
+    # actually *lands* most eye-pokes; the joke is the underwhelming
+    # 1d4 damage that follows. Sting, not slay.
+    TARGET_PREFERENCES = {"eye": 0.3}
+
     def __init__(self):
         super().__init__(
             name="pixie",
@@ -132,20 +137,6 @@ class Pixie(MonsterPlugin):
                 skill="natural",
             ),
         ]
-
-    def get_target_part_preference(
-        self, target: Creature, source: AttackSource,
-    ) -> Optional[str]:
-        """Mischief bias: ~30% chance to poke at an eye. With the
-        post-Q.5 dodge math (EXPOSURE_FLOOR 0.3, TINY-vs-MEDIUM size
-        ratio 0.5), the pixie's effective eye-shot dodge against a
-        MEDIUM player is ~``base_dodge × 0.5 / 0.3`` — roughly base
-        dodge × 1.67. She actually *lands* most eye-pokes; the joke
-        is the underwhelming 1d4 damage that follows. Sting, not
-        slay."""
-        if random() < 0.3:
-            return "eye"
-        return None
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([

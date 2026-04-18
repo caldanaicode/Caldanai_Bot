@@ -2,22 +2,30 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Optional, Union
 
-from discord import Forbidden, Guild, HTTPException, Role, Member, User
+from discord import Forbidden, Guild, HTTPException, Role, TextChannel, Member, User
 from discord.errors import NotFound
 from discord.ext.commands import Context
 
+from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
 from caldanai.lib.rpg import Player, Roles
+from caldanai.lib.rpg.helpers.parser import parse
 
 
 _log = get_logger(__name__)
 
 
 class PlayerManager:
-    def __init__(self):
+    def __init__(self, channel: Optional[TextChannel] = None):
         self.players: Dict[int, Player] = {}
         self.roles: Dict[Roles, Optional[Role]] = {}
+        # Dispatch target for player-scoped narration (regen recovery
+        # lines, etc.). Game stamps this at construction and re-stamps
+        # it on the load path (``from_dict``) after the channel is
+        # resolved from the bot cache. Routines that fire before the
+        # channel is bound silently skip dispatch.
+        self.channel: Optional[TextChannel] = channel
 
     async def load_players(self, guild: Guild, channel_id: int = None):
         """Load all players for a guild into memory. ``channel_id``
@@ -242,3 +250,80 @@ class PlayerManager:
             del self.players[user_id]
 
         DB.delete_player(guild_id, channel_id, user_id)
+
+    async def do_health_regen(self):
+        """Applies per-tick health regen to players.
+
+        Body HP regenerates as before. In addition — until we build a
+        dedicated part-healing mechanic (potions / shrines / skills) —
+        the single most-injured body part also receives the regen
+        amount each tick, clamped to its max. This keeps players from
+        being permanently trapped after a maiming without making every
+        injury trivially self-heal: the regen amount starts at 0,
+        ramps by 1 per tick, and resets only when every part and body
+        HP are back to full. Silent on the part side (no narration per
+        tick) to avoid spam; the returned body-HP resurrection message
+        is still emitted.
+
+        Scheduled by ``Game`` as a recurring clock routine. The method
+        lives on ``PlayerManager`` because its only state dependency
+        is ``self.players``; the dispatch target (``self.channel``) is
+        stamped by ``Game`` at construction so the routine stays free
+        of a back-reference to the owning game.
+        """
+        msg = ""
+        for player in self.players.values():
+            max_health = player.get_health_max()
+            body_needs = player.health < max_health
+
+            if body_needs:
+                m = player.apply_damage(-player.health_regen)
+                if m:
+                    msg += f"\n{m}"
+
+            injured_part = self._most_injured_part(player)
+            if injured_part is not None:
+                # Snapshot before healing so we can detect a level
+                # transition (SEVERE → MODERATE, USELESS → SEVERE,
+                # etc.) and narrate the recovery.
+                old_level = injured_part.get_injury_level()
+                injured_part.apply_damage(-player.health_regen)
+                new_level = injured_part.get_injury_level()
+                if new_level != old_level:
+                    template = injured_part.get_recovery_string()
+                    if template:
+                        # Parse through the @ system so pronouns /
+                        # names come out naturally (e.g. "Caels winces
+                        # as feeling returns to her left arm.").
+                        line = parse(template, player)
+                        msg += f"\n{line[0].upper()}{line[1:]}"
+
+            # Regen grows until all of the player's HP pools (body +
+            # every part) are back at max, then resets. Ramp is +2
+            # per tick so heavy injuries catch up in a reasonable
+            # session window (~75 real-minutes for a full-body heal
+            # at ~100 HP).
+            any_injury = (
+                player.health < max_health
+                or any(
+                    p.health < p.health_max
+                    for p in (player.body_parts or [])
+                )
+            )
+            player.health_regen = (player.health_regen + 2) if any_injury else 0
+
+        if msg and self.channel is not None:
+            Dispatcher.add(self.channel, msg)
+
+    @staticmethod
+    def _most_injured_part(player):
+        """Return the body part with the lowest health/health_max
+        ratio, or None if all parts are at max health. Used by
+        ``do_health_regen`` to triage: healing flows to the most
+        damaged part first so a destroyed limb recovers before
+        cosmetic bruises."""
+        parts = player.body_parts or []
+        injured = [p for p in parts if p.health < p.health_max]
+        if not injured:
+            return None
+        return min(injured, key=lambda p: p.health / p.health_max)

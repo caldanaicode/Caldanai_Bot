@@ -312,7 +312,7 @@ class TestPickRandomPart:
         b = _make_part("b", exposure={Reach.MELEE: 5.0})
 
         with patch(
-            "caldanai.lib.rpg.creatures.random.choices",
+            "caldanai.lib.rpg.creatures.choices",
             return_value=[a],
         ) as mock_choices:
             result = pick_random_part([a, b], Reach.MELEE)

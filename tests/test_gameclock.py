@@ -223,7 +223,12 @@ class TestTimeCalculations:
 
 
 # ---------------------------------------------------------------------------
-# Per-game registry + module-level façade
+# Per-game lookup + module-level façade
+#
+# The channel→clock registry was consolidated into ``Game._channel_routes``:
+# ``GameClock.for_channel(cid)`` is a shim that returns
+# ``Game.for_channel(cid).game_clock`` (or ``None``). These tests exercise
+# the shim via the same routing map that production uses.
 # ---------------------------------------------------------------------------
 
 
@@ -231,19 +236,42 @@ _FAKE_ID_A = 888001
 _FAKE_ID_B = 888002
 
 
+class _StubGame:
+    """Minimal stand-in for ``Game`` in the channel-routing map:
+    exposes ``game_clock`` so the shim can return it."""
+
+    def __init__(self, clock):
+        self.game_clock = clock
+
+
 @pytest.fixture(autouse=False)
 def clean_registry():
-    """Ensures the ``GameClock._clocks`` registry is empty before and
-    after each registry/façade test so tests don't cross-contaminate."""
-    GameClock._clocks.clear()
+    """Ensures ``Game._channel_routes`` is empty before and after each
+    registry/façade test so tests don't cross-contaminate."""
+    from caldanai.lib.rpg import Game
+    Game._channel_routes.clear()
     yield
-    GameClock._clocks.clear()
+    Game._channel_routes.clear()
+
+
+def _register(channel_id, clock):
+    """Wire a stub game carrying ``clock`` into the routing map under
+    ``channel_id`` so ``GameClock.for_channel`` resolves."""
+    from caldanai.lib.rpg import Game
+    Game._channel_routes[channel_id] = _StubGame(clock)
+
+
+def _unregister(channel_id):
+    """Remove the stub game for ``channel_id`` from the routing map.
+    Idempotent."""
+    from caldanai.lib.rpg import Game
+    Game._channel_routes.pop(channel_id, None)
 
 
 class TestClockRegistry:
     def test_for_channel_returns_registered_clock(self, clean_registry):
         clock = GameClock(game_time=0)
-        GameClock._register(_FAKE_ID_A, clock)
+        _register(_FAKE_ID_A, clock)
         assert GameClock.for_channel(_FAKE_ID_A) is clock
 
     def test_for_channel_returns_none_when_unregistered(self, clean_registry):
@@ -251,23 +279,33 @@ class TestClockRegistry:
 
     def test_unregister_removes_clock(self, clean_registry):
         clock = GameClock(game_time=0)
-        GameClock._register(_FAKE_ID_A, clock)
-        GameClock._unregister(_FAKE_ID_A)
+        _register(_FAKE_ID_A, clock)
+        _unregister(_FAKE_ID_A)
         assert GameClock.for_channel(_FAKE_ID_A) is None
 
     def test_unregister_is_idempotent(self, clean_registry):
         # Removing a never-registered id must not raise.
-        GameClock._unregister(_FAKE_ID_A)
+        _unregister(_FAKE_ID_A)
         assert GameClock.for_channel(_FAKE_ID_A) is None
 
     def test_registry_isolates_games(self, clean_registry):
         """Two games have independent clocks under distinct ids."""
         clock_a = GameClock(game_time=100)
         clock_b = GameClock(game_time=200)
-        GameClock._register(_FAKE_ID_A, clock_a)
-        GameClock._register(_FAKE_ID_B, clock_b)
+        _register(_FAKE_ID_A, clock_a)
+        _register(_FAKE_ID_B, clock_b)
         assert GameClock.for_channel(_FAKE_ID_A) is clock_a
         assert GameClock.for_channel(_FAKE_ID_B) is clock_b
+
+    def test_for_channel_tracks_game_route_removal(self, clean_registry):
+        """After a Game is unregistered from ``_channel_routes``, its
+        clock must no longer be findable through the shim — there is
+        no longer a separate registry to keep the clock alive."""
+        clock = GameClock(game_time=0)
+        _register(_FAKE_ID_A, clock)
+        assert GameClock.for_channel(_FAKE_ID_A) is clock
+        _unregister(_FAKE_ID_A)
+        assert GameClock.for_channel(_FAKE_ID_A) is None
 
 
 class TestModuleLevelReadSurface:
@@ -278,7 +316,7 @@ class TestModuleLevelReadSurface:
     def test_get_time_of_day_with_registered_clock(self, clean_registry):
         from caldanai.lib.rpg.time import get_time_of_day
         clock = GameClock(game_time=0)
-        GameClock._register(_FAKE_ID_A, clock)
+        _register(_FAKE_ID_A, clock)
         # At game_time=0 the default map may not be populated yet;
         # force it so get_time_of_day returns something meaningful.
         clock.update_times_of_day()
@@ -299,7 +337,7 @@ class TestModuleLevelReadSurface:
     def test_get_seconds_for_registered_clock(self, clean_registry):
         from caldanai.lib.rpg.time import get_seconds
         clock = GameClock(game_time=1234)
-        GameClock._register(_FAKE_ID_A, clock)
+        _register(_FAKE_ID_A, clock)
         assert get_seconds(_FAKE_ID_A) == 1234
 
     def test_get_seconds_returns_none_for_unknown_game(self, clean_registry):
@@ -311,7 +349,7 @@ class TestModuleLevelSchedulingSurface:
     def test_schedule_routine_on_registered_clock(self, clean_registry):
         from caldanai.lib.rpg.time import schedule_routine
         clock = GameClock(game_time=0)
-        GameClock._register(_FAKE_ID_A, clock)
+        _register(_FAKE_ID_A, clock)
 
         def r():
             pass
@@ -332,7 +370,7 @@ class TestModuleLevelSchedulingSurface:
     def test_cancel_routine_removes_from_clock(self, clean_registry):
         from caldanai.lib.rpg.time import schedule_routine, cancel_routine
         clock = GameClock(game_time=0)
-        GameClock._register(_FAKE_ID_A, clock)
+        _register(_FAKE_ID_A, clock)
 
         def r():
             pass

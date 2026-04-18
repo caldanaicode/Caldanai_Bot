@@ -466,13 +466,11 @@ class TestCapabilityMethodsSelfConsistent:
         m = cls()
         assert m.has_body_parts() is (len(m.body_parts) > 0)
 
-    def test_has_target_preference_matches_method_identity(self, cls):
-        """``has_target_preference`` should report True iff the class
-        actually overrides the preference hook."""
+    def test_has_target_preference_matches_dict_emptiness(self, cls):
+        """``has_target_preference`` is truthy iff the class declares
+        a non-empty ``TARGET_PREFERENCES`` dict — the declarative
+        targeting-bias attribute inherited from ``Creature``. No
+        method-identity spelunking required; the dict itself is the
+        source of truth."""
         m = cls()
-        from caldanai.lib.rpg.creatures import Creature as _BaseCreature
-        overrides = (
-            type(m).get_target_part_preference
-            is not _BaseCreature.get_target_part_preference
-        )
-        assert m.has_target_preference() is overrides
+        assert m.has_target_preference() == bool(type(m).TARGET_PREFERENCES)

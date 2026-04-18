@@ -9,7 +9,7 @@ Covers:
     * returns 0 when debuffs table is empty,
     * returns the table value when the current injury level has an entry,
     * returns 0 when the current injury level isn't in the table.
-- Hook methods (`get_injury_flavor`, `on_injury_change`, `on_destroyed`)
+- Hook methods (`on_injury_change`, `on_destroyed`)
   return an empty string by default.
 - The `BodyPart` import in ``Caldanai.lib.rpg.creatures.__init__`` is wired
   (item 1.3 uncomments it).
@@ -135,11 +135,6 @@ class TestBodyPartGetStatModifier:
 
 
 class TestBodyPartHookDefaults:
-    def test_get_injury_flavor_returns_empty_string(self):
-        part = BodyPart(name="arm", health_max=10)
-        for level in InjuryLevels:
-            assert part.get_injury_flavor(level) == ""
-
     def test_on_injury_change_returns_empty_string(self):
         part = BodyPart(name="arm", health_max=10)
         assert (

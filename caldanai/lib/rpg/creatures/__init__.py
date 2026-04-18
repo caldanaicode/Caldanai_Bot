@@ -1,5 +1,4 @@
-import random
-from random import choice
+from random import choice, choices, random
 from typing import List, Union, Optional, Dict, Set
 
 from discord import Embed, File
@@ -267,7 +266,7 @@ class Creature:
             """Resolve a part-name string to a BodyPart instance."""
             matches = target.find_parts(name)
             if matches:
-                return random.choice(matches)
+                return choice(matches)
             return None
 
         # Pre-resolve explicit targets (one per source slot).
@@ -358,32 +357,58 @@ class Creature:
         """
         pass
 
+    # Class-level declaration of "I bias my AI targeting toward these
+    # parts." Maps ``part_name -> probability``. Empty dict (the
+    # default, inherited by every Creature subclass that doesn't opt
+    # in) = no bias, fall through to exposure-weighted random
+    # targeting. Monsters populate this; players inherit the empty
+    # default and never touch it (their targeting is human-driven).
+    #
+    # Each entry is rolled once per attack in dict iteration order
+    # (insertion-preserving on Py3.7+); the first entry whose roll
+    # succeeds returns that part name and short-circuits. Per-entry
+    # rolls are independent coin flips, NOT partitioned ranges — so
+    # ``{"head": 0.3, "leg": 0.3}`` is "30% chance of head, plus if
+    # head misses, 30% chance of leg," not "30/30/40 split."
+    #
+    # Subclasses with logic beyond "declarative dict of part
+    # biases" (conditional on target state, weapon reach, feed
+    # mechanics, etc.) override :meth:`get_target_part_preference`
+    # directly instead of populating this dict.
+    TARGET_PREFERENCES: Dict[str, float] = {}
+
     def get_target_part_preference(
         self,
         target: "Creature",
         source: AttackSource,
     ) -> Optional[str]:
-        """Hook for predatory / tactical targeting. Override to bias
-        where this creature aims when attacking.
+        """Hook for predatory / tactical targeting. Walks
+        :attr:`TARGET_PREFERENCES` in insertion order, rolling
+        ``random()`` once per entry; returns the first part name whose
+        roll succeeds, or ``None`` when the dict is empty or every
+        entry's roll fails.
 
-        Return a part name (exact like ``"head"`` or base like
-        ``"leg"`` — the latter resolves to a random matching part on
+        Return value — a part name like ``"head"`` or a base like
+        ``"leg"`` (the latter resolves to a random matching part on
         the target, e.g. ``leg.left`` or ``leg.right``). The framework
-        resolves the name via the same matcher used by ``$target`` and
-        falls back to exposure-weighted random targeting if no matching
+        resolves via the same matcher used by ``$target`` and falls
+        back to exposure-weighted random targeting if no matching
         non-destroyed part exists.
 
-        Returning ``None`` means "no preference" and is the baseline
-        "dumb" behavior that fits most creatures — they just swing
-        where the body is. Randomize within the override for
-        probabilistic bias (``return 'head' if random() < 0.4 else
-        None``) so a predator isn't mechanically predictable.
+        Returning ``None`` means "no preference" — the baseline
+        "dumb" behavior that fits most creatures, which is exactly
+        what an empty ``TARGET_PREFERENCES`` dict produces. Subclasses
+        with logic beyond per-entry coin flips (conditional on target
+        state, weapon reach, etc.) override this method directly.
 
-        When a preference IS honored, the attack pays the exposure tax
-        on dodge the same way a player's explicit target does: aiming
-        at a low-exposure part makes the attack harder to land, which
-        captures the tactical tradeoff of "smart but obvious."
+        When a preference IS honored, the attack pays the exposure
+        tax on dodge the same way a player's explicit target does:
+        aiming at a low-exposure part makes the attack harder to land,
+        which captures the tactical tradeoff of "smart but obvious."
         """
+        for part_name, prob in self.TARGET_PREFERENCES.items():
+            if random() < prob:
+                return part_name
         return None
 
     # ------------------------------------------------------------------
@@ -430,11 +455,14 @@ class Creature:
         return len(self.body_parts) > 0
 
     def has_target_preference(self) -> bool:
-        """``True`` if this class overrides ``get_target_part_preference``.
-        Distinguishes predators (bearowl, vampire, minotaur, werewolf,
-        bandit, pixie) from 'dumb' attackers that rely purely on
-        exposure-weighted random targeting."""
-        return type(self).get_target_part_preference is not Creature.get_target_part_preference
+        """``True`` if this creature biases its AI targeting. Truthy
+        when :attr:`TARGET_PREFERENCES` is non-empty (the declarative
+        path — most creatures). Subclasses with custom targeting
+        logic that bypasses the dict should override this method
+        alongside :meth:`get_target_part_preference` to return
+        ``True`` as well, so capability filters (tests, etc.) still
+        classify them as preference-having."""
+        return bool(self.TARGET_PREFERENCES)
 
     # ------------------------------------------------------------------
     # Per-hit narration
@@ -1056,4 +1084,4 @@ def pick_random_part(parts: List[BodyPart], reach: Reach) -> Optional[BodyPart]:
     weights = [p.exposure.get(reach, 1.0) for p in parts]
     if sum(weights) == 0:
         return None
-    return random.choices(parts, weights=weights, k=1)[0]
+    return choices(parts, weights=weights, k=1)[0]

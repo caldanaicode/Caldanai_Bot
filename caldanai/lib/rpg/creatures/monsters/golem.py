@@ -28,6 +28,14 @@ mindless mass.
 
 Unlike most creatures, golems do NOT flee or die from time — they
 are animated stone, they don't care about day/night cycles.
+
+Aggression: ``RAMPAGE`` — the golem swings until it's shattered.
+The ``self.escape`` string ("glyphs dim, subsides into standing
+stone") is retained for a future dungeon use-case: persistent
+deactivated golems that can re-activate when players pass through
+the room again. In the current single-monster-per-channel world,
+a RAMPAGE golem doesn't hit the escape path under normal combat
+flow, so the flavor text is effectively reserved.
 """
 
 from random import choice
@@ -52,7 +60,7 @@ class Golem(MonsterPlugin):
 
         self.time_partition = TimePartitions.CATHEMERAL
         self.image = None
-        self.aggression = AggressionLevels.VENGEFUL  # active until dismissed
+        self.aggression = AggressionLevels.RAMPAGE  # keeps swinging until destroyed
 
         self.arrival = choice([
             "Grinding stone on stone, @1i lurches into the clearing; dust "

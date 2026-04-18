@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Type, Union
 
 from caldanai import PluginManager
 from caldanai.lib.rpg import GameClock, parse
+from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
