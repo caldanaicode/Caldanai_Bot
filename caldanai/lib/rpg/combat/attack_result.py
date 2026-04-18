@@ -232,12 +232,13 @@ class AttackSequence:
         # Pre-build per-column strings so we can compute widths. The
         # comparison symbol encodes the check outcome at a glance —
         # ``≥`` when the roll met or beat dodge (the system is
-        # meet-or-beat), ``≱`` when it didn't. CRIT and FUMBLE still
+        # meet-or-beat), ``<`` when it didn't. CRIT and FUMBLE still
         # show in the ``→ Result`` column since the symbol only
         # carries the meet/beat bit, not the natural-20 / natural-1
-        # flavor.
+        # flavor. ``<`` is used instead of ``≱`` because Discord's
+        # font kerns the strike-through slash poorly on the latter.
         check_col_list = [
-            f"{p['roll_str']} {'≱' if p['is_miss'] else '≥'} {p['dodge']} → {p['hit_str']}"
+            f"{p['roll_str']} {'<' if p['is_miss'] else '≥'} {p['dodge']} → {p['hit_str']}"
             for p in parts_list
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]
