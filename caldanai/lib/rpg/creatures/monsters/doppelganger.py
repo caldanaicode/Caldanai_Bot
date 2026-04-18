@@ -132,6 +132,22 @@ _PAIN_CRIES = {
 
 
 class Doppelganger(MonsterPlugin):
+    """Shapeshifting imitator that inherits its target's form and injuries.
+
+    **Body part design note:** when the doppelganger imitates a target
+    it deep-copies the target's body parts *including injury state*,
+    then emits a per-part "pain cry" for each inherited injury via
+    :data:`_PAIN_CRIES`. There is one flavor string per
+    ``(base_part, InjuryLevels)`` pair across every base part in the
+    plugin set (head, torso, arm, leg, wing, tail, eye), escalating
+    from a mysterious ache at MINOR up through a visibly crippling
+    wound at USELESS. This is the reason base-part docstrings mention
+    "pain cries" as a design expectation: it's a doppelganger feature
+    implemented here on the monster, not on the parts themselves.
+    Parts not keyed in :data:`_PAIN_CRIES` (toe, dragon_head,
+    hydra_head, etc.) silently produce no cry.
+    """
+
     def __init__(self):
         super().__init__(
             name="???",

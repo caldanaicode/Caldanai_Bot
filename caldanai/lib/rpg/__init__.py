@@ -1,19 +1,20 @@
-import asyncio
 import inspect
-import importlib
 import random
-from glob import glob
-from os import path
+from collections import Counter
 
 from discord import Guild, TextChannel
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional, TYPE_CHECKING
 from random import choice, randint
 
-from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, TimesOfDay, Roles
+from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay, Roles
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.areas import Area
 from caldanai.lib.rpg.time import GameClock
 from caldanai.lib.rpg.helpers import get_random_direction
+from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
+from caldanai.lib.rpg.combat_state import CombatState
+from caldanai.lib.rpg.ambience.sunrise_sunset import SunriseSunsetDaemon
+from caldanai.lib.rpg.ambience.weather import WeatherDaemon
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.player_manager import PlayerManager
@@ -73,6 +74,63 @@ class Game:
         drift out of sync with ``self.channel``."""
         return self.channel.id if self.channel else None
 
+    # ------------------------------------------------------------------
+    # Combat-state proxies
+    # ------------------------------------------------------------------
+    # These delegate to ``self.combat`` (a ``CombatState``) so external
+    # callers — cogs, tests, monster plugins — can keep reading and
+    # writing ``game.monster`` / ``game.combatants`` / ``game.loot`` /
+    # etc. exactly as before. Setters support whole-field reassignment
+    # (``game.combatants = [...]``, ``game.loot = {}``) which a handful
+    # of tests rely on.
+    @property
+    def monster(self) -> "Optional[MonsterPlugin]":
+        return self.combat.monster
+
+    @monster.setter
+    def monster(self, value: "Optional[MonsterPlugin]") -> None:
+        self.combat.monster = value
+
+    @property
+    def monsters(self) -> "List[str]":
+        return self.combat.monsters
+
+    @monsters.setter
+    def monsters(self, value: "List[str]") -> None:
+        self.combat.monsters = value
+
+    @property
+    def combatants(self) -> "List[Player]":
+        return self.combat.combatants
+
+    @combatants.setter
+    def combatants(self, value: "List[Player]") -> None:
+        self.combat.combatants = value
+
+    @property
+    def combat_targets(self) -> "Dict[int, Optional[List[str]]]":
+        return self.combat.combat_targets
+
+    @combat_targets.setter
+    def combat_targets(self, value: "Dict[int, Optional[List[str]]]") -> None:
+        self.combat.combat_targets = value
+
+    @property
+    def looters(self) -> "List[Player]":
+        return self.combat.looters
+
+    @looters.setter
+    def looters(self, value: "List[Player]") -> None:
+        self.combat.looters = value
+
+    @property
+    def loot(self) -> "Dict[int, List[Union[Item, Weapon]]]":
+        return self.combat.loot
+
+    @loot.setter
+    def loot(self, value: "Dict[int, List[Union[Item, Weapon]]]") -> None:
+        self.combat.loot = value
+
     def __init__(
         self,
         bot: "Bot" = None,
@@ -109,12 +167,12 @@ class Game:
         # lookups. Accessed via the ``channel_id`` property below so
         # it can't drift out of sync with ``self.channel``.
         self.player_manager: PlayerManager = PlayerManager()
-        self.monster: Optional[MonsterPlugin] = None
-        self.monsters: List[str] = []
-        self.combatants: List[Player] = []
-        self.combat_targets: Dict[int, Optional[str]] = {}
-        self.looters: List[Player] = []
-        self.loot: Dict[int, List[Union[Item, Weapon]]] = {}
+        # Combat-runtime state lives on ``self.combat`` (a
+        # ``CombatState``) rather than as individual fields on
+        # ``Game``. Property accessors below preserve the legacy
+        # ``game.monster`` / ``game.combatants`` / ``game.loot`` etc.
+        # surface for cogs, tests, and monster hooks.
+        self.combat: CombatState = CombatState()
         self.use_spawn_timer = use_spawn_timer
         self.spawn_duration = spawn_duration * 60
         self.loot_duration = loot_duration * 60
@@ -122,14 +180,14 @@ class Game:
         self.spawn_timer_range = spawn_range
         self.enable_ambience = enable_ambience
         self.game_clock = GameClock(game_time=game_time)
-        # WeatherDaemon is created here but not started — starting
-        # schedules routines on the clock registry, which requires
-        # the game to be registered. Both happen below together.
-        from caldanai.lib.rpg.ambience.weather import WeatherDaemon
+        # WeatherDaemon + SunriseSunsetDaemon are created here but
+        # not started — starting schedules routines on the clock
+        # registry, which requires the game to be registered. Both
+        # happen below together.
         self.weather = WeatherDaemon(channel.id) if channel else None
-        self._last_ambience_tick = self.game_clock.get_seconds()
+        self.sunrise_sunset = SunriseSunsetDaemon(channel.id) if channel else None
         self.room0: Area = None
-        self.monster_statics: Dict[str, int] = {}
+        self.monster_statics: Counter = Counter()
 
         if guild:
             self.game_clock.add_routine(self.player_manager.update_inactive_roles, 3600)
@@ -150,13 +208,15 @@ class Game:
             self.game_clock.add_routine(self.do_ambience, 1)
 
         self.bot = bot
-        if bot and guild and channel:
-            bot.games[channel.id] = self
 
         # Register with the per-game clock registry + channel routing
         # map so downstream subsystems can find this game's clock
         # without holding a Game reference. Both are idempotent no-ops
         # when ``channel_id`` is None (tests / pre-spawn contexts).
+        # ``Bot.games`` is now a read-only property over
+        # ``_channel_routes``, so the channel-routing registration
+        # below is the one-and-only place the Bot-level map is
+        # populated — no separate ``bot.games[...] = self`` write.
         if self.channel_id is not None:
             GameClock._register(self.channel_id, self.game_clock)
             self.register_channel(self.channel_id)
@@ -168,6 +228,11 @@ class Game:
             if self.weather is not None and self.enable_ambience:
                 from caldanai.lib.rpg.helpers.enums import Seasons
                 self.weather.start(Seasons(self.game_clock.get_season()))
+            # Sunrise/sunset narration is a separate daemon now
+            # (previously inline in do_ambience); gated by the same
+            # ambience flag to preserve pre-refactor behavior.
+            if self.sunrise_sunset is not None and self.enable_ambience:
+                self.sunrise_sunset.start()
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -216,10 +281,7 @@ class Game:
             remaining = ((24 if h > next_h else 0) + next_h + next_m / 60) - (h + m / 60)
             if flee or (next_flee and remaining < 1 / 6):
                 msg = monster.time_flee
-                key = f"{self.monster.name}.fled"
-                self.monster_statics[key] = (
-                    1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
-                )
+                self.monster_statics[f"{self.monster.name}.fled"] += 1
                 await self.cancel_combat()
 
         if msg:
@@ -243,31 +305,19 @@ class Game:
                 return False
             _log.debug(f"{self.monster} spawned randomly")
         else:
-            available_monsters = [
-                filepath.split(path.sep)[-1][:-3].lower()
-                for filepath in glob("./caldanai/lib/rpg/creatures/monsters/*.py")
-            ]
-            available_monsters.remove("__init__")
-            if monster.lower() in available_monsters:
-                mod = importlib.import_module(f"caldanai.lib.rpg.creatures.monsters.{monster}")
-                # Find the MonsterPlugin subclass defined in this module
-                monster_cls = next(
-                    (
-                        obj for obj in vars(mod).values()
-                        if isinstance(obj, type) and issubclass(obj, MonsterPlugin) and obj is not MonsterPlugin
-                    ),
-                    None,
-                )
-                if monster_cls is None:
-                    Dispatcher.add(self.channel, f"The {monster} module does not define a monster class.")
-                    _log.error(f"No MonsterPlugin subclass found in module `{monster}`")
-                    return False
-                self.monster = monster_cls()
-                _log.debug(f"{self.monster} spawned selectively")
-            else:
+            # Registry lookup replaces the old per-call filesystem glob
+            # + importlib scan. Every monster plugin is already loaded
+            # at startup via ``MonsterPlugin.load_plugins``; matching by
+            # filename stem (case-insensitive) preserves the exact name
+            # set the old glob accepted (``goblin``, ``math_teacher``,
+            # ``GOBLIN`` all still resolve).
+            monster_cls = MonsterPlugin.get_plugin_class(monster)
+            if monster_cls is None:
                 Dispatcher.add(self.channel, f"There is no such thing as a {monster}! (But there could be... 😈)")
                 _log.error(f"Monster definition not found for `{monster}`")
                 return False
+            self.monster = monster_cls()
+            _log.debug(f"{self.monster} spawned selectively")
 
         embed, file = self.monster.get_embed()
         Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
@@ -290,24 +340,17 @@ class Game:
             self.game_clock.add_routine(self.do_combat, self.spawn_duration, True)
 
     async def end_combat(self):
-        """Single source of truth for combat teardown.
+        """Thin delegator to :meth:`CombatState.end_combat`.
 
-        Clears combat state (monster, combatants, targets, looters)
-        and unconditionally removes combat roles from everyone who
-        participated (tracked via ``self.looters`` — the authoritative
-        list of players who received the combat role). Does NOT touch
-        ``self.loot`` — callers manage the loot lifecycle (generate,
-        timer, or clear) before calling this.
-
-        Does NOT start the spawn timer — callers follow up with
-        ``set_spawn_timer`` when appropriate.
+        The actual teardown (clearing monster / combatants / targets
+        / looters and removing combat roles) lives on
+        ``self.combat``; this method exists so existing callers that
+        ``await game.end_combat()`` keep working and so the clock
+        routine to remove is bound correctly (``self.do_combat``).
         """
-        self.monster = None
-        self.combatants.clear()
-        self.combat_targets.clear()
-        self.game_clock.remove_routine(self.do_combat)
-        await self.player_manager.clear_combat_roles(self.looters)
-        self.looters.clear()
+        await self.combat.end_combat(
+            self.player_manager, self.game_clock, self.do_combat,
+        )
 
     async def cancel_combat(self):
         """Monster escapes — no loot, full combat cleanup."""
@@ -453,75 +496,30 @@ class Game:
                 _, prev = damage_by_player[player.user_id]
                 damage_by_player[player.user_id] = (player, prev + d)
 
-                # Per-result: route raw (pre-defense) damage to parts for
-                # injury tracking. Body HP is handled AFTER all sources
-                # resolve, with defense subtracted once from the total.
-                #
-                # Injury-message coalescing: when multiple sources in a
-                # sequence (e.g. dual-wield) target the same part, we
-                # snapshot that part's starting level ONCE before any
-                # hits land and emit a single transition message after
-                # all hits resolve. This avoids the dual-wield chatter
-                # of "lightly battered" followed by "utterly destroyed"
-                # for a single attack action.
-                injury_feedback = []
-                num_hits = 0
-                part_starting_levels: dict = {}  # id(part) -> (part, old_level)
-                for result in sequence.results:
-                    if result.damage > 0:
-                        num_hits += 1
-                        part = result.target_part
-                        if part is not None and id(part) not in part_starting_levels:
-                            part_starting_levels[id(part)] = (part, part.get_injury_level())
-
-                        dmg_result = monster.apply_damage(
-                            result.damage,
-                            dmg_type=result.dmg_type,
-                            target_part=part,
-                        )
-                        if dmg_result and not death_msg:
-                            death_msg = dmg_result
-
-                # Emit one injury message per unique part based on the
-                # level transition across the full sequence.
-                # ``apply_damage`` intentionally does NOT fire the hooks
-                # itself — this is the single authoritative call site
-                # for ``on_injury_change`` and ``on_destroyed`` so hooks
-                # with side effects (wing grounding, pain cries) fire
-                # exactly once per attack action per part.
-                for part, old_level in part_starting_levels.values():
-                    new_level = part.get_injury_level()
-                    if new_level == old_level:
-                        continue
-                    if new_level != InjuryLevels.NONE:
-                        feedback = part.get_injury_string()
-                        injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
-                    hook_msg = part.on_injury_change(monster, old_level, new_level)
-                    if hook_msg:
-                        injury_feedback.append(f"   {hook_msg}")
-                    # First-time destruction: fire on_destroyed once.
-                    if (
-                        new_level == InjuryLevels.USELESS
-                        and old_level != InjuryLevels.USELESS
-                    ):
-                        destroyed_msg = part.on_destroyed(monster)
-                        if destroyed_msg:
-                            injury_feedback.append(f"   {destroyed_msg}")
+                # Per-result part routing + coalesced injury feedback +
+                # part-side hook firing live in ``apply_sequence_to_target``.
+                # The helper does NOT fire the attacker-side
+                # ``on_target_part_destroyed`` hook here — the player
+                # path has no such hook by design, and passing
+                # ``attacker=None`` makes that asymmetry explicit.
+                resolution = apply_sequence_to_target(sequence, monster)
+                if resolution.death_msg and not death_msg:
+                    death_msg = resolution.death_msg
 
                 # Defense subtracted once from the per-player total
                 # (variant B — restored pre-refactor balance).
                 # num_hits is the minimum damage floor (dual-wield = 2, single = 1).
+                num_hits = resolution.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    total_raw = d  # sequence.total_damage() already computed above
                     defense = monster.get_defense()
-                    final_body_dmg = max(num_hits, total_raw - defense)
+                    final_body_dmg = max(num_hits, resolution.body_damage_total - defense)
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
                     if monster.health == 0 and not death_msg:
                         death_msg = monster.death if hasattr(monster, 'death') else ""
 
-                if injury_feedback:
-                    msg += "\n".join(injury_feedback) + "\n"
+                if resolution.injury_feedback_lines:
+                    msg += "\n".join(resolution.injury_feedback_lines) + "\n"
             else:
                 self.combatants.pop(i)
 
@@ -540,8 +538,7 @@ class Game:
 
         msg += parse(death_msg, monster)
         if monster.is_dead():
-            key = f"{monster.name}.killed"
-            self.monster_statics[key] = 1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
+            self.monster_statics[f"{monster.name}.killed"] += 1
             msg += parse(await self.on_monster_death(), monster)
             msgs = Dispatcher.split_message(msg, "```\n", True)
             for m in msgs:
@@ -574,10 +571,7 @@ class Game:
                 or monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE)
                 or (monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() <= 0.1)
             ):
-                key = f"{monster.name}.escaped"
-                self.monster_statics[key] = (
-                    1 if key not in self.monster_statics.keys() else self.monster_statics[key] + 1
-                )
+                self.monster_statics[f"{monster.name}.escaped"] += 1
                 Dispatcher.add(self.channel, f"{msg}\n{parse(monster.escape, monster)}")
                 await self.cancel_combat()
 
@@ -593,47 +587,41 @@ class Game:
                 Dispatcher.add(self.channel, msg)
 
     async def do_ambience(self):
-        """Small chance to display a random ambience message."""
+        """Small chance to display a random flavor ambience message.
+
+        Sunrise/sunset transition narration used to also flow through
+        here; it now lives on a dedicated ``SunriseSunsetDaemon``
+        scheduled directly on the clock. This method is the random
+        flavor-choice roll only — kill-switch guard + the roll.
+        """
 
         if not self.enable_ambience:
             _log.debug(f"Removing ambience loop for game on {self.guild.name}.")
             self.game_clock.remove_routine(self.do_ambience)
             return
 
-        game_time = self.game_clock.get_seconds()
+        if random.randint(1, 3000) != 3000:
+            return
 
-        msg = ""
+        msg = choice(
+            [
+                "A squirrel bounds across the ground, and up a nearby tree.",
+                "A bush rustles as something skitters unseen within.",
+                f"A lonesome howl floats in from the {get_random_direction()}.",
+                "Happy warbling resounds as a songbird flits across the area.",
+                f"A pack of wolves serenades from the {get_random_direction()}.",
+                "At the edge of the wood-line, a bear trundles about curiously for a moment before disappearing into"
+                " the trees.",
+                "The ground trembles slightly for a moment, though whether from earthquake or monstrosity is"
+                " impossible to determine.",
+                "A choir of insectile sound rises, thousands of tiny voices calling out to each other.",
+                f"A {choice('gentle|strong|slow|light|moderate'.split('|'))} breeze stirs the area, bringing the"
+                f" scent of {choice('the sea|dust|pine|animal musk|death'.split('|'))} with it.",
+                "Some unknown creature blazes a trail throughout the tall grasses nearby.",
+            ]
+        )
 
-        sunrise, sunset = self.game_clock.get_sunrise_and_sunset()
-
-        if self._last_ambience_tick < sunrise <= game_time:
-            msg = "The sky glows softly to the east as night gives way to day."
-        elif self._last_ambience_tick < sunset <= game_time:
-            msg = "The crimson disc sinks slowly beyond the horizon, and darkness creeps across the land."
-
-        if random.randint(1, 3000) == 3000:
-            msg += choice(
-                [
-                    "A squirrel bounds across the ground, and up a nearby tree.",
-                    "A bush rustles as something skitters unseen within.",
-                    f"A lonesome howl floats in from the {get_random_direction()}.",
-                    "Happy warbling resounds as a songbird flits across the area.",
-                    f"A pack of wolves serenades from the {get_random_direction()}.",
-                    "At the edge of the wood-line, a bear trundles about curiously for a moment before disappearing into"
-                    " the trees.",
-                    "The ground trembles slightly for a moment, though whether from earthquake or monstrosity is"
-                    " impossible to determine.",
-                    "A choir of insectile sound rises, thousands of tiny voices calling out to each other.",
-                    f"A {choice('gentle|strong|slow|light|moderate'.split('|'))} breeze stirs the area, bringing the"
-                    f" scent of {choice('the sea|dust|pine|animal musk|death'.split('|'))} with it.",
-                    "Some unknown creature blazes a trail throughout the tall grasses nearby.",
-                ]
-            )
-
-        if msg:
-            Dispatcher.add(self.channel, msg)
-
-        self._last_ambience_tick = game_time
+        Dispatcher.add(self.channel, msg)
 
     def to_dict(self):
         """Returns the database friendly dictionary for this game."""
@@ -722,15 +710,16 @@ class Game:
         # routing and spin up the weather daemon with persisted state.
         # ``__init__`` skipped this path because ``channel`` wasn't
         # supplied to the constructor on the load path.
-        from caldanai.lib.rpg.ambience.weather import WeatherDaemon
         from caldanai.lib.rpg.helpers.enums import Seasons
         GameClock._register(game.channel.id, game.game_clock)
         game.register_channel(game.channel.id)
         game.weather = WeatherDaemon(game.channel.id)
+        game.sunrise_sunset = SunriseSunsetDaemon(game.channel.id)
         if d.get("weather"):
             game.weather.load_dict(d["weather"])
         if game.enable_ambience:
             game.weather.start(Seasons(game.game_clock.get_season()))
+            game.sunrise_sunset.start()
 
         await game.player_manager.load_players(game.guild, game.channel.id)
         game.game_clock.add_routine(game.player_manager.update_inactive_roles, 3600)

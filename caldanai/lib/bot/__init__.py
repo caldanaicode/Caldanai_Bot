@@ -1,7 +1,8 @@
 import asyncio
 import sys
 from datetime import datetime
-from typing import Any, Dict
+from types import MappingProxyType
+from typing import Any, Dict, Mapping
 
 from discord.ext.commands import Bot as BotBase
 from discord.ext.commands import (
@@ -121,11 +122,31 @@ class Bot(BotBase, Subject):
         self.ready = False
         self.is_online_discord = False
         self.stdout = None
-        self.retry = 0
-        self.games: Dict[int, Game] = {}
+        # ``games`` is exposed as a property below — a read-only live
+        # view over ``Game._channel_routes`` (the single source of
+        # truth for channel-id → Game routing). The field is no longer
+        # stored here; see the ``games`` property.
         self.command_usage = []
         self.last_command: Dict[str, Any] = {}
         _log.info("Bot init complete.")
+
+    @property
+    def games(self) -> "Mapping[int, Game]":
+        """Read-only live view of channel_id → Game routing.
+
+        Historically this was a dict owned by the Bot and mutated
+        independently of ``Game._channel_routes``, forcing every
+        add/remove to touch two registries (and leaking one when a
+        caller forgot the other — the 2026-04-15 guild-id/channel-id
+        rekey bug was exactly that class of drift). The class-level
+        ``Game._channel_routes`` is now the single source of truth;
+        this property returns a live ``MappingProxyType`` view so
+        existing callers — ``bot.games.get(id)``, ``bot.games.values()``,
+        ``id in bot.games``, iteration — keep working unchanged.
+        Writes go through ``Game.register_channel`` /
+        ``Game.unregister_channel``.
+        """
+        return MappingProxyType(Game._channel_routes)
 
     async def setup(self):
         _log.info("Loading cogs...")

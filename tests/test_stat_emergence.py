@@ -223,6 +223,38 @@ class TestDodgeEmergence:
         # int(10 * 0.5 * 1.0) + 0 = 5
         assert c.get_dodge() == 5
 
+    def test_huge_creature_low_dodge_floors_at_one(self):
+        """A healthy HUGE creature that rolled 1 on its dodge dice
+        shouldn't end up with 0 dodge. ``int(1 * 1.0 * 0.5) = 0``
+        without the floor — which surfaced at playtest as a giant
+        with 0 dodge ("shouldn't be possible"). Floor kicks in when
+        any mobility remains.
+        """
+        c = _make_creature(dodge=1)
+        c.size = Size.HUGE
+        c.body_parts = BodyPart.humanoid()
+        assert c.get_dodge() == 1
+
+    def test_colossal_creature_low_dodge_floors_at_one(self):
+        """COLOSSAL (dodge_mod 0.25) can truncate to 0 on rolls 1-3
+        of a 1d4. Floor guarantees at least 1 while mobile."""
+        c = _make_creature(dodge=2)
+        c.size = Size.COLOSSAL
+        c.body_parts = BodyPart.humanoid()
+        # int(2 * 1.0 * 0.25) = 0 without the floor; 1 with it.
+        assert c.get_dodge() == 1
+
+    def test_all_legs_destroyed_still_yields_zero(self):
+        """The floor is conditional on mobility remaining. A creature
+        with all legs destroyed still has 0 dodge — the floor only
+        kicks in when ``_functionality_ratio`` is positive."""
+        c = _make_creature(dodge=10)
+        c.size = Size.HUGE
+        c.body_parts = BodyPart.humanoid()
+        for leg in [p for p in c.body_parts if _part_base_name(p) == "leg"]:
+            leg.health = 0
+        assert c.get_dodge() == 0
+
 
 # ---------------------------------------------------------------------------
 # Defense emergence
@@ -248,6 +280,16 @@ class TestDefenseEmergence:
         c.body_parts = BodyPart.humanoid()
         # ratio 1.0, size mod 1.25 → int(10 * 1.0 * 1.25) + 0 = 12
         assert c.get_defense() == 12
+
+    def test_small_creature_low_defense_floors_at_one(self):
+        """SMALL (defense_mod 0.75) with a rolled defense of 1 would
+        truncate to 0 without the floor. Mirrors the get_dodge fix —
+        floor applies when any torso functionality remains."""
+        c = _make_creature(defense=1)
+        c.size = Size.SMALL
+        c.body_parts = BodyPart.humanoid()
+        # int(1 * 1.0 * 0.75) = 0 without the floor; 1 with it.
+        assert c.get_defense() == 1
 
     def test_destroyed_torso_returns_core_toughness(self):
         c = _make_creature(defense=10)

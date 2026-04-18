@@ -3,7 +3,7 @@
 import pytest
 from bson.objectid import ObjectId
 
-from caldanai.lib.rpg.helpers.enums import DamageTypes, EquipmentSlots, Qualities
+from caldanai.lib.rpg.helpers.enums import DamageTypes, EquipmentSlots, Qualities, Reach
 from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
@@ -51,6 +51,67 @@ class TestWeaponConstruction:
             plugin="test",
         )
         assert weapon.bonus == 99
+
+
+class TestWeaponReach:
+    """``Weapon.reach`` derives from ``damage_type`` so
+    ``Player.get_attack_sources`` passes the right reach into
+    ``WeaponAttackSource``. Without this, every weapon defaulted to
+    ``Reach.MELEE`` and ranged attacks used melee exposure values —
+    the live bug where a bow vs. dragon wing produced the same
+    targeted dodge as a sword (wing exposure: melee 0.5, ranged 1.0).
+    """
+
+    def test_melee_weapon_reach(self):
+        weapon = Weapon(
+            quality=Qualities.ORDINARY,
+            atk="1d8",
+            dmg_type=DamageTypes.SLASHING,
+            plugin="test",
+        )
+        assert weapon.reach == Reach.MELEE
+
+    def test_ranged_weapon_reach(self):
+        weapon = Weapon(
+            quality=Qualities.ORDINARY,
+            atk="2d10",
+            dmg_type=DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED,
+            plugin="bow",
+        )
+        assert weapon.reach == Reach.RANGED
+
+    def test_magical_ranged_weapon_reach(self):
+        """Wands carry ``RANGED`` alongside ``MAGICAL``; reach tracks
+        distance, not damage flavor."""
+        weapon = Weapon(
+            quality=Qualities.ORDINARY,
+            atk="2d4",
+            dmg_type=DamageTypes.MAGICAL | DamageTypes.RANGED | DamageTypes.COMBINED,
+            plugin="wand",
+        )
+        assert weapon.reach == Reach.RANGED
+
+    def test_magical_melee_weapon_reach(self):
+        """A purely magical weapon without RANGED should still read as
+        MELEE — magic doesn't imply distance on its own."""
+        weapon = Weapon(
+            quality=Qualities.ORDINARY,
+            atk="1d6",
+            dmg_type=DamageTypes.MAGICAL,
+            plugin="test",
+        )
+        assert weapon.reach == Reach.MELEE
+
+    def test_no_damage_type_defaults_to_melee(self):
+        """Degenerate case (legacy / test weapons with no dmg_type):
+        fall back to MELEE rather than raising."""
+        weapon = Weapon(
+            quality=Qualities.ORDINARY,
+            atk="1d4",
+            dmg_type=None,
+            plugin="test",
+        )
+        assert weapon.reach == Reach.MELEE
 
     def test_skill_string_one_handed(self):
         weapon = Weapon(

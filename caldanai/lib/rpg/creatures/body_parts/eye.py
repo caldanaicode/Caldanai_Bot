@@ -10,9 +10,9 @@ creature can still swing hard -- it just can't target well.
 Eyes are also the canonical "explicit targeting" part. The exposure
 table is dramatically lower than every other part (0.1 to 0.3 versus
 0.5 to 1.0 elsewhere), which keeps random attack routing from landing
-on an eye all that often. The intended play pattern is ``attack
-@dragon eye`` -- a deliberate, tactical gouge that trades hit chance
-for a very large payoff if it lands.
+on an eye all that often. The intended play pattern is explicit
+targeting (``attack @<monster> eye``) -- a deliberate, tactical gouge
+that trades hit chance for a very large payoff if it lands.
 
 Design rationale
 ================
@@ -89,18 +89,12 @@ Debuffs (HIT-only, non-linear)
       dodge can subclass or compose additional parts.
 
 Multi-eye composition
-    Creatures with more than one eye (most creatures: 2; cyclops: 1;
-    spiders: 8) compose by calling ``BodyPart.make("eye",
-    name="left eye")`` once per eye, each with a unique name. The
-    item 1.8 ``Creature.get_part(name)`` helper then resolves each eye
-    by name for explicit targeting, and stat aggregation sums debuffs
-    across every eye. A two-eyed creature with both eyes destroyed
-    aggregates to HIT -16.
-
-Doppelganger pain cries
-    One flavor string per injury level, escalating from a mysterious
-    teary blink to a pupil-blown sinking into the socket. The design
-    doc wants per-part doppelganger cries on every base part.
+    Creatures with more than one eye compose by calling
+    ``BodyPart.make("eye", name="left eye")`` once per eye, each with
+    a unique name. The item 1.8 ``Creature.get_part(name)`` helper
+    then resolves each eye by name for explicit targeting, and stat
+    aggregation sums debuffs across every eye. A two-eyed creature
+    with both eyes destroyed aggregates to HIT -16.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
@@ -114,8 +108,8 @@ class EyePlugin(BodyPartPlugin):
     They drive aim, so injuring one debuffs ``Stat.HIT`` (attack-roll
     accuracy), not ``Stat.ATTACK`` (raw power). The exposure table is
     uniformly low (all values <= 0.3) because eyes are tiny targets;
-    the intended play pattern is explicit targeting (``attack @dragon
-    eye``) rather than random routing.
+    the intended play pattern is explicit targeting rather than random
+    routing.
 
     The USELESS HIT debuff (-8) is deliberately steeper than a linear
     extension of the MINOR/MODERATE/SEVERE scale (-1/-2/-4). A fully

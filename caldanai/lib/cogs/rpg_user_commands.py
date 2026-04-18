@@ -125,7 +125,7 @@ class RpgUserCommands(Cog):
         if already_in_combat:
             game.combat_targets[player.user_id] = part_targets or None
             if part_targets:
-                label = self._display_targets(part_targets)
+                label = self._display_targets(part_targets, game.monster)
                 Dispatcher.add(game.channel, f"{player.name} shifts focus to {label}!")
             else:
                 Dispatcher.add(game.channel, f"{player.name} attacks wildly!")
@@ -135,7 +135,7 @@ class RpgUserCommands(Cog):
         game.combat_targets[player.user_id] = part_targets or None
 
         if part_targets:
-            label = self._display_targets(part_targets)
+            label = self._display_targets(part_targets, game.monster)
             Dispatcher.add(game.channel, f"{player.name} prepares to attack, targeting {label}!")
         else:
             Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
@@ -150,7 +150,7 @@ class RpgUserCommands(Cog):
         ``"leg.r"`` resolves to ``"leg.right"``.
 
         Every match expands to the part's canonical ``name`` so that
-        ``_display_part_name`` always renders cleanly. A token that
+        ``_display_targets`` always renders cleanly. A token that
         resolves to multiple parts (e.g. ``"leg"`` → both legs, or
         ``"h"`` → head plus hands) contributes one canonical entry per
         match; ``do_attack`` then distributes one name per source slot.
@@ -205,47 +205,40 @@ class RpgUserCommands(Cog):
             return
 
         game.combat_targets[player.user_id] = part_targets
-        label = self._display_targets(part_targets)
+        label = self._display_targets(part_targets, game.monster)
         Dispatcher.add(game.channel, f"{player.name} shifts focus to {label}!")
 
     @staticmethod
-    def _display_part_name(codified: str, with_article: bool = False) -> str:
-        """Convert a codified part name to a readable display name.
-
-        ``"arm.left"`` → ``"left arm"``, ``"head.2"`` → ``"head 2"``,
-        ``"head"`` → ``"head"``.
-
-        When ``with_article`` is True, prepends "the" for directional
-        and simple names but NOT for numbered parts:
-        ``"the left arm"`` vs ``"head 2"`` (not "the head 2").
-        """
-        if "." not in codified:
-            name = codified
-            use_the = True
-        else:
-            base, qualifier = codified.rsplit(".", 1)
-            if qualifier.isnumeric():
-                name = f"{base} {qualifier}"
-                use_the = False
-            else:
-                name = f"{qualifier} {base}"
-                use_the = True
-
-        if with_article and use_the:
-            return f"the {name}"
-        return name
-
-    @classmethod
-    def _display_targets(cls, part_targets: list) -> str:
+    def _display_targets(part_targets: list, monster) -> str:
         """Join a list of codified part names into a readable label
         with appropriate articles.
 
         ``["arm.left", "leg.right"]`` → ``"the left arm and the right leg"``
         ``["head.2", "torso"]`` → ``"head 2 and the torso"``
+
+        Each codified name is resolved to the owning ``BodyPart`` on
+        ``monster`` so the rendering uses the canonical
+        ``BodyPart._display_with_article`` logic. If a name fails to
+        resolve (e.g. the part was destroyed between target-parse and
+        display), we degrade to a plain string-based rendering rather
+        than crashing.
         """
-        return " and ".join(
-            cls._display_part_name(t, with_article=True) for t in part_targets
-        )
+        def render(codified: str) -> str:
+            matches = monster.find_parts(codified) if monster is not None else []
+            for part in matches:
+                if part.name == codified:
+                    return part._display_with_article()
+            # Fallback: no resolving part (destroyed, missing, or no
+            # monster). Reproduce the legacy string-only logic so the
+            # label still renders something sensible.
+            if "." not in codified:
+                return f"the {codified}"
+            base, qualifier = codified.rsplit(".", 1)
+            if qualifier.isnumeric():
+                return f"{base} {qualifier}"
+            return f"the {qualifier} {base}"
+
+        return " and ".join(render(t) for t in part_targets)
 
     @command(name="hug", aliases=["snuggle", "cuddle"], brief="Hugs, snuggles, and cuddles for all of your needs!")
     @guild_only()
@@ -435,23 +428,18 @@ class RpgUserCommands(Cog):
                 # "Needs healing" includes part injuries — a player
                 # with a destroyed arm but full body HP should still
                 # be caught in the rain.
-                body_hurt = p.health < p.get_health_max()
-                part_hurt = any(
-                    part.health < part.health_max
-                    for part in (p.body_parts or [])
-                )
-                if not (body_hurt or part_hurt):
+                if not p.is_injured():
                     continue
                 msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
-                if body_hurt:
+                # apply_damage before heal_fully so the resurrection
+                # narration (only fired when the player was at 0 HP)
+                # still gets appended before heal_fully tops everything
+                # off. heal_fully handles parts, regen, and is_dirty.
+                if p.health < p.get_health_max():
                     heal_msg = p.apply_damage(p.health - p.get_health_max())
                     if heal_msg:
                         msg += f"{heal_msg} "
-                # Divine rain is total: restore every body part too.
-                for part in p.body_parts or []:
-                    part.health = part.health_max
-                p.health_regen = 0
-                p.is_dirty = True
+                p.heal_fully()
                 msg += f"@{index} is made whole!"
                 actors.append(p)
                 index += 1
@@ -462,18 +450,9 @@ class RpgUserCommands(Cog):
         elif d20.value > 16:
             # Candidate filter includes part-injured players, not
             # just body-HP-injured ones.
-            def _needs_healing(p) -> bool:
-                return (
-                    p.health < p.get_health_max()
-                    or any(
-                        part.health < part.health_max
-                        for part in (p.body_parts or [])
-                    )
-                )
-
             candidates = [
                 p for p in game.player_manager.players.values()
-                if _needs_healing(p)
+                if p.is_injured()
             ] or [player]
             # Pick the most-injured by body-HP ratio; if everyone has
             # full body HP but some have part injuries, pick by
@@ -493,15 +472,16 @@ class RpgUserCommands(Cog):
 
             if d20.value == 20:
                 # Divine miracle: full body + full parts restore.
+                # apply_damage first for the resurrection narration
+                # side effect (only emitted when healing from 0 HP);
+                # heal_fully then tops body HP off and restores parts,
+                # regen, and is_dirty.
                 body_heal_msg = ""
                 if heal_target.health < heal_target.get_health_max():
                     body_heal_msg = heal_target.apply_damage(
                         -heal_target.get_health_max()
                     )
-                for part in heal_target.body_parts or []:
-                    part.health = part.health_max
-                heal_target.health_regen = 0
-                heal_target.is_dirty = True
+                heal_target.heal_fully()
                 if body_heal_msg:
                     msg += f"\n{body_heal_msg}"
                 msg += (

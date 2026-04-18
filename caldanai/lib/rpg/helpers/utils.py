@@ -2,6 +2,7 @@ import smtplib
 import sys
 import textwrap
 
+from collections import Counter
 from datetime import datetime
 from email.message import EmailMessage
 import traceback
@@ -195,7 +196,10 @@ class RpgUtilities:
 
         room0 = Area.from_plugin("0")
         game.room0 = room0
-        RpgUtilities.bot.games[game.channel.id] = game
+        # Channel routing is populated inside ``Game.__init__`` /
+        # ``Game.from_dict`` via ``register_channel``; ``bot.games`` is
+        # a read-only live view over that registry, so there's no
+        # separate per-bot map to maintain here.
         _log.info(f"Game added for guild: {game.guild.name} ({game.guild.id})")
         startup_msg = "Caldanai Bot has just started!"
         if getattr(game, "weather", None) is not None:
@@ -324,6 +328,21 @@ class RpgUtilities:
         player: Player = await RpgUtilities.get_player(ctx, game, notify)
         return game, player
 
+    # Pick the right reply target for a cog command: the game's bound
+    # channel when invoked from a guild, or the invoking context
+    # itself when invoked from a DM (so replies go back to the user).
+    # Cogs used to inline this ternary at every call site; centralize
+    # it here so behavior stays consistent.
+    @staticmethod
+    def resolve_reply_channel(ctx, game: Game):
+        """Return ``game.channel`` for guild invocations, else ``ctx``.
+
+        Mirrors the previous cog-level idiom
+        ``game.channel if ctx.guild is not None else ctx`` exactly —
+        no behavior change, just deduplication.
+        """
+        return game.channel if getattr(ctx, "guild", None) is not None else ctx
+
     @staticmethod
     async def init(bot: Bot):
         try:
@@ -351,8 +370,13 @@ class RpgUtilities:
     async def remove_game(guild_id: int, channel_id: int):
         """Remove the game keyed by ``channel_id`` from memory, the
         DB, the clock registry, and channel routing. ``guild_id`` is
-        still required for the DB compound key."""
-        if channel_id in RpgUtilities.bot.games.keys():
+        still required for the DB compound key.
+
+        ``bot.games`` is a read-only view over
+        ``Game._channel_routes``, so dropping the channel from that
+        registry (via ``unregister_channel``) is what makes the game
+        disappear from ``bot.games`` — no separate dict delete."""
+        if channel_id in RpgUtilities.bot.games:
             try:
                 game = RpgUtilities.bot.games.get(channel_id)
                 DB.delete_game(guild_id, channel_id)
@@ -364,14 +388,14 @@ class RpgUtilities:
                 if game is not None:
                     if getattr(game, "weather", None) is not None:
                         game.weather.stop()
+                    if getattr(game, "sunrise_sunset", None) is not None:
+                        game.sunrise_sunset.stop()
                     if game.game_clock.tick.is_running():
                         game.game_clock.tick.stop()
                     game.unregister_channel(channel_id)
 
                 from caldanai.lib.rpg.time import GameClock
                 GameClock._unregister(channel_id)
-
-                del RpgUtilities.bot.games[channel_id]
 
             except Exception as e:
                 _log.error(f"Error in utils.py --> remove_game(): {e}")
@@ -384,7 +408,7 @@ class RpgUtilities:
             cmd_copy, RpgUtilities.bot.command_usage = RpgUtilities.bot.command_usage, []
             mon_copy = {}
             for g in RpgUtilities.bot.games.values():
-                mon_copy[g], g.monster_statics = g.monster_statics, {}
+                mon_copy[g], g.monster_statics = g.monster_statics, Counter()
 
             for entry in cmd_copy:
                 DB.update_user_statics(entry)

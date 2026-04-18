@@ -633,3 +633,113 @@ class TestChannelRouting:
     def test_for_channel_returns_none_for_unknown_channel(self):
         from caldanai.lib.rpg import Game
         assert Game.for_channel(424242) is None
+
+
+# ---------------------------------------------------------------------------
+# monster_statics counter semantics
+# ---------------------------------------------------------------------------
+
+class TestMonsterStatics:
+    """Guards the counter-bump behavior used from on_time_change /
+    do_combat / end_combat. All three sites rely on incrementing a
+    missing key yielding 1. If monster_statics ever regresses to a
+    plain dict, ``d[key] += 1`` on a missing key will raise KeyError."""
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_bump_missing_key_starts_at_one(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        # Mirror the idiom used at all three counter-bump sites.
+        game.monster_statics["goblin.killed"] += 1
+        assert game.monster_statics["goblin.killed"] == 1
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_repeat_bumps_accumulate(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        game.monster_statics["goblin.killed"] += 1
+        game.monster_statics["goblin.killed"] += 1
+        game.monster_statics["goblin.escaped"] += 1
+        assert game.monster_statics["goblin.killed"] == 2
+        assert game.monster_statics["goblin.escaped"] == 1
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_monster_statics_not_serialized(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """monster_statics is intentionally NOT serialized (utils.update_statics
+        drains it to the DB statistics collection directly). Confirm that
+        bumping entries does not leak into to_dict output."""
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel, game_id="gid",
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        game.monster_statics["goblin.killed"] += 3
+        d = game.to_dict()
+        assert "monster_statics" not in d
+
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    def test_bump_survives_drain_reset(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Regression guard for helpers/utils.py::update_statics: after the
+        drain-and-reset swap, the next bump on an empty counter must still
+        start at 1. A reset back to plain dict would KeyError here."""
+        from collections import Counter
+        from caldanai.lib.rpg import Game
+        guild, channel = _make_game_guild_channel(mock_db)
+        mock_gc = MagicMock()
+        mock_gc.get_seconds.return_value = 0
+        mock_gc.time_scale = 4
+        mock_gc_cls.return_value = mock_gc
+
+        game = Game(
+            guild=guild, channel=channel,
+            use_spawn_timer=False, enable_ambience=False,
+        )
+        game.monster_statics["goblin.killed"] += 1
+        # Mirror the swap-and-reset in helpers/utils.py::update_statics.
+        _, game.monster_statics = game.monster_statics, Counter()
+        game.monster_statics["goblin.killed"] += 1
+        assert game.monster_statics["goblin.killed"] == 1

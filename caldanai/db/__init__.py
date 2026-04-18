@@ -332,11 +332,9 @@ class DB:
     def find_any_game_in_guild(guild_id):
         """Returns the first game document found for ``guild_id``, or
         ``None`` if the guild has no games. Used by the ``$game create``
-        admin check — current runtime assumes one-game-per-guild
-        (``bot.games`` is still keyed by guild id), so this guards
-        against accidentally creating a second game that would
-        clobber the first in memory. Distinct from ``get_game`` which
-        requires both guild_id and channel_id."""
+        admin check to guard against creating a second game in a guild
+        that already has one. Distinct from ``get_game`` which requires
+        both guild_id and channel_id."""
         return DB._games.find_one({"guild_id": guild_id})
 
     @staticmethod

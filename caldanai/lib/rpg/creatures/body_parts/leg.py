@@ -66,12 +66,6 @@ Debuffs
     dodge value; the ``Creature.get_dodge()`` getter applies a
     ``max(0, ...)`` clamp (item 1.10) so the modifier bottoms out the
     effective dodge at 0 without going negative.
-
-Doppelganger pain cries
-    One flavor string per injury level, escalating from a phantom ache
-    in the thigh to a twisted, limp leg dragging uselessly behind.
-    The design doc explicitly wants per-part doppelganger cries on
-    every base part.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin

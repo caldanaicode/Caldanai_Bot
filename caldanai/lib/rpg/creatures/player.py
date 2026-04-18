@@ -1,19 +1,18 @@
 from math import floor
 from typing import Dict, Tuple, Optional, List, Union
-from io import BytesIO
 
 import pandas
-import matplotlib.pyplot as plt
 
 from discord import Member, Embed, File
 
 from caldanai.lib.rpg import parse
+from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
-from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes, InjuryLevels
 from caldanai.lib.rpg.helpers.parser import item_list_to_string
-from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll, CombinedRoll
+from caldanai.lib.rpg.helpers.plotting import CYAN_ACCENT, fig_to_file, style_axes_dark
+from caldanai.lib.rpg.helpers.roll_data import CombinedRoll
 from caldanai.lib.rpg.inventory import Inventory, Item, Consumable, Armor, Usable
 from caldanai.lib.rpg.inventory.equipment import Equipment
 from caldanai.lib.rpg.inventory.stackables import Stackable
@@ -197,9 +196,13 @@ class Player(Creature):
         amount: int,
         dmg_type: "Optional[DamageTypes]" = None,
         target_part: "Optional[BodyPart]" = None,
-    ) -> str:
+    ) -> Optional[str]:
         was_alive = self.health > 0
-        super().apply_damage(amount, dmg_type=dmg_type, target_part=target_part)
+        super().apply_damage(
+            amount,
+            dmg_type=dmg_type,
+            target_part=target_part,
+        )
         self.is_dirty = True
         if was_alive and self.is_dead():
             return parse("@1 crumples to the ground lifelessly!", self)
@@ -209,6 +212,30 @@ class Player(Creature):
             return parse(f"{mention} suddenly gasps raggedly as life returns to @1o!", self)
 
         return ""
+
+    def is_injured(self) -> bool:
+        """Returns True if the player's body HP is below max or any
+        body part's HP is below its max. Consolidates four previously
+        inline predicates in the cogs (``_is_injured`` in info,
+        ``_needs_healing`` / ad-hoc ``needs_body / needs_part`` checks
+        in pray and unsmite)."""
+        if self.health < self.get_health_max():
+            return True
+        for part in self.body_parts or []:
+            if part.health < part.health_max:
+                return True
+        return False
+
+    def heal_fully(self) -> None:
+        """Restores body HP to max, every body part's HP to max, resets
+        ``health_regen`` bookkeeping, and marks the player dirty. Used
+        by divine full-heal effects (pray crit, unsmite) so they don't
+        have to replicate the restore loop inline."""
+        self.health = self.get_health_max()
+        for part in self.body_parts or []:
+            part.health = part.health_max
+        self.health_regen = 0
+        self.is_dirty = True
 
     def _is_arm_usable(self, instance_name: str) -> bool:
         """An arm at InjuryLevels.USELESS can no longer swing a weapon
@@ -220,7 +247,7 @@ class Player(Creature):
             return True
         return part.get_injury_level() != InjuryLevels.USELESS
 
-    def get_attack_sources(self) -> List["AttackSource"]:
+    def get_attack_sources(self) -> List[AttackSource]:
         """Returns attack sources for usable hands only.
 
         Produces one source for the left/two-handed slot and (if not
@@ -253,18 +280,18 @@ class Player(Creature):
             # Two-handed weapons require both arms. If either arm is
             # useless, no source is emitted.
             if left_ok and right_ok:
-                sources.append(WeaponAttackSource(lh, label="Two-Handed"))
+                sources.append(WeaponAttackSource(lh, label="Two-Handed", reach=lh.reach))
             return sources
 
         if left_ok:
             if lh:
-                sources.append(WeaponAttackSource(lh, label="Left"))
+                sources.append(WeaponAttackSource(lh, label="Left", reach=lh.reach))
             else:
                 sources.append(UnarmedAttackSource(label="Left"))
 
         if right_ok:
             if rh:
-                sources.append(WeaponAttackSource(rh, label="Right"))
+                sources.append(WeaponAttackSource(rh, label="Right", reach=rh.reach))
             else:
                 sources.append(UnarmedAttackSource(label="Right"))
 
@@ -490,25 +517,14 @@ class Player(Creature):
         embed.add_field(name="Count", value=f"{rolls:,}", inline=True)
         embed.add_field(name="Mean", value=f"{mean:.2f}", inline=True)
 
-        cyan = (0.0, 1.0, 0.7, 1.0)
-
         series = pandas.Series(self.rolls["d20"], index=range(1, 21), dtype="int")
         ax = series.plot(kind="bar")
         ax.set_xlabel("Rolls")
         ax.set_ylabel("Count")
-        ax.xaxis.label.set_color(cyan)
-        ax.yaxis.label.set_color(cyan)
         ax.set_ybound(lower=0)
-        ax.tick_params(axis="both", colors=cyan)
-        ax.grid(True, axis="y", color=cyan, alpha=0.25)
-        for spine in ax.spines.values():
-            spine.set_color(cyan)
+        style_axes_dark(ax, accent_color=CYAN_ACCENT, grid_axis="y")
 
-        buffer = BytesIO()
-        plt.savefig(buffer, format="png", transparent=True)
-        plt.close()
-        buffer.seek(0)
-        file = File(buffer, filename="plot.png")
+        file = fig_to_file(ax.figure, filename="plot.png")
         embed.set_image(url="attachment://plot.png")
 
         return embed, file

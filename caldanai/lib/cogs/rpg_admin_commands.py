@@ -257,24 +257,13 @@ class RpgAdminCommands(Cog):
                     # destroyed arm but full body HP should still be
                     # restored by unsmite, since the parts and the
                     # body HP are parallel accounting under Model D.
-                    needs_body = target.health < target.get_health_max()
-                    needs_part = any(
-                        p.health < p.health_max
-                        for p in (target.body_parts or [])
-                    )
-                    if not (needs_body or needs_part):
+                    if not target.is_injured():
                         continue
 
-                    if needs_body:
-                        target.apply_damage(-target.get_health_max())
-                    # Full part restoration. Divine light is total —
-                    # no selective half-measures on an unsmite.
-                    for part in (target.body_parts or []):
-                        part.health = part.health_max
-                    # Reset regen so the player doesn't carry an
-                    # accumulated ramp after a full restore.
-                    target.health_regen = 0
-                    target.is_dirty = True
+                    # Full restore: body HP, every part, regen reset,
+                    # dirty flag. Divine light is total — no selective
+                    # half-measures on an unsmite.
+                    target.heal_fully()
                     corpses.append(target.name)
 
                 if corpses:
@@ -584,6 +573,11 @@ class RpgAdminCommands(Cog):
             if not game.enable_ambience:
                 game.enable_ambience = True
                 game.game_clock.add_routine(game.do_ambience, 1)
+                # Sunrise/sunset is a sibling daemon now; track the
+                # same on/off toggle so its kill-switch behavior
+                # matches pre-refactor expectations.
+                if getattr(game, "sunrise_sunset", None) is not None:
+                    game.sunrise_sunset.start()
             else:
                 Dispatcher.add(game.channel, "Ambience is already enabled.")
                 return
@@ -592,6 +586,8 @@ class RpgAdminCommands(Cog):
             if game.enable_ambience:
                 game.enable_ambience = False
                 game.game_clock.remove_routine(game.do_ambience)
+                if getattr(game, "sunrise_sunset", None) is not None:
+                    game.sunrise_sunset.stop()
             else:
                 Dispatcher.add(game.channel, "Ambience is already disabled.")
                 return

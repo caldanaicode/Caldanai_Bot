@@ -50,10 +50,9 @@ class Giant(MonsterPlugin):
         msg = f"*@2 approaches @1d for a {invocation}. @1dc flicks @2o away with a rumbling chuckle.*"
         if attempt >= actor.get_dodge():
             msg += f" @2 takes {dmg} point{'s' if dmg > 1 else ''} of damage!"
-            # ``apply_damage`` returns a string on ``Player`` (for the
-            # death/resurrection transition message) and ``None`` on
-            # a plain ``Creature``. Guard both to stay robust when
-            # non-Player actors hit this path (tests, NPC-on-NPC).
+            # ``apply_damage`` returns a non-empty string on state
+            # transitions (Player death / resurrection, Monster death)
+            # and ``""`` otherwise. ``if m:`` handles both.
             m = actor.apply_damage(dmg)
             if m:
                 msg += f"\n{m}"

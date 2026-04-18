@@ -1,8 +1,8 @@
 """Toe body part plugin.
 
 A small, low-HP extremity. Toes are natural melee targets on large
-creatures (stomp a giant's toes!) but hard to hit at range. Generic
-across all creatures — no creature-specific behavior.
+creatures but hard to hit at range. Generic across all creatures —
+no creature-specific behavior.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin

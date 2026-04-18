@@ -44,12 +44,6 @@ Debuffs touching ATTACK, DEFENSE, and DODGE
     with non-critical parts and as a safety net for any future design
     change (non-lethal torso destruction, downed-but-alive captures)
     that makes the row reachable.
-
-Doppelganger pain cries
-    One flavor string per injury level, escalating from ribs to
-    visible chest bruising to actively-seeping wounds to a full chest
-    cavity collapse. The design doc explicitly wants per-part
-    doppelganger cries on every base part.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin

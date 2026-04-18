@@ -660,6 +660,74 @@ class TestPlayerBodyPartPersistence:
             assert part.health == part.health_max
 
 
+class TestPlayerIsInjured:
+    """``Player.is_injured()`` returns True when body HP is below max or
+    any body part is below its max. Consolidates four previously inline
+    predicates (``_is_injured``, ``_needs_healing``, and two ad-hoc
+    ``needs_body / needs_part`` checks)."""
+
+    def test_fresh_player_is_not_injured(self):
+        p = _make_player()
+        assert p.is_injured() is False
+
+    def test_body_hp_below_max_is_injured(self):
+        p = _make_player(health=10, health_max=20)
+        assert p.is_injured() is True
+
+    def test_any_part_below_max_is_injured(self):
+        p = _make_player()
+        leg = next(part for part in p.body_parts if part.name == "leg.left")
+        leg.health = leg.health_max - 1
+        assert p.is_injured() is True
+
+    def test_destroyed_part_at_zero_is_injured(self):
+        p = _make_player()
+        arm = next(part for part in p.body_parts if part.name == "arm.right")
+        arm.health = 0
+        assert p.is_injured() is True
+
+
+class TestPlayerHealFully:
+    """``Player.heal_fully()`` restores body HP and every body part to
+    max, resets regen bookkeeping, and marks the player dirty. Replaces
+    four near-identical restore loops (pray d20==1, pray d20==20,
+    unsmite, and any future divine-full-heal caller)."""
+
+    def test_restores_body_hp_to_max(self):
+        p = _make_player(health=1, health_max=20)
+        p.heal_fully()
+        assert p.health == p.get_health_max()
+
+    def test_restores_every_part_to_max(self):
+        p = _make_player()
+        for part in p.body_parts:
+            part.health = 0
+        p.heal_fully()
+        for part in p.body_parts:
+            assert part.health == part.health_max
+
+    def test_sets_is_dirty(self):
+        p = _make_player()
+        p.is_dirty = False
+        p.heal_fully()
+        assert p.is_dirty is True
+
+    def test_resets_health_regen(self):
+        p = _make_player()
+        p.health_regen = 5
+        p.heal_fully()
+        assert p.health_regen == 0
+
+    def test_heal_fully_is_idempotent_on_healthy_player(self):
+        """Calling heal_fully on an already-full player must not produce
+        an invalid state (e.g. health above max)."""
+        p = _make_player()
+        p.heal_fully()
+        assert p.health == p.get_health_max()
+        for part in p.body_parts:
+            assert part.health == part.health_max
+
+
 class TestPlayerStatEmergence:
     """Player dodge / defense now emerge from body parts the same way
     monster stats do, plus armor bonuses on top."""

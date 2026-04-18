@@ -38,7 +38,7 @@ class RpgInventoryCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
         _item: Union[Weapon, Armor, None] = None
 
         if player.is_dead():
@@ -134,7 +134,7 @@ class RpgInventoryCommands(Cog):
             return
 
         show_all = bool(options and options.lower() == 'all')
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
         embed = player.get_equipment(game.guild.name, show_all)
         embed.set_thumbnail(url=game.guild.icon.url)
         Dispatcher.add(channel, embed=embed)
@@ -156,7 +156,7 @@ class RpgInventoryCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
         if player.is_dead():
             Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
@@ -236,7 +236,7 @@ class RpgInventoryCommands(Cog):
             Dispatcher.add(ctx, "Please specify an item.")
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
         item, *_ = player.inventory.filter(name)
 
         if item:
@@ -337,7 +337,7 @@ class RpgInventoryCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
         if not item:
             Dispatcher.add(channel, "You must specify an item.")
@@ -379,7 +379,7 @@ class RpgInventoryCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
         if player.is_dead():
             Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")
@@ -433,12 +433,17 @@ class RpgInventoryCommands(Cog):
 
         # Favorited items are protected from bulk-sell. Strip them
         # from whatever paths above put them into the sell list and
-        # tell the player what was saved so they can un-favorite if
-        # they really meant to sell it.
+        # tell the player how many were saved — as a count, not a
+        # full list, so heavy-inventory players don't see the
+        # "protected" message dwarf the actual sell receipt. A
+        # player who wants to sell a specific protected item
+        # un-favorites it first.
         favorited = [i for i in sell if i.favorited]
         if favorited:
             sell = [i for i in sell if not i.favorited]
-            msg += f"\nProtected by favorite (★): {item_list_to_string(favorited)}."
+            count = len(favorited)
+            noun = "item" if count == 1 else "items"
+            msg += f"\n{count} {noun} skipped (★ favorited)."
 
         if len(sell) > 0:
             for item in sell:
@@ -473,7 +478,7 @@ class RpgInventoryCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
         if player.is_dead():
             Dispatcher.add(channel, f"A frustrated wail escapes the corpse of {player.name}.")

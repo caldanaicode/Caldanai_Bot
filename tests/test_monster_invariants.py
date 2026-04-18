@@ -351,11 +351,14 @@ class TestEyelessCreatures:
         m = cls()
         # Full health: HIT modifier is 0.
         assert m.get_hit_modifier() == 0
-        # Destroy the head: HIT should drop.
-        heads = [p for p in m.body_parts if p.name == "head"]
-        if not heads:
-            pytest.skip(f"{cls.__name__} has no head part")
-        heads[0].health = 0
+        # Destroy every head (``find_parts`` segment-prefix match picks
+        # up both ``head`` and multi-head variants like ``head.1`` /
+        # ``head.2`` on a hydra). Multi-head creatures need all heads
+        # destroyed before HIT fallback fires.
+        heads = m.find_parts("head")
+        assert heads, f"{cls.__name__} has no head parts"
+        for head in heads:
+            head.health = 0
         assert m.get_hit_modifier() < 0
 
 

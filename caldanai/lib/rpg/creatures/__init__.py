@@ -163,9 +163,9 @@ class Creature:
         amount: int,
         dmg_type: Optional[DamageTypes] = None,
         target_part: Optional[BodyPart] = None,
-    ) -> None:
+    ) -> Optional[str]:
         """Applies damage (or healing if ``amount`` is negative) to this
-        creature.
+        creature. Pure damage application — does not fire part hooks.
 
         When ``target_part`` is ``None`` or this creature has no
         ``body_parts``, the legacy whole-body path is used: ``health``
@@ -180,19 +180,23 @@ class Creature:
         unified HP). If the targeted part is critical and becomes
         destroyed, the creature is killed outright.
 
-        Does NOT fire ``on_injury_change`` or ``on_destroyed`` hooks —
-        callers that pass ``target_part`` are responsible for snapshotting
-        the part's starting level and firing hooks exactly once after
-        the sequence of hits for that part resolves. This avoids
-        double-firing hooks with side effects (e.g. wing grounding,
-        doppelganger pain cries) when multi-source attacks target the
-        same part, and it keeps a single, coalesced hook-call site in
-        ``do_combat`` rather than two competing ones.
+        **Hook firing is the caller's responsibility.** This method
+        never calls ``on_injury_change`` / ``on_destroyed`` on the
+        targeted part. The combat helper
+        (:func:`apply_sequence_to_target`) owns hook firing — it
+        coalesces transitions across a whole attack sequence so
+        multi-source sequences don't double-fire side effects (wing
+        grounding, doppelganger pain cries, etc.). Non-combat callers
+        today never route ``target_part``; if that ever changes, the
+        new caller should fire the relevant hooks itself.
 
         :param amount: Damage amount; negative heals.
         :param dmg_type: Optional damage type used to look up trait
             multipliers on both the creature and the targeted part.
         :param target_part: Optional body part to absorb the damage.
+        :return: Empty string by default. Subclass overrides return a
+            non-empty message for state transitions (Player death /
+            resurrection, MonsterPlugin death).
         """
 
         if target_part is None or not self.body_parts:
@@ -201,7 +205,7 @@ class Creature:
             self.health -= amount
             self.health = max(0, self.health)
             self.health = min(self.health, self.get_health_max())
-            return
+            return ""
 
         # Part-targeted routing (Model D — unified body HP).
         multiplier = (
@@ -217,6 +221,8 @@ class Creature:
         # Critical part destroyed → death (even before body HP is touched).
         if target_part.is_critical and target_part.is_destroyed():
             self.health = 0
+
+        return ""
 
     def get_attack_sources(self) -> List[AttackSource]:
         """Returns the list of attack sources this creature uses when attacking.
@@ -687,7 +693,14 @@ class Creature:
         return total
 
     def get_defense(self) -> int:
-        """Defense emerges from torso functionality scaled by size."""
+        """Defense emerges from torso functionality scaled by size.
+
+        Floored at 1 when any torso functionality remains — ``int()``
+        truncation on a low rolled ``defense`` × a small ``defense_mod``
+        (e.g. SMALL's 0.75) would otherwise collapse to 0 on a healthy
+        creature, which reads as a bug at the combat surface.
+        ``ratio == 0`` (all torsos destroyed) still yields 0.
+        """
         if not self.body_parts:
             return max(0, self.defense)
 
@@ -697,10 +710,20 @@ class Creature:
 
         ratio = _functionality_ratio(torsos)
         size_mod = self.size.value["defense_mod"]
-        return max(0, int(self.defense * ratio * size_mod) + self.core_toughness)
+        emergent = int(self.defense * ratio * size_mod) + self.core_toughness
+        floor = 1 if ratio > 0 else 0
+        return max(floor, emergent)
 
     def get_dodge(self) -> int:
-        """Dodge emerges from mobility sources (legs or wings) scaled by size."""
+        """Dodge emerges from mobility sources (legs or wings) scaled by size.
+
+        Floored at 1 when any mobility functionality remains — ``int()``
+        truncation on a low rolled ``dodge`` × a small ``dodge_mod``
+        (HUGE's 0.5, COLOSSAL's 0.25) would otherwise collapse to 0 on
+        a healthy creature (a HUGE giant rolling 1 on ``1d4`` is the
+        canonical case). ``ratio == 0`` (all mobility parts destroyed)
+        still yields 0.
+        """
         if not self.body_parts:
             # Legacy path: no body parts, use flat stat
             return max(0, self.dodge)
@@ -717,7 +740,9 @@ class Creature:
 
         ratio = _functionality_ratio(sources)
         size_mod = self.size.value["dodge_mod"]
-        return max(0, int(self.dodge * ratio * size_mod) + self.core_agility)
+        emergent = int(self.dodge * ratio * size_mod) + self.core_agility
+        floor = 1 if ratio > 0 else 0
+        return max(floor, emergent)
 
     def get_targeted_dodge(
         self,

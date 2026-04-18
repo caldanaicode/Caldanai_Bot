@@ -251,13 +251,15 @@ class Werewolf(MonsterPlugin):
         amount: int,
         dmg_type: Optional[DamageTypes] = None,
         target_part: Optional[BodyPart] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """Extends the base death message with the transformation
         reveal when the damage is fatal. The reveal renders as a
         second sentence so combat narration reads as two distinct
         beats: the kill, then the recognition of what they killed."""
         msg = super().apply_damage(
-            amount, dmg_type=dmg_type, target_part=target_part,
+            amount,
+            dmg_type=dmg_type,
+            target_part=target_part,
         )
         if msg and self._death_revelation:
             # msg is already the death string; parser tokens inside

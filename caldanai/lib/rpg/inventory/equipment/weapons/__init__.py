@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 
 from caldanai.logger import get_logger
 from caldanai.lib.rpg.helpers.dice import Dice
-from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities, DamageTypes
+from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities, DamageTypes, Reach
 from caldanai.lib.rpg.inventory.equipment import Equipment
 from bson.objectid import ObjectId
 
@@ -46,6 +46,30 @@ class Weapon(Equipment):
 
         dice = Dice.__int__(self.attack.split("d")[0])
         self.bonus = bonus or int(dice * self.quality.value["multiplier"])
+
+    @property
+    def reach(self) -> Reach:
+        """The attack reach classification derived from ``damage_type``.
+
+        ``DamageTypes.RANGED`` → ``Reach.RANGED`` (bows, wands, any
+        projectile / magical distance attack). Everything else falls
+        back to ``Reach.MELEE``. Subclasses can override this property
+        for weapons that don't fit the standard mapping (e.g. a
+        polearm that should declare ``Reach.REACH``).
+
+        Consumed by ``Player.get_attack_sources`` when building a
+        ``WeaponAttackSource`` so ``get_targeted_dodge`` honors the
+        correct body-part exposure at the reach. Without this, every
+        weapon defaults to MELEE and ranged attacks see melee
+        exposure values — which was the live bug: bow vs. dragon wing
+        produced the same targeted dodge as a sword, because wings
+        have a melee exposure of 0.5 but a ranged exposure of 1.0.
+        """
+        if self.damage_type is None:
+            return Reach.MELEE
+        if self.damage_type & DamageTypes.RANGED:
+            return Reach.RANGED
+        return Reach.MELEE
 
     def get_embed(self) -> tuple:
         embed, file = super().get_embed()

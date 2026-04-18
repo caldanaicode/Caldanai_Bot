@@ -105,3 +105,51 @@ class TestParsePartTargets:
 
     def test_whitespace_only_input(self):
         assert _cog()._parse_part_targets("   ", _make_monster()) == []
+
+
+class TestDisplayTargets:
+    """``_display_targets`` resolves codified names back to the owning
+    :class:`BodyPart` so label rendering goes through the canonical
+    ``_display_with_article`` logic. Falls back to string-only rendering
+    when resolution fails (destroyed / missing / no monster)."""
+
+    def test_dotted_directional_renders_with_article(self):
+        assert _cog()._display_targets(["arm.left"], _make_monster()) == "the left arm"
+
+    def test_bare_name_renders_with_article(self):
+        assert _cog()._display_targets(["torso"], _make_monster()) == "the torso"
+
+    def test_numeric_qualifier_omits_article(self):
+        m = _make_monster()
+        m.body_parts.append(BodyPart(name="head.2", health_max=10))
+        assert _cog()._display_targets(["head.2"], m) == "head 2"
+
+    def test_multiple_joined_with_and(self):
+        assert (
+            _cog()._display_targets(["arm.left", "leg.right"], _make_monster())
+            == "the left arm and the right leg"
+        )
+
+    def test_mixed_numeric_and_directional(self):
+        m = _make_monster()
+        m.body_parts.append(BodyPart(name="head.2", health_max=10))
+        assert (
+            _cog()._display_targets(["head.2", "torso"], m)
+            == "head 2 and the torso"
+        )
+
+    def test_destroyed_part_falls_back_to_string_logic(self):
+        """If the named part is gone (e.g. destroyed between parse and
+        display), ``find_parts`` won't return it — degrade gracefully."""
+        m = _make_monster()
+        left_arm = next(p for p in m.body_parts if p.name == "arm.left")
+        left_arm.health = 0
+        assert _cog()._display_targets(["arm.left"], m) == "the left arm"
+
+    def test_no_monster_falls_back_to_string_logic(self):
+        assert _cog()._display_targets(["arm.left"], None) == "the left arm"
+        assert _cog()._display_targets(["head.2"], None) == "head 2"
+        assert _cog()._display_targets(["torso"], None) == "the torso"
+
+    def test_empty_list_renders_empty_string(self):
+        assert _cog()._display_targets([], _make_monster()) == ""

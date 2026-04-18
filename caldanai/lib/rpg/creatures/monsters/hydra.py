@@ -36,13 +36,14 @@ from typing import Dict, List, Optional, Tuple
 
 from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
 from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
-    AggressionLevels, DamageTypes, InjuryLevels, Reach, Size, TimePartitions,
+    AggressionLevels, DamageTypes, Reach, Size, TimePartitions,
 )
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.creatures import Creature, EXPOSURE_FLOOR, pick_random_part
@@ -633,11 +634,12 @@ class Hydra(MonsterPlugin):
         # path has to repeat the wiring because it doesn't go through
         # ``Creature.do_attack``.
         results: List[AttackResult] = []
-        hits_per_victim: Dict[int, int] = defaultdict(int)
-        raw_per_victim: Dict[int, int] = defaultdict(int)
-        # Snapshot victims' per-part starting levels so we can
-        # coalesce injury messages after all resolutions land.
-        part_starts: Dict[int, Dict[int, Tuple["BodyPart", InjuryLevels]]] = defaultdict(dict)
+        # Parallel list of the victim each result in ``results`` hit,
+        # so we can bucket into per-victim sub-sequences for the shared
+        # resolution helper without relying on ``results.index()``
+        # (which would break on duplicate AttackResults and is O(n^2)
+        # besides).
+        result_victims: List[Creature] = []
 
         for part, action_name, action, victim in assignments:
             dmg_type = self._resolve_dmg_type(part, action)
@@ -674,15 +676,7 @@ class Hydra(MonsterPlugin):
             )
             result.target_part = target_part
             results.append(result)
-            if result.damage > 0:
-                raw_per_victim[id(victim)] += result.damage
-                hits_per_victim[id(victim)] += 1
-                if target_part is not None:
-                    starts = part_starts[id(victim)]
-                    if id(target_part) not in starts:
-                        starts[id(target_part)] = (
-                            target_part, target_part.get_injury_level(),
-                        )
+            result_victims.append(victim)
 
         # 5. Build combined AttackSequence.
         first_victim = combatants[0]
@@ -699,71 +693,64 @@ class Hydra(MonsterPlugin):
             msg += f"\n{narrative}\n"
         msg += sequence.to_markdown()
 
-        # 7. Route per-result damage to parts for injury tracking
-        # (no body-HP touch), then apply the post-defense total to
-        # body HP once per victim. Mirrors ``do_combat`` and
-        # ``MonsterPlugin.attack_random``.
+        # 7. Route per-result damage + fire part-side hooks per victim
+        # via ``apply_sequence_to_target``. Bucket results by victim,
+        # preserving first-encounter order so narration reads
+        # predictably.
+        #
+        # ``num_hits`` and ``raw_total`` for the body-HP floor are
+        # computed over ALL positive-damage results per victim, not
+        # just those with a ``target_part``. The helper is fed only
+        # the part-routed subset so partless hits don't double-count
+        # against body HP via the legacy path — preserving the
+        # pre-refactor behavior of the hydra's loop, which
+        # deliberately skipped ``target_part is None`` results during
+        # per-part routing.
         victims_order: List[Creature] = []
         seen_ids = set()
-        for _part, _a_name, _action, victim in assignments:
-            if id(victim) in seen_ids:
-                continue
-            seen_ids.add(id(victim))
-            victims_order.append(victim)
+        victim_results: Dict[int, List[AttackResult]] = defaultdict(list)
+        for result, victim in zip(results, result_victims):
+            if id(victim) not in seen_ids:
+                seen_ids.add(id(victim))
+                victims_order.append(victim)
+            victim_results[id(victim)].append(result)
 
-        # Per-result part routing.
-        for result in results:
-            if result.damage <= 0 or result.target_part is None:
-                continue
-            # Find the victim for this result. Results are in the same
-            # order as assignments, so recover the victim by index.
-            idx = results.index(result)
-            _p, _an, _a, victim = assignments[idx]
-            victim.apply_damage(
-                result.damage,
-                dmg_type=result.dmg_type,
-                target_part=result.target_part,
+        for victim in victims_order:
+            v_results = victim_results[id(victim)]
+            # Aggregate counts over ALL positive-damage hits — the
+            # floor uses these regardless of whether the hit landed on
+            # a targeted part.
+            num_hits = sum(1 for r in v_results if r.damage > 0)
+            raw_total = sum(r.damage for r in v_results if r.damage > 0)
+
+            # Helper only receives the part-routed subset so
+            # ``target.apply_damage`` fires the per-part path rather
+            # than the legacy whole-body path for partless hits
+            # (otherwise those would deduct body HP here *and* again
+            # via the floor-apply below).
+            part_routed = [
+                r for r in v_results
+                if r.damage > 0 and r.target_part is not None
+            ]
+            victim_seq = AttackSequence(
+                attacker=self, target=victim, results=part_routed,
+            )
+            resolution = apply_sequence_to_target(
+                victim_seq, victim, attacker=self,
             )
 
-        # Coalesced injury narration per victim per part.
-        for victim in victims_order:
-            starts = part_starts.get(id(victim), {})
-            injury_feedback: List[str] = []
-            for part_obj, old_level in starts.values():
-                new_level = part_obj.get_injury_level()
-                if new_level == old_level:
-                    continue
-                if new_level != InjuryLevels.NONE:
-                    feedback = part_obj.get_injury_string()
-                    injury_feedback.append(
-                        f"   {feedback[0].upper()}{feedback[1:]}"
-                    )
-                hook_msg = part_obj.on_injury_change(victim, old_level, new_level)
-                if hook_msg:
-                    injury_feedback.append(f"   {hook_msg}")
-                if (
-                    new_level == InjuryLevels.USELESS
-                    and old_level != InjuryLevels.USELESS
-                ):
-                    destroyed_msg = part_obj.on_destroyed(victim)
-                    if destroyed_msg:
-                        injury_feedback.append(f"   {destroyed_msg}")
-            if injury_feedback:
-                msg += "\n".join(injury_feedback) + "\n"
+            if resolution.injury_feedback_lines:
+                msg += "\n".join(resolution.injury_feedback_lines) + "\n"
 
-        # Body HP — defense subtracted once per victim, same floor
-        # (1/hit) used by the player-attacks-monster path.
-        for victim in victims_order:
-            vid = id(victim)
-            raw = raw_per_victim.get(vid, 0)
-            num_hits = hits_per_victim.get(vid, 0)
+            # Body HP — defense subtracted once per victim, same floor
+            # (1/hit) used by the player-attacks-monster path.
             if num_hits > 0:
                 defense = victim.get_defense()
-                final = max(num_hits, raw - defense)
+                final = max(num_hits, raw_total - defense)
                 victim_name = getattr(victim, "name", "someone")
-                if defense and raw != final:
+                if defense and raw_total != final:
                     msg += (
-                        f"{victim_name}: {raw} damage - {defense} defense "
+                        f"{victim_name}: {raw_total} damage - {defense} defense "
                         f"\u2192 {final} damage\n"
                     )
                 dmg_msg = victim.apply_damage(final)

@@ -4,6 +4,405 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-17 — Monster Name Lookup → Plugin Registry
+
+``Game.get_monster(name)`` re-globbed
+``caldanai/lib/rpg/creatures/monsters/*.py`` on every admin
+``$spawn monster <name>`` invocation, rebuilt a name list, then
+re-imported the module. Meanwhile every monster class is already
+loaded at startup via ``PluginManager.load`` into
+``PluginManager.LOADED_PLUGINS[MonsterPlugin]``.
+
+**New:** ``MonsterPlugin.get_plugin_class(name) -> Type[MonsterPlugin] | None``
+— a classmethod backed by ``MonsterPlugin._PLUGIN_REGISTRY``.
+``load_plugins`` now populates the registry keyed by **filename
+stem lowercased** (not class name — ``MathTeacher`` lives in
+``math_teacher.py`` and the admin spawn command addresses it as
+``math_teacher``).
+
+**`Game.get_monster`** becomes a registry lookup. Filesystem glob
+and lazy ``importlib.util`` dance are gone, along with the
+``importlib``, ``glob``, and ``os.path`` imports on that file.
+
+**Behavior preserved exactly:**
+- Case-insensitive match (lowercases the input) — same as before.
+- On miss: ``Dispatcher.add`` "There is no such thing as a {name}!"
+  + ``_log.error`` + ``return False``. Same as before.
+- On hit: instantiates the class via ``cls()``. Same as before.
+
+45 new tests in ``test_monster_plugin_registry.py`` — known-name
+lookups, case variants, unknown-name misses, base class not in
+registry, and a parametrized round-trip over every discovered
+monster.
+
+### 2026-04-17 — Sunrise/Sunset Narration → `SunriseSunsetDaemon`
+
+``Game.do_ambience`` was mixing three unrelated concerns: the
+``enable_ambience`` kill switch, the sunrise/sunset crossing
+narration (tracked via ``_last_ambience_tick``), and the random
+flavor-ambience roll. Split the middle one out onto the time
+subsystem where it belongs.
+
+**New:** ``caldanai/lib/rpg/ambience/sunrise_sunset.py`` —
+``SunriseSunsetDaemon``, a sibling of ``WeatherDaemon`` following
+the same clock-routine lifecycle pattern.
+
+- Registers a 1-second routine via ``schedule_routine``.
+- Each tick: advances the tracking window (even when gated), gates
+  narration on ``Game.enable_ambience``, fires sunrise / sunset
+  strings when ``last < boundary_s <= game_time``.
+- Crossing predicate and narration strings (``SUNRISE_NARRATION``,
+  ``SUNSET_NARRATION``) preserved verbatim — byte-identical
+  user-visible output.
+- **Window advances even while disabled**: a crossing that happens
+  during an ``$ambience off`` stretch is NOT replayed when ambience
+  is re-enabled. Locked in by
+  ``test_no_buffered_crossing_replay_when_reenabled``.
+
+**`Game.do_ambience`** shrinks to just the kill-switch guard + the
+random flavor roll. ``_last_ambience_tick`` field removed entirely.
+
+**Lifecycle symmetry with weather:**
+- ``$ambience on/off`` admin command toggles the daemon alongside
+  ``do_ambience``.
+- ``RpgUtilities.remove_game`` stops ``game.sunrise_sunset``
+  alongside ``WeatherDaemon``.
+
+**Kill-switch semantics preserved** (option (a) in the plan):
+``enable_ambience=False`` still suppresses sunrise/sunset narration,
+matching pre-refactor behavior. Splitting them into separate kill
+switches is a tracked follow-up, not in this change.
+
+### 2026-04-17 — `apply_damage` Signature Standardized
+
+The `apply_damage` family had drifted across ``Creature`` subclasses
+(base → ``None``, ``MonsterPlugin`` → ``str``, ``Player`` → ``str``,
+``BodyPart`` → ``None``). Standardized return types across the
+Creature family and made ``apply_damage`` a pure damage-application
+primitive — hook firing is now unambiguously the combat helper's
+responsibility.
+
+**Unified signature** on every override in the Creature family:
+
+```python
+def apply_damage(
+    self,
+    amount: int,
+    dmg_type: Optional[DamageTypes] = None,
+    target_part: Optional["BodyPart"] = None,
+) -> Optional[str]:
+    ...
+```
+
+Covers: ``Creature`` (base), ``Player``, ``MonsterPlugin``, ``Spirit``,
+``Werewolf``. Return type now consistently ``Optional[str]`` with ``""``
+as the "no event" default — falsy, so every ``if msg:`` caller pattern
+continues to work unchanged.
+
+**Hook firing is the caller's responsibility.** ``Creature.apply_damage``
+routes damage to the targeted part, updates HP, handles critical-part
+death, and returns. It does NOT fire ``on_injury_change`` or
+``on_destroyed``. The ``apply_sequence_to_target`` combat helper owns
+hook firing, coalescing transitions across a whole attack sequence
+so multi-source sequences don't produce duplicate side effects (wing
+grounding, doppelganger pain cries, etc.).
+
+This replaces an earlier attempt at encoding the invariant via a
+``fire_hooks`` kwarg. Post-review, that flag turned out to be
+signature noise: no non-combat caller in the codebase routes a
+``target_part`` (they all hit the legacy whole-body path), so the
+``fire_hooks=True`` branch was never reached in production — it was
+pinning a hypothetical future contract. Ripping it out strengthens
+the "combat helper is the one and only hook-firing path" contract
+and drops 5 mirrored signatures back to 4 params.
+
+**Behavior preserved exactly** for every cog path ($pray, $smite,
+$unsmite), monster body-floor applies, health regen, vampire feed,
+dragon breath, etc. Combat paths continue to use the helper, which
+continues to coalesce hooks.
+
+**Tests**: 3 tests in ``tests/test_apply_damage.py::TestApplyDamageDoesNotFireHooks``
+pin the "apply_damage never fires hooks" contract. The helper's own
+hook-firing invariants remain covered in ``test_combat_resolution.py``
+(22 tests unchanged).
+
+**Punts**: ``BodyPart.apply_damage`` intentionally unchanged — no
+BodyPart subclass overrides it, and it's outside the Creature family
+the review targets. ``on_target_part_destroyed`` (attacker hook) stays
+where it was — the combat helper owns it via its ``attacker=`` kwarg.
+
+### 2026-04-17 — Channel Registry Consolidated (single source of truth)
+
+``Bot.games`` and ``Game._channel_routes`` previously stored the
+same ``channel_id → Game`` mapping in parallel with slightly
+different lifecycles. ``RpgUtilities.remove_game`` had to poke
+three places on teardown (``unregister_channel``,
+``del bot.games[channel_id]``, ``GameClock._unregister``); miss one
+and the game leaks.
+
+**Change:** ``Bot.games`` is now a ``@property`` that returns a
+``types.MappingProxyType`` live read-only view of
+``Game._channel_routes``. External writes are no longer possible
+(``TypeError`` at the type level) — the class registry is the
+single source of truth.
+
+- ``register_channel`` / ``unregister_channel`` remain the only
+  write path; every existing caller (36 read sites across cogs,
+  bot, helpers, db, console, tests) continues to work unchanged.
+- Three direct writes removed:
+  - ``bot.games[channel.id] = self`` in ``Game.__init__``
+  - ``bot.games[game.channel.id] = game`` in ``add_game``
+  - ``del bot.games[channel_id]`` in ``remove_game``
+- Spillover channels (dungeon threads) registered via
+  ``game.register_channel(extra_id)`` are now automatically
+  resolvable through ``bot.games.get(extra_id)`` — the view and
+  ``Game.for_channel`` share the same dict.
+- ``GameClock._clocks`` registry consolidation is a sibling
+  opportunity flagged in the systems review; intentionally
+  out of scope for this change.
+
+### 2026-04-17 — Combat Resolution Deduped (`apply_sequence_to_target`)
+
+The per-hit "route → coalesce → fire hooks" loop was re-implemented
+in three places with silent drift risk: ``Game.do_combat`` (player →
+monster), ``MonsterPlugin.attack_random`` (monster → player), and
+``Hydra.attack_random`` (multi-victim). Extracted into one pure
+function in ``caldanai/lib/rpg/combat/resolution.py``.
+
+**New:** ``apply_sequence_to_target(sequence, target, *, attacker=None)
+-> ResolutionResult``. Returns ``body_damage_total`` (pre-floor),
+``injury_feedback_lines``, ``death_msg``, ``num_hits``. Hook firing
+invariants it enforces:
+
+- ``on_injury_change`` fires at most once per part per sequence, on
+  the final transition (multiple hits on one part coalesce).
+- ``on_destroyed`` fires at most once per part that first crossed
+  to USELESS during this sequence.
+- ``on_target_part_destroyed`` fires on ``attacker`` — and ONLY when
+  ``attacker`` is passed. Previously an implicit asymmetry (monster
+  hit fired it, player hit didn't); now explicit.
+
+**Callers still own the body-HP floor** (``max(num_hits, total -
+defense)``) and the final ``target.apply_damage(final)`` vs
+``target.health -= final`` choice, because that decision affects
+downstream death-message plumbing and ``critical_kill`` detection.
+
+**Migrations:**
+- ``Game.do_combat``: player path — no ``attacker=`` passed.
+- ``MonsterPlugin.attack_random``: monster path — ``attacker=self``.
+- ``Hydra.attack_random``: per-victim bucketing with the helper
+  called once per victim with ``attacker=self``. The hydra's old
+  inline loop didn't fire ``on_target_part_destroyed`` — that was
+  path-of-least-resistance during extraction, not design. Wiring
+  it up matches the base ``MonsterPlugin.attack_random`` contract;
+  observable output is unchanged today because
+  ``MonsterPlugin.on_target_part_destroyed`` defaults to ``""``
+  and hydra doesn't override it. Enables per-head-kill flavor in
+  the future without touching the combat loop.
+- ``Dragon.attack_random``: inherits the migrated base via
+  ``super().attack_random()``. Its breath path doesn't use the
+  per-part routing loop, so nothing to migrate there.
+
+22 new tests in ``tests/test_combat_resolution.py`` pin the hook
+invariants, the attacker-asymmetry, and the pre-floor aggregate
+semantics.
+
+### 2026-04-17 — `CombatState` Extracted from `Game`
+
+First slice of shrinking ``Game`` toward a thinner core. The six
+combat-scoped fields (``monster``, ``monsters``, ``combatants``,
+``combat_targets``, ``looters``, ``loot``) and the
+``end_combat`` routine moved into a dedicated
+``caldanai/lib/rpg/combat_state.py::CombatState``.
+
+**Design:**
+- ``Game.combat`` is a single ``CombatState`` instance; each
+  combat-scoped attribute on ``Game`` is now a ``@property``
+  that proxies to ``self.combat``, with matching setters so
+  existing whole-field assignments (tests, some cog paths) keep
+  working.
+- List/dict item-mutations (``game.combatants.append``,
+  ``game.loot[key] = …``, etc.) work transparently through the
+  getter's returned reference — no call-site changes.
+- ``CombatState.end_combat`` owns the clearing order
+  (``clear_combat_roles(looters)`` runs before the looters list
+  is emptied — lock-in test guards this).
+- ``Game.end_combat`` shrinks to a 3-line delegator.
+
+**Serialization**: unchanged. These six fields were never in
+``Game.to_dict`` — they're transient runtime state — and the
+serialization code was not touched. ``TestGameSerialization::test_to_dict_keys``
+continues to pin down the shape.
+
+**Scope**: first of three planned ``Game`` slices. Still to do:
+slice 2 moves ``do_health_regen`` to ``PlayerManager``; slice 3
+consolidates the dual channel registry.
+
+### 2026-04-17 — `fig_to_file` / `style_axes_dark` Plotting Helpers
+
+The matplotlib → ``BytesIO`` → ``discord.File`` plumbing appeared
+three times (``$chart``, ``$usage``, ``Player.get_chart_attacks``)
+with subtle styling drift between them. Extracted into
+``caldanai/lib/rpg/helpers/plotting.py``.
+
+- ``fig_to_file(fig, filename="plot.png") -> discord.File``:
+  the save/seek/wrap plumbing. Always closes the figure with
+  ``plt.close(fig)`` after export.
+- ``style_axes_dark(ax, accent_color=..., grid_axis="y")``:
+  consistent Discord dark-mode styling (transparent figure +
+  axis background, accent-colored ticks/labels, gridline axis).
+  Per-chart accent preserved via param (``CYAN_ACCENT`` for
+  ``$chart`` / ``get_chart_attacks``; ``DEFAULT_ACCENT`` for
+  ``$usage``).
+
+**Drift resolved**: ``$usage`` was the only call site explicitly
+setting ``fig.patch.set_alpha(0)`` + transparent axis facecolor
+(it was the newest caller with clear dark-mode intent); the
+helper now always applies those. ``bbox_inches="tight"`` was
+present in two sites and missing in ``get_chart_attacks`` —
+helper standardizes on tight.
+
+### 2026-04-17 — `_display_part_name` Collapsed Into `BodyPart`
+
+The cog-side `RpgUserCommands._display_part_name` reimplemented
+the codified → readable mapping already present on
+``BodyPart.display_name`` / ``_display_with_article``. Deleted
+the duplicate.
+
+- ``_display_targets`` now resolves each codified name via
+  ``monster.find_parts`` and delegates to
+  ``BodyPart._display_with_article()``.
+- Byte-identical output across all three branches: bare name
+  (``"torso" → "the torso"``), numeric qualifier
+  (``"head.2" → "head 2"``), directional qualifier
+  (``"arm.left" → "the left arm"``).
+- Safety fallback preserved: if a codified name fails to resolve
+  to a part (e.g. destroyed between parse and display), the old
+  string-only logic handles it inline.
+
+### 2026-04-17 — `resolve_reply_channel` Helper
+
+The idiom ``channel = game.channel if ctx.guild is not None else ctx``
+appeared 11 times across inventory and info cogs. Replaced with a
+single ``RpgUtilities.resolve_reply_channel(ctx, game)`` helper in
+``caldanai/lib/rpg/helpers/utils.py``.
+
+- 11 call sites migrated across ``rpg_inventory_commands.py`` (7)
+  and ``rpg_info_commands.py`` (4).
+- Helper uses ``getattr(ctx, "guild", None)`` so it gracefully
+  handles ``Member`` / ``User`` shapes that lack ``.guild`` —
+  strictly additive tolerance; no existing call site relied on
+  the old ``AttributeError``.
+- Exceptions intentionally preserved: ``$inventory`` always DMs
+  ``player.member``, ``$games`` always DMs the author,
+  ``$pronouns`` is ``@guild_only()`` — none went through the
+  ternary.
+
+### 2026-04-17 — Batched Member Load on Bot Startup
+
+`PlayerManager.load_players` previously fetched each player's
+Discord ``Member`` individually via ``guild.get_member`` then
+``guild.fetch_member`` on cache miss — one REST round-trip per
+player on a cold cache.
+
+**Change:** skip the per-player REST fetch when the guild's
+member cache is already populated (which it is, by default, when
+the members intent is enabled — ``Intents.all()`` is set in the
+bot configuration, minus presences). When the cache isn't
+populated, one ``await guild.chunk()`` call warms it via a single
+WebSocket member-chunk request instead of N REST fetches.
+
+**Guardrails:**
+
+- ``if not guild.chunked:`` gates the ``chunk()`` call.
+  ``discord.py`` 2.x auto-chunks guilds at startup with the
+  members intent enabled, so ``guild.chunked`` is typically True
+  by the time ``on_ready`` fires — skipping the redundant call
+  avoids a potential deadlock where issuing a second chunk
+  request while the auto-chunk is still in-flight hangs the
+  coroutine (observed during playtest).
+- ``asyncio.wait_for(..., timeout=10)`` wraps the call so a
+  stuck chunk drops through to the per-player ``fetch_member``
+  fallback instead of hanging bot startup.
+- Per-player fallback (``get_member`` → ``fetch_member`` →
+  ``NotFound(10007)`` → ``remove_player`` for ex-members) is
+  preserved in full — a chunk skip / failure / timeout never
+  blocks a real member from loading.
+
+For a guild of 30 registered players on a cold cache without
+auto-chunk, startup goes from ~30 rate-limited REST fetches to
+one chunk call. For a guild whose auto-chunk already ran (the
+common case), startup is effectively zero network calls.
+
+### 2026-04-17 — Body-Part Docstring Hygiene
+
+Base body-part plugins (``caldanai/lib/rpg/creatures/body_parts/``)
+were narrating monster-specific design rationale — doppelganger
+pain cries, dragon-toes flying-flag cascade, scorpion/manticore
+tail specials — in their class and module docstrings. The actual
+code implementing those concerns lives on the relevant monster
+classes, not on the base parts.
+
+**Change:** monster-specific rationale moved to the consuming
+monster class under a ``**Body part design note:**`` heading.
+Base-part docstrings now describe only the generic part (HP,
+exposure, debuffs, hooks used).
+
+- Doppelganger pain cries consolidated onto ``Doppelganger``.
+- Dragon flying-flag + toes DODGE cascade consolidated onto
+  ``Dragon``.
+- Non-loadbearing monster examples (scorpion/manticore tails,
+  giant toes) genericized in place — the design note stays; the
+  specific-monster reference goes.
+
+Enforces the long-standing project rule that base parts do not
+own monster-specific flavor.
+
+### 2026-04-17 — `Player.is_injured()` / `heal_fully()` Consolidation
+
+Consolidated five inline copies of the "is this player hurt?" and
+"restore this player fully" idioms into two methods on ``Player``.
+
+**New methods** (``caldanai/lib/rpg/creatures/player.py``):
+- ``is_injured() -> bool`` — True if body HP is below max or any
+  body part HP is below max.
+- ``heal_fully() -> None`` — restores body HP and every part HP to
+  max, resets regen bookkeeping, sets ``is_dirty``.
+
+**Call sites deduped:**
+- ``_is_injured(player)`` helper in ``rpg_info_commands.py`` (was
+  using ``InjuryLevels.NONE`` — semantically identical to the
+  ``health < health_max`` check and now collapsed to it).
+- ``pray`` d20==1 (divine rain), d20>16 (single-heal predicate),
+  and d20==20 (party-wide full heal) branches in
+  ``rpg_user_commands.py``.
+- ``unsmite`` resurrection path in ``rpg_admin_commands.py``.
+
+**Behavior preserved:** pray's divine-rain branch still calls
+``apply_damage(-max)`` first to emit the resurrection narration
+when a dead player is healed, then ``heal_fully()`` to finish the
+restore. ``unsmite`` was already discarding that message, so the
+simplification is a straight swap.
+
+### 2026-04-17 — `monster_statics` → `collections.Counter`
+
+Replaced three manual counter-bump idioms
+(``if k not in d: d[k] = 1 else: d[k] += 1``) in ``Game`` with a
+single ``Counter`` instance.
+
+**Changes:**
+- ``Game.monster_statics`` is now a ``collections.Counter``.
+  All three bump sites are now ``self.monster_statics[key] += 1``.
+- ``update_statics`` in ``helpers/utils.py`` resets the counter
+  to ``Counter()`` after draining to the DB statistics collection
+  (preserves the type so subsequent bumps don't ``KeyError`` on
+  missing keys).
+
+**Serialization:** ``monster_statics`` is not part of
+``Game.to_dict``/``from_dict`` — drains go directly to the DB
+statics collection. Round-trip is unaffected; locked in with a
+new regression test.
+
 ### 2026-04-16 — `$usage` Command Usage Charts
 
 New ``$usage`` command renders horizontal bar charts of command

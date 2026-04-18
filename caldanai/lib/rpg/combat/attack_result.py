@@ -229,9 +229,15 @@ class AttackSequence:
         parts_list = [r.to_display_parts() for r in self.results]
         all_auto_hit = all(p["auto_hit"] for p in parts_list)
 
-        # Pre-build per-column strings so we can compute widths
+        # Pre-build per-column strings so we can compute widths. The
+        # comparison symbol encodes the check outcome at a glance —
+        # ``≥`` when the roll met or beat dodge (the system is
+        # meet-or-beat), ``≱`` when it didn't. CRIT and FUMBLE still
+        # show in the ``→ Result`` column since the symbol only
+        # carries the meet/beat bit, not the natural-20 / natural-1
+        # flavor.
         check_col_list = [
-            f"{p['roll_str']} v {p['dodge']} → {p['hit_str']}"
+            f"{p['roll_str']} {'≱' if p['is_miss'] else '≥'} {p['dodge']} → {p['hit_str']}"
             for p in parts_list
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]

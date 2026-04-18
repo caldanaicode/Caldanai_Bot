@@ -254,20 +254,20 @@ class TestApplyDamagePartTargeted:
 
 
 class TestApplyDamageDoesNotFireHooks:
-    """``Creature.apply_damage`` intentionally does NOT fire hooks —
-    ``do_combat`` is the single authoritative caller that snapshots
-    part state, applies all damage in a sequence, and fires
-    ``on_injury_change`` / ``on_destroyed`` exactly once per part per
-    attack action. This prevents double-firing hooks with side effects
-    (e.g. wing grounding, doppelganger pain cries) when a multi-source
-    attack lands multiple hits on the same part.
+    """``Creature.apply_damage`` is a pure damage-application primitive.
+    It never fires ``on_injury_change`` or ``on_destroyed`` on the
+    routed part — hook firing is the caller's responsibility, and in
+    practice only :func:`apply_sequence_to_target` (the combat helper)
+    fires them, coalesced across a whole attack sequence so multi-
+    source hits produce a single side-effect burst per part (wing
+    grounding, doppelganger pain cries, etc.).
     """
 
     def test_apply_damage_does_not_fire_on_injury_change(self):
         c = _make_creature(health=100, health_max=100)
         arm = _RecordingPart(name="arm", health_max=10)
         c.body_parts = [arm]
-        c.apply_damage(1, target_part=arm)  # level transitions NONE → MINOR
+        c.apply_damage(1, target_part=arm)  # NONE → MINOR
         # Level tracking still works; hook simply isn't fired here.
         assert arm.get_injury_level() == InjuryLevels.MINOR
         assert arm.injury_change_calls == []
@@ -276,7 +276,7 @@ class TestApplyDamageDoesNotFireHooks:
         c = _make_creature(health=100, health_max=100)
         arm = _RecordingPart(name="arm", health_max=10)
         c.body_parts = [arm]
-        c.apply_damage(10, target_part=arm)  # drives straight to USELESS
+        c.apply_damage(10, target_part=arm)  # → USELESS
         assert arm.is_destroyed()
         assert arm.destroyed_calls == 0
 
@@ -288,7 +288,7 @@ class TestApplyDamageDoesNotFireHooks:
         c.body_parts = [arm]
         c.apply_damage(1, target_part=arm)  # MINOR
         c.apply_damage(1, target_part=arm)  # still MINOR
-        c.apply_damage(8, target_part=arm)  # destroys (USELESS)
+        c.apply_damage(8, target_part=arm)  # USELESS
         assert arm.is_destroyed()
         assert arm.get_injury_level() == InjuryLevels.USELESS
         # No hook fires, regardless of how many hits land.
@@ -382,3 +382,69 @@ class TestBackwardsCompat:
         msg = p.apply_damage(10)
         assert p.health == 0
         assert msg  # non-empty death message
+
+
+class TestReturnTypeConsistency:
+    """``Creature.apply_damage`` and its overrides all return
+    ``Optional[str]`` — empty string ``""`` (or ``None``) means "no
+    flavor/event text produced." Callers use one truthy-check pattern
+    regardless of the concrete subclass.
+    """
+
+    def test_creature_base_returns_string(self):
+        c = _make_creature(health=50, health_max=100)
+        result = c.apply_damage(10)
+        # Empty string, not None — but both are falsy for caller code.
+        assert isinstance(result, str)
+        assert result == ""
+
+    def test_creature_part_routed_returns_string(self):
+        c = _make_creature(health=100, health_max=100)
+        arm = _RecordingPart(name="arm", health_max=10)
+        c.body_parts = [arm]
+        result = c.apply_damage(5, target_part=arm)
+        assert isinstance(result, str)
+
+    def test_player_no_transition_returns_empty_string(self):
+        from caldanai.lib.rpg.creatures.player import Player
+
+        p = Player(health=20, health_max=20)
+        result = p.apply_damage(0)
+        assert result == ""
+
+    def test_monster_plugin_no_death_returns_empty_string(self):
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+
+        class _M(MonsterPlugin):
+            def __init__(self):
+                super().__init__(
+                    name="tiny",
+                    atk="1d2",
+                    defense=0,
+                    dodge=0,
+                    health_max=10,
+                )
+                self.death = "it dies"
+
+        m = _M()
+        result = m.apply_damage(1)
+        assert result == ""
+
+    def test_monster_plugin_death_returns_death_string(self):
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+
+        class _M(MonsterPlugin):
+            def __init__(self):
+                super().__init__(
+                    name="tiny",
+                    atk="1d2",
+                    defense=0,
+                    dodge=0,
+                    health_max=10,
+                )
+                self.death = "it dies"
+
+        m = _M()
+        result = m.apply_damage(999)
+        assert result == "it dies"
+

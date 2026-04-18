@@ -4,9 +4,9 @@ The first real body-part plugin, exercising the full Phase 1.A
 foundation end-to-end: plugin discovery via
 ``BodyPartPlugin.load_plugins``, the ``BodyPart.make("head")`` factory
 lookup, per-instance composition, ``is_critical`` death routing in
-``Creature.apply_damage``, exposure-weighted targeting, injury-level
-debuffs aggregated by ``Creature.get_stat_modifier_total``, and the
-doppelganger per-part pain cry hook.
+``Creature.apply_damage``, exposure-weighted targeting, and
+injury-level debuffs aggregated by
+``Creature.get_stat_modifier_total``.
 
 Design rationale
 ================
@@ -40,12 +40,6 @@ Debuffs
     future design change allowing non-lethal head destruction (stunned
     creatures, knocked-out-but-alive captures) inherits a sensible
     fallback.
-
-Doppelganger pain cries
-    One flavor string per injury level, escalating in visceral
-    intensity. The doppelganger detail is one of the standout features
-    of Phase 1 and the design doc explicitly wants per-part cries on
-    every base part.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
@@ -56,7 +50,7 @@ class HeadPlugin(BodyPartPlugin):
     """Generic head. Critical — losing it kills the creature.
 
     Monsters override exposure via factory kwargs for narrower
-    targeting profiles (e.g. dragon heads).
+    targeting profiles (see individual monster classes).
     """
 
     name = "head"

@@ -4,6 +4,8 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import discord
+from discord.errors import NotFound
 
 from caldanai.lib.rpg.helpers.enums import Roles
 from caldanai.lib.rpg.player_manager import PlayerManager
@@ -235,3 +237,159 @@ class TestCombatantRoles:
 
         await pm.clear_player_combatant(player, "Combat over.")
         player.member.remove_roles.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# load_players
+# ---------------------------------------------------------------------------
+
+def _player_doc(uid, gid=123456789):
+    """A stub DB row — ``Player.from_dict`` is patched in these tests,
+    so only ``user_id`` is actually read by ``load_players`` itself."""
+    return {"user_id": uid, "guild_id": gid}
+
+
+def _stub_player():
+    """Build a stand-in Player so from_dict can return something the
+    load loop can bind ``.member`` / ``.name`` / ``.channel_id`` onto
+    without dragging in the whole Player schema."""
+    return MagicMock(channel_id=None, member=None, name=None)
+
+
+class TestLoadPlayers:
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Player")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_chunk_warms_cache_and_no_per_player_fetch(self, mock_db, mock_player_cls, mock_guild):
+        """The common path: members intent is on, so ``guild.chunk()``
+        populates every member at once and ``fetch_member`` is never
+        called."""
+        pm = PlayerManager()
+        ids = [101, 202, 303]
+        mock_db.find_players_by_guild_id.return_value = [_player_doc(u) for u in ids]
+        mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
+
+        members = {u: MagicMock(display_name=f"user{u}") for u in ids}
+        mock_guild.chunked = False  # auto-chunk didn't complete; we should chunk
+        mock_guild.chunk = AsyncMock()
+        mock_guild.get_member = MagicMock(side_effect=lambda uid: members.get(uid))
+
+        await pm.load_players(mock_guild, channel_id=888)
+
+        mock_guild.chunk.assert_awaited_once()
+        mock_guild.fetch_member.assert_not_awaited()
+        assert set(pm.players.keys()) == set(ids)
+        for uid in ids:
+            assert pm.players[uid].member is members[uid]
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Player")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_chunk_skipped_when_guild_already_chunked(self, mock_db, mock_player_cls, mock_guild):
+        """discord.py auto-chunks at startup with the members intent
+        enabled. When ``guild.chunked`` is already True by the time
+        we call ``load_players``, our explicit ``chunk()`` call must
+        be skipped — calling it again during ``on_ready`` processing
+        can deadlock the gateway."""
+        pm = PlayerManager()
+        ids = [101, 202]
+        mock_db.find_players_by_guild_id.return_value = [_player_doc(u) for u in ids]
+        mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
+
+        members = {u: MagicMock(display_name=f"user{u}") for u in ids}
+        mock_guild.chunked = True  # auto-chunk already populated the cache
+        mock_guild.chunk = AsyncMock()
+        mock_guild.get_member = MagicMock(side_effect=lambda uid: members.get(uid))
+
+        await pm.load_players(mock_guild, channel_id=888)
+
+        mock_guild.chunk.assert_not_awaited()
+        mock_guild.fetch_member.assert_not_awaited()
+        assert set(pm.players.keys()) == set(ids)
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_chunk_skipped_when_no_players(self, mock_db, mock_guild):
+        """No DB rows means no work to do — chunk should not fire."""
+        pm = PlayerManager()
+        mock_db.find_players_by_guild_id.return_value = []
+        mock_guild.chunked = False
+        mock_guild.chunk = AsyncMock()
+
+        await pm.load_players(mock_guild, channel_id=888)
+
+        mock_guild.chunk.assert_not_awaited()
+        assert pm.players == {}
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Player")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_chunk_failure_falls_back_to_fetch_member(self, mock_db, mock_player_cls, mock_guild):
+        """If ``chunk`` blows up, the per-player ``fetch_member`` fallback
+        must still load members the gateway did deliver."""
+        pm = PlayerManager()
+        mock_db.find_players_by_guild_id.return_value = [_player_doc(777)]
+        mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
+
+        # ClientException is the realistic chunk() failure — discord.py raises it
+        # when the members intent is off. Generic RuntimeError would also be caught
+        # by the broad except, but this keeps the test faithful to the real failure.
+        mock_guild.chunked = False
+        mock_guild.chunk = AsyncMock(
+            side_effect=discord.ClientException("Intents.members must be enabled")
+        )
+        mock_guild.get_member = MagicMock(return_value=None)
+        fetched = MagicMock(display_name="fallback")
+        mock_guild.fetch_member = AsyncMock(return_value=fetched)
+
+        await pm.load_players(mock_guild, channel_id=888)
+
+        mock_guild.fetch_member.assert_awaited_once_with(777)
+        assert pm.players[777].member is fetched
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Player")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_chunk_timeout_falls_back_to_fetch_member(self, mock_db, mock_player_cls, mock_guild):
+        """If ``chunk`` hangs past the timeout, the per-player fallback
+        must fire. Guards against the on_ready-chunk deadlock."""
+        import asyncio as _asyncio
+        pm = PlayerManager()
+        mock_db.find_players_by_guild_id.return_value = [_player_doc(888)]
+        mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
+
+        mock_guild.chunked = False
+        mock_guild.chunk = AsyncMock(side_effect=_asyncio.TimeoutError())
+        mock_guild.get_member = MagicMock(return_value=None)
+        fetched = MagicMock(display_name="fallback")
+        mock_guild.fetch_member = AsyncMock(return_value=fetched)
+
+        await pm.load_players(mock_guild, channel_id=888)
+
+        mock_guild.fetch_member.assert_awaited_once_with(888)
+        assert pm.players[888].member is fetched
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Player")
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_unknown_member_after_chunk_is_removed(self, mock_db, mock_player_cls, mock_guild):
+        """If a DB player isn't in the guild any more, ``fetch_member``
+        raises NotFound(10007) and the player gets cleaned up."""
+        pm = PlayerManager()
+        mock_db.find_players_by_guild_id.return_value = [_player_doc(444)]
+        mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
+
+        mock_guild.chunked = False
+        mock_guild.chunk = AsyncMock()
+        mock_guild.get_member = MagicMock(return_value=None)
+        not_found = NotFound.__new__(NotFound)
+        not_found.code = 10007
+        not_found.status = 404
+        not_found.text = "Unknown Member"
+        mock_guild.fetch_member = AsyncMock(side_effect=not_found)
+
+        pm.remove_player = AsyncMock()
+        await pm.load_players(mock_guild, channel_id=888)
+
+        pm.remove_player.assert_awaited_once_with(444, mock_guild.id, 888)
+        assert 444 not in pm.players

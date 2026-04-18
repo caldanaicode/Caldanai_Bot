@@ -222,12 +222,31 @@ class Spirit(Undead, MonsterPlugin):
         DamageTypes.BLUDGEONING | DamageTypes.SLASHING | DamageTypes.PIERCING
     )
 
-    def apply_damage(self, amount, dmg_type=None, target_part=None):
+    def apply_damage(
+        self,
+        amount,
+        dmg_type=None,
+        target_part=None,
+    ) -> Optional[str]:
         """Detect the first time a player lands a (heavily-resisted)
-        physical hit and surface a one-time narrative cue so they
-        know to switch tactics. Damage application defers to super."""
-        original_health = self.health
-        super().apply_damage(amount, dmg_type=dmg_type, target_part=target_part)
+        physical hit and set the one-shot intangibility-announcement
+        flag; ``on_combat_round`` reads it next round and surfaces the
+        narrative cue. Damage application defers to super.
+
+        Historically returned ``None`` implicitly (dropping the
+        MonsterPlugin death string), and combat paths don't depend on
+        that return — ``Game.do_combat`` falls back to
+        ``monster.death`` directly when the helper produces no death
+        message. The signature is mirrored here for consistency with
+        the rest of the Creature family; returning ``""`` preserves
+        observable behavior (both ``None`` and ``""`` are falsy, so
+        any ``if m:`` caller sees the same result).
+        """
+        super().apply_damage(
+            amount,
+            dmg_type=dmg_type,
+            target_part=target_part,
+        )
         if (
             not self._has_announced_intangibility
             and amount > 0
@@ -235,11 +254,7 @@ class Spirit(Undead, MonsterPlugin):
             and (dmg_type & self._PHYSICAL_TYPES)
         ):
             self._has_announced_intangibility = True
-            # Stash the message somewhere combat can pick it up — for
-            # now, just print to log; integration with on_combat_round
-            # below also folds the same idea in if needed.
-            # (No combat-message side channel exists for this exact
-            # moment; on_combat_round next round is the cleanest.)
+        return ""
 
     # -- Combat round narrative ------------------------------------------
 

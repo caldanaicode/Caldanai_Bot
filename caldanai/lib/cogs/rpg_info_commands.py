@@ -1,11 +1,8 @@
-from io import BytesIO
-
 from discord.ext.commands import (
     Cog, command, cooldown, BucketType, guild_only, Context,
     check_any, group, has_permissions, is_owner,
 )
-from discord.ext.commands.errors import MissingRequiredArgument
-from discord import Embed, File
+from discord import Embed
 from typing import Optional
 
 import pandas
@@ -17,6 +14,9 @@ from caldanai.db import DB
 from caldanai.lib.rpg import Game
 from caldanai.lib.rpg.helpers.enums import (
     Directions, INJURY_LEVEL_DISPLAY, InjuryLevels, Pronouns, Roles,
+)
+from caldanai.lib.rpg.helpers.plotting import (
+    CYAN_ACCENT, fig_to_file, style_axes_dark,
 )
 from caldanai.lib.rpg.helpers.utils import RpgUtilities
 
@@ -37,21 +37,6 @@ def _body_hp_dot(player) -> str:
     if ratio > 0:
         return "🔴"
     return "⚫"
-
-
-def _is_injured(player) -> bool:
-    """A player is 'injured' if body HP is below max OR any body part
-    has progressed past ``InjuryLevels.NONE``. Purely body-HP injuries
-    are what the old predicate covered; part injuries might leave body
-    HP untouched (Model D routes full damage to the part but only
-    post-defense damage to body HP), so a player with a destroyed arm
-    and full body HP should still show up in ``$health hurt``."""
-    if player.health < player.get_health_max():
-        return True
-    for part in getattr(player, "body_parts", []) or []:
-        if part.get_injury_level() != InjuryLevels.NONE:
-            return True
-    return False
 
 
 _ANSI_RESET = "\x1b[0m"
@@ -153,7 +138,7 @@ class RpgInfoCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
         embed = player.get_profile(game.guild.name)
         embed.set_thumbnail(url=game.guild.icon.url)
         Dispatcher.add(channel, embed=embed)
@@ -173,7 +158,7 @@ class RpgInfoCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
         embed = player.get_skill_display()
         embed.set_thumbnail(url=game.guild.icon.url)
         Dispatcher.add(channel, embed=embed)
@@ -230,7 +215,7 @@ class RpgInfoCommands(Cog):
         rolls = 0
         total = 0
         kind = "bar"
-        tcolor = (0.0, 1.0, 0.7, 1.0)
+        tcolor = CYAN_ACCENT
         dtype = "d20"
         dsize = 20
         width = 8
@@ -296,22 +281,12 @@ class RpgInfoCommands(Cog):
         try:
             ax.set_xlabel(plot_types[kind]["labels"][0])
             ax.set_ylabel(plot_types[kind]["labels"][1])
-            ax.xaxis.label.set_color(tcolor)
-            ax.yaxis.label.set_color(tcolor)
             ax.set_ybound(lower=0)
-            ax.tick_params(axis="both", colors=tcolor)
-            ax.grid(True, axis="y", color=tcolor, alpha=0.25)
-            for spine in ax.spines.values():
-                spine.set_color(tcolor)
+            style_axes_dark(ax, accent_color=tcolor, grid_axis="y")
         except:
             pass
 
-        buffer = BytesIO()
-        plt.savefig(buffer, format="png", transparent=True, bbox_inches="tight")
-        plt.close()
-        buffer.seek(0)
-
-        file = File(buffer, filename="plot.png")
+        file = fig_to_file(ax.figure, filename="plot.png")
         Dispatcher.add(ctx, file=file)
         Dispatcher.add(ctx, f"Count: {rolls:,}, Mean: {mean:.2f}")
 
@@ -389,22 +364,12 @@ class RpgInfoCommands(Cog):
         tcolor = "#DDDDDD"
         fig, ax = plt.subplots(figsize=(8, max(3, len(labels) * 0.4)))
         ax.barh(labels, counts, color="#5865F2")
-        ax.set_xlabel("Uses", color=tcolor)
+        ax.set_xlabel("Uses")
         ax.set_title(title, color=tcolor, fontsize=14)
-        ax.tick_params(axis="both", colors=tcolor)
-        ax.grid(True, axis="x", color=tcolor, alpha=0.25)
-        for spine in ax.spines.values():
-            spine.set_color(tcolor)
-        fig.patch.set_alpha(0)
-        ax.set_facecolor((0, 0, 0, 0))
-
-        buffer = BytesIO()
-        plt.savefig(buffer, format="png", transparent=True, bbox_inches="tight")
-        plt.close()
-        buffer.seek(0)
+        style_axes_dark(ax, accent_color=tcolor, grid_axis="x")
 
         total = sum(row["count"] for row in data)
-        file = File(buffer, filename="usage.png")
+        file = fig_to_file(fig, filename="usage.png")
         Dispatcher.add(ctx, file=file)
         Dispatcher.add(ctx, f"Total tracked: {total:,}")
 
@@ -444,7 +409,7 @@ class RpgInfoCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
         if gender:
             player.gender = gender.lower()
@@ -515,7 +480,7 @@ class RpgInfoCommands(Cog):
         if game is None or player is None:
             return
 
-        channel = game.channel if ctx.guild is not None else ctx
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
         if flag and flag.lower() in ("active", "all", "hurt", "injured"):
             flag_norm = flag.lower()
@@ -526,7 +491,7 @@ class RpgInfoCommands(Cog):
                         for i in game.player_manager.players.values()
                         if (
                             flag_norm == "all"
-                            or (flag_norm in ("hurt", "injured") and _is_injured(i))
+                            or (flag_norm in ("hurt", "injured") and i.is_injured())
                             or (flag_norm == "active" and game.player_manager.roles[Roles.ACTIVE] in i.member.roles)
                         )
                     ],

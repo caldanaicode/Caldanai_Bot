@@ -238,7 +238,12 @@ class TestBearowlFullHealthBackwardsCompat:
 
     def test_get_dodge_matches_size_scaled(self):
         b = Bearowl()
-        expected = int(b.dodge * 1.0 * 0.75)
+        # LARGE (dodge_mod 0.75) on a healthy bearowl: the size-scaled
+        # formula with a floor of 1 when any mobility remains. The
+        # floor matters for low rolls — ``1d10 = 1`` yields
+        # ``int(1 * 0.75) = 0`` without the floor, which was the
+        # "bearowl with 0 dodge" bug surfaced at playtest.
+        expected = max(1, int(b.dodge * 1.0 * 0.75))
         assert b.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):

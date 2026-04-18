@@ -5,13 +5,8 @@ The fifth base body-part plugin and the **first plugin with an active
 and live) but carry both a DODGE and an ATTACK (weak buffet) debuff
 similarly to legs, and -- uniquely so far -- trigger a discrete state
 transition when destroyed: the creature's ``"flying"`` flag is
-discarded, grounding it.
-
-This is the flag the dragon-toes state-dependent debuff reads to
-decide whether its 62 toes contribute -1 DODGE each. Grounding a
-toe-variant dragon via wing destruction therefore cascades into the
-full toe penalty. See the "Dragon toes" section of
-``Caldanai_Bot Phase 1 - Body Parts.md``.
+discarded, grounding it. Other creatures can read ``"flying"`` (e.g.
+via ``Creature.is_flying()``) to gate airborne-only behavior.
 
 Design rationale
 ================
@@ -69,11 +64,6 @@ Debuffs
     ``parse``. All other transitions (``NONE -> MINOR``,
     ``MINOR -> MODERATE``, etc.) are silent: they return the empty
     string and don't touch state.
-
-Doppelganger pain cries
-    One escalating flavor string per injury level, landing on "the
-    imitation completes itself" for USELESS to match the design doc's
-    leg example tone.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin

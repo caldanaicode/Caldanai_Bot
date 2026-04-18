@@ -13,6 +13,20 @@ from caldanai.lib.rpg.creatures import Creature
 
 
 class Dragon(MonsterPlugin):
+    """Huge winged quadruped with breath attacks and a 62-toe variant.
+
+    **Body part design note:** the toed variant reads the ``"flying"``
+    flag managed by :class:`WingPlugin` to decide whether its 62 toes
+    contribute their DODGE penalty. While the dragon is flying the
+    toes are out of reach and contribute nothing; grounding it (most
+    often via destroying a wing, since ``WingPlugin.on_injury_change``
+    discards ``"flying"`` on the transition into USELESS) cascades
+    into the full -62 DODGE penalty in :meth:`get_dodge`. The head
+    exposure table is also overridden at construction time to a
+    narrow low-melee, high-ranged profile — a dragon's head is far
+    above the melee fray but a prime target for archers.
+    """
+
     VARIANTS = [
         {
             "flavor": "A {size} red @1, smelling faintly of cinnamon and charcoal.",

@@ -1,5 +1,6 @@
 """Tests for Caldanai.lib.rpg.helpers.utils — generate_report, cache_auth, save_game_data."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
@@ -108,6 +109,34 @@ class TestCacheAuth:
         mock_db.get_auth.side_effect = Exception("connection refused")
         cache_auth()
         assert utils_module._cached_auth is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_reply_channel
+# ---------------------------------------------------------------------------
+
+class TestResolveReplyChannel:
+    def test_returns_game_channel_when_ctx_has_guild(self):
+        """Guild invocation: reply goes to the game's bound channel."""
+        game = SimpleNamespace(channel=SimpleNamespace(id=42))
+        ctx = SimpleNamespace(guild=SimpleNamespace(id=1))
+
+        assert RpgUtilities.resolve_reply_channel(ctx, game) is game.channel
+
+    def test_returns_ctx_when_guild_is_none(self):
+        """DM invocation (ctx.guild is None): reply goes back to ctx."""
+        game = SimpleNamespace(channel=SimpleNamespace(id=42))
+        ctx = SimpleNamespace(guild=None)
+
+        assert RpgUtilities.resolve_reply_channel(ctx, game) is ctx
+
+    def test_returns_ctx_when_guild_attr_missing(self):
+        """``Member`` / ``User`` objects lack ``.guild`` entirely; fall
+        back to the DM path rather than raising AttributeError."""
+        game = SimpleNamespace(channel=SimpleNamespace(id=42))
+        ctx = SimpleNamespace()  # no .guild attribute
+
+        assert RpgUtilities.resolve_reply_channel(ctx, game) is ctx
 
 
 # ---------------------------------------------------------------------------

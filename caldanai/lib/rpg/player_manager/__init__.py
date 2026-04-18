@@ -38,10 +38,36 @@ class PlayerManager:
             # lack channel_id, so a compound query would miss them.
             # Players are bound to *this* game at runtime by stamping
             # channel_id below; next save writes it to the doc.
-            players = (p for p in DB.find_players_by_guild_id(guild.id))
+            players = list(DB.find_players_by_guild_id(guild.id))
         except Exception as e:
             _log.error(e)
             return
+
+        # Warm the member cache in a single WebSocket round-trip rather
+        # than paying one REST ``fetch_member`` per missing entry. The
+        # members intent is enabled (see ``Bot.__init__``), so ``chunk``
+        # is the cheapest way to populate every member at once.
+        #
+        # Two guardrails:
+        # 1. Skip entirely when ``guild.chunked`` is True — discord.py
+        #    auto-chunks at startup with the members intent enabled, so
+        #    by the time ``on_ready`` fires the cache is typically
+        #    already populated. Calling ``chunk()`` on a chunked guild
+        #    returns immediately in principle, but issuing a second
+        #    chunk request while the auto-chunk is still in-flight can
+        #    deadlock: the second await waits for gateway state that
+        #    can't advance until ``on_ready`` processing finishes,
+        #    which can't finish until this await returns.
+        # 2. Wrap the call in ``asyncio.wait_for`` so a stuck chunk
+        #    drops through to the per-player ``fetch_member`` fallback
+        #    below instead of hanging the bot's startup.
+        if players and not guild.chunked:
+            try:
+                await asyncio.wait_for(guild.chunk(), timeout=10)
+            except asyncio.TimeoutError:
+                _log.warning(f"guild.chunk() timed out for {guild.id}; falling back to per-player fetch.")
+            except Exception as e:
+                _log.warning(f"guild.chunk() failed for {guild.id}; falling back to per-player fetch. Error: {e}")
 
         for p in players:
             uid = p["user_id"]
@@ -52,7 +78,14 @@ class PlayerManager:
             if channel_id is not None:
                 player.channel_id = channel_id
             try:
-                player.member = guild.get_member(uid) or await guild.fetch_member(uid)
+                member = guild.get_member(uid)
+                if member is None:
+                    # Post-chunk miss means the user isn't in the guild
+                    # any more. Fall back to fetch_member so a failed /
+                    # skipped chunk still gets the defensive NotFound
+                    # path that cleans up ex-members below.
+                    member = await guild.fetch_member(uid)
+                player.member = member
                 player.name = player.member.display_name
                 self.players[uid] = player
 

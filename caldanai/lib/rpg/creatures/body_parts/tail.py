@@ -62,12 +62,11 @@ Debuffs (DODGE-only, by design)
 
     - **No ATTACK debuff.** A base tail does not swing weapons or
       deliver blows as part of normal attacks. Specialty tails that
-      *do* deal damage -- a scorpion's sting, a dragon's tail slap, a
-      manticore's spine throw -- should subclass ``TailPlugin`` and
-      declare their own ATTACK debuff. Keeping the base class neutral
-      lets it compose cleanly on any creature that has a tail, and
-      prevents accidentally penalizing attack rolls on creatures whose
-      tails aren't combat appendages.
+      *do* deal damage should subclass ``TailPlugin`` and declare their
+      own ATTACK debuff. Keeping the base class neutral lets it compose
+      cleanly on any creature that has a tail, and prevents
+      accidentally penalizing attack rolls on creatures whose tails
+      aren't combat appendages.
 
     - **No DEFENSE debuff.** Defense debuffs are the arm's SEVERE
       niche (parry loss). A tail has nothing to do with blocking or
@@ -77,11 +76,6 @@ Debuffs (DODGE-only, by design)
     ``Creature.get_dodge()`` getter applies a ``max(0, ...)`` clamp
     (item 1.10) so the modifier bottoms out the effective dodge at 0
     without going negative.
-
-Doppelganger pain cries
-    One flavor string per injury level, escalating from a twinge to a
-    limp, unresponsive tail. The design doc wants per-part
-    doppelganger cries on every base part.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
@@ -94,10 +88,9 @@ class TailPlugin(BodyPartPlugin):
     Tails provide balance and, for some creatures, a secondary attack
     appendage. The base ``TailPlugin`` only models the balance
     contribution: losing tail control debuffs DODGE and nothing else.
-    Specialty tails that deliver attacks (scorpion sting, dragon tail
-    slap, manticore spine throw) should subclass and declare their own
-    ATTACK debuff -- keeping the base class DODGE-only lets it compose
-    cleanly on any creature with a tail.
+    Specialty tails that deliver attacks should subclass and declare
+    their own ATTACK debuff -- keeping the base class DODGE-only lets
+    it compose cleanly on any creature with a tail.
 
     Severed tails are classic Monster Hunter loot and feed directly
     into Phase 2 crafting.

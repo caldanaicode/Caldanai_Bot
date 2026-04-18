@@ -84,11 +84,6 @@ The ``"disable_slot": True`` marker (forward-facing)
     (``"blind"``, ``"grounded"``, ``"knockdown"``, etc.) without
     requiring a new data structure. Aggregation stays safe because it
     keys by enum; the side-effect consumers key by string.
-
-Doppelganger pain cries
-    One flavor string per injury level, escalating from a mysterious
-    ache to a visibly twisted and limp arm. The design doc explicitly
-    wants per-part doppelganger cries on every base part.
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
