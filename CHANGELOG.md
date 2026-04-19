@@ -4,6 +4,29 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-18 — Dragon Breath Math Fix
+
+Breath now honors the victim's FIRE trait multiplier (fire-resistant
+creatures take reduced damage, fire-weak take amplified). The rendered
+damage total also lines up with reality — the previous code passed
+post-defense damage into the `AttackResult`, so the shared renderer
+subtracted defense a second time and reported a number smaller than
+what was actually applied to the victim. Pre-existing; surfaced now
+that enrage makes breath fire more often.
+
+### 2026-04-18 — Dragon Enrage
+
+Breath chance is no longer a flat 20% per round. Starts at 20%,
+climbs `+10%` each round the dragon doesn't breathe, resets to
+20% when breath fires. Long dragon fights get progressively more
+existential instead of feeling the same at round 1 and round 10.
+
+Any dragon body part dropping to destroyed — including a wing,
+which also grounds it — forces a breath on the dragon's next
+turn with a rage intro prepended to the breath flavor. Wing-loss
+gets a grounding-specific line; other destructions get a generic
+rage bellow.
+
 ### 2026-04-18 — Operator Tooling: `tools/` + Per-Guild Channel Registry
 
 Added a `tools/` subdirectory of standalone Python scripts that

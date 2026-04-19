@@ -10,6 +10,7 @@ Test classes:
 6. ``TestDragonBreathAttackPreserved`` -- breath_attack still fires.
 7. ``TestDragonFullHealthBackwardsCompat`` -- stats unchanged at full HP.
 8. ``TestDragonSanityUnchanged`` -- name, loot, traits, methods present.
+9. ``TestDragonEnrage`` -- ramping breath chance + part-destruction force trigger.
 """
 
 from unittest.mock import patch
@@ -346,6 +347,116 @@ class TestDragonBreathAttackPreserved:
 
 
 # ---------------------------------------------------------------------------
+# 6b. Breath damage math (pre-defense in AttackResult, post-defense applied,
+#      trait multiplier honored)
+# ---------------------------------------------------------------------------
+
+
+class TestDragonBreathDamageMath:
+    """Breath used to pass post-defense damage into ``AttackResult.damage``
+    and ignore the victim's FIRE trait multiplier. The renderer then
+    subtracted defense a second time, showing a damage value smaller than
+    what was actually applied. These tests pin the corrected behavior."""
+
+    def _make_target(self, defense=6, health=100, fire_multiplier=None):
+        from caldanai.lib.rpg.creatures import Creature
+        from caldanai.lib.rpg.helpers.enums import DamageTypes
+
+        target = Creature(
+            name="dummy",
+            atk="1d4",
+            defense=defense,
+            dodge=5,
+            health_max=health,
+            health=health,
+            gender="male",
+        )
+        if fire_multiplier is not None:
+            target.traits[DamageTypes.FIRE] = fire_multiplier
+        return target
+
+    def _force_raw_roll(self, value: int):
+        """Patch ``Dice.from_ndn`` inside dragon.py so ``raw_dice.value``
+        returns the given value for breath rolls."""
+        from unittest.mock import MagicMock
+
+        fake_dice = MagicMock()
+        fake_dice.value = value
+        fake_dice.result = value
+        return patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.Dice.from_ndn",
+            return_value=fake_dice,
+        )
+
+    def test_attack_result_damage_is_pre_defense(self):
+        """AttackResult.damage mirrors the shared renderer's convention:
+        pre-defense, post-multiplier. Fire-neutral: sub_dmg == raw."""
+        with _force_variant(False):
+            d = Dragon()
+        target = self._make_target(defense=6, health=1000)
+
+        with self._force_raw_roll(26):
+            d.breath_attack([target])
+
+        # breath_attack mutates the sequence mid-call and returns a
+        # string; the assertions below re-run breath and capture the
+        # constructed AttackResult via a spy on AttackResult. Simpler:
+        # apply_damage records the post-defense hit on the victim.
+        assert target.health == 1000 - (26 - 6)
+
+    def test_trait_multiplier_reduces_damage_for_fire_resistant(self):
+        """A victim with FIRE multiplier 0.5 should take half the damage."""
+        with _force_variant(False):
+            d = Dragon()
+        # 0.5 * 26 = 13 pre-defense, - 6 defense = 7 post-defense
+        target = self._make_target(defense=6, health=1000, fire_multiplier=0.5)
+
+        with self._force_raw_roll(26):
+            d.breath_attack([target])
+
+        assert target.health == 1000 - 7
+
+    def test_trait_multiplier_amplifies_damage_for_fire_weak(self):
+        """A victim with FIRE multiplier 2.0 should take double damage."""
+        with _force_variant(False):
+            d = Dragon()
+        # 2.0 * 26 = 52 pre-defense, - 6 defense = 46 post-defense
+        target = self._make_target(defense=6, health=1000, fire_multiplier=2.0)
+
+        with self._force_raw_roll(26):
+            d.breath_attack([target])
+
+        assert target.health == 1000 - 46
+
+    def test_defense_cannot_push_damage_negative(self):
+        """When defense exceeds the post-multiplier damage, the victim
+        still takes 0 (not negative) damage from this breath."""
+        with _force_variant(False):
+            d = Dragon()
+        target = self._make_target(defense=100, health=1000)
+
+        with self._force_raw_roll(26):
+            d.breath_attack([target])
+
+        assert target.health == 1000
+
+    def test_rendered_total_subtracts_defense_exactly_once(self):
+        """The renderer subtracts defense once; breath's AttackResult.damage
+        must be pre-defense so the footer arithmetic matches reality."""
+        with _force_variant(False):
+            d = Dragon()
+        target = self._make_target(defense=6, health=1000)
+
+        with self._force_raw_roll(26):
+            rendered = d.breath_attack([target])
+
+        # Footer should read "26 damage - 6 defense → 20 damage". Prior
+        # bug rendered "20 damage - 6 defense → 14 damage" (double subtract).
+        assert "26 damage - 6 defense" in rendered
+        assert "→ 20 damage" in rendered
+
+
+# ---------------------------------------------------------------------------
 # 7. Full health backwards compatibility
 # ---------------------------------------------------------------------------
 
@@ -436,3 +547,158 @@ class TestDragonSanityUnchanged:
             d2 = Dragon()
         for p1, p2 in zip(d1.body_parts, d2.body_parts):
             assert p1 is not p2
+
+
+# ---------------------------------------------------------------------------
+# 9. Enrage: ramping breath chance + part-destruction force trigger
+# ---------------------------------------------------------------------------
+
+
+class TestDragonEnrage:
+    """Pin the enrage mechanic: breath chance climbs per round since last
+    breath, resets on fire, and any newly-destroyed dragon body part
+    forces a breath on the next turn (with a rage intro prepended)."""
+
+    def _make_target(self):
+        from caldanai.lib.rpg.creatures import Creature
+        return Creature(
+            name="dummy",
+            atk="1d4",
+            defense=5,
+            dodge=5,
+            health_max=100_000,
+            health=100_000,
+            gender="male",
+        )
+
+    def test_initial_breath_chance_is_base(self):
+        with _force_variant(False):
+            d = Dragon()
+        assert d._rounds_since_breath == 0
+        assert d._breath_chance() == Dragon.BREATH_BASE_CHANCE
+
+    def test_chance_climbs_by_ramp_per_round(self):
+        with _force_variant(False):
+            d = Dragon()
+        d._rounds_since_breath = 3
+        expected = (
+            Dragon.BREATH_BASE_CHANCE + 3 * Dragon.BREATH_RAMP_PER_ROUND
+        )
+        assert abs(d._breath_chance() - expected) < 1e-9
+
+    def test_chance_caps_at_one(self):
+        with _force_variant(False):
+            d = Dragon()
+        d._rounds_since_breath = 1000
+        assert d._breath_chance() == 1.0
+
+    def test_non_breath_round_increments_counter(self):
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        # Force the RNG above the breath threshold so breath does not fire.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            d.attack_random([target])
+        assert d._rounds_since_breath == 1
+
+    def test_breath_fire_resets_counter(self):
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        d._rounds_since_breath = 5
+        target = self._make_target()
+
+        # Force the RNG below the breath threshold so breath fires.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.0,
+        ):
+            d.attack_random([target])
+        assert d._rounds_since_breath == 0
+
+    def test_newly_destroyed_part_forces_breath(self):
+        """Even with RNG roll above the ramping threshold, a destroyed
+        leg should force the next turn's attack to be a breath."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        leg = next(p for p in d.body_parts if isinstance(p, LegPlugin))
+        leg.health = 0
+        assert leg.is_destroyed()
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            result = d.attack_random([target])
+
+        assert result is not None
+        assert "column of liquid flame" in result
+        assert "pain and rage" in result
+        assert d._rounds_since_breath == 0
+
+    def test_wing_destruction_forces_breath_with_grounding_intro(self):
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        wing = next(p for p in d.body_parts if isinstance(p, WingPlugin))
+        wing.health = 0
+        assert wing.is_destroyed()
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            result = d.attack_random([target])
+
+        assert result is not None
+        assert "wings crumpling" in result
+        assert "column of liquid flame" in result
+        assert d._rounds_since_breath == 0
+
+    def test_already_known_destroyed_part_does_not_refire(self):
+        """Once a part is registered as destroyed, a subsequent attack
+        round should not re-trigger the forced breath."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        leg = next(p for p in d.body_parts if isinstance(p, LegPlugin))
+        leg.health = 0
+
+        # Round 1: destruction noticed, forced breath fires.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            d.attack_random([target])
+
+        # Round 2: RNG still above the threshold, leg still destroyed but
+        # no *new* destruction -> normal (non-breath) attack.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            d.attack_random([target])
+
+        assert d._rounds_since_breath == 1
+
+    def test_attack_random_with_no_combatants_returns_none(self):
+        with _force_variant(False):
+            d = Dragon()
+        assert d.attack_random([]) is None

@@ -92,6 +92,16 @@ class Dragon(MonsterPlugin):
         self.size = Size.HUGE
         self._scale_part_hp()
 
+        # Enrage state: breath chance ramps each round since the last
+        # breath (reset to 0 on fire). Any body part destroyed on the
+        # dragon -- including a wing, which also grounds it -- forces a
+        # breath on the dragon's next turn, accompanied by a rage intro.
+        self._rounds_since_breath = 0
+        self._known_destroyed_parts: set[str] = set()
+
+    BREATH_BASE_CHANCE = 0.20
+    BREATH_RAMP_PER_ROUND = 0.10
+
     def get_dodge(self):
         base = super().get_dodge()
         if self._has_toes and not self.is_flying():
@@ -103,23 +113,29 @@ class Dragon(MonsterPlugin):
         # TODO: Perhaps attack the hugger in some way.
         return "@1dc glowers hungrily at @2 and sends a wisp of flame in @2a direction."
 
-    def breath_attack(self, combatants) -> str:
+    def breath_attack(self, combatants, rage_intro: str = "") -> str:
         flavor = parse(
             "@1dc's throat glows brightly, @1a head drawing back slightly as @1s breathes in deeply. With a "
             "deafening roar, @1s looses a mighty column of liquid flame, blanketing the entire area.",
             self,
         )
+        if rage_intro:
+            flavor = f"{parse(rage_intro, self)}\n{flavor}"
 
-        # Build an AttackSequence with one result per victim. Breath bypasses
-        # the normal dodge/defense flow — every victim is auto-hit and we
-        # compute damage as raw - defense directly.
+        # Build an AttackSequence with one result per victim. Breath
+        # auto-hits (no dodge roll), applies the victim's FIRE trait
+        # multiplier, then subtracts defense once. ``AttackResult.damage``
+        # stores the pre-defense value so the shared renderer's
+        # ``total - defense`` footer math lines up with normal attacks.
         results = []
         post = ""
         for victim in combatants:
             raw_dice = Dice.from_ndn("6d6")
             raw = raw_dice.value
             df = victim.get_defense()
-            dmg = max(0, raw - df)
+            multiplier = victim.get_trait_multiplier(DamageTypes.FIRE)
+            sub_dmg = max(0, int(raw * multiplier))
+            dmg = max(0, sub_dmg - df)
 
             # Construct a no-miss CombinedRoll using the actual damage dice.
             # The attack roll is a dummy — auto_hit=True will hide it.
@@ -139,8 +155,8 @@ class Dragon(MonsterPlugin):
                 AttackResult(
                     source=source,
                     combined=combined,
-                    damage=dmg,
-                    multiplier=1.0,
+                    damage=sub_dmg,
+                    multiplier=multiplier,
                     defense=df,
                     dodge=0,
                     dmg_type=DamageTypes.FIRE,
@@ -154,11 +170,48 @@ class Dragon(MonsterPlugin):
         sequence = AttackSequence(attacker=self, target=combatants[0] if combatants else self, results=results)
         return f"{flavor}\n{sequence.to_markdown()}{post}"
 
+    def _breath_chance(self) -> float:
+        return min(
+            1.0,
+            self.BREATH_BASE_CHANCE
+            + self._rounds_since_breath * self.BREATH_RAMP_PER_ROUND,
+        )
+
+    def _newly_destroyed_parts(self) -> set[str]:
+        """Part names destroyed since the last time this was checked.
+
+        Mutates ``self._known_destroyed_parts`` on every call, so each
+        new destruction is reported exactly once. Single-caller by
+        design (``attack_random``); a hypothetical peek-without-consume
+        caller would silently swallow the force-fire signal.
+        """
+        current = {p.name for p in self.body_parts if p.is_destroyed()}
+        new = current - self._known_destroyed_parts
+        self._known_destroyed_parts = current
+        return new
+
+    def _rage_intro_for(self, newly_destroyed: set[str]) -> str:
+        if any("wing" in n for n in newly_destroyed):
+            return (
+                "@1dc lets out a screeching roar, wings crumpling beneath "
+                "it as it crashes to earth in a fury."
+            )
+        if newly_destroyed:
+            return "@1dc bellows in pain and rage, eyes blazing red."
+        return ""
+
     def attack_random(self, combatants: list, count=1) -> str:
         if combatants and 0 < count <= len(combatants):
-            if random() < 0.2:
-                return self.breath_attack(combatants)
+            newly_destroyed = self._newly_destroyed_parts()
 
+            if newly_destroyed or random() < self._breath_chance():
+                self._rounds_since_breath = 0
+                return self.breath_attack(
+                    combatants,
+                    rage_intro=self._rage_intro_for(newly_destroyed),
+                )
+
+            self._rounds_since_breath += 1
             return super().attack_random(combatants, count)
 
         return None
