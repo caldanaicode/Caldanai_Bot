@@ -22,6 +22,32 @@ Two stragglers from the earlier `_Routine` qualname refactor:
 `GameClock` regression test pins the qualname-vs-barename contract
 so a future caller can't rediscover the same trap.
 
+### 2026-04-18 — Operator Tooling: `tail_channel.py`
+
+New `tools/tail_channel.py` fetches the last N messages from a
+game's channel (default 10) and, with `--follow`, keeps polling
+new ones via REST (`after=<last_seen_id>`). Coexists with the
+live bot — no Gateway connection. Channel discovery is per-game:
+the tool picks from live games in the selected DB and resolves
+channel names via Discord so the picker is human-readable.
+`--channel-id` skips discovery entirely.
+
+Embed-aware content rendering: monster spawn cards, `$spawn` /
+`$help` info embeds, `$look` panels, and any other embed-only
+messages render their title / description / fields as text
+instead of showing up blank.
+
+**In-memory inspector in `--follow` mode.** Tool holds a
+`deque(maxlen=500)` ring buffer and serves `GET
+http://127.0.0.1:8765/tail?since=<cursor>` returning JSON
+(`messages`, `dropped_count`, `buffer_size`, `buffer_max`). Lets
+an on-demand inspector pull backlog without grepping stdout or
+hitting Mongo. `--buffer-size` and `--port` tune it.
+Loopback-bound, no auth.
+
+Added `DiscordRestClient.get_channel` to `tools/_common.py` for
+the channel-name resolution step.
+
 ### 2026-04-18 — Dragon Breath Math Fix
 
 Breath now honors the victim's FIRE trait multiplier (fire-resistant

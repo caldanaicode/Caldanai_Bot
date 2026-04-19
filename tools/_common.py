@@ -286,6 +286,16 @@ class DiscordRestClient:
             resp.raise_for_status()
             return await resp.json()
 
+    async def get_channel(self, channel_id: int) -> dict:
+        """GET a channel object by id. Returns the raw Discord
+        channel payload — ``name``, ``type``, ``parent_id`` for
+        threads, etc. Used by the tail tool to render a friendly
+        picker of live games."""
+        url = f"{_DISCORD_API_BASE}/channels/{channel_id}"
+        async with self._session.get(url) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
     async def get_messages(
         self,
         channel_id: int,
