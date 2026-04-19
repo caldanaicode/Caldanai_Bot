@@ -195,7 +195,9 @@ class ShutdownCommand(CommandPlugin):
         One game failing to stop its routines must not skip the
         others — wrap each game individually.
         """
-        for game in list(bot.games.values()):
+        games = list(bot.games.values())
+        _log.info(f"Stopping per-game routines for {len(games)} game(s).")
+        for game in games:
             try:
                 if getattr(game, "weather", None) is not None:
                     game.weather.stop()
@@ -241,7 +243,12 @@ class ShutdownCommand(CommandPlugin):
             await asyncio.wait_for(
                 inner_task, timeout=ShutdownCommand._TASK_CANCEL_TIMEOUT_SECONDS,
             )
-        _log.debug(f"{label} task stopped")
+        # INFO so LIVE logs (which usually run at INFO) show the
+        # shutdown sequence beat-by-beat. Knowing which task loops
+        # stopped when is essential for diagnosing a hang; leaving
+        # this at DEBUG silently elides the whole middle of the
+        # shutdown timeline in production.
+        _log.info(f"{label} task stopped")
 
 
 def _get_task(module_or_cls, name: str):

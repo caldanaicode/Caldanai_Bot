@@ -4,6 +4,15 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — Shutdown Log Visibility
+
+Promoted two per-task-cancel beats from DEBUG to INFO and added an
+INFO line at the start of `_stop_per_game_routines` so LIVE logs
+(which run at INFO) show the shutdown sequence beat-by-beat
+(dispatcher drain, per-game routine stop, watchdog / save /
+batch_write cancel, final flush, exit) instead of silently
+eliding the whole middle. Matters when diagnosing a shutdown hang.
+
 ### 2026-04-18 — Qualname Fallout: `$stimer` Lookup + Routine Log Label
 
 Two stragglers from the earlier `_Routine` qualname refactor:
