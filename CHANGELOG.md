@@ -4,6 +4,13 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — `tail_channel.py` Default Buffer: 500 → 5000
+
+Bumped the `--follow` inspector's default ring buffer from 500 to
+5000 messages. Costs a few MB of RAM at most, buys ~10× the
+retention so an all-day idle tail still has a useful window to
+peek into. `--buffer-size` override still works either direction.
+
 ### 2026-04-19 — Shutdown Log Visibility
 
 Promoted two per-task-cancel beats from DEBUG to INFO and added an

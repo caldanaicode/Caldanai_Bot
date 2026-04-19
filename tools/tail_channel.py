@@ -42,7 +42,7 @@ messages without grepping stdout. GET ``/tail`` returns JSON::
                     "author": "...", "content": "..."}],
       "dropped_count": 0,
       "buffer_size": 12,
-      "buffer_max": 500
+      "buffer_max": <``--buffer-size``, default per ``_DEFAULT_BUFFER_SIZE``>
     }
 
 ``?since=<message_id>`` filters to messages strictly newer than
@@ -73,7 +73,7 @@ from tools._common import (
 
 _DEFAULT_LIMIT = 10
 _DEFAULT_POLL_SECONDS = 5
-_DEFAULT_BUFFER_SIZE = 500
+_DEFAULT_BUFFER_SIZE = 5000
 _DEFAULT_HTTP_PORT = 8765
 
 # Discord channel type ids — see
