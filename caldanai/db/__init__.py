@@ -12,7 +12,7 @@ from pymongo.database import Database
 from pymongo.errors import BulkWriteError
 
 from caldanai.double_buffer import DoubleBuffer
-from caldanai.environment import DB_CONNECTION, STAGE
+from caldanai.environment import DB_CONNECTION, LIVE_DB_NAME, STAGE, TEST_DB_NAME
 from caldanai.logger import MongoHandler, get_logger
 
 _log = get_logger(__name__)
@@ -25,7 +25,11 @@ class DB:
     """Wrapper for MongoDB operations."""
 
     _mongoClient: MongoClient = MongoClient(DB_CONNECTION)
-    _mongoDB: Database = _mongoClient.caldanaiTest if STAGE == "TEST" else _mongoClient.caldanaiDB
+    # Database selected by ``STAGE`` env. Names live in
+    # ``caldanai.environment`` so they aren't hardcoded here —
+    # forks point at their own DBs via ``LIVE_DB_NAME`` /
+    # ``TEST_DB_NAME`` in ``.env`` without needing a code change.
+    _mongoDB: Database = _mongoClient[TEST_DB_NAME if STAGE == "TEST" else LIVE_DB_NAME]
     _mongoHandler: MongoHandler = None
     _queues = defaultdict(DoubleBuffer)
     _auth = _mongoDB.auth
@@ -365,6 +369,47 @@ class DB:
     def update_server_prefix(guild_id, prefix):
         """Sets the server's prefix."""
         DB._queues[DB._servers].put(UpdateOne({"guild_id": guild_id}, {"$set": {"prefix": prefix}}))
+
+    # Guild-scoped channel registry. Stored under a nested
+    # ``channels`` dict on each server document so adding a new
+    # category later (e.g. ``debug``, ``alerts``) doesn't need a
+    # schema migration. Each value is a Discord channel id (int).
+    GUILD_CHANNEL_KEYS = ("updates", "ideas")
+
+    @staticmethod
+    def set_guild_channel(guild_id: int, key: str, channel_id: int) -> None:
+        """Set a per-guild named channel id (e.g. updates,
+        ideas). ``key`` must be in :attr:`GUILD_CHANNEL_KEYS` —
+        unknown keys raise so a typo at the call site doesn't
+        silently write a garbage field. Stored as
+        ``channels.<key>`` on the server document; an upsert so a
+        guild that hasn't been seen by the bot yet still gets
+        the channel registered."""
+        if key not in DB.GUILD_CHANNEL_KEYS:
+            raise ValueError(
+                f"Unknown guild channel key {key!r}; "
+                f"expected one of {DB.GUILD_CHANNEL_KEYS}"
+            )
+        DB._queues[DB._servers].put(
+            UpdateOne(
+                {"guild_id": guild_id},
+                {"$set": {f"channels.{key}": channel_id}},
+                upsert=True,
+            )
+        )
+
+    @check_connection
+    @staticmethod
+    def get_guild_channels(guild_id: int) -> dict:
+        """Return the per-guild channel-id dict for the given
+        guild (e.g. ``{"updates": 123, "ideas": 456}``).
+        Empty dict when the guild has no channels configured or
+        no server document exists yet — callers can ``.get(key)``
+        without pre-checking."""
+        server = DB._mongoDB.servers.find_one({"guild_id": guild_id})
+        if not server:
+            return {}
+        return dict(server.get("channels") or {})
 
     @check_connection
     @staticmethod

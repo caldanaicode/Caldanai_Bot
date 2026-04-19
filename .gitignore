@@ -6,3 +6,5 @@ __pycache__
 .vscode
 .pytest_cache
 .patch-notes-scratch.md
+tools/.ideas_cursor.*.json
+tools/.last_posted.*.json

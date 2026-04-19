@@ -56,10 +56,28 @@ class ShutdownCommand(CommandPlugin):
         # 1. Announce shutdown to every active game channel, then
         #    drain the Dispatcher so those announcements actually
         #    reach Discord before we start tearing anything down.
+        #    Cancel the per-second ``Dispatcher.send`` task once
+        #    the queue is empty — otherwise it ticks during the
+        #    later ``bot.close()`` window with a half-closed
+        #    discord.py session and raises a ``ClientException``
+        #    that bubbles to ``discord.ext.tasks``'s catch-all
+        #    (benign, but noisy in the shutdown log).
         for game in bot.games.values():
             Dispatcher.add(game.channel, msg)
         Dispatcher.flush = True
         await ShutdownCommand._drain_dispatcher()
+        # ``send`` is a module-level ``tasks.Loop`` in
+        # ``caldanai.dispatcher`` (not an attribute on the
+        # ``Dispatcher`` class) — local import gets the right
+        # reference. Without this, the cancel target is None
+        # and the per-second send tick fires against a
+        # half-closed discord.py session a moment later, raising
+        # a ``ClientException`` that bubbles to
+        # ``discord.ext.tasks``'s catch-all (benign but noisy).
+        from caldanai import dispatcher as _dispatcher_module
+        await ShutdownCommand._stop_task_loop(
+            getattr(_dispatcher_module, "send", None), "dispatcher.send",
+        )
 
         # 2. Stop the per-game write-generators (clock ticks +
         #    ambience daemons) so no automated tick can mutate

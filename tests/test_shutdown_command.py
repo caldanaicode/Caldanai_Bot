@@ -37,14 +37,28 @@ def mock_bot():
 
 @pytest.fixture
 def dispatcher_patch():
-    """Patch the Dispatcher globals the shutdown command pokes.
-    Returns a tuple of (Dispatcher mock, queue mock) so tests can
-    simulate queue emptiness."""
-    with patch("caldanai.console_commands.shutdown.Dispatcher") as D:
+    """Patch the Dispatcher class globals + the module-level
+    ``send`` tasks.Loop in ``caldanai.dispatcher``. The two are
+    distinct: ``Dispatcher`` is the message-queue gateway,
+    ``send`` is the per-second tick that ships queued messages
+    out — they live in the same module but at different scopes,
+    and shutdown touches both. Returns the Dispatcher class
+    mock; the send-task mock is reachable via the imported
+    dispatcher module the shutdown command goes through."""
+    with patch("caldanai.console_commands.shutdown.Dispatcher") as D, \
+         patch("caldanai.dispatcher.send") as send:
         D.queue = MagicMock()
         D.queue.empty.return_value = True
         D.queue.qsize.return_value = 0
         D.flush = False
+        send.is_running.return_value = True
+        send.cancel = MagicMock()
+        inner = MagicMock()
+        inner.done.return_value = True
+        send._task = inner
+        # Stash the send mock on D for tests that want to
+        # observe its cancellation directly.
+        D.send = send
         yield D
 
 
@@ -136,6 +150,7 @@ class TestShutdownOrder:
         # returns None is fine — AsyncMock handles the async
         # resolution.
         mock_bot.close.side_effect = record("bot.close")
+        dispatcher_patch.send.cancel.side_effect = record("dispatcher.send.cancel")
         db_patch.watchdog.cancel.side_effect = record("watchdog.cancel")
         save_task.cancel.side_effect = record("save_game_data.cancel")
         db_patch.batch_write.cancel.side_effect = record("batch_write.cancel")
@@ -153,6 +168,12 @@ class TestShutdownOrder:
                 f"expected {a!r} before {b!r}, got order {calls}"
             )
 
+        # Dispatcher.send.cancel must happen after the drain
+        # but before bot.close — otherwise its per-second tick
+        # fires against a half-closed discord.py session and
+        # raises a ClientException that bubbles to
+        # discord.ext.tasks's catch-all (benign but noisy).
+        assert_before("dispatcher.send.cancel", "bot.close")
         # set_shutdown must precede bot.close — otherwise
         # ``main.start_bot``'s ``while state.should_restart()``
         # loop sees the bot close, its ``bot.start`` return, and

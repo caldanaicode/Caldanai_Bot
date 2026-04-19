@@ -1,5 +1,9 @@
 from typing import TYPE_CHECKING
-from discord.ext.commands import Cog, CheckFailure, command, has_permissions, guild_only, is_owner, Context
+from discord import TextChannel
+from discord.ext.commands import (
+    Cog, CheckFailure, command, group, check_any,
+    has_permissions, guild_only, is_owner, Context,
+)
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
@@ -73,6 +77,81 @@ class BotAdminCommands(Cog):
                     return
             else:
                 Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
+
+    @group(brief="Per-guild bot configuration.", invoke_without_command=True)
+    @guild_only()
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def config(self, ctx: Context):
+        """
+        Per-guild bot configuration commands.
+
+        ``$config`` — show the current configuration.
+        ``$config channel <name> <#mention>`` — register a per-
+        guild channel by name (``ideas`` for player suggestions
+        the tooling reads, ``updates`` for patch notes the tooling
+        posts).
+        """
+        channels = DB.get_guild_channels(ctx.guild.id)
+        lines = ["**Current configuration — channels:**"]
+        for key in DB.GUILD_CHANNEL_KEYS:
+            cid = channels.get(key)
+            if cid is None:
+                lines.append(f"• `{key}`: *(not set)*")
+            else:
+                lines.append(f"• `{key}`: <#{cid}>")
+        Dispatcher.add(ctx, "\n".join(lines))
+
+    @config.group(name="channel", brief="Per-guild named-channel registration.", invoke_without_command=True)
+    async def config_channel(self, ctx: Context):
+        """Sub-group for per-guild named channels.
+
+        ``$config channel`` — list registered channels (same as
+        ``$config`` when only the channel category exists).
+        ``$config channel <name> <#mention>`` — register one.
+
+        Valid names come from :attr:`DB.GUILD_CHANNEL_KEYS`:
+        ``ideas`` (where players post suggestions —
+        ``tools/check_ideas.py`` reads from here) and ``updates``
+        (where patch notes get posted —
+        ``tools/post_patch_notes.py`` writes here).
+        """
+        # No subcommand → fall back to the parent's status display
+        # so the operator sees what's currently registered.
+        await self.config.callback(self, ctx)
+
+    @config_channel.command(name="ideas", brief="Register the channel where players post game ideas.")
+    async def config_channel_ideas(self, ctx: Context, channel: TextChannel):
+        """Register the channel where players post ideas /
+        suggestions. Read by ``tools/check_ideas.py``.
+
+        :param channel: A channel mention (e.g. ``#rpg-outsourcing``).
+        """
+        self._set_guild_channel(ctx, "ideas", channel)
+
+    @config_channel.command(name="updates", brief="Register the channel where patch notes are posted.")
+    async def config_channel_updates(self, ctx: Context, channel: TextChannel):
+        """Register the channel where the bot's tooling posts
+        patch notes / announcements (``tools/post_patch_notes.py``).
+
+        :param channel: A channel mention (e.g. ``#rpg-updates``).
+        """
+        self._set_guild_channel(ctx, "updates", channel)
+
+    @staticmethod
+    def _set_guild_channel(ctx: Context, key: str, channel: TextChannel) -> None:
+        """Shared body for the per-channel-key config setters.
+        Writes via the DB helper (which validates ``key`` against
+        ``DB.GUILD_CHANNEL_KEYS``) and acknowledges in-channel."""
+        try:
+            DB.set_guild_channel(ctx.guild.id, key, channel.id)
+        except ValueError as e:
+            _log.error(f"Refused config write for {key}: {e}")
+            Dispatcher.add(ctx, f"Unknown configuration key `{key}`.")
+            return
+        Dispatcher.add(
+            ctx,
+            f"Set `channel.{key}` to {channel.mention} for this guild.",
+        )
 
     @Cog.listener()
     async def on_ready(self):

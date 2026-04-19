@@ -19,8 +19,11 @@ from caldanai.double_buffer import DoubleBuffer
 
 _mock_client = MagicMock()
 _mock_db_obj = MagicMock()
-_mock_client.caldanaiTest = _mock_db_obj
-_mock_client.caldanaiDB = _mock_db_obj
+# DB selection is now ``_mongoClient[name]`` rather than
+# ``_mongoClient.attr``, so the mock needs to handle subscript
+# access regardless of which DB name the env-driven config
+# resolves to in the test environment.
+_mock_client.__getitem__ = MagicMock(return_value=_mock_db_obj)
 _mock_client.admin.command = MagicMock(return_value={"ok": 1})
 
 
@@ -202,6 +205,84 @@ class TestQueueOperations:
         ops = list(DB._queues[DB._servers].get_all())
         assert len(ops) == 1
         assert isinstance(ops[0], UpdateOne)
+
+
+class TestGuildChannels:
+    """``set_guild_channel`` / ``get_guild_channels`` manage the
+    per-guild named-channel registry stored under ``channels`` on
+    the server document. Used by tooling (updates posting,
+    ideas channel reading) to look up where to write/read without
+    hardcoding channel ids."""
+
+    def test_set_guild_channel_enqueues_upsert(self, fresh_db):
+        DB = fresh_db
+        DB.set_guild_channel(guild_id=1, key="updates", channel_id=42)
+        ops = list(DB._queues[DB._servers].get_all())
+        assert len(ops) == 1
+        op = ops[0]
+        assert isinstance(op, UpdateOne)
+        # Upsert so a guild without a server document yet still
+        # gets one created with the channel registered.
+        assert op._doc == {"$set": {"channels.updates": 42}}
+        assert op._filter == {"guild_id": 1}
+        assert op._upsert is True
+
+    def test_set_guild_channel_rejects_unknown_key(self, fresh_db):
+        """A typo at the call site should raise rather than write a
+        garbage field that nothing reads."""
+        DB = fresh_db
+        with pytest.raises(ValueError, match="Unknown guild channel key"):
+            DB.set_guild_channel(guild_id=1, key="updaates", channel_id=42)
+        # No write enqueued from a rejected call.
+        assert DB._queues[DB._servers].get_all() == []
+
+    def test_set_guild_channel_accepts_every_registered_key(self, fresh_db):
+        """Every key in ``GUILD_CHANNEL_KEYS`` must be writable.
+        Catches a constant/setter mismatch."""
+        DB = fresh_db
+        for key in DB.GUILD_CHANNEL_KEYS:
+            DB.set_guild_channel(guild_id=1, key=key, channel_id=99)
+        ops = list(DB._queues[DB._servers].get_all())
+        assert len(ops) == len(DB.GUILD_CHANNEL_KEYS)
+
+    def _wire_get_helpers(self, DB):
+        """Pre-arrange the mocks the ``@check_connection`` decorator
+        depends on so a sync test can call a wrapped DB getter
+        without spinning up an event loop for the batch_write
+        scheduler."""
+        DB._is_connected = True
+        DB._mongoClient = MagicMock()
+        DB._mongoClient.admin.command.return_value = {"ok": 1}
+
+    def test_get_guild_channels_returns_dict(self, fresh_db):
+        DB = fresh_db
+        self._wire_get_helpers(DB)
+        DB._mongoDB = MagicMock()
+        DB._mongoDB.servers.find_one.return_value = {
+            "guild_id": 1,
+            "channels": {"updates": 100, "ideas": 200},
+        }
+        channels = DB.get_guild_channels(guild_id=1)
+        assert channels == {"updates": 100, "ideas": 200}
+
+    def test_get_guild_channels_empty_when_no_server_doc(self, fresh_db):
+        """Callers should be able to ``.get(key)`` on the result
+        without pre-checking. Missing server doc → empty dict, not
+        None."""
+        DB = fresh_db
+        self._wire_get_helpers(DB)
+        DB._mongoDB = MagicMock()
+        DB._mongoDB.servers.find_one.return_value = None
+        assert DB.get_guild_channels(guild_id=1) == {}
+
+    def test_get_guild_channels_empty_when_no_channels_field(self, fresh_db):
+        """Server doc exists but no ``channels`` field yet (older
+        document). Same empty-dict semantics."""
+        DB = fresh_db
+        self._wire_get_helpers(DB)
+        DB._mongoDB = MagicMock()
+        DB._mongoDB.servers.find_one.return_value = {"guild_id": 1, "prefix": "$"}
+        assert DB.get_guild_channels(guild_id=1) == {}
 
 
 class TestCheckConnectionDecorator:

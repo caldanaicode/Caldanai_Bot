@@ -4,6 +4,109 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-18 — Operator Tooling: `tools/` + Per-Guild Channel Registry
+
+Added a `tools/` subdirectory of standalone Python scripts that
+talk to Discord *as the bot* via REST (no Gateway connection,
+so they coexist with the live bot). Reduces copy-paste friction
+for two operator workflows: posting patch notes and reading
+the players' ideas channel.
+
+**Per-guild channel registry on `servers`:**
+
+```python
+DB.GUILD_CHANNEL_KEYS = ("updates", "ideas")
+DB.set_guild_channel(guild_id, key, channel_id)
+DB.get_guild_channels(guild_id) -> dict
+```
+
+Channel ids stored under `channels.<key>` on each server doc.
+Setter validates the key against the canonical set so a typo
+can't write a garbage field. Configured from inside Discord:
+
+```
+$config                                   # show current registry
+$config channel updates <#mention>
+$config channel ideas <#mention>
+```
+
+`$config` lives on `BotAdminCommands`, owner / manage-guild
+gated.
+
+**`tools/_common.py`:** shared helpers for the tools — lazy
+`MongoClient` against the live DB, `get_auth()` to pull the
+bot token from the existing `auth` collection, channel
+resolution, and a minimal `DiscordRestClient` (post / get
+messages only).
+
+**`tools/post_patch_notes.py`:** posts `.patch-notes-scratch.md`
+(the file the pre-commit ritual writes) to every guild with
+an `updates` channel registered. Dry-run by default;
+`--post` to fire. `--guild` scopes to one. Refuses content
+over Discord's 2000-char limit rather than silently truncating.
+Records each successful post in
+`tools/.last_posted.<DB_ENV_VAR>.json` (gitignored, one file
+per database env so a LIVE post and a TEST post for the same
+guild can never collide) so the edit tool can find what to
+amend later.
+
+**`tools/edit_patch_notes.py`:** edit a previously-posted
+patch notes message in place via Discord's PATCH endpoint.
+Defaults to editing each guild's most recent post recorded
+by `post_patch_notes`; `--message-id` (with `--guild`)
+overrides for cross-machine or pre-log scenarios. Dry-run
+shows the existing content next to the new content;
+`--post` applies the edit. Bots can only edit their own
+messages, so the default path is naturally scoped to what
+this tool produced.
+
+**`tools/check_ideas.py`:** cursor-based fetch of new
+messages from each guild's `ideas` channel, formatted as
+planning-ready markdown (timestamp + author + verbatim
+content). Per-guild cursor at
+`tools/.ideas_cursor.<DB_ENV_VAR>.json` (gitignored, same
+per-env isolation as `.last_posted`). `--reset` clears,
+`--limit` sizes the first-run window. Partial failure across
+guilds doesn't abort the rest.
+
+**Per-env state file abstraction:** `_post_log` and
+`check_ideas` both persist per-(env, guild) state and now
+share `tools/_common.state_file_path` /
+`load_state_file` / `save_state_file` helpers. Filename
+schema is `.<base_name>.<DB_ENV_VAR>.json`; gitignore covers
+`.last_posted.*.json` and `.ideas_cursor.*.json`.
+
+**Shutdown polish:** the per-second `dispatcher.send`
+`tasks.Loop` now gets explicitly cancelled right after the
+drain, before `bot.close()`. Without this, it ticks against
+a half-closed discord.py session and raises a noisy (benign)
+`ClientException` that bubbles to `discord.ext.tasks`'s
+catch-all.
+
+**Lifted hardcoded DB names into env (`LIVE_DB_NAME`,
+`TEST_DB_NAME`):** `db/__init__.py` previously hardcoded
+`caldanaiTest` and `caldanaiDB`. Now read from
+`caldanai.environment` so forks point at their own DBs without
+a code edit. **Deploy note:** existing deployments must add
+`LIVE_DB_NAME=...` (and `TEST_DB_NAME=...` for local dev) to
+their `.env` before this lands — defaults are generic
+placeholders, not the canonical names.
+
+**Tools/Forks docs:** `tools/README.md` covers setup +
+per-guild registration; `tools/.env.example` shows the env
+vars the tools read.
+
+**Tests:** ~85 new across `test_db.py` (channel registry
+helpers, per-env file isolation), `test_bot_admin_commands.py`
+(`$config` + `$config channel` sub-group), `test_tools_common.py`
+(live-DB connection, REST client + edit/get_message,
+channel resolution, env-var-driven DB selection),
+`test_tools_post_log.py` (per-env record/lookup with
+filesystem isolation), `test_tools_post_patch_notes.py` and
+`test_tools_edit_patch_notes.py` (orchestration, dry-run,
+exit codes, partial-failure), `test_tools_check_ideas.py`
+(cursor round-trip, per-env isolation, format).
+
 ### 2026-04-18 — Durable Shutdown + Signal Integration
 
 The ``shutdown`` console command used to hang until operator
