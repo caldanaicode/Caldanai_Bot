@@ -13,6 +13,23 @@ INFO line at the start of `_stop_per_game_routines` so LIVE logs
 batch_write cancel, final flush, exit) instead of silently
 eliding the whole middle. Matters when diagnosing a shutdown hang.
 
+### 2026-04-19 — `tail_channel.py` Polish: Mentions, ANSI, Spacers, Timerange
+
+- **User-mention resolution**: `<@id>` / `<@!id>` in message
+  content now render as `@<player_name>` via a one-shot lookup
+  against the game's players collection. Unknown ids
+  (non-players) stay raw so the reader can still investigate.
+- **ANSI strip**: SGR color escapes from `$health` / body-parts
+  panels (`\x1b[2;32m…\x1b[0m` and the bare-bracket form some
+  serializers leave behind) are scrubbed before text rendering.
+- **Zero-width embed spacer fields**: Discord's vertical-spacer
+  fields (name and value both a zero-width unicode char) flattened
+  to a noisy `​: ​` line; now skipped entirely.
+- **Timerange flags for `tail_peek`**: `--after <ISO-timestamp>`
+  synthesizes a Discord snowflake and uses it as the `since`
+  cursor; `--before <ISO-timestamp>` applies client-side as an
+  upper bound. Combine for a full timerange view of the buffer.
+
 ### 2026-04-18 — Qualname Fallout: `$stimer` Lookup + Routine Log Label
 
 Two stragglers from the earlier `_Routine` qualname refactor:

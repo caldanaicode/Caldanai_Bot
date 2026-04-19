@@ -29,6 +29,7 @@ returned snapshot so a follow-up call knows what to feed in.
 """
 
 import argparse
+import datetime
 import json
 import sys
 import urllib.error
@@ -46,6 +47,32 @@ for _stream in (sys.stdout, sys.stderr):
 
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
+
+# Discord snowflakes encode ms since 2015-01-01 UTC in their top 42
+# bits (bottom 22 bits are worker id + sequence). We synthesize a
+# snowflake from an ISO timestamp to use as a before/after cursor —
+# the inspector's since filter is ``id > since`` so an ID with the
+# low bits zeroed sorts correctly as "everything strictly after this
+# moment."
+_DISCORD_EPOCH_MS = 1420070400000
+
+
+def _snowflake_from_iso(ts: str) -> int:
+    """Synthesize a Discord snowflake for an ISO-8601 timestamp.
+
+    Accepts anything ``datetime.fromisoformat`` handles, including
+    the trailing ``Z`` shorthand (normalized to ``+00:00``). Raises
+    ``ValueError`` on malformed input; callers convert to a
+    user-friendly argparse error.
+    """
+    normalized = ts.replace("Z", "+00:00")
+    dt = datetime.datetime.fromisoformat(normalized)
+    if dt.tzinfo is None:
+        # Naive timestamp → treat as UTC so "2026-04-19T00:00" means
+        # midnight UTC, not midnight-in-the-operator's-local-tz.
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    t_ms = int(dt.timestamp() * 1000)
+    return max(0, (t_ms - _DISCORD_EPOCH_MS) << 22)
 
 
 def _fetch(host: str, port: int, since: Optional[int]) -> dict:
@@ -70,7 +97,11 @@ def _fetch(host: str, port: int, since: Optional[int]) -> dict:
         raise SystemExit(1)
 
 
-def _format_snapshot(snapshot: dict, tail: Optional[int]) -> str:
+def _format_snapshot(
+    snapshot: dict,
+    tail: Optional[int],
+    before_snowflake: Optional[int] = None,
+) -> str:
     """Render the snapshot as pastable markdown.
 
     ``tail`` (optional) slices to the last N messages after any
@@ -79,8 +110,23 @@ def _format_snapshot(snapshot: dict, tail: Optional[int]) -> str:
     metadata footer always reflects the full buffer state (not
     the post-``tail`` slice) so a reader can tell when messages
     are being hidden vs. rolled off the back of the buffer.
+
+    ``before_snowflake`` (optional) is a client-side upper-bound
+    cursor — messages with ``id >= before_snowflake`` are dropped.
+    Combined with ``since`` / ``--after`` this yields a timerange
+    view of the buffer.
     """
     messages = snapshot.get("messages", [])
+    if before_snowflake is not None:
+        def _keep(m: dict) -> bool:
+            mid = m.get("id")
+            if not mid:
+                return True
+            try:
+                return int(mid) < before_snowflake
+            except (TypeError, ValueError):
+                return True
+        messages = [m for m in messages if _keep(m)]
     if tail is not None and tail > 0:
         messages = messages[-tail:]
 
@@ -137,7 +183,11 @@ def main() -> int:
         default=_DEFAULT_PORT,
         help=f"Inspector port (default: {_DEFAULT_PORT}).",
     )
-    parser.add_argument(
+
+    # --since and --after both set the lower-bound cursor; mutually
+    # exclusive so the caller isn't surprised by one silently winning.
+    since_group = parser.add_mutually_exclusive_group()
+    since_group.add_argument(
         "--since",
         type=int,
         default=None,
@@ -146,14 +196,34 @@ def main() -> int:
             "Discord snowflake. Copy from a previous run's 'latest id'."
         ),
     )
+    since_group.add_argument(
+        "--after",
+        default=None,
+        help=(
+            "Only show messages newer than this ISO timestamp "
+            "(e.g. 2026-04-19T00:00:00Z). Synthesizes a snowflake "
+            "from the timestamp and applies it as --since."
+        ),
+    )
+
+    parser.add_argument(
+        "--before",
+        default=None,
+        help=(
+            "Client-side upper-bound: only show messages older than "
+            "this ISO timestamp. Combine with --after / --since for a "
+            "timerange view."
+        ),
+    )
     parser.add_argument(
         "--tail",
         type=int,
         default=None,
         help=(
-            "Client-side slice: after any --since filter, show only the "
-            "last N messages. Metadata footer still reflects the full "
-            "buffer so you can see what got hidden vs. rolled off."
+            "Client-side slice: after any --since/--after/--before "
+            "filter, show only the last N messages. Metadata footer "
+            "still reflects the full buffer so you can see what got "
+            "hidden vs. rolled off."
         ),
     )
     parser.add_argument(
@@ -163,11 +233,34 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    snapshot = _fetch(args.host, args.port, args.since)
+    since_value: Optional[int] = args.since
+    if args.after is not None:
+        try:
+            since_value = _snowflake_from_iso(args.after)
+        except ValueError as e:
+            parser.error(f"--after: invalid ISO timestamp {args.after!r} ({e})")
+    before_snowflake: Optional[int] = None
+    if args.before is not None:
+        try:
+            before_snowflake = _snowflake_from_iso(args.before)
+        except ValueError as e:
+            parser.error(f"--before: invalid ISO timestamp {args.before!r} ({e})")
+
+    snapshot = _fetch(args.host, args.port, since_value)
     if args.json:
+        # Apply --before client-side to the JSON too so --json and
+        # human output describe the same window.
+        if before_snowflake is not None:
+            snapshot = dict(snapshot)
+            snapshot["messages"] = [
+                m for m in snapshot.get("messages", [])
+                if not m.get("id") or int(m["id"]) < before_snowflake
+            ]
         print(json.dumps(snapshot, indent=2, ensure_ascii=False))
     else:
-        print(_format_snapshot(snapshot, args.tail))
+        print(_format_snapshot(
+            snapshot, args.tail, before_snowflake=before_snowflake,
+        ))
     return 0
 
 

@@ -468,6 +468,193 @@ class TestMessageContent:
         msg = {"content": "", "embeds": []}
         assert tail_channel._message_content(msg) == ""
 
+    def test_ansi_codes_stripped_from_content(self):
+        """$health body-parts tables come through with ANSI color
+        escapes; they're noise in text views so we strip them."""
+        msg = _msg("1", "ts", "Caels", "head \x1b[2;32munharmed\x1b[0m\ntorso \x1b[2;33mwounded\x1b[0m")
+        out = tail_channel._message_content(msg)
+        assert "\x1b" not in out
+        assert "[2;32m" not in out
+        assert "unharmed" in out
+        assert "wounded" in out
+
+    def test_ansi_codes_stripped_even_without_esc_prefix(self):
+        """Some serialization paths drop the ESC but leave the
+        bracket sequence as literal text. Handle that form too."""
+        msg = _msg("1", "ts", "Caels", "head [2;32munharmed[0m")
+        out = tail_channel._message_content(msg)
+        assert "[2;32m" not in out
+        assert "unharmed" in out
+
+    def test_mention_map_replaces_user_mentions(self):
+        msg = _msg("1", "ts", "Caels", "<@!111111111111111111> took damage")
+        out = tail_channel._message_content(
+            msg, mention_map={111111111111111111: "Caels"},
+        )
+        assert "@Caels took damage" in out
+        assert "<@!111111111111111111>" not in out
+
+    def test_unknown_mention_left_as_raw(self):
+        """Non-player mentions (bot roles, future users) stay as
+        raw snowflakes so the reader can still investigate."""
+        msg = _msg("1", "ts", "Caldanai", "<@999999> joined")
+        out = tail_channel._message_content(
+            msg, mention_map={111: "Someone"},
+        )
+        assert "<@999999>" in out
+
+
+# ---------------------------------------------------------------------------
+# _strip_ansi / _is_visually_empty — polish helpers
+# ---------------------------------------------------------------------------
+
+
+class TestStripAnsi:
+    def test_strips_full_escape_with_esc(self):
+        assert tail_channel._strip_ansi("\x1b[2;32munharmed\x1b[0m") == "unharmed"
+
+    def test_strips_bracket_only_form(self):
+        assert tail_channel._strip_ansi("[2;32munharmed[0m") == "unharmed"
+
+    def test_leaves_plain_text_untouched(self):
+        assert tail_channel._strip_ansi("just text") == "just text"
+
+    def test_empty_input(self):
+        assert tail_channel._strip_ansi("") == ""
+        assert tail_channel._strip_ansi(None) is None
+
+
+class TestIsVisuallyEmpty:
+    def test_empty_string(self):
+        assert tail_channel._is_visually_empty("") is True
+
+    def test_whitespace(self):
+        assert tail_channel._is_visually_empty("   \t\n") is True
+
+    def test_zero_width_space(self):
+        assert tail_channel._is_visually_empty("\u200b") is True
+
+    def test_mixed_zero_width_and_whitespace(self):
+        assert tail_channel._is_visually_empty("\u200b \u200c") is True
+
+    def test_real_content_not_empty(self):
+        assert tail_channel._is_visually_empty("hi") is False
+
+    def test_zero_width_mixed_with_text_not_empty(self):
+        assert tail_channel._is_visually_empty("\u200bhi") is False
+
+
+# ---------------------------------------------------------------------------
+# Mention resolution
+# ---------------------------------------------------------------------------
+
+
+class TestBuildMentionMap:
+    def test_queries_by_guild_and_channel(self):
+        with patch("tools.tail_channel.live_db") as live_db:
+            db = MagicMock()
+            db.players.find.return_value = [
+                {"user_id": 111, "name": "Alpha"},
+                {"user_id": 222, "name": "Beta"},
+            ]
+            live_db.return_value = db
+            m = tail_channel._build_mention_map(1, 100)
+        assert m == {111: "Alpha", 222: "Beta"}
+        query = db.players.find.call_args.args[0]
+        assert query == {"guild_id": 1, "channel_id": 100}
+
+    def test_missing_guild_or_channel_returns_empty(self):
+        assert tail_channel._build_mention_map(0, 100) == {}
+        assert tail_channel._build_mention_map(1, 0) == {}
+
+    def test_handles_docs_without_name(self):
+        """Partial player docs shouldn't crash the map build."""
+        with patch("tools.tail_channel.live_db") as live_db:
+            db = MagicMock()
+            db.players.find.return_value = [
+                {"user_id": 111, "name": "Alpha"},
+                {"user_id": 222},  # no name
+                {"name": "NoId"},  # no user_id
+            ]
+            live_db.return_value = db
+            m = tail_channel._build_mention_map(1, 100)
+        assert m == {111: "Alpha"}
+
+    def test_db_error_returns_empty_map(self):
+        """A DB exception shouldn't take down the tool — mention
+        resolution is best-effort; fall back to raw mentions."""
+        with patch("tools.tail_channel.live_db") as live_db:
+            live_db.side_effect = Exception("db down")
+            assert tail_channel._build_mention_map(1, 100) == {}
+
+
+class TestResolveMentions:
+    def test_modern_mention(self):
+        out = tail_channel._resolve_mentions(
+            "<@111> did a thing", {111: "Alpha"},
+        )
+        assert out == "@Alpha did a thing"
+
+    def test_nickname_mention(self):
+        out = tail_channel._resolve_mentions(
+            "<@!111> did a thing", {111: "Alpha"},
+        )
+        assert out == "@Alpha did a thing"
+
+    def test_unknown_id_left_raw(self):
+        out = tail_channel._resolve_mentions(
+            "<@999> surprise", {111: "Alpha"},
+        )
+        assert "<@999>" in out
+
+    def test_multiple_in_one_message(self):
+        out = tail_channel._resolve_mentions(
+            "<@111> hits <@!222>", {111: "Alpha", 222: "Beta"},
+        )
+        assert out == "@Alpha hits @Beta"
+
+    def test_empty_map_leaves_everything_raw(self):
+        text = "<@111> hits <@!222>"
+        assert tail_channel._resolve_mentions(text, {}) == text
+
+    def test_role_and_channel_mentions_not_touched(self):
+        """Role (<@&id>) and channel (<#id>) mentions intentionally
+        fall through — we only resolve users today."""
+        text = "<@&1234> check <#5678>"
+        assert tail_channel._resolve_mentions(text, {111: "Alpha"}) == text
+
+
+# ---------------------------------------------------------------------------
+# Zero-width embed field skip
+# ---------------------------------------------------------------------------
+
+
+class TestRenderEmbedsZeroWidth:
+    def test_zero_width_spacer_field_dropped(self):
+        """Discord uses a zero-width spacer field for vertical
+        spacing between stat groups. Flattening it renders as
+        ``​: ​`` which is visual noise — we skip entirely."""
+        embeds = [{
+            "title": "Monster",
+            "fields": [
+                {"name": "Size", "value": "Huge"},
+                {"name": "\u200b", "value": "\u200b"},
+                {"name": "HP", "value": "100"},
+            ],
+        }]
+        out = tail_channel._render_embeds(embeds)
+        assert "Size: Huge" in out
+        assert "HP: 100" in out
+        # Spacer field gone entirely.
+        assert "\u200b" not in out
+        assert ": " not in out.replace("Size: Huge", "").replace("HP: 100", "").replace(": ", "", 0)
+
+    def test_visually_empty_title_skipped(self):
+        embeds = [{"title": "   ", "description": "real content"}]
+        out = tail_channel._render_embeds(embeds)
+        assert "real content" in out
+        assert "****" not in out
+
 
 class TestFormatHeader:
     def test_with_guild_context(self):

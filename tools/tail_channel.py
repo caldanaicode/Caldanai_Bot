@@ -56,6 +56,7 @@ window rather than silently losing events. Loopback-bound
 import argparse
 import asyncio
 import collections
+import re
 import sys
 from typing import Optional
 
@@ -78,6 +79,25 @@ _DEFAULT_HTTP_PORT = 8765
 # Discord channel type ids — see
 # https://discord.com/developers/docs/resources/channel#channel-object-channel-types
 _THREAD_TYPES = {10, 11, 12}  # news thread, public thread, private thread
+
+# Matches Discord's SGR ANSI color escapes as they appear in message
+# content — both the full ``\x1b[...m`` form and the bare ``[...m``
+# fallback (some consumers strip the ESC before we see it). Used to
+# scrub color noise out of ``$health`` / body-parts output so the
+# buffer reads cleanly in text views.
+_ANSI_RE = re.compile(r"\x1b?\[\d[\d;]*m")
+
+# Zero-width / invisible unicode that Discord embeds sometimes use as
+# a vertical spacer field (``​: ​`` after flattening). Treat these as
+# "empty" when deciding whether to include a field in the text render.
+_ZERO_WIDTH = {"\u200b", "\u200c", "\u200d", "\ufeff"}
+
+# Discord user mentions — legacy ``<@!id>`` (nickname) and modern
+# ``<@id>``. Role (``<@&id>``) and channel (``<#id>``) mentions are
+# deliberately left unresolved today: the game's embeds rarely use
+# role mentions for names, and channel mentions aren't relevant to
+# player-name display.
+_USER_MENTION_RE = re.compile(r"<@!?(\d+)>")
 
 
 class TailBuffer:
@@ -121,6 +141,26 @@ class TailBuffer:
         }
 
 
+def _strip_ansi(text: str) -> str:
+    """Remove SGR ANSI color escapes from message content.
+
+    The game's ``$health`` and body-parts panels are rendered
+    inside an ``ansi`` code block so Discord colorizes injury
+    states; in plain-text views (buffer, peek output), the escape
+    sequences are just noise.
+    """
+    return _ANSI_RE.sub("", text) if text else text
+
+
+def _is_visually_empty(s: str) -> bool:
+    """True if the string is empty, whitespace, or composed only
+    of zero-width / invisible unicode — used to skip Discord's
+    vertical-spacer embed fields (``​: ​``) that flatten to noise."""
+    if not s:
+        return True
+    return all(c.isspace() or c in _ZERO_WIDTH for c in s)
+
+
 def _render_embeds(embeds: list) -> str:
     """Flatten a list of Discord embed objects into plain text.
 
@@ -128,8 +168,9 @@ def _render_embeds(embeds: list) -> str:
     ``$inventory``, and similar structured panels — invisible if we
     only look at ``content``. We surface: author name, title,
     description, each field's ``name: value`` pair, and the footer,
-    in the order Discord renders them. Missing pieces are just
-    skipped.
+    in the order Discord renders them. Missing or visually-empty
+    pieces are skipped (Discord's zero-width-spacer fields don't
+    survive flattening, so they would otherwise render as ``​: ​``).
     """
     if not embeds:
         return ""
@@ -137,32 +178,71 @@ def _render_embeds(embeds: list) -> str:
     for emb in embeds:
         parts: list[str] = []
         author = (emb.get("author") or {}).get("name")
-        if author:
+        if author and not _is_visually_empty(author):
             parts.append(f"_{author}_")
         title = emb.get("title")
-        if title:
+        if title and not _is_visually_empty(title):
             parts.append(f"**{title}**")
         description = emb.get("description")
-        if description:
+        if description and not _is_visually_empty(description):
             parts.append(description)
         for field in emb.get("fields") or []:
             name = (field.get("name") or "").strip()
             value = (field.get("value") or "").strip()
-            if name and value:
+            name_empty = _is_visually_empty(name)
+            value_empty = _is_visually_empty(value)
+            if name_empty and value_empty:
+                continue  # spacer field, drop entirely
+            if not name_empty and not value_empty:
                 parts.append(f"{name}: {value}")
-            elif name:
+            elif not name_empty:
                 parts.append(name)
-            elif value:
+            elif not value_empty:
                 parts.append(value)
         footer = (emb.get("footer") or {}).get("text")
-        if footer:
+        if footer and not _is_visually_empty(footer):
             parts.append(f"— {footer}")
         if parts:
             rendered.append("\n".join(parts))
     return "\n\n".join(rendered)
 
 
-def _message_content(msg: dict) -> str:
+def _build_mention_map(guild_id: int, channel_id: int) -> dict:
+    """Look up the game's players and return ``{user_id: name}``
+    for mention resolution. Returns an empty dict when the game's
+    guild / channel isn't set (``--channel-id`` with no ``--guild``)
+    or when no players have joined yet."""
+    if not guild_id or not channel_id:
+        return {}
+    try:
+        docs = live_db().players.find({
+            "guild_id": guild_id,
+            "channel_id": channel_id,
+        })
+    except Exception:
+        return {}
+    return {
+        int(d["user_id"]): d["name"]
+        for d in docs
+        if d.get("user_id") is not None and d.get("name")
+    }
+
+
+def _resolve_mentions(text: str, mention_map: dict) -> str:
+    """Replace ``<@id>`` / ``<@!id>`` user mentions with
+    ``@<player_name>`` using the game's mention map. Unknown ids
+    (non-player Discord users) are left as the raw mention so the
+    reader can still look them up manually."""
+    if not text or not mention_map:
+        return text
+    def _sub(m: re.Match) -> str:
+        uid = int(m.group(1))
+        name = mention_map.get(uid)
+        return f"@{name}" if name else m.group(0)
+    return _USER_MENTION_RE.sub(_sub, text)
+
+
+def _message_content(msg: dict, mention_map: Optional[dict] = None) -> str:
     """Return the message's display text, folding in any embed content.
 
     Text content and embed content can both be present (rare but
@@ -170,15 +250,24 @@ def _message_content(msg: dict) -> str:
     tell them apart. Embed-only messages (spawn cards, ``$stats``)
     render the embed's title/description/fields in lieu of an empty
     string so the inspector isn't blind to them.
+
+    Polishes applied once here so both the buffer and the stdout
+    renderer see the same text: strip SGR ANSI color escapes, and
+    resolve ``<@id>`` user mentions via the supplied mention map.
     """
     content = (msg.get("content") or "").strip()
     embed_text = _render_embeds(msg.get("embeds") or [])
     if embed_text and content:
-        return f"{content}\n\n{embed_text}"
-    return content or embed_text
+        combined = f"{content}\n\n{embed_text}"
+    else:
+        combined = content or embed_text
+    combined = _strip_ansi(combined)
+    if mention_map:
+        combined = _resolve_mentions(combined, mention_map)
+    return combined
 
 
-def _make_buffer_entry(msg: dict) -> dict:
+def _make_buffer_entry(msg: dict, mention_map: Optional[dict] = None) -> dict:
     """Reduce a Discord message payload to the compact buffer record.
 
     The full payload has ~30 fields we don't need; the inspector
@@ -195,7 +284,7 @@ def _make_buffer_entry(msg: dict) -> dict:
             or author.get("username")
             or "<unknown>"
         ),
-        "content": _message_content(msg),
+        "content": _message_content(msg, mention_map=mention_map),
     }
 
 
@@ -327,7 +416,7 @@ def _pick_game(games: list[dict], guild_names: dict[int, str]) -> Optional[dict]
         print(f"Invalid choice {raw!r}; try again.", file=sys.stderr)
 
 
-def _format_message(msg: dict) -> list[str]:
+def _format_message(msg: dict, mention_map: Optional[dict] = None) -> list[str]:
     """Render a single Discord message object as markdown lines
     (matches the ``check_ideas`` sub-header format so pasted
     transcripts look consistent across tools)."""
@@ -338,7 +427,7 @@ def _format_message(msg: dict) -> list[str]:
         or "<unknown>"
     )
     timestamp = msg.get("timestamp", "<no timestamp>")
-    content = _message_content(msg)
+    content = _message_content(msg, mention_map=mention_map)
 
     lines = [f"## {timestamp} — @{author_name}"]
     if content:
@@ -370,6 +459,7 @@ def _format_header(game: dict, guild_names: dict[int, str]) -> str:
 
 def _format_initial(
     game: dict, guild_names: dict[int, str], messages: list[dict],
+    mention_map: Optional[dict] = None,
 ) -> str:
     """Render the initial fetch (header + N most recent messages,
     chronological)."""
@@ -382,7 +472,7 @@ def _format_initial(
     lines.append(f"*Last {len(messages)} message(s), chronological.*")
     lines.append("")
     for msg in reversed(messages):  # Discord returns newest-first
-        lines.extend(_format_message(msg))
+        lines.extend(_format_message(msg, mention_map=mention_map))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -392,6 +482,7 @@ async def _tail_loop(
     last_seen_id: int,
     poll_seconds: int,
     buffer: Optional[TailBuffer] = None,
+    mention_map: Optional[dict] = None,
 ) -> None:
     """Poll for new messages after ``last_seen_id`` until the
     operator stops with Ctrl-C. Appends each new message to the
@@ -420,8 +511,8 @@ async def _tail_loop(
         # Chronological order into both the buffer and stdout.
         for msg in reversed(new_messages):
             if buffer is not None:
-                buffer.append(_make_buffer_entry(msg))
-            for line in _format_message(msg):
+                buffer.append(_make_buffer_entry(msg, mention_map=mention_map))
+            for line in _format_message(msg, mention_map=mention_map):
                 print(line)
         sys.stdout.flush()
         last_seen_id = max(int(m["id"]) for m in new_messages)
@@ -499,10 +590,18 @@ async def _run(args: argparse.Namespace, token: str) -> int:
                 return 1
             game = picked
 
+        # Mention map: user_id → player name for the game's channel.
+        # Built once at startup; players who join mid-session won't
+        # resolve until a restart. Acceptable for now (rare during a
+        # single playtest), cheap to revisit later.
+        mention_map = _build_mention_map(
+            game.get("guild_id") or 0, game["channel_id"],
+        )
+
         messages = await client.get_messages(
             game["channel_id"], limit=args.limit,
         )
-        print(_format_initial(game, guild_names, messages))
+        print(_format_initial(game, guild_names, messages, mention_map=mention_map))
 
         if args.follow:
             if messages:
@@ -522,13 +621,14 @@ async def _run(args: argparse.Namespace, token: str) -> int:
             # gets the same context that was printed to stdout.
             buffer = TailBuffer(maxsize=args.buffer_size)
             for msg in reversed(messages):
-                buffer.append(_make_buffer_entry(msg))
+                buffer.append(_make_buffer_entry(msg, mention_map=mention_map))
 
             runner = await _start_http_server(buffer, args.port)
             try:
                 await _tail_loop(
                     client, game["channel_id"], last_seen_id,
                     args.poll_seconds, buffer=buffer,
+                    mention_map=mention_map,
                 )
             finally:
                 await runner.cleanup()

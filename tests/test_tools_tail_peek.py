@@ -167,3 +167,55 @@ class TestFormatSnapshot:
         snap = self._snapshot([_msg("1", "ts", "Caels", "")])
         out = tail_peek._format_snapshot(snap, tail=None)
         assert "no content" in out
+
+    def test_before_snowflake_filters_newer_messages(self):
+        """Client-side upper-bound filter: messages at or above the
+        cutoff snowflake are dropped."""
+        msgs = [_msg(str(i), "ts", "Caels", f"m{i}") for i in (100, 200, 300)]
+        snap = self._snapshot(msgs)
+        out = tail_peek._format_snapshot(snap, tail=None, before_snowflake=250)
+        assert "m100" in out
+        assert "m200" in out
+        assert "m300" not in out
+
+
+# ---------------------------------------------------------------------------
+# _snowflake_from_iso — timestamp → Discord snowflake
+# ---------------------------------------------------------------------------
+
+
+class TestSnowflakeFromIso:
+    def test_discord_epoch_returns_zero(self):
+        """2015-01-01T00:00:00Z is Discord's epoch — synth
+        snowflake is exactly (0 << 22) = 0."""
+        assert tail_peek._snowflake_from_iso("2015-01-01T00:00:00Z") == 0
+
+    def test_z_shorthand_accepted(self):
+        """``Z`` is shorthand for +00:00; fromisoformat in older
+        Pythons rejected it, so we normalize."""
+        a = tail_peek._snowflake_from_iso("2026-04-19T00:00:00Z")
+        b = tail_peek._snowflake_from_iso("2026-04-19T00:00:00+00:00")
+        assert a == b
+
+    def test_naive_timestamp_treated_as_utc(self):
+        """A naive timestamp (no tz) should resolve to the same
+        snowflake as the same timestamp with +00:00 appended."""
+        a = tail_peek._snowflake_from_iso("2026-04-19T00:00:00")
+        b = tail_peek._snowflake_from_iso("2026-04-19T00:00:00+00:00")
+        assert a == b
+
+    def test_later_timestamps_produce_larger_snowflakes(self):
+        earlier = tail_peek._snowflake_from_iso("2026-04-18T00:00:00Z")
+        later = tail_peek._snowflake_from_iso("2026-04-19T00:00:00Z")
+        assert later > earlier
+
+    def test_pre_discord_epoch_floors_at_zero(self):
+        """Timestamps before 2015-01-01 would produce a negative
+        snowflake; we floor at 0 so callers don't get a nonsense
+        lower-bound cursor."""
+        assert tail_peek._snowflake_from_iso("2014-01-01T00:00:00Z") == 0
+
+    def test_invalid_raises_valueerror(self):
+        import pytest as _pytest
+        with _pytest.raises(ValueError):
+            tail_peek._snowflake_from_iso("not-a-date")
