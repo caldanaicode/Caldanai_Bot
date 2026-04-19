@@ -22,6 +22,25 @@ Two stragglers from the earlier `_Routine` qualname refactor:
 `GameClock` regression test pins the qualname-vs-barename contract
 so a future caller can't rediscover the same trap.
 
+### 2026-04-18 — Operator Tooling: `tail_peek.py`
+
+Companion to `tail_channel.py`. Wraps `GET /tail` on the local
+inspector and pretty-prints the JSON as pastable markdown
+(`##` header per message, `>`-quoted body, metadata footer with
+buffer usage / dropped count / latest id for easy cursor reuse).
+
+```
+python -m tools.tail_peek                      # full buffer
+python -m tools.tail_peek --since <id>         # incremental
+python -m tools.tail_peek --tail 10            # last 10
+python -m tools.tail_peek --json               # raw passthrough
+```
+
+Stateless — no cursor file on disk (the ring buffer is the
+whole point of the in-memory design). Error paths print an
+operator-friendly hint if `tail_channel --follow` isn't
+running, rather than a stack trace.
+
 ### 2026-04-18 — Operator Tooling: `tail_channel.py`
 
 New `tools/tail_channel.py` fetches the last N messages from a
