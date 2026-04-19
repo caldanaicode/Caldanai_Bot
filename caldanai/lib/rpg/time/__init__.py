@@ -85,7 +85,7 @@ class GameClock:
 
         def run(self):
             if self.seconds > 1:
-                _log.debug(f"Game routine running: {self.function.__name__}")
+                _log.debug(f"Game routine running: {self.name}")
             asyncio.create_task(self.function())
 
     def __init__(self, game_time: int = 0):

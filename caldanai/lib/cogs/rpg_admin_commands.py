@@ -293,7 +293,7 @@ class RpgAdminCommands(Cog):
         if ctx.invoked_subcommand is None:
             guild: Guild = ctx.guild
             game = self.bot.games.get(ctx.channel.id)
-            r, i = game.game_clock.find_routine("do_spawn")
+            r, i = game.game_clock.find_routine(game.do_spawn.__qualname__)
             routine = r[i] if r else None
 
             embed = Embed(title="Current Spawn Settings")

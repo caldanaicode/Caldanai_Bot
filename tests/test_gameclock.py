@@ -134,6 +134,31 @@ class TestOnlyInstance:
         count = sum(1 for r in clock._tick_routines if r.name == "_async_dummy")
         assert count == 2
 
+    def test_method_on_class_must_be_found_by_qualname(self):
+        """Regression: bound methods register under their
+        ``__qualname__`` (e.g. ``"Thing.do_spawn"``), so callers
+        that query by the bare ``__name__`` (``"do_spawn"``) silently
+        miss the routine. This used to break ``$stimer`` — the
+        spawn routine was live but the cog queried by bare name and
+        always reported "next spawn not yet determined". Pin both
+        halves here so a future regression shows up in tests first."""
+        class Thing:
+            async def do_spawn(self):
+                pass
+
+        clock = GameClock()
+        thing = Thing()
+        clock.add_routine(thing.do_spawn, seconds=60, run_once=True)
+
+        # Qualname finds it.
+        lst, idx = clock.find_routine(thing.do_spawn.__qualname__)
+        assert lst is not None and idx is not None
+
+        # Bare name misses — pinning this so a "match on either"
+        # shortcut is a conscious trade-off, not an accident.
+        lst, idx = clock.find_routine("do_spawn")
+        assert lst is None and idx is None
+
 
 # ---------------------------------------------------------------------------
 # Run-once routines execute once and are removed

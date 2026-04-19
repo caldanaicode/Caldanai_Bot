@@ -4,6 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-18 — Qualname Fallout: `$stimer` Lookup + Routine Log Label
+
+Two stragglers from the earlier `_Routine` qualname refactor:
+
+- **`$stimer` / `$spawn` admin display** always reported "Next spawn
+  is not yet determined…" even when the spawn routine was clearly
+  live. Both cogs queried `find_routine("do_spawn")`, but routines
+  register under `__qualname__` (`"Game.do_spawn"`) — strict equality
+  missed forever. Fixed by passing `game.do_spawn.__qualname__` at
+  both call sites.
+- **"Game routine running:"** debug log printed the bare method name
+  instead of the qualified form, so `WeatherDaemon.tick` and
+  `CelestialDaemon.tick` both showed up as just `tick`. Switched to
+  `self.name` (already the qualname form the registry uses).
+
+`GameClock` regression test pins the qualname-vs-barename contract
+so a future caller can't rediscover the same trap.
+
 ### 2026-04-18 — Dragon Breath Math Fix
 
 Breath now honors the victim's FIRE trait multiplier (fire-resistant
