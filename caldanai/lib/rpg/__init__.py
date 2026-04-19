@@ -498,6 +498,7 @@ class Game:
         actual_body_damage = 0
         damage_by_player = {}
         death_msg = ""
+        critical_part_kill = False
         # Snapshot health before any per-result damage is applied so the
         # "Total damage done vs Health" summary line stays accurate.
         health_before = monster.health
@@ -521,13 +522,20 @@ class Game:
 
                 # Per-result part routing + coalesced injury feedback +
                 # part-side hook firing live in ``apply_sequence_to_target``.
-                # The helper does NOT fire the attacker-side
-                # ``on_target_part_destroyed`` hook here — the player
-                # path has no such hook by design, and passing
-                # ``attacker=None`` makes that asymmetry explicit.
+                # The helper auto-infers ``attacker`` from the sequence;
+                # the player-attacks-monster asymmetry is preserved by
+                # the hook's ``hasattr`` gate (Players don't define
+                # ``on_target_part_destroyed``), so we don't need to
+                # pass an explicit override here.
                 resolution = apply_sequence_to_target(sequence, monster)
                 if resolution.death_msg and not death_msg:
                     death_msg = resolution.death_msg
+                # Sticky OR across per-player resolutions: if any
+                # sequence killed the monster by destroying a critical
+                # part, suppress the HP summary at the end regardless
+                # of which sequence did the deed.
+                if resolution.critical_part_kill:
+                    critical_part_kill = True
 
                 # Defense subtracted once from the per-player total
                 # (variant B — restored pre-refactor balance).
@@ -546,13 +554,16 @@ class Game:
             else:
                 self.combatants.pop(i)
 
-        # Skip the HP summary if the creature died from a critical part
-        # destruction — the "utterly destroyed" feedback + death message
-        # already tells the story, and "0 vs 117 = 0 health remaining"
-        # is confusing noise.  Detect by checking if the body damage we
-        # dealt wasn't enough to kill on its own.
-        critical_kill = monster.is_dead() and actual_body_damage < health_before
-        if not critical_kill:
+        # Skip the HP summary if the creature died from a critical
+        # part destruction — the "utterly destroyed" feedback + death
+        # message already tells the story, and "0 vs 117 = 0 health
+        # remaining" is confusing noise. Signal comes directly from
+        # ``apply_sequence_to_target`` rather than the old arithmetic
+        # inference (``actual_body_damage < health_before``), which
+        # false-positived against any kill path that didn't route
+        # through body HP (status ticks, magic bypass, partless-
+        # creature double-damage bug).
+        if not critical_part_kill:
             remaining = 0 if monster.is_dead() else max(health_before - actual_body_damage, 0)
             msg += (
                 f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "

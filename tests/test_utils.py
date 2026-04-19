@@ -439,8 +439,10 @@ class TestDeadInvokerFlavorPools:
         self._render_check(_DEAD_INVOKER_ATTACK_FLAVOR)
 
     def test_hug_pool(self):
-        from caldanai.lib.cogs.rpg_user_commands import _DEAD_INVOKER_HUG_FLAVOR
-        self._render_check(_DEAD_INVOKER_HUG_FLAVOR)
+        # Hug dead-invoker pool lives in the social cog now (moved
+        # alongside ``$hug`` when the warmth refactor split the two).
+        from caldanai.lib.cogs.rpg_social_commands import _DEAD_INVOKER_FLAVOR
+        self._render_check(_DEAD_INVOKER_FLAVOR["hug"])
 
     def test_inventory_pool(self):
         from caldanai.lib.cogs.rpg_inventory_commands import _DEAD_INVOKER_INVENTORY_FLAVOR

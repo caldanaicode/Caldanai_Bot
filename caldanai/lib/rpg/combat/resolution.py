@@ -38,9 +38,13 @@ Hook-firing invariants (pinned in ``tests/test_combat_resolution.py``):
 - ``part.on_destroyed`` fires exactly once per part that transitioned
   into USELESS. Parts already USELESS entering the sequence are not
   fired on.
-- ``attacker.on_target_part_destroyed`` fires **only when an attacker
-  is explicitly passed**. The player-attacks-monster path passes
-  nothing and therefore skips this hook — by design.
+- ``attacker.on_target_part_destroyed`` fires when the attacker
+  defines the hook. The helper auto-infers the attacker from
+  ``sequence.attacker`` when ``attacker`` isn't passed, so future
+  multi-victim overrides can't silently drop the hook by
+  forgetting the kwarg. The player-attacks-monster asymmetry is
+  preserved by ``hasattr`` — Players don't define the hook — so
+  the auto-inferred player-as-attacker never fires it.
 
 Why a free function (not a Creature method): one consumer (Hydra)
 wants to interleave hook-firing with narrative paragraphs mid-sequence.
@@ -52,6 +56,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from caldanai.lib.rpg.helpers.enums import InjuryLevels
+from caldanai.lib.rpg.helpers.parser import parse
 
 if TYPE_CHECKING:
     from caldanai.lib.rpg.combat.attack_result import AttackSequence
@@ -79,12 +84,22 @@ class ResolutionResult:
       body-HP-reached-zero message after applying the floor.
     - ``num_hits``: count of results with ``damage > 0``. The body-HP
       floor uses this as the "minimum 1 HP per hit" term.
+    - ``critical_part_kill``: ``True`` when the victim died because a
+      critical body part (head, torso, etc.) was destroyed during
+      this sequence. Distinguishes from body-HP-depletion death.
+      Callers use this to suppress the redundant "Total damage done
+      vs Health" summary (the "utterly destroyed" feedback + death
+      message already tells the story) without inferring it from
+      arithmetic, which false-positives against status-tick damage,
+      magic-that-bypasses-body-HP, and any other future kill path
+      that doesn't add to body-HP accumulators.
     """
 
     body_damage_total: int
     injury_feedback_lines: List[str] = field(default_factory=list)
     death_msg: str = ""
     num_hits: int = 0
+    critical_part_kill: bool = False
 
 
 def apply_sequence_to_target(
@@ -100,19 +115,27 @@ def apply_sequence_to_target(
         ``target_part`` references.
     :param target: The creature absorbing the sequence. Must expose
         ``apply_damage(amount, dmg_type=..., target_part=...)``.
-    :param attacker: Optional attacker. When supplied,
-        ``attacker.on_target_part_destroyed(target, part)`` fires once
-        per part destroyed by the sequence (in addition to the part's
-        own ``on_destroyed`` hook). When ``None`` (default),
-        no attacker-side hook fires — preserving the player-attacks-
-        monster path's intentional asymmetry.
+    :param attacker: Optional attacker override. When not supplied,
+        the helper auto-infers from ``sequence.attacker`` so future
+        multi-victim overrides can't silently drop the hook by
+        forgetting the kwarg. The player-attacks-monster asymmetry
+        is preserved by a ``hasattr`` gate on the hook call — Players
+        don't define ``on_target_part_destroyed`` so the auto-
+        inferred player-as-attacker never fires it. Pass an explicit
+        value only to override the sequence's attacker (rare).
     :return: A :class:`ResolutionResult` with the aggregate damage
         figures, feedback lines, and any captured death message.
     """
+    # Auto-infer attacker from the sequence when the caller didn't
+    # pass one. Guards against future multi-victim overrides
+    # forgetting ``attacker=self``.
+    if attacker is None:
+        attacker = getattr(sequence, "attacker", None)
     injury_feedback: List[str] = []
     death_msg = ""
     num_hits = 0
     body_damage_total = 0
+    critical_part_kill = False
 
     # Snapshot each uniquely-hit part's starting injury level *once*
     # before any damage lands. This is the crux of the hook-coalescing
@@ -156,6 +179,16 @@ def apply_sequence_to_target(
         )
         if d_msg and not death_msg:
             death_msg = d_msg
+        # Critical-part kill signal: when the victim died as a result
+        # of this part-targeted ``apply_damage`` call, it was a
+        # critical-part destruction (head, torso, etc. — see
+        # ``Creature.apply_damage`` for the ``is_critical`` path).
+        # Distinguishes from body-HP-depletion death, which only
+        # materializes after the caller applies the post-defense
+        # body total. Callers use this flag to suppress the
+        # redundant HP-summary line.
+        if d_msg and part is not None and target.is_dead():
+            critical_part_kill = True
 
     # Emit one injury message per unique hit part based on the
     # coalesced level transition. ``apply_damage`` intentionally does
@@ -169,6 +202,17 @@ def apply_sequence_to_target(
 
         if new_level != InjuryLevels.NONE:
             feedback = part.get_injury_string()
+            # Prefix the owner so multi-target sequences (hydra now,
+            # future AoE magic / ranged splash / swarm monsters) don't
+            # produce anonymous "The left leg is…" streams where the
+            # reader can't tell whose leg took the damage. Strip the
+            # leading "the " so the possessive prefix doesn't read
+            # "Caels's the left leg…".
+            owner_prefix = parse("@1npc", target) if target is not None else ""
+            if owner_prefix:
+                if feedback[:4].lower() == "the ":
+                    feedback = feedback[4:]
+                feedback = f"{owner_prefix} {feedback}"
             injury_feedback.append(f"   {feedback[0].upper()}{feedback[1:]}")
 
         hook_msg = part.on_injury_change(target, old_level, new_level)
@@ -184,7 +228,12 @@ def apply_sequence_to_target(
             destroyed_msg = part.on_destroyed(target)
             if destroyed_msg:
                 injury_feedback.append(f"   {destroyed_msg}")
-            if attacker is not None:
+            # ``hasattr`` gate preserves the player-attacks-monster
+            # asymmetry without requiring the caller to pass
+            # ``attacker=None`` explicitly. Players don't define
+            # ``on_target_part_destroyed``; monsters do (default
+            # no-op on ``MonsterPlugin``, overridden where useful).
+            if attacker is not None and hasattr(attacker, "on_target_part_destroyed"):
                 attacker_msg = attacker.on_target_part_destroyed(target, part)
                 if attacker_msg:
                     injury_feedback.append(f"   {attacker_msg}")
@@ -194,4 +243,5 @@ def apply_sequence_to_target(
         injury_feedback_lines=injury_feedback,
         death_msg=death_msg,
         num_hits=num_hits,
+        critical_part_kill=critical_part_kill,
     )

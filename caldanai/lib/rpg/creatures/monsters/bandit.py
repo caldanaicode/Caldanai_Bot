@@ -85,15 +85,15 @@ class Bandit(MonsterPlugin):
             if attempt >= target.get_dodge():
                 target.give_clarks(-amount)
                 return f"\n@2's wallet suddenly feels lighter... {amount} clarks were lost!"
-            return "\n@2 easily avoids the bandit's groping fingers."
+            return "\n@2 easily avoids @1np groping fingers."
         else:
             return "\n@1dc sneers in disgust, realizing that @2 has no clarks to steal."
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         responses = [
-            f"@1dc breaks down crying at the first affection @1s has ever known, as @2 {invocation}s @1o.",
-            f"@1dc graciously accepts @2's {invocation} while reaching toward @2a wallet...",
-            f"@1dc sneers at @2's attempt to {invocation} @1o.",
+            f"*@2 pulls @1d into a {invocation}. @1sc breaks down crying at the first affection @1s has ever known, clinging on like a lost child.*",
+            f"*@2 wraps @1d in a {invocation}. @1sc accepts graciously — while @1a free hand drifts toward @2np wallet...*",
+            f"*@2 leans in for a {invocation}. @1dc twists aside with a sneer and will not be touched.*",
         ]
 
         response = choice(responses)
@@ -101,3 +101,26 @@ class Bandit(MonsterPlugin):
             response += f"\n{self.steal(actor)}"
 
         return response
+
+    def on_social(self, cmd: str, actor: Creature, invocation: str) -> str:
+        """Bandit-specific reactions for non-hug social commands.
+        Hug still flows through :meth:`on_hugged` via the default
+        ``Creature.on_social`` delegation."""
+        from caldanai.lib.rpg.helpers.parser import parse
+
+        if cmd == "high_five":
+            # Serena's idea (community ideas channel, 2026-04-19):
+            # bandit should have a thematic response to ``$high_five``.
+            # Same 1-in-3 steal chance as the hug path, re-flavored
+            # around the raised-palm gesture — slapping the palm with
+            # one hand while the other dips toward the pocket.
+            responses = [
+                "*@2 throws up a palm for a high five. @1dc eyes it suspiciously and keeps @1a distance.*",
+                "*@2 throws up a palm for a high five. @1dc slaps it enthusiastically — and dips into @2np pocket with the other hand...*",
+                "*@2 throws up a palm for a high five. @1dc raises @1a own to meet it, then pulls away at the last instant with a smirk.*",
+            ]
+            response = choice(responses)
+            if response == responses[1]:
+                response += f"\n{self.steal(actor)}"
+            return parse(response, self, actor)
+        return super().on_social(cmd, actor, invocation)

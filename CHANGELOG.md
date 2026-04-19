@@ -4,6 +4,105 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — Social Warmth: `$warmth` + 14 Social Verbs
+
+Players can now tune how warmly they receive and attempt social
+gestures, per-command and per-other-player. Replaces the hard-
+coded `$hug` sidestep with a tunable consent-style model.
+
+- **Scale**: `cold | cool | neutral | warm | hot` plus input
+  aliases (`friendly`, `aloof`, `ardent`, …).
+- **Resolution**: target governs acceptance (what happens), actor
+  governs intent (flavor tint). Target-side wins the asymmetry.
+- **Data**: `Player.social = {"defaults": {cmd: level},
+  "per_player": {uid_str: {cmd: level}}}`. Stored only when the
+  player sets something; legacy players load as empty.
+- **Privacy**: `$warmth` output is DM-only; channel sees a brief
+  ack. `$warmth set` echoes in channel when invoked publicly, DM
+  when from DM.
+- **Wildcards**: `$warmth set all <level>` / `$warmth clear all`
+  apply across every warmth-aware command.
+- **Mention-misparse**: `$warmth clear @player` auto-routes to
+  `clear all @player`; `$warmth set @player <level>` returns a
+  tailored error rather than echoing `<@id>`.
+
+New cog `rpg_social_commands.py` (with `$hug` and `$haunt` moved
+in) houses:
+
+- `$warmth` / `$warmth set <cmd> <level> [@player]` /
+  `$warmth clear <cmd> [@player]`.
+- 12 warmth-aware verbs (`hug`, `high_five`, `fistbump`,
+  `salute`, `comfort`, `poke`, `nod`, `glare`, `shank`, `tickle`,
+  `taunt`, `wink`) with 5-level intent/acceptance pools and
+  dead-invoker / dead-target flavor.
+- 5 self-directed solos (`pose`, `cheer`, `cry`, `wave`, `bow`).
+  Mentions passed alongside are silently ignored
+  (documented-intentional).
+
+Monster-side reactions via `Creature.on_social(cmd, actor,
+invocation)` — generalized from `on_hugged` with back-compat
+delegation. Bandit ships `$high_five` (3-pool with 1-in-3 steal
+chance, community-suggested) and its hug + high-five flavor
+rewritten 2-party + italicized. `$comfort` WARM/HOT beats tuned
+from pre-embrace forms to offering gestures. Wink HOT-vs-NEUTRAL
+"mirror" leak fixed.
+
+### 2026-04-19 — Player / Combat / Flavor Fixes
+
+Grab-bag of correctness issues surfaced in live playtest.
+
+- **`PlayerManager.add_player`** — missing
+  `self.players[uid] = player` meant new players couldn't join
+  until the next bot restart rehydrated them from Mongo. First
+  reported by a tester who couldn't run `$join`.
+- **`on_member_update` listener** — Discord display-name edits now
+  sync live instead of waiting for a bot restart.
+- **Doppelganger `imitate()`** — now copies target's gender and
+  pronouns alongside name/stats, so mimicked narration agrees.
+- **Golem arrival line** — `@1s` → `@1sc` so the sentence starts
+  with capitalized "His" rather than bare "his".
+- **Combat `resolve_attack` auto-infers attacker** — callers no
+  longer need to pass the `attacker` kwarg explicitly; inferred
+  from `sequence.attacker`. Every `Creature` override kept in sync
+  with the new signature.
+- **`critical_part_kill` signal** — `ResolutionResult` carries an
+  explicit flag for deaths via critical-part destruction, so the
+  "0 vs X remaining" summary skip is no longer mis-triggered on
+  magic-bypass / status-tick kill paths.
+- **Injury-feedback owner attribution** — feedback lines now
+  prepend `@1npc` owner ("Caels's right leg appears severely
+  wounded") instead of the bare part name.
+
+### 2026-04-19 — `$pray` Heal-Amount Display Fix
+
+`$pray` rolls 17–19 heal body HP and fully restore one injured
+part. The announcement used to report only the body-HP delta —
+"imbuing him with 1 points of health" when an arm missing 8 HP
+was also being restored in the same beat.
+
+Now reports `total_heal = body_heal + part_restore_amount` with
+correct singular/plural ("1 point" / "3 points"). Mechanics
+unchanged.
+
+### 2026-04-19 — Operator Tooling: `render_flavor`, `inspect_tests`, `rename_in_tree`
+
+Three new `tools/*.py` modules, each replacing an inline-python
+shape that would otherwise force per-call permission approvals.
+
+- **`render_flavor`** — renders a monster's flavor strings,
+  `on_hugged`, and `on_social` branches through the parser.
+  Catches parse-token bugs (`@1d` vs `@1dc`, `@1np` vs `@1's`)
+  before they hit a live channel.
+- **`inspect_tests`** — AST-level pytest file inspector (count /
+  list / structure / find / json). Replaces ad-hoc `grep "def
+  test_"` parsing.
+- **`rename_in_tree`** — bulk literal multi-pair replace across
+  a file glob with dry-run default.
+
+Top-level `CLAUDE.md` added documenting the parse-token cheat-
+sheet and the "prefer tools over inline python" convention, so
+future agent sessions don't default to one-off `python -c` calls.
+
 ### 2026-04-19 — `tail_channel.py` Default Buffer: 500 → 5000
 
 Bumped the `--follow` inspector's default ring buffer from 500 to

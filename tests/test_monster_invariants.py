@@ -185,6 +185,43 @@ class TestMonsterBehavior:
         result = m.on_hugged(actor, "hug")
         assert isinstance(result, str)
 
+    def test_on_social_hug_returns_nonempty_string(self, cls):
+        """Back-compat invariant: ``Creature.on_social("hug", ...)``
+        must always return renderable text for ``cmd == "hug"`` —
+        either via a ``SOCIAL_REACTIONS["hug"]`` entry or via the
+        default delegation to the legacy ``on_hugged`` hook. Every
+        existing monster overrode ``on_hugged``; none of them need
+        to change for the new hook to work.
+
+        We can't compare to ``on_hugged(...)`` directly because
+        several monsters randomize their reaction (``choice(...)``
+        in on_hugged), so two calls produce different strings.
+        """
+        m = _instantiate(cls)
+        from caldanai.lib.rpg.creatures import Creature
+        actor = Creature(
+            name="tester", atk="1d4", defense=1, dodge=1,
+            health_max=10, health=10,
+        )
+        result = m.on_social("hug", actor, "hug")
+        assert isinstance(result, str)
+        assert result, f"{cls.__name__}.on_social('hug', ...) returned empty"
+
+    def test_on_social_unknown_command_returns_empty(self, cls):
+        """Unhooked commands return empty string — the cog surfaces
+        a bland ``@1dc does not react`` line when this happens."""
+        m = _instantiate(cls)
+        from caldanai.lib.rpg.creatures import Creature
+        actor = Creature(
+            name="tester", atk="1d4", defense=1, dodge=1,
+            health_max=10, health=10,
+        )
+        reactions = getattr(m, "SOCIAL_REACTIONS", None) or {}
+        # Pick a command the monster definitely hasn't hooked.
+        fake_cmd = "made_up_gesture_xyz"
+        assert fake_cmd not in reactions
+        assert m.on_social(fake_cmd, actor, fake_cmd) == ""
+
     def test_apply_damage_zero_is_noop_on_health(self, cls):
         """Healing neutral doesn't change body HP. Guards against
         any monster that accidentally shadows apply_damage with a

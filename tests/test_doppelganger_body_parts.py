@@ -322,6 +322,77 @@ class TestDoppelgangerFlagsCopied:
 
 
 # ---------------------------------------------------------------------------
+# 6b. Gender + pronouns copied from target
+# ---------------------------------------------------------------------------
+
+
+class TestDoppelgangerGenderAndPronounsCopied:
+    """Imitation must copy the target's gender and pronouns so
+    post-imitation narration — especially the per-part pain cries
+    that use ``@1a`` possessive-adjective — reads with the
+    imitated player's pronouns, not the doppelganger's default.
+    Reported live 2026-04-19 ("Caels winces… behind her eyes"
+    when Caels is male)."""
+
+    def _male_target(self, name="Caels"):
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+        target = _make_player(name)
+        target.gender = "male"
+        target.pronouns = {
+            Pronouns.SUBJECTIVE:  "he",
+            Pronouns.OBJECTIVE:   "him",
+            Pronouns.POSSESSIVE:  "his",
+            Pronouns.REFLEXIVE:   "himself",
+        }
+        return target
+
+    def test_gender_copied_from_target(self):
+        d = Doppelganger()
+        d.gender = "female"  # pre-imitation default
+        target = self._male_target()
+
+        d.imitate(target)
+
+        assert d.gender == "male"
+
+    def test_pronouns_copied_from_target(self):
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+        d = Doppelganger()
+        target = self._male_target()
+
+        d.imitate(target)
+
+        assert d.pronouns[Pronouns.SUBJECTIVE] == "he"
+        assert d.pronouns[Pronouns.OBJECTIVE] == "him"
+        assert d.pronouns[Pronouns.POSSESSIVE] == "his"
+        assert d.pronouns[Pronouns.REFLEXIVE] == "himself"
+
+    def test_pronouns_are_independent_copy(self):
+        """Mutating the target's pronouns after imitation must not
+        affect the doppelganger — and vice versa."""
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+        d = Doppelganger()
+        target = self._male_target()
+
+        d.imitate(target)
+        target.pronouns[Pronouns.SUBJECTIVE] = "xe"
+
+        assert d.pronouns[Pronouns.SUBJECTIVE] == "he"
+
+    def test_missing_pronouns_does_not_crash(self):
+        """Target lacking a ``pronouns`` attr (unlikely but defensive)
+        must not take down imitation — the doppelganger keeps its
+        own default pronouns."""
+        d = Doppelganger()
+        target = _make_player("Mystery")
+        if hasattr(target, "pronouns"):
+            del target.pronouns
+
+        # Should not raise.
+        d.imitate(target)
+
+
+# ---------------------------------------------------------------------------
 # 7. Sanity — existing doppelganger fields unchanged
 # ---------------------------------------------------------------------------
 

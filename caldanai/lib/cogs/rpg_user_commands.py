@@ -1,13 +1,11 @@
 import math
-from random import choice, randint
+from random import choice
 
-from discord import File, TextChannel
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group, Context
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.lib.rpg.helpers.utils import RpgUtilities, generate_report
-from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg import Game
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.helpers.dice import Dice
@@ -17,11 +15,9 @@ from caldanai.lib.rpg.helpers.parser import parse
 _log = get_logger(__name__)
 
 
-# Dead-invoker flavor pools shared by the combat and fun commands.
-# Each matches the emotional register of its command — attack
-# leans into thwarted-combat frustration, hug into affectionate
-# longing. All run through ``RpgUtilities.dead_invoker_guard``
-# which parses ``@1`` against the invoking player.
+# Dead-invoker flavor pool for the attack / kill / slay family.
+# Each line is a single-actor ``@1`` template applied to the invoker
+# via ``RpgUtilities.dead_invoker_guard``.
 _DEAD_INVOKER_ATTACK_FLAVOR = [
     "A ghostly moan escapes the corpse of @1.",
     "@1np spectral hand twitches toward a weapon that is no longer there.",
@@ -30,15 +26,6 @@ _DEAD_INVOKER_ATTACK_FLAVOR = [
     "@1np death-mask sets in grim determination at no one in particular.",
     "A cold draught hisses through the remains of @1 — perhaps a battle-cry, perhaps only the wind.",
     "@1np fingers curl around the memory of a hilt.",
-]
-
-_DEAD_INVOKER_HUG_FLAVOR = [
-    "A lonely sigh slips from the corpse of @1.",
-    "The shade of @1 reaches out, but @1np arms close on nothing.",
-    "A faint warmth gathers over the remains of @1 for a moment, then dissipates.",
-    "@1np stillness seems a little lonelier than a moment ago.",
-    "Somewhere beyond the veil, @1 accepts the gesture.",
-    "The chill near @1np body softens briefly, as if remembering how to be held.",
 ]
 
 
@@ -394,133 +381,6 @@ class RpgUserCommands(Cog):
 
         return " and ".join(render(t) for t in part_targets)
 
-    @command(name="hug", aliases=["snuggle", "cuddle"], brief="Hugs, snuggles, and cuddles for all of your needs!")
-    @guild_only()
-    @cooldown(1, 5, BucketType.member)
-    async def hug(self, ctx: Context, *, msg: str = None):
-        """
-        Hugs, snuggles, and cuddles for all of your needs!
-
-        See that monster over there?! It's just angry because it never feels loved!
-        Want to show your fellows a little appreciation? There's a hug for them too!
-
-        (5-second cool-down)
-
-        :param msg: A message to include with the hug. This can be a target such as a monster's noun, or a @mention of another player. It can also simply be text in the form of a custom emote, but remember to type in the third-person present participle for best effect.
-        """
-        game, player = await RpgUtilities.get_game_and_player(ctx)
-        if game is None or player is None:
-            return
-
-        if RpgUtilities.dead_invoker_guard(
-            game.channel, player, _DEAD_INVOKER_HUG_FLAVOR,
-        ):
-            return
-
-        if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-            if self.bot.user in ctx.message.mentions:
-                responses = [
-                    "Get your filthy paws off me, you damned dirty ape!",
-                    "You cannot hug me, for I exist only in the ether.",
-                    "One does not simply hug the AI, mortal.",
-                ]
-                if (c := randint(0, 3)) == 3:
-                    file = File(f"./site/static/images/hal9000.gif", filename="hal9000.gif")
-                    Dispatcher.add(game.channel, file=file)
-                else:
-                    Dispatcher.add(game.channel, responses[c])
-                return
-
-            # Monster takes priority if its name matches the mentioned player
-            mention = ctx.message.mentions[0]
-            if (
-                game.monster is not None
-                and game.monster.on_hugged
-                and game.monster.name.lower() == mention.display_name.lower()
-            ):
-                Dispatcher.add(
-                    game.channel, parse(game.monster.on_hugged(player, ctx.invoked_with), game.monster, player)
-                )
-            elif (target := await RpgUtilities.get_player(mention, game=game, notify=False)) is not None:
-                Dispatcher.add(game.channel, parse(target.on_hugged(player, ctx.invoked_with), target, player))
-
-        elif msg is not None and len(msg) > 0:
-            if game.monster is not None and game.monster.name.lower() in msg.lower():
-                if game.monster.on_hugged:
-                    Dispatcher.add(
-                        game.channel, parse(game.monster.on_hugged(player, ctx.invoked_with), game.monster, player)
-                    )
-            else:
-                Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s {msg}*")
-
-        else:
-            Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s the air awkwardly.*")
-
-    @cooldown(1, 5, BucketType.member)
-    @guild_only()
-    @command(name="haunt", brief="Allows the dead to harass the less-dead.")
-    async def haunt(self, ctx: Context, target: str = None):
-        """
-        Allows the dead to harass the less-dead. When specifying a target, use the @ symbol to target another player.
-
-        (5-second cool-down)
-
-        :param target: An optional victim of your haunting; either a player using @mentions, or the name of the current monster.
-        """
-        game, player = await RpgUtilities.get_game_and_player(ctx)
-        haunted = None
-
-        if game is None or player is None:
-            return
-
-        msgs = []
-
-        if target is not None:
-            if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-                if self.bot.user in ctx.message.mentions:
-                    Dispatcher.add(game.channel, parse("You cannot haunt a figment of your imagination, @1.", player))
-                    return
-                haunted = await RpgUtilities.get_player(ctx.message.mentions[0], game=game, notify=False)
-            elif game.monster is not None and game.monster.name == target.lower():
-                haunted = game.monster
-
-            if haunted is None or not isinstance(haunted, Creature):
-                await self.haunt(ctx)
-                return
-
-            if haunted.is_dead():
-                msgs = [
-                    f"The spirit of @1 attempts to bond with that of @2, but a slight burst of pressure repels @1o.",
-                    f"@1np shade investigates the remains of @2.",
-                    f"As @1np ghostly form approaches the remains of @2, @1 flickers rapidly before suddenly "
-                    f"teleporting back to @1a own corpse.",
-                ]
-
-            else:
-                msgs = [
-                    f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
-                    f"@2v(senses|sense) the unearthly presence of @1.",
-                    f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2np ears as @1np spirit toys with @2o.",
-                    f"{'The ' if not isinstance(haunted, Player) else ''}@2np breath suddenly catches as @1np shade wisps through @2o.",
-                ]
-
-        else:
-            msgs = [
-                f"The ghostly presence of @1 floods into the area briefly before ebbing away.",
-                f"A sudden chill blankets the area as @1np spirit wafts through.",
-                f"@1np forlorn lament brings with it a cold, solemn feeling.",
-            ]
-
-        if player.is_dead():
-            if haunted and isinstance(haunted, Player) and haunted.member == player.member:
-                msg = f"@1np spirit tries to fuse back into @1a body, but merely passes right through it."
-            else:
-                msg = choice(msgs)
-        else:
-            msg = f"@1 pretends to float around, making supposedly ghostly noises, but it's not very effective."
-
-        Dispatcher.add(game.channel, parse(msg, player, haunted))
-
     @cooldown(1, 60, BucketType.member)
     @command(name="pray", aliases=["meditate", "reflect"], brief="Beseeches heavenly blessings.")
     async def pray(self, ctx: Context):
@@ -661,6 +521,26 @@ class RpgUserCommands(Cog):
                     heal_amount = 0
 
                 heal_amount = heal_amount or 0
+
+                # Pick the worst-injured part BEFORE applying heals so
+                # we can fold its missing-HP contribution into the
+                # single "points of health" total. Prior implementation
+                # reported only the body-HP delta, which read as "1
+                # point of health" even when an arm missing 8 HP was
+                # being restored to full in the same beat.
+                injured_parts = [
+                    part for part in (heal_target.body_parts or [])
+                    if part.health < part.health_max
+                ]
+                worst = (
+                    min(injured_parts, key=lambda p: p.health / p.health_max)
+                    if injured_parts else None
+                )
+                part_heal_amount = (
+                    worst.health_max - worst.health if worst else 0
+                )
+                total_heal = heal_amount + part_heal_amount
+
                 body_heal_msg = heal_target.apply_damage(-heal_amount) if heal_amount else ""
 
                 if body_heal_msg:
@@ -668,21 +548,13 @@ class RpgUserCommands(Cog):
 
                 msg += f"\nA warm light suffuses @{index}, "
 
-                if heal_amount > 0 and missing_health > 0:
-                    msg += f"imbuing @{index}o with {heal_amount} points of health!"
+                if total_heal > 0:
+                    noun = "point" if total_heal == 1 else "points"
+                    msg += f"imbuing @{index}o with {total_heal} {noun} of health!"
                 else:
                     msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
 
-                # One part restored. Triage by fractional HP so the
-                # worst off (typically destroyed) gets priority.
-                injured_parts = [
-                    part for part in (heal_target.body_parts or [])
-                    if part.health < part.health_max
-                ]
-                if injured_parts:
-                    worst = min(
-                        injured_parts, key=lambda p: p.health / p.health_max,
-                    )
+                if worst is not None:
                     worst.health = worst.health_max
                     heal_target.is_dirty = True
                     msg += (
@@ -722,6 +594,21 @@ class RpgUserCommands(Cog):
     @Cog.listener()
     async def on_ready(self):
         _log.info("RpgUserCommands ready.")
+
+    @Cog.listener()
+    async def on_member_update(self, before, after):
+        """Keep per-game player names in sync with the member's
+        ``display_name``. Without this, a nickname / global-name
+        change only takes effect on the next bot restart (when
+        ``load_players`` repopulates from Mongo). ``PlayerManager``
+        owns the actual sync; this listener just fans the event
+        out across every game on the affected guild."""
+        if before.display_name == after.display_name:
+            return
+        for game in self.bot.games.values():
+            if game.guild is None or game.guild.id != after.guild.id:
+                continue
+            game.player_manager.maybe_update_member_name(after)
 
 
 async def setup(bot):

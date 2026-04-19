@@ -77,7 +77,7 @@ class Golem(MonsterPlugin):
             "Time weathers stone. Whoever bound this @1 did not bind it "
             "quickly — @1s looks old in the way mountains are old.",
             "No face to speak of — just a carved brow and a slash for a "
-            "mouth. @1s appears to navigate the world anyway.",
+            "mouth. @1sc appears to navigate the world anyway.",
         ])
 
         self.escape = (

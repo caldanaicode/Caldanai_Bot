@@ -138,6 +138,7 @@ class Player(Creature):
         last_active: Optional[datetime] = None,
         health_regen: Optional[int] = 0,
         body_parts_health: Optional[Dict[str, int]] = None,
+        social: Optional[Dict[str, object]] = None,
     ):
         super().__init__(
             name=None,
@@ -178,6 +179,12 @@ class Player(Creature):
             "d20": [0] * 20,
         }
         self.health_regen = health_regen
+        # Social-warmth preferences. See
+        # ``caldanai.lib.rpg.helpers.warmth`` for shape / accessors.
+        # Empty dict signals "use system defaults" — populated maps
+        # are the only thing that gets written to the DB, so
+        # never-tuned players don't grow a noisy field.
+        self.social: Dict[str, object] = social if isinstance(social, dict) else {}
         self.equip_slots: Dict[str, Optional[Equipment]] = {}
 
         for slot in EquipmentSlots:
@@ -446,6 +453,7 @@ class Player(Creature):
             last_active=p["last_active"] if "last_active" in p.keys() else None,
             health_regen=p.get("health_regen", 0),
             body_parts_health=p.get("body_parts_health"),
+            social=p.get("social"),
         )
 
         eq = p.get("equip_slots") or {}
@@ -823,7 +831,13 @@ class Player(Creature):
                 p.name: {"health": p.health, "health_max": p.health_max}
                 for p in self.body_parts
             },
+            "social": self.social,
         }
+
+        # Empty ``social`` stays out of the saved doc so never-touched
+        # players don't gain a noisy field on first save.
+        if not self.social:
+            del d["social"]
 
         for slot, item in self.equip_slots.items():
             if not EquipmentSlots.exclude_from_output(slot):

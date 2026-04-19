@@ -115,6 +115,7 @@ class TestResolutionResultShape:
         assert rr.injury_feedback_lines == []
         assert rr.death_msg == ""
         assert rr.num_hits == 0
+        assert rr.critical_part_kill is False  # sane default
 
 
 # ---------------------------------------------------------------------------
@@ -307,27 +308,158 @@ class _HookingAttacker(Creature):
         return ""
 
 
+class _MonsterLikeCreature(Creature):
+    """Minimal stand-in for ``MonsterPlugin`` — returns a death message
+    from ``apply_damage`` on the alive→dead transition, matching
+    ``MonsterPlugin.apply_damage``'s contract. Lets the resolution
+    tests exercise the critical-part-kill signal without dragging
+    the full plugin loader in."""
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name=kwargs.pop("name", "test-monster"),
+            atk=kwargs.pop("atk", "1d4"),
+            defense=kwargs.pop("defense", 1),
+            dodge=kwargs.pop("dodge", 1),
+            health_max=kwargs.pop("health_max", 50),
+            health=kwargs.pop("health", 50),
+        )
+        self.death = "the test-monster dies dramatically"
+
+    def apply_damage(self, amount, dmg_type=None, target_part=None):
+        was_alive = self.health > 0
+        super().apply_damage(amount, dmg_type=dmg_type, target_part=target_part)
+        if was_alive and self.is_dead():
+            return self.death
+        return ""
+
+
+class TestCriticalPartKillSignal:
+    """Pin the ``critical_part_kill`` flag (replaces the old
+    ``actual_body_damage < health_before`` inference). The flag fires
+    when a part-targeted ``apply_damage`` returns a death message —
+    i.e. a critical body part was destroyed and that killed the
+    target. False-positives against body-HP-depletion and
+    non-part-targeted kill paths would defeat the whole point."""
+
+    def _critical_part(self):
+        part = _RecordingPart(name="head", health_max=10)
+        part.is_critical = True
+        return part
+
+    def test_critical_part_kill_sets_flag(self):
+        head = self._critical_part()
+        target = _MonsterLikeCreature(health_max=50)
+        target.body_parts = [head]
+        attacker = _make_creature()
+        # 10 damage to a 10-HP critical head → destroyed → target dies.
+        seq = _make_sequence(attacker, target, [_make_result(10, head)])
+
+        rr = apply_sequence_to_target(seq, target)
+
+        assert target.is_dead()
+        assert rr.critical_part_kill is True
+        assert rr.death_msg == "the test-monster dies dramatically"
+
+    def test_non_lethal_critical_part_hit_does_not_set_flag(self):
+        """A hit on a critical part that doesn't destroy it shouldn't
+        trip the flag — only the destroying hit + resulting death
+        qualifies."""
+        head = self._critical_part()
+        target = _MonsterLikeCreature(health_max=50)
+        target.body_parts = [head]
+        attacker = _make_creature()
+        # 4 damage → 6/10, part not destroyed, target alive.
+        seq = _make_sequence(attacker, target, [_make_result(4, head)])
+
+        rr = apply_sequence_to_target(seq, target)
+
+        assert not target.is_dead()
+        assert rr.critical_part_kill is False
+
+    def test_non_critical_part_destruction_does_not_set_flag(self):
+        """Destroying a non-critical part (arm, leg) isn't a
+        critical-part kill — even if the target happens to die some
+        other way (it won't here, since non-critical parts don't kill
+        outright)."""
+        arm = _RecordingPart(name="arm", health_max=10)
+        arm.is_critical = False
+        target = _MonsterLikeCreature(health_max=50)
+        target.body_parts = [arm]
+        attacker = _make_creature()
+        seq = _make_sequence(attacker, target, [_make_result(10, arm)])
+
+        rr = apply_sequence_to_target(seq, target)
+
+        assert arm.is_destroyed()
+        assert not target.is_dead()
+        assert rr.critical_part_kill is False
+
+    def test_partless_target_kill_does_not_set_flag(self):
+        """Partless targets never route through the part-apply path
+        (explicitly skipped to avoid double-damage), so they can't
+        produce a critical-part-kill signal even when killed."""
+        target = _MonsterLikeCreature(health_max=5, health=5)
+        target.body_parts = []
+        attacker = _make_creature()
+        # No target_part; partless → apply_damage skipped in helper.
+        seq = _make_sequence(
+            attacker, target,
+            [_make_result(10, target_part=None)],
+        )
+
+        rr = apply_sequence_to_target(seq, target)
+
+        # Target still alive here because helper skipped apply_damage
+        # for the partless case — do_combat would then apply the
+        # post-defense body total. critical_part_kill must be False
+        # regardless of how the caller finishes the job.
+        assert rr.critical_part_kill is False
+
+
 class TestAttackerAsymmetry:
-    def test_attacker_none_does_not_fire_attacker_hook(self):
-        """Default ``attacker=None`` preserves the player -> monster
-        path's behavior: no on_target_part_destroyed callback on the
-        implied attacker, even though a part was destroyed."""
+    def test_attacker_auto_inferred_from_sequence_when_hook_defined(self):
+        """When the caller omits ``attacker=``, the helper auto-infers
+        from ``sequence.attacker`` and fires the hook if the attacker
+        defines ``on_target_part_destroyed``. Pre-fix this test pinned
+        the opposite (no-fire) behavior; the backlog
+        ``attacker_auto_infer`` item flipped it so future multi-victim
+        overrides can't silently drop the hook by forgetting the
+        kwarg. The player-attacks-monster asymmetry is preserved via
+        the ``hasattr`` gate (see below)."""
         arm = _RecordingPart(name="arm", health_max=10)
         target = _make_creature(health_max=100)
         target.body_parts = [arm]
-        # NOTE: The sequence.attacker field exists but the helper must
-        # NOT fire attacker hooks based on it — only when the caller
-        # explicitly passes ``attacker=...``. This mirrors do_combat,
-        # which passes no attacker.
         attacker_in_sequence = _HookingAttacker()
         seq = _make_sequence(
             attacker_in_sequence, target, [_make_result(10, arm)],
         )
 
-        apply_sequence_to_target(seq, target)  # no attacker=
+        apply_sequence_to_target(seq, target)  # no attacker= kwarg
 
         assert arm.is_destroyed()
-        assert attacker_in_sequence.destruction_calls == []
+        assert len(attacker_in_sequence.destruction_calls) == 1
+
+    def test_auto_infer_respects_hasattr_gate_on_player_like_attacker(self):
+        """The player-attacks-monster asymmetry is preserved by the
+        ``hasattr`` gate: a sequence.attacker that doesn't define
+        ``on_target_part_destroyed`` (e.g. a Player) has nothing to
+        fire, so auto-infer is a no-op regardless of what landed."""
+        arm = _RecordingPart(name="arm", health_max=10)
+        target = _make_creature(health_max=100)
+        target.body_parts = [arm]
+        # Plain Creature: has no ``on_target_part_destroyed`` method —
+        # same shape as a Player attacker.
+        player_like = _make_creature(health_max=10)
+        assert not hasattr(player_like, "on_target_part_destroyed")
+        seq = _make_sequence(
+            player_like, target, [_make_result(10, arm)],
+        )
+
+        # Must not raise; hasattr gate skips the call cleanly.
+        apply_sequence_to_target(seq, target)
+
+        assert arm.is_destroyed()
 
     def test_attacker_passed_fires_hook_once_per_destroyed_part(self):
         """When the caller passes ``attacker=...``, the hook fires
@@ -451,6 +583,34 @@ class TestInjuryFeedback:
         # At least one line — the formatted injury string — is produced
         # for parts that land on a non-NONE injury level.
         assert any("moderate" in line.lower() for line in rr.injury_feedback_lines)
+
+    def test_feedback_line_prefixes_target_name_possessive(self):
+        """Regression (backlog item): anonymous "The right leg seems
+        lightly battered." becomes unreadable in multi-target rounds
+        (hydra today, swarms / AoE later). Owner-possessive prefix
+        via ``@1npc`` disambiguates. For a monster target named
+        "goblin", renders as "Goblin's right arm…" (the parser's
+        ``np`` form uses the name directly for creatures, same as
+        for players). Functional goal met: whose part it is, is
+        unambiguous."""
+        arm = _RecordingPart(name="arm.right", health_max=10)
+        target = _make_creature(name="goblin", health_max=100)
+        target.body_parts = [arm]
+        attacker = _make_creature(name="bandit")
+        # 4 damage -> 6/10 -> MINOR.
+        seq = _make_sequence(attacker, target, [_make_result(4, arm)])
+
+        rr = apply_sequence_to_target(seq, target)
+
+        joined = "\n".join(rr.injury_feedback_lines)
+        assert "Goblin's right arm seems" in joined, (
+            f"owner-prefixed phrasing missing in: {joined!r}"
+        )
+        # The old bare "The right arm seems..." (no owner) should no
+        # longer appear — we strip "the " before prepending the owner.
+        assert "The right arm seems" not in joined, (
+            f"anonymous pre-fix phrasing still present in: {joined!r}"
+        )
 
     def test_hook_return_strings_included_in_feedback(self):
         """Non-empty returns from on_injury_change / on_destroyed are

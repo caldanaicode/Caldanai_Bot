@@ -105,6 +105,27 @@ class PlayerManager:
             except Exception as e:
                 _log.error(f"Unable to load user id {uid}. Error: {e}")
 
+    def maybe_update_member_name(self, member) -> bool:
+        """Sync the in-game player name when a Discord member's
+        ``display_name`` changes (nickname or global name). Called
+        from the ``on_member_update`` cog listener for every game on
+        the affected guild. Returns ``True`` if an update happened.
+
+        Until this hook landed, ``player.name`` was set once at
+        ``add_player`` / ``load_players`` time and never refreshed
+        — so narration kept using the original name until the next
+        bot restart rehydrated from Mongo.
+        """
+        player = self.players.get(member.id)
+        if player is None:
+            return False
+        if player.name == member.display_name:
+            return False
+        player.name = member.display_name
+        player.member = member
+        player.is_dirty = True
+        return True
+
     async def set_player_active(self, player: Player):
         """Updates player's last_active time and changes roles if needed."""
         player.last_active = datetime.now()
@@ -223,6 +244,15 @@ class PlayerManager:
             player.member = ctx.author
             player.name = ctx.author.display_name
             player.is_dirty = True
+            # Register in the live players dict immediately.
+            # Without this, the Player only shows up after the next
+            # bot restart triggers ``load_players`` to rehydrate from
+            # Mongo — meaning a fresh joiner can't invoke a single
+            # command until the bot reboots. ``new_players`` is a
+            # separate deferred-persistence set used by save_all_now
+            # to backfill ``_id`` after the first Mongo insert; it
+            # is NOT a substitute for the live registry.
+            self.players[ctx.author.id] = player
             RpgUtilities.new_players.add(player)
             if Roles.ALL in self.roles.keys() and Roles.ACTIVE in self.roles.keys():
                 await player.member.add_roles(

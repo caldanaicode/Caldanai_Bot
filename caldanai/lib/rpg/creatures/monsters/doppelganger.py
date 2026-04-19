@@ -229,6 +229,18 @@ class Doppelganger(MonsterPlugin):
 
         self.name = target.name
 
+        # Copy gender + pronouns alongside the name so post-imitation
+        # narration matches the imitated player. Without this, the
+        # doppelganger renders with its own default pronouns (often
+        # "she/her"), producing beats like "Caels flexes her arm" for
+        # a male-gendered Caels — the pain-cry templates here use
+        # ``@1a`` possessive-adjective which pulls from ``pronouns``.
+        # ``dict(...)`` keeps the two creatures' pronoun maps
+        # independent so later updates on either don't bleed.
+        self.gender = getattr(target, "gender", self.gender)
+        if hasattr(target, "pronouns") and target.pronouns:
+            self.pronouns = dict(target.pronouns)
+
         # Copy stats, taking the better of current vs target
         defense = target.get_defense()
         dodge = target.get_dodge()

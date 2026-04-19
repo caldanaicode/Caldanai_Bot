@@ -971,6 +971,12 @@ class Creature:
         """
         Gets a creature's reaction to being hugged.
 
+        Legacy per-command hook. New social commands go through
+        :meth:`on_social` with a class-level ``SOCIAL_REACTIONS``
+        dict; this method stays as the fallback for ``cmd == "hug"``
+        so existing monster overrides (Dragon, Golem, etc.) keep
+        working unchanged.
+
         :param actor: The Creature object initiating the hug.
         :param invocation: The calling command, such as 'hug', 'cuddle', or 'snuggle'.
         :return: A string representing the creature's reaction.
@@ -978,6 +984,56 @@ class Creature:
         if self.is_dead():
             return parse("@1cnp corpse rolls lifelessly in @2np arms.", self, actor)
         return parse("@1dc glances at @2 and sidesteps @2a hug.", self, actor)
+
+    def on_social(
+        self,
+        cmd: str,
+        actor: "Creature",
+        invocation: str,
+    ) -> str:
+        """Reaction narration when a social command targets this
+        creature. Default: look up ``cmd`` in the class-level
+        ``SOCIAL_REACTIONS`` dict (if defined). Empty return = the
+        caller renders a bland "doesn't react" line.
+
+        Subclasses can either declare a ``SOCIAL_REACTIONS`` dict
+        (keyed by warmth-aware command name) for sparse per-command
+        flavor, or override this method wholesale for dynamic
+        reactions that depend on creature state.
+
+        For backwards compatibility, ``cmd == "hug"`` with no
+        matching dict entry delegates to :meth:`on_hugged` so
+        existing monster plugins (Dragon, Golem, etc.) don't need
+        to be touched — they gain the new hook "for free" on the
+        hug path and opt into other commands at their own pace.
+
+        :param cmd: The warmth-aware command name (``"hug"``,
+            ``"salute"``, ``"glare"``, etc.). Lowercase.
+        :param actor: The player (or creature) initiating the
+            gesture. Passed through so narration parsers that
+            reference ``@2`` get the right substitution.
+        :param invocation: The literal command alias the actor
+            typed (``"hug"`` / ``"snuggle"`` for hug;
+            ``"salute"`` / ``"sal"`` for salute; etc.). Monsters
+            rarely need this but some flavor lines use the verb.
+        :return: A narration string (runs through ``parse`` by
+            the caller), or ``""`` for no reaction.
+        """
+        reactions = getattr(self, "SOCIAL_REACTIONS", None) or {}
+        if cmd in reactions:
+            return parse(reactions[cmd], self, actor)
+        if cmd == "hug":
+            # Existing monster overrides of ``on_hugged`` are
+            # inconsistent about parsing — Creature.on_hugged parses
+            # before returning, but Bandit / Dragon return raw
+            # templates. The prior cog-level call did
+            # ``parse(on_hugged(...), self, actor)`` to normalize;
+            # keep that normalization here so ``on_social`` always
+            # returns rendered text regardless of the subclass's
+            # parsing habits. Double-parsing already-rendered text
+            # is a no-op (no tokens remain).
+            return parse(self.on_hugged(actor, invocation), self, actor)
+        return ""
 
     @property
     def plural_verbs(self) -> bool:

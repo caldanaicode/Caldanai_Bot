@@ -279,7 +279,11 @@ class TestMathTeacherSanityUnchanged:
         known_flavors = {
             "This @1 has an impressive array of tiny sand timers.",
             "A confounding quantity of board games surrounds this @1.",
-            "The @1 eyes you mistrustfully, as if expecting to see a graphing calculator in your hand.",
+            # Source uses the ``@1dc`` Definite-Capitalized token here;
+            # an older pool entry had the literal ``"The @1"`` phrasing
+            # which made the test flaky — it only failed when
+            # ``choice()`` happened to pick this option.
+            "@1dc eyes you mistrustfully, as if expecting to see a graphing calculator in your hand.",
             '"What do you get when you cross an elephant with a grape?"\n|| |elephant| ⨉ |grape| ⨉ sin(θ)||',
             '"What do you get when you cross an elephant with a mountain climber?"\n||You can\'t, because a mountain '
             "climber is a scaler.||",

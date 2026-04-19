@@ -64,6 +64,37 @@ class TestAddRemovePlayer:
     @pytest.mark.asyncio
     @patch("caldanai.lib.rpg.player_manager.DB")
     @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
+    async def test_add_player_registers_in_live_players_dict(
+        self, mock_utils, mock_db, mock_ctx,
+    ):
+        """Regression: fresh $game join used to succeed (``Welcome,
+        …`` + role assignment) but never register the player in
+        ``self.players``. Downstream commands consulting the live
+        registry — ``get_player`` in the cog helpers, any command
+        that routes through ``get_game_and_player`` — then treated
+        the joiner as "not even playing the game". The DB-side
+        deferred-insert set (``RpgUtilities.new_players``) is not a
+        substitute for the live dict; it only backfills the _id
+        field after the first persistence round-trip. Reported
+        live by Serena on TEST 2026-04-19."""
+        pm = PlayerManager()
+        _setup_roles(pm)
+        mock_utils.new_players = MagicMock()
+
+        assert mock_ctx.author.id not in pm.players
+
+        result = await pm.add_player(mock_ctx)
+
+        assert result is True
+        # The player must be immediately visible in the live registry
+        # — no bot restart required, no DB round-trip required.
+        assert mock_ctx.author.id in pm.players
+        registered = pm.players[mock_ctx.author.id]
+        assert registered.user_id == mock_ctx.author.id
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.DB")
+    @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
     async def test_add_player_already_exists(self, mock_utils, mock_db, mock_ctx):
         pm = PlayerManager()
         _setup_roles(pm)
@@ -71,12 +102,14 @@ class TestAddRemovePlayer:
         # not hashable, so set.add(player) would raise TypeError.
         mock_utils.new_players = MagicMock()
 
-        # First add succeeds
-        await pm.add_player(mock_ctx)
-        # Second add for same user should return False
-        # We need to manually add the user_id to pm.players since the first call
-        # creates a real Player with ctx.author.id
-        pm.players[mock_ctx.author.id] = _make_player(uid=mock_ctx.author.id)
+        # First add registers into ``pm.players`` (post-fix — previously
+        # this required a manual workaround here because add_player
+        # forgot to register, and the second call would otherwise
+        # succeed again).
+        first = await pm.add_player(mock_ctx)
+        assert first is True
+        # Second add for the same user short-circuits on the
+        # ``ctx.author.id not in self.players`` guard and returns False.
         result = await pm.add_player(mock_ctx)
         assert result is False
 
@@ -98,6 +131,81 @@ class TestAddRemovePlayer:
         pm = PlayerManager()
         await pm.remove_player(999, mock_guild.id, channel_id=888)
         mock_db.delete_player.assert_called_once_with(mock_guild.id, 888, 999)
+
+
+# ---------------------------------------------------------------------------
+# maybe_update_member_name (display-name sync hook)
+# ---------------------------------------------------------------------------
+
+
+class TestMaybeUpdateMemberName:
+    """Pin the display-name sync helper wired into the
+    ``on_member_update`` cog listener. Without this, a player who
+    changes their guild nickname / global name still gets narrated
+    under their original name until the next bot restart
+    rehydrates from Mongo."""
+
+    def _member(self, uid=42, display_name="Alice"):
+        m = MagicMock()
+        m.id = uid
+        m.display_name = display_name
+        return m
+
+    def test_updates_name_when_display_name_changed(self):
+        pm = PlayerManager()
+        player = _make_player(uid=42)
+        player.name = "OldName"
+        player.is_dirty = False
+        pm.players[42] = player
+
+        updated = pm.maybe_update_member_name(self._member(42, "NewName"))
+
+        assert updated is True
+        assert player.name == "NewName"
+        assert player.is_dirty is True
+
+    def test_noop_when_name_unchanged(self):
+        pm = PlayerManager()
+        player = _make_player(uid=42)
+        player.name = "Steady"
+        player.is_dirty = False
+        pm.players[42] = player
+
+        updated = pm.maybe_update_member_name(self._member(42, "Steady"))
+
+        assert updated is False
+        assert player.is_dirty is False
+
+    def test_noop_when_member_not_in_this_game(self):
+        """A member update for someone who isn't a player here must
+        not mutate unrelated players."""
+        pm = PlayerManager()
+        player = _make_player(uid=42)
+        player.name = "OnlyPlayer"
+        player.is_dirty = False
+        pm.players[42] = player
+
+        # Different member id — stranger.
+        updated = pm.maybe_update_member_name(self._member(999, "Visitor"))
+
+        assert updated is False
+        assert player.name == "OnlyPlayer"
+        assert player.is_dirty is False
+
+    def test_refreshes_member_reference(self):
+        """The new ``Member`` object replaces the old one on the
+        player — stale member refs (e.g. cached from a pre-
+        nickname-change state) would produce cursed output later."""
+        pm = PlayerManager()
+        player = _make_player(uid=42)
+        old_member = player.member
+        pm.players[42] = player
+
+        new_member = self._member(42, "Fresh")
+        pm.maybe_update_member_name(new_member)
+
+        assert player.member is new_member
+        assert player.member is not old_member
 
 
 # ---------------------------------------------------------------------------
