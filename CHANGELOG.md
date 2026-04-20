@@ -4,6 +4,31 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — `playtest_combat_harness` Multi-Monster Sweep
+
+Extends the harness with `--sweep-monsters <stem1,stem2,...>` mode
+for cross-monster balance-proofing in one invocation. Runs the
+existing per-monster sweep (all 1H × 1H dual-wield combos + 2H
+solos × 3 skill levels × 3 strategies) against each listed monster,
+plus emits a condensed per-monster summary and a cross-monster
+tuning chart at the end.
+
+Per-monster summary tags the worst torso-target exploit gap as
+`TRIVIALIZED` / `major` / `moderate` / `OK` so trivialized-by-
+critical-part boss fights surface immediately. Monster header
+line shows size, body HP, defense, dodge, torso HP, head HP —
+the inputs to the scaling discussion.
+
+`--verbose-sweep` also emits the full per-skill loadout table
+per monster when the detail is wanted.
+
+Initial 12-monster sweep (pixie → dragon) surfaced the pattern:
+bearowl / golem / hydra all `TRIVIALIZED` by torso-target at
+skill-20 MASTERWORK (exploit gaps 80-93%); vampire / minotaur /
+giant / cyclops all `major`. Dragon's def=30 is the outlier that
+keeps its gap at moderate (27%) — the template for what healthy
+critical-part balance looks like.
+
 ### 2026-04-20 — `tools/playtest_combat_harness` End-to-End Combat Simulator
 
 Drives the REAL pipeline stages headlessly — no Discord, no
