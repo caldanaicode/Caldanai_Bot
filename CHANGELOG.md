@@ -4,6 +4,39 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Playtest Tooling: `playtest_weapon_sweep`
+
+New tool for balance-proofing against the actual weapon catalog
+(player attacks are weapon-driven, so sweeping the inventory
+gives broader scope than per-player stat fiddling).
+
+- **Default mode** sweeps every weapon in
+  `caldanai/lib/rpg/inventory/equipment/weapons/` at `ORDINARY`
+  quality + skill 10 against all six size tiers. 13 rows × 6
+  cols matrix showing win rate and avg rounds per cell.
+- **`--sweep-qualities`** fixes one weapon, iterates the six
+  quality tiers (JUNK → MASTERWORK). Surfaces the known scaling
+  quirk: 1dN weapons barely differentiate between ORDINARY /
+  FINE / QUALITY / SUPERIOR because `bonus = int(dice_count ×
+  multiplier)` collapses `1.0..1.75` to `1`. 2dN weapons scale
+  smoothly (1/2/2/3/3/4).
+- **`--sweep-skills`** iterates skill level snapshots
+  (0 / 5 / 10 / 15 / 20), showing skill progression impact. A
+  MASTERWORK spear at skill 20 cracks HUGE 14% of the time
+  solo — closest any single-weapon setup gets.
+- **`--offhand <name>`** adds dual-wield support. Every mode
+  accepts it; dice list grows to `[main, offhand]`, both swing
+  each round. `--offhand-quality` / `--offhand-skill` let the
+  offhand diverge from the main-hand; both default to the
+  main-hand values. Hit modifier uses the main-hand skill for
+  both swings (approximation — the game would use each weapon's
+  own skill per swing).
+
+Player HP / defense / dodge aren't weapon-driven, so they
+default to an "average player" profile (HP 20, def 3, dodge 15)
+and are overrideable via `--player-hp / --player-defense /
+--player-dodge`.
+
 ### 2026-04-20 — Playtest Tooling: `render_flavor` Body-Part Modes + `playtest_action_dice`
 
 Two tool additions for balance-proofing the combat refactor
