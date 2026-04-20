@@ -37,6 +37,9 @@ Existing tools (`python -m tools.<name> --help` for details):
   run default. Use instead of `sed` or inline `re.sub` loops.
 - **`check_ideas`** / **`post_patch_notes`** / **`edit_patch_notes`**
   — community-idea mining + patch-note posting against MongoDB.
+- **`notify`** — Windows PowerShell TTS for an audible cue when
+  the user is AFK and the agent needs attention (background-agent
+  completion, pre/post-deploy ritual approval gates, etc.).
 
 Shape to follow when adding a new tool:
 

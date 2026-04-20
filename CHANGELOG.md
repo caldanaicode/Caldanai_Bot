@@ -4,6 +4,15 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — `tools/notify` TTS Helper
+
+Small operator tool: `python -m tools.notify "<message>"` speaks
+the message via Windows PowerShell TTS. Intended as an audible
+attention cue when the user is AFK and an agent needs approval
+(background-agent completion, pre/post-deploy ritual gates,
+etc.). Message goes to PowerShell via an env var so there's
+zero shell-interpolation surface regardless of message content.
+
 ### 2026-04-19 — Combat Pipeline: Phase 1 Scaffolding
 
 First phase of the combat pipeline refactor (see Obsidian
