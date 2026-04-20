@@ -54,6 +54,13 @@ class BodyPartPlugin(BodyPart):
     traits: Dict[DamageTypes, float] = {}
     exposure: Dict[Reach, float] = {}
     debuffs: Dict[InjuryLevels, Dict[Stat, int]] = {}
+    # Default combat actions this part contributes to its owner's
+    # ``pick_actions`` pool. Each entry is a dict carrying ``cost`` /
+    # ``weight`` / ``dice`` / ``dmg_type`` / ``reach`` / ``label`` /
+    # ``narrative``. Phase 3 populates this on the active plugins
+    # (``HeadPlugin``, ``ArmPlugin``, etc.); Phase 2 keeps it empty
+    # so pipeline orchestration is testable without content yet.
+    DEFAULT_ACTIONS: Dict[str, Dict] = {}
 
     # Name-keyed registry populated by :meth:`load_plugins`. Mirrors
     # ``PluginManager.LOADED_PLUGINS`` but keyed by the plugin's declared

@@ -1,5 +1,6 @@
-from random import choice, choices, random
-from typing import List, Union, Optional, Dict, Set
+from collections import defaultdict
+from random import choice, choices, random, sample
+from typing import List, Tuple, Union, Optional, Dict, Set
 
 from discord import Embed, File
 
@@ -11,11 +12,16 @@ from caldanai.lib.rpg.combat.attack_source import (
     NaturalAttackSource,
 )
 from caldanai.lib.rpg.combat.block import Assignment, ReactionEntry
-from caldanai.lib.rpg.combat.resolution import MultiVictimResolutionResult
+from caldanai.lib.rpg.combat.resolution import (
+    MultiVictimResolutionResult,
+    ResolutionResult,
+    apply_sequence_to_target,
+)
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
     INJURY_LEVEL_DISPLAY, Pronouns, DamageTypes, InjuryLevels, Reach, Size, Stat,
 )
+from caldanai.lib.rpg.helpers.parser import article
 from caldanai.lib.rpg.helpers.roll_data import (
     AttackRoll, DamageRoll, CombinedRoll)
 
@@ -247,13 +253,86 @@ class Creature:
 
     ACTION_BUDGET: int = 2
 
+    def get_action_budget(self) -> int:
+        """Number of action points this creature may spend this round.
+
+        Base reads the declarative ``ACTION_BUDGET`` class attribute.
+        Dynamic attackers (hydra, whose budget scales with live heads)
+        override this method directly."""
+        return self.ACTION_BUDGET
+
     def pick_actions(self) -> List[AttackSource]:
-        """Stage 1 — select attack sources this creature will use
-        this round. Default returns the first source from
-        :meth:`get_attack_sources` to preserve today's single-attack
-        behavior."""
-        sources = self.get_attack_sources()
-        return [sources[0]] if sources else []
+        """Stage 1 — walk living body parts, collect the merged
+        ``DEFAULT_ACTIONS`` pool (part-default + creature override),
+        then weighted-random select within :meth:`get_action_budget`.
+
+        Returns ``NaturalAttackSource`` objects built from each
+        selected action entry. When no part declares any actions (the
+        pre-Phase-3 default for every monster), falls back to the
+        first entry from :meth:`get_attack_sources` so today's
+        single-attack behavior is preserved."""
+        part_pools = self._collect_part_action_pools()
+        if not part_pools:
+            sources = self.get_attack_sources()
+            return [sources[0]] if sources else []
+
+        selected = _select_actions_within_budget(
+            part_pools, self.get_action_budget(),
+        )
+        if not selected:
+            sources = self.get_attack_sources()
+            return [sources[0]] if sources else []
+
+        sources: List[AttackSource] = []
+        for part, action_name, action in selected:
+            reach = action.get("reach", Reach.MELEE)
+            dmg_type = action.get("dmg_type")
+            label = action.get("label", action_name)
+            source = NaturalAttackSource(
+                atk=action.get("dice", "1d4"),
+                dmg_type=dmg_type,
+                label=label,
+                skill=action.get("skill", "natural"),
+                reach=reach,
+            )
+            # Stash origin so downstream stages (narrative, resolve,
+            # reactions) can recover the part and template pool without
+            # rethreading them through the pipeline signature. Not a
+            # public field on AttackSource — phase-local bookkeeping.
+            source._part = part
+            source._action_name = action_name
+            source._action = action
+            sources.append(source)
+        return sources
+
+    def _collect_part_action_pools(
+        self,
+    ) -> List[Tuple[BodyPart, Dict[str, Dict]]]:
+        """Walk living parts, return ``(part, merged_actions)`` pairs.
+
+        Merged actions = part's ``DEFAULT_ACTIONS`` overlaid with any
+        matching entry in this creature's ``ACTION_OVERRIDES`` (keyed
+        by ``(part_type, action_name)``). Parts whose merged pool is
+        empty drop out — partially populated anatomies (Phase 3) need
+        to be tolerated gracefully."""
+        overrides = getattr(self, "ACTION_OVERRIDES", {}) or {}
+        pools: List[Tuple[BodyPart, Dict[str, Dict]]] = []
+        for part in self.body_parts:
+            if part.is_destroyed():
+                continue
+            defaults = getattr(part, "DEFAULT_ACTIONS", {}) or {}
+            if not defaults:
+                continue
+            part_type = _part_base_name(part)
+            merged: Dict[str, Dict] = {}
+            for action_name, entry in defaults.items():
+                merged[action_name] = dict(entry)
+                override = overrides.get((part_type, action_name))
+                if override:
+                    merged[action_name].update(override)
+            if merged:
+                pools.append((part, merged))
+        return pools
 
     def pick_targets(
         self,
@@ -264,7 +343,7 @@ class Creature:
         single-target: every action points at the first living
         combatant. Sources with a preset ``intended_target`` honor it.
         Multi-target attackers (Hydra) override to distribute actions
-        across combatants."""
+        across combatants via :func:`round_robin_assignment`."""
         if not actions:
             return []
         living = [c for c in combatants if not c.is_dead()]
@@ -281,59 +360,279 @@ class Creature:
         self,
         assignments: List[Assignment],
     ) -> MultiVictimResolutionResult:
-        """Stage 3 — roll to-hit + damage for each assignment, route
-        part damage, fire hooks. Default returns an empty result; the
-        live ``apply_sequence_to_target`` path remains the authoritative
-        resolver until phase 2 lifts it into the pipeline."""
-        # TODO: fills in at phase 2 — lift apply_sequence_to_target into multi-victim form.
-        return MultiVictimResolutionResult()
+        """Stage 3 — bucket assignments by victim, run each bucket
+        through :func:`apply_sequence_to_target`, aggregate into a
+        :class:`MultiVictimResolutionResult`.
+
+        Each source's :meth:`make_attack_rolls` fires against this
+        creature (the attacker); the victim's :meth:`resolve_attack`
+        produces the per-hit :class:`AttackResult`. Target-part
+        selection mirrors today's :meth:`do_attack` — honor a coupled
+        ``(victim, part)`` assignment when present, else
+        exposure-weighted random via :func:`pick_random_part`."""
+        if not assignments:
+            return MultiVictimResolutionResult()
+
+        victims_order: List["Creature"] = []
+        seen_ids: Set[int] = set()
+        victim_buckets: Dict[int, List[AttackResult]] = defaultdict(list)
+        all_results: List[AttackResult] = []
+
+        for assignment in assignments:
+            source = assignment.source
+            target = assignment.target
+            if isinstance(target, tuple):
+                victim, coupled_part = target
+            else:
+                victim, coupled_part = target, None
+            if victim is None:
+                continue
+
+            if id(victim) not in seen_ids:
+                seen_ids.add(id(victim))
+                victims_order.append(victim)
+
+            target_part = coupled_part
+            target_dodge = None
+            if target_part is None and getattr(victim, "body_parts", None):
+                target_part = pick_random_part(
+                    victim.get_targetable_parts(), source.reach,
+                )
+            if target_part is not None:
+                target_dodge = victim.get_targeted_dodge(self, target_part, source)
+
+            atk_roll, dmg_roll = source.make_attack_rolls(self)
+            result = victim.resolve_attack(
+                self, source, atk_roll, dmg_roll, target_dodge=target_dodge,
+            )
+            result.target_part = target_part
+            result.victim = victim
+            self._on_attack_resolved(source, result)
+            victim_buckets[id(victim)].append(result)
+            all_results.append(result)
+
+        per_victim: Dict["Creature", ResolutionResult] = {}
+        any_crit = False
+        for victim in victims_order:
+            bucket = victim_buckets[id(victim)]
+            part_routed = [
+                r for r in bucket
+                if r.damage > 0 and r.target_part is not None
+            ]
+            victim_seq = AttackSequence(
+                attacker=self, target=victim, results=part_routed,
+            )
+            resolution = apply_sequence_to_target(
+                victim_seq, victim, attacker=self,
+            )
+            # Recompute ``num_hits`` / ``body_damage_total`` across ALL
+            # positive-damage results (not just part-routed) so the
+            # downstream damage-summary floor matches today's behavior
+            # for partless targets.
+            num_hits = sum(1 for r in bucket if r.damage > 0)
+            raw_total = sum(r.damage for r in bucket if r.damage > 0)
+            resolution.num_hits = num_hits
+            resolution.body_damage_total = raw_total
+            # Body HP: apply the post-defense total via the whole-body
+            # path once per victim, mirroring today's
+            # ``MonsterPlugin.attack_random`` / ``Game.do_combat`` math.
+            # Skipped when the critical-part path already zeroed
+            # ``victim.health`` so we don't re-enter a dead-victim
+            # death transition.
+            if num_hits > 0 and not victim.is_dead():
+                defense = victim.get_defense()
+                final_body_dmg = max(num_hits, raw_total - defense)
+                d_msg = victim.apply_damage(final_body_dmg)
+                if d_msg and not resolution.death_msg:
+                    resolution.death_msg = d_msg
+            per_victim[victim] = resolution
+            if resolution.critical_part_kill:
+                any_crit = True
+
+        return MultiVictimResolutionResult(
+            per_victim=per_victim,
+            all_results=all_results,
+            any_critical_part_kill=any_crit,
+        )
 
     def narrate_attempt(
         self,
         assignments: List[Assignment],
     ) -> Optional[str]:
-        """Stage 4 — pre-resolution flavor. Default no narrative;
-        heavy hitters (Hydra's multi-head intros) override."""
-        return None
+        """Stage 4 — per-assignment attempt flavor lifted from each
+        source's action entry. Pulls a random template from the
+        action's ``"narrative"`` pool, formats with part display name
+        / victim name / action label / article, and runs the whole
+        paragraph through :func:`parse` with this creature as ``@1``
+        and the first victim as ``@2``.
+
+        Returns ``None`` when no assignment's source carries a
+        narrative pool — this is the Phase 2 default until Phase 3
+        populates body-part pools."""
+        if not assignments:
+            return None
+        lines: List[str] = []
+        first_victim = None
+        for assignment in assignments:
+            source = assignment.source
+            action = getattr(source, "_action", None)
+            if not action:
+                continue
+            templates = action.get("narrative") or []
+            if not templates:
+                continue
+            template = choice(templates)
+            target = assignment.target
+            victim = target[0] if isinstance(target, tuple) else target
+            if first_victim is None:
+                first_victim = victim
+            victim_name = getattr(victim, "name", "someone")
+            part = getattr(source, "_part", None)
+            display = part.display_name if part is not None else ""
+            label = action.get("label", getattr(source, "_action_name", ""))
+            line = template.format(
+                display=display,
+                victim=victim_name,
+                label=label,
+                article=article(label),
+            )
+            lines.append(line)
+        if not lines:
+            return None
+        if first_victim is None:
+            return parse("\n".join(lines), self)
+        return parse("\n".join(lines), self, first_victim)
 
     def render_table(
         self,
         results: MultiVictimResolutionResult,
     ) -> str:
-        """Stage 5 — the compact diff-block attack table. Default
-        empty; today's ``AttackSequence._render_compact_table`` is the
-        reference lifted in phase 2."""
-        # TODO: fills in at phase 2 — compose AttackSequence-style table over MultiVictimResolutionResult.
-        return ""
+        """Stage 5 — the compact diff-block attack table, composed
+        over every :class:`AttackResult` across all victims. Defers to
+        :meth:`AttackSequence.to_markdown` via a synthetic sequence
+        over ``results.all_results``."""
+        flat = list(results.all_results or [])
+        if not flat:
+            return ""
+        first_victim = getattr(flat[0], "victim", None) or self
+        sequence = AttackSequence(
+            attacker=self,
+            target=first_victim,
+            results=flat,
+            multi_target=len({id(getattr(r, "victim", None)) for r in flat}) > 1,
+        )
+        return sequence.to_markdown()
 
     def narrate_results(
         self,
         results: MultiVictimResolutionResult,
     ) -> List[str]:
-        """Stage 6 — per-part injury flavor lines bucketed by victim.
-        Default empty; today's ``ResolutionResult.injury_feedback_lines``
-        is the reference lifted in phase 2."""
-        # TODO: fills in at phase 2 — generalize injury_feedback_lines across victims.
-        return []
+        """Stage 6 — per-victim injury feedback lines. Concatenates
+        every victim's :attr:`ResolutionResult.injury_feedback_lines`
+        (already owner-prefixed by :func:`apply_sequence_to_target`)
+        in first-encounter order."""
+        lines: List[str] = []
+        for _victim, resolution in (results.per_victim or {}).items():
+            lines.extend(resolution.injury_feedback_lines)
+        return lines
 
     def summarize_damage(
         self,
         results: MultiVictimResolutionResult,
         victims: List["Creature"],
+        health_snapshots: Optional[Dict["Creature", int]] = None,
     ) -> Optional[str]:
-        """Stage 7 — the "Total damage done vs Health" line,
-        suppressed on critical-part kills. Default None."""
-        # TODO: fills in at phase 2 — HP summary per victim with critical-part suppression.
-        return None
+        """Stage 7 — "Total damage done vs Health" summary, suppressed
+        wholesale when any victim died to a critical-part kill (the
+        "utterly destroyed" feedback + death beat already tell the
+        story). One per-victim block using today's figure-space
+        template; multi-victim loops the same shape, prefixed by the
+        victim name so the reader can tell whose HP is whose.
+
+        ``health_snapshots`` supplies pre-round HP per victim — Phase 5
+        captures these before the round so the "vs" number matches
+        today's ``Game.do_combat`` output exactly. If omitted, falls
+        back to ``victim.get_health_max()`` (useful for isolated tests
+        where no round composer is running)."""
+        if results.any_critical_part_kill:
+            return None
+        per_victim = results.per_victim or {}
+        if not per_victim:
+            return None
+        multi = len(per_victim) > 1
+        out_lines: List[str] = []
+        for victim in victims:
+            resolution = per_victim.get(victim)
+            if resolution is None or resolution.num_hits == 0:
+                continue
+            defense = victim.get_defense()
+            final = max(
+                resolution.num_hits,
+                resolution.body_damage_total - defense,
+            )
+            if health_snapshots is not None and victim in health_snapshots:
+                reference = health_snapshots[victim]
+            else:
+                reference = victim.get_health_max()
+            current = getattr(victim, "health", 0)
+            remaining = 0 if victim.is_dead() else max(current, 0)
+            header = "Total damage done vs Health:"
+            if multi:
+                victim_name = getattr(victim, "name", "someone") or "someone"
+                header = f"{victim_name} — Total damage done vs Health:"
+            out_lines.append(
+                f"{header}\n\u2800\u2800\u2800\u2800"
+                f"{final:,} vs {reference:,} "
+                f"= **{remaining} health remaining.**"
+            )
+        if not out_lines:
+            return None
+        return "\n".join(out_lines)
 
     def narrate_target_death(
         self,
         newly_dead: List["Creature"],
+        results: Optional[MultiVictimResolutionResult] = None,
     ) -> Optional[str]:
-        """Stage 8 — victim death flavor when this block killed
-        someone. Default None."""
-        # TODO: fills in at phase 2 — death flavor per victim killed this block.
-        return None
+        """Stage 8 — victim death flavor. Dispatch order per victim:
+        part-driven-death hook (:meth:`check_part_driven_death`) →
+        the already-computed ``result.death_msg`` from
+        :func:`apply_sequence_to_target` (critical-part-kill flavor
+        like "@1np head is utterly destroyed") → the victim's
+        ``death`` attribute (monsters) → a generic "crumples
+        lifelessly" line (players).
+
+        Returns a single string joining every death beat with newlines,
+        or ``None`` when nothing died."""
+        if not newly_dead:
+            return None
+        per_victim = (results.per_victim if results is not None else {}) or {}
+        beats: List[str] = []
+        for victim in newly_dead:
+            beat = None
+            hook = getattr(victim, "check_part_driven_death", None)
+            if callable(hook):
+                try:
+                    beat = hook()
+                except TypeError:
+                    beat = None
+            if not beat:
+                resolution = per_victim.get(victim)
+                if resolution is not None and resolution.death_msg:
+                    beat = parse(resolution.death_msg, victim)
+            if not beat:
+                death_attr = getattr(victim, "death", None)
+                if death_attr:
+                    beat = parse(death_attr, victim)
+                else:
+                    beat = parse(
+                        "@1 crumples to the ground lifelessly!", victim,
+                    )
+            if beat:
+                beats.append(beat)
+        if not beats:
+            return None
+        return "\n".join(beats)
 
     def reactions(
         self,
@@ -343,7 +642,12 @@ class Creature:
     ) -> List[ReactionEntry]:
         """Stage 9 — out-of-turn effects (thorns, status ticks,
         explode-on-death). Default empty; monsters with retaliation /
-        death-triggered effects override."""
+        death-triggered effects override.
+
+        TODO: phase 2 of reactions-stage work lands when the first
+        reaction mechanic ships. Today no combat code emits reactions,
+        so the default stays empty and downstream stages see no
+        ``ReactionEntry`` inputs."""
         return []
 
     def narrate_attacker_death(
@@ -352,8 +656,18 @@ class Creature:
         reactions_output: List[ReactionEntry],
     ) -> Optional[str]:
         """Stage 10 — single death beat when reactions kill the
-        block's own attacker (thorns, death-curse). Default None."""
-        return None
+        block's own attacker (thorns, death-curse). Default ``None``
+        because no current reaction mechanic can kill the attacker.
+
+        TODO: phase 2 of reactions-stage work — this stage only
+        produces output once :meth:`reactions` can return a
+        :class:`ReactionEntry` that killed ``attacker``."""
+        if attacker is None or not reactions_output or not attacker.is_dead():
+            return None
+        death_attr = getattr(attacker, "death", None)
+        if death_attr:
+            return parse(death_attr, attacker)
+        return parse("@1 crumples to the ground lifelessly!", attacker)
 
     def do_attack(
         self,
@@ -1273,3 +1587,65 @@ def pick_random_part(parts: List[BodyPart], reach: Reach) -> Optional[BodyPart]:
     if sum(weights) == 0:
         return None
     return choices(parts, weights=weights, k=1)[0]
+
+
+def _select_actions_within_budget(
+    part_pools: List[Tuple[BodyPart, Dict[str, Dict]]],
+    budget: int,
+) -> List[Tuple[BodyPart, str, Dict]]:
+    """Weighted-random action selection capped by ``budget``.
+
+    Walks the parts in the caller's order, picking one action per
+    part by ``weight`` and subtracting its ``cost`` from the remaining
+    budget. When the cheapest action for the current part is too
+    expensive, skip the part rather than pick nothing. Returns
+    ``(part, action_name, action_dict)`` triples for the selected
+    actions.
+
+    Shape lifted directly from hydra's ``_select_round_actions`` for
+    parity — see the design doc's "Action budget" section for the
+    behavioral contract."""
+    if budget <= 0 or not part_pools:
+        return []
+    selected: List[Tuple[BodyPart, str, Dict]] = []
+    remaining = budget
+    for part, repertoire in part_pools:
+        if remaining <= 0:
+            break
+        if not repertoire:
+            continue
+        affordable = {
+            name: action for name, action in repertoire.items()
+            if action.get("cost", 1) <= remaining
+        }
+        if not affordable:
+            continue
+        names = list(affordable.keys())
+        weights = [affordable[n].get("weight", 1.0) for n in names]
+        picked_name = choices(names, weights=weights, k=1)[0]
+        picked_action = affordable[picked_name]
+        selected.append((part, picked_name, picked_action))
+        remaining -= picked_action.get("cost", 1)
+    return selected
+
+
+def round_robin_assignment(
+    actions: List[AttackSource],
+    combatants: List["Creature"],
+) -> List[Assignment]:
+    """Distribute ``actions`` round-robin across ``combatants``.
+
+    Exposed as a free helper so multi-target creatures (hydra today,
+    future swarms / AoE magic) can call it from their own
+    ``pick_targets`` override without re-implementing the loop.
+    Shuffles the actions so which specific head acts on which victim
+    is random, and wraps via modulo so N actions > M combatants
+    spreads evenly instead of dogpiling the last slot."""
+    if not actions or not combatants:
+        return []
+    shuffled = sample(list(actions), len(actions))
+    out: List[Assignment] = []
+    for i, source in enumerate(shuffled):
+        victim = combatants[i % len(combatants)]
+        out.append(Assignment(source=source, target=victim))
+    return out

@@ -4,6 +4,39 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 2 Mechanical + Narrative Lift
+
+Second phase of the combat pipeline refactor. Lifts generic
+logic from hydra and today's shared combat code into real
+implementations of `Creature`'s ten stage methods. No runtime
+surface yet — `Game.do_combat` stays unwired until Phase 5.
+
+- Real implementations: `pick_actions` (part-default collection
+  + weighted-random budget selection), `pick_targets` (single-
+  target default, honors `intended_target`), `resolve` (wraps
+  `apply_sequence_to_target` per victim + applies body-HP
+  damage), `narrate_attempt` (template pool + `parse()`),
+  `narrate_results` (multi-victim injury-feedback lines),
+  `narrate_target_death` (part-driven-death → `result.death_msg`
+  → `self.death` → fallback dispatch), `summarize_damage` (with
+  optional `health_snapshots` parameter so Phase 5 can match
+  today's `vs {health_before}` output exactly), `render_table`,
+  `reactions` (empty default), `narrate_attacker_death` (gated
+  on non-empty reactions output).
+- `BodyPartPlugin.DEFAULT_ACTIONS = {}` and
+  `MonsterPlugin.ACTION_OVERRIDES = {}` added as empty class-
+  level defaults; Phase 3 populates content.
+- `get_action_budget()` method reads `ACTION_BUDGET` class attr
+  by default; hydra will override the method in Phase 4 for its
+  dynamic budget formula.
+- Differential parity tests against hydra's legacy methods
+  (`tests/test_combat_pipeline_vs_hydra.py`) using a test-scope
+  fixture that wires `_REPERTOIRE_*` into each head's
+  `DEFAULT_ACTIONS` — catches lifting bugs in Phase 2 rather
+  than surfacing them in Phase 4 playtest.
+
+2919 → 2925 passing.
+
 ### 2026-04-19 — `tools/notify` TTS Helper
 
 Small operator tool: `python -m tools.notify "<message>"` speaks
