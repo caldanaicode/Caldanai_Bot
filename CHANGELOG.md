@@ -4,6 +4,16 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Minotaur Flavor Capitalization Fix
+
+Three minotaur flavor strings had lowercase form-letter tokens
+(`@1a`, `@1s`) at sentence-start positions where capital forms
+(`@1A`, `@1S`) were intended. Rendered as "her horns…",
+"she appears…", "she snorts…" after a sentence-ending period.
+Spotted in LIVE tail ("Corded muscle and a head full of hostile
+intent. she appears…"). Every other monster already used the
+convention correctly — minotaur was the outlier.
+
 ### 2026-04-20 — Combat Pipeline: Phase 2 Mechanical + Narrative Lift
 
 Second phase of the combat pipeline refactor. Lifts generic

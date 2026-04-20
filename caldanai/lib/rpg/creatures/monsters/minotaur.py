@@ -59,9 +59,9 @@ class Minotaur(MonsterPlugin):
 
         self.flavor = choice([
             "A massive humanoid from the shoulders down, and unmistakably "
-            "bull from the shoulders up. @1a horns look very, very sharp.",
+            "bull from the shoulders up. @1A horns look very, very sharp.",
             "Corded muscle and a head full of hostile intent. "
-            "@1s appears to take personal offense at being looked at.",
+            "@1S appears to take personal offense at being looked at.",
             "This @1 smells of hot sweat and hay, but nothing about @1o "
             "suggests domestication.",
         ])
@@ -100,7 +100,7 @@ class Minotaur(MonsterPlugin):
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([
             f"@1dc pauses mid-{invocation}, confused by the sudden "
-            "absence of stabbing. @1s snorts hot breath down @2's neck.",
+            "absence of stabbing. @1S snorts hot breath down @2's neck.",
             "@1dc's tail lashes once, then twice, then @1s shoves @2 "
             "away with the flat of a calloused palm.",
             "A low, threatening rumble vibrates through @1a chest as @2 "
