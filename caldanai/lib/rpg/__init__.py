@@ -612,31 +612,85 @@ class Game:
         player: "Player",
         monster: "MonsterPlugin",
     ) -> "Tuple[str, int, Optional[object]]":
-        """Execute one player's attacker-block and return its rendered
-        markdown, total damage dealt, and the underlying
-        :class:`ResolutionResult` (for body-HP + death bookkeeping).
+        """Execute one player's attacker-block via the combat pipeline
+        stages and return its rendered markdown, total damage dealt, and
+        the per-victim :class:`ResolutionResult` for body-HP + death
+        bookkeeping.
 
-        Player's attacks still flow through ``do_attack`` +
-        ``apply_sequence_to_target``; Phase 5 wraps that as one block
-        in the new round-composer loop rather than porting Player onto
-        the part-driven ``Creature.resolve`` path. Player targeting
-        (equipment-as-sources, explicit part names, dual-wield) stays
-        owned by ``Player.do_attack`` / ``Player.get_attack_sources``.
+        Phase 6d port — player combat runs through
+        ``pick_actions`` → ``pick_targets`` → ``resolve`` →
+        ``render_table`` → ``narrate_results`` just like every monster
+        plugin's :meth:`attack_random`. ``Player.pick_actions`` returns
+        the equipment-aware source list; explicit part-targeting from
+        ``$kill arm.left leg.right`` / ``$target`` is resolved into
+        coupled ``(monster, part)`` assignments up front, so the
+        default ``pick_targets`` routing honors them the same way
+        legacy ``do_attack`` did. Body-HP application with the
+        ``max(num_hits, total - defense)`` floor stays the composer's
+        responsibility (Phase 6a moved it out of ``Creature.resolve``).
         """
+        from caldanai.lib.rpg.combat.block import Assignment, CombatBlock
+        from random import choice as _choice
+
         player.health_regen = 0
         if player not in self.looters:
             await self.player_manager.set_player_combatant(player)
             self.looters.append(player)
+
+        actions = player.pick_actions()
         explicit_targets = self.combat_targets.get(player.user_id)
-        sequence = player.do_attack(monster, explicit_part_names=explicit_targets)
-        block_msg = sequence.to_markdown()
-        damage = sequence.total_damage()
-        resolution = apply_sequence_to_target(sequence, monster)
-        # Phase 6 follow-up: populate a CombatBlock for the API-narrator
-        # bridge. Today Player still runs the legacy do_attack path so
-        # constructing a hollow block here would rot; deferred until
-        # Player genuinely flows through Creature.pick_actions / resolve
-        # and body-HP ownership moves out of Creature.resolve.
+
+        # Pre-resolve explicit part names into concrete parts, then
+        # build tuple-form assignments so ``Creature.resolve`` routes
+        # damage to the chosen part. Mirrors ``Creature.do_attack``'s
+        # indexing (one name → all sources, N names → source[i] cycles
+        # mod N).
+        explicit_parts: "List[Optional[object]]" = []
+        if explicit_targets and monster.body_parts:
+            for name in explicit_targets:
+                matches = monster.find_parts(name)
+                explicit_parts.append(_choice(matches) if matches else None)
+
+        assignments: "List[Assignment]" = []
+        if actions:
+            if explicit_parts:
+                for i, source in enumerate(actions):
+                    resolved = explicit_parts[i % len(explicit_parts)]
+                    if resolved is not None and not resolved.is_destroyed():
+                        assignments.append(
+                            Assignment(source=source, target=(monster, resolved)),
+                        )
+                    else:
+                        assignments.append(
+                            Assignment(source=source, target=monster),
+                        )
+            else:
+                assignments = player.pick_targets(actions, [monster])
+
+        results = player.resolve(assignments)
+        table = player.render_table(results)
+        result_lines = player.narrate_results(results)
+
+        resolution = results.per_victim.get(monster) if results is not None else None
+
+        # Accumulator block populated with the real pipeline outputs.
+        # Local-only today — no downstream consumer yet — but the
+        # fields carry real data so a future API-narrator bridge
+        # reads structured assignments / results, not empty shells.
+        _ = CombatBlock(
+            attacker=player,
+            actions=list(actions),
+            assignments=list(assignments),
+            results=results,
+            table=table or None,
+            result_narratives=list(result_lines),
+        )
+
+        block_msg = table
+        damage = sum(
+            r.damage for r in (results.all_results or []) if r.damage > 0
+        ) if results is not None else 0
+
         return block_msg, damage, resolution
 
     async def _do_combat_legacy(self):

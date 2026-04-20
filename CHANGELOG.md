@@ -4,6 +4,74 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 6d Player Pipeline Port (end-to-end complete)
+
+Player attacks now flow through the pipeline stages at runtime.
+`Game._run_player_block` drives `pick_actions` → (explicit-part
+resolution) → `resolve` → `render_table` → `narrate_results`
+instead of wrapping legacy `Player.do_attack` +
+`apply_sequence_to_target`. Every combat path in the game
+(player + every monster + hydra + dragon + vampire) runs
+through the pipeline — the refactor is structurally complete.
+
+`Player.pick_actions`: one-line override returning
+`self.get_attack_sources()` (already equipment-aware via the
+existing Phase 1+ method — unarmed, one-weapon, two-handed,
+arm-injury dropout all preserved).
+
+`Player.render_table`: override that injects
+`get_disabled_attack_notes()` into the synthetic
+`AttackSequence` so "The right arm hangs limp and useless."
+renders inside the diff block exactly as pre-6d. Notes-only
+branch (both arms USELESS) still emits a damage=0 block with
+no table rows — matches legacy shape.
+
+Explicit-part targeting (`$target arm.left`, `$kill head`)
+routes via tuple-form `Assignment(source, target=(monster,
+part))`. `Creature.resolve` already handled tuple targets
+since Phase 2. Dual-wield with multi-part targets cycles
+`source[i] → part[i % len(parts)]` preserving pre-6d routing.
+
+`CombatBlock` now carries real data — actions, assignments,
+results, table, result_narratives. Local to
+`_run_player_block` (no downstream consumer yet), but the
+API-narrator bridge has real data to read when that work
+lands.
+
+`Player.do_attack` preserved unchanged as a legacy entry
+point — tests and external callers still rely on it.
+`Game._do_combat_legacy` is also still callable for one-line
+rollback if a playtest regression surfaces.
+
+Body-HP application stays in the round composer (Phase 6a
+ownership): `max(num_hits, body_damage_total - defense)`
+with the legacy `num_hits > 0 && not monster.is_dead()`
+gates. XP / skill-gain via `_on_attack_resolved` fires from
+inside `Creature.resolve` → preserved.
+
+9 new `TestPlayerPipelinePort` tests (loadouts × 5 + tuple
+routing + notes rendering + zero-source path). 4 parity
+tests in `test_game_do_combat_parity.py` repointed from
+`Player.do_attack` → `Player.pick_actions` / `Player.resolve`
+monkey-patches; still pin what they originally asserted.
+
+3075 → 3084 passing. Three consecutive clean runs.
+
+Playtest focus:
+- Dual-wield attack against multi-part monster: diff table
+  shows Left + Right rows with correct labels and part
+  routing.
+- Explicit part-targeting (`$target arm.left`, `$kill
+  head.1 head.2` on hydra) with both single- and multi-part
+  names.
+- Cripple an arm, then attack: disabled-note renders inside
+  the diff block above the damage table.
+- Both arms crippled: notes-only block, zero damage, no HP
+  summary change.
+- Critical-part kill (decapitate hydra / goblin head):
+  HP summary suppressed, death beat lands.
+- XP gain across a round of weapon-type hits.
+
 ### 2026-04-20 — Combat Pipeline: Phase 6c Dragon Thin-Override
 
 Dragon's `attack_random` now follows the post-refactor thin-

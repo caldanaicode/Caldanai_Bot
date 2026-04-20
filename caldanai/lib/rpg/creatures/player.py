@@ -337,6 +337,55 @@ class Player(Creature):
             sequence.notes.extend(notes)
         return sequence
 
+    def pick_actions(self) -> List[AttackSource]:
+        """Pipeline stage 1 — players use equipment-aware sources.
+
+        Bypasses the part-default action pool walk that
+        :meth:`Creature.pick_actions` runs (players don't carry
+        ``DEFAULT_ACTIONS`` dicts on humanoid parts yet) and returns
+        :meth:`get_attack_sources` directly. Arm-injury handling and
+        dual-wield / two-handed routing already live there."""
+        return self.get_attack_sources()
+
+    def render_table(self, results) -> str:
+        """Pipeline stage 5 — same diff-block shape as
+        :meth:`Creature.render_table`, but with disabled-arm notes
+        attached to the synthetic ``AttackSequence`` so
+        ``to_markdown`` surfaces them inside the diff block (parity
+        with the legacy ``do_attack`` path's ``sequence.notes``).
+
+        When no results landed and there are no notes, returns an
+        empty string. When no results landed but notes exist (both
+        arms USELESS on a two-handed weapon, say), a notes-only
+        block is produced so the player still sees why nothing
+        swung."""
+        from caldanai.lib.rpg.combat.attack_result import AttackSequence
+
+        notes = self.get_disabled_attack_notes()
+        flat = list(results.all_results or []) if results is not None else []
+        if not flat and not notes:
+            return ""
+        if flat:
+            first_victim = getattr(flat[0], "victim", None) or self
+            sequence = AttackSequence(
+                attacker=self,
+                target=first_victim,
+                results=flat,
+                multi_target=len({id(getattr(r, "victim", None)) for r in flat}) > 1,
+                notes=list(notes),
+            )
+        else:
+            # Notes-only path: no results means no attacker-target
+            # axis, but the header still wants a target. Fall back to
+            # ``self`` so ``_build_header`` has a coherent shape.
+            sequence = AttackSequence(
+                attacker=self,
+                target=self,
+                results=[],
+                notes=list(notes),
+            )
+        return sequence.to_markdown()
+
     def _on_attack_resolved(self, source, result) -> None:
         """Grants skill XP on hits, updates roll counts, and inherits
         the base hook's drain handling (so a player wielding a

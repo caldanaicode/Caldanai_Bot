@@ -148,14 +148,14 @@ class TestTurnOrder:
         game.combatants = [alice, bob, charlie]
 
         order: list = []
-        real_do_attack = alice.do_attack  # any instance method
+        from caldanai.lib.rpg.creatures.player import Player
+        real_pick_actions = Player.pick_actions
 
         def _record(self, *args, **kwargs):
             order.append(self.name)
-            return real_do_attack.__func__(self, *args, **kwargs)
+            return real_pick_actions(self, *args, **kwargs)
 
-        from caldanai.lib.rpg.creatures.player import Player
-        monkeypatch.setattr(Player, "do_attack", _record)
+        monkeypatch.setattr(Player, "pick_actions", _record)
 
         await game.do_combat()
 
@@ -175,13 +175,13 @@ class TestTurnOrder:
 
         events: list = []
         from caldanai.lib.rpg.creatures.player import Player
-        real_do_attack = Player.do_attack
+        real_pick_actions = Player.pick_actions
 
         def _player_attack(self, *args, **kwargs):
             events.append("player_attack")
-            return real_do_attack(self, *args, **kwargs)
+            return real_pick_actions(self, *args, **kwargs)
 
-        monkeypatch.setattr(Player, "do_attack", _player_attack)
+        monkeypatch.setattr(Player, "pick_actions", _player_attack)
 
         real_attack_random = type(goblin).attack_random
 
@@ -218,14 +218,17 @@ class TestMultiPlayerDamageTally:
 
         per_player: dict = {}
         from caldanai.lib.rpg.creatures.player import Player
-        real_do_attack = Player.do_attack
+        real_resolve = Player.resolve
 
-        def _capture(self, *args, **kwargs):
-            seq = real_do_attack(self, *args, **kwargs)
-            per_player[self.user_id] = per_player.get(self.user_id, 0) + seq.total_damage()
-            return seq
+        def _capture(self, assignments):
+            mv = real_resolve(self, assignments)
+            total = sum(
+                r.damage for r in (mv.all_results or []) if r.damage > 0
+            )
+            per_player[self.user_id] = per_player.get(self.user_id, 0) + total
+            return mv
 
-        monkeypatch.setattr(Player, "do_attack", _capture)
+        monkeypatch.setattr(Player, "resolve", _capture)
 
         hp_before = goblin.health
         await game.do_combat()
@@ -325,9 +328,14 @@ class TestCriticalPartKillSuppression:
     ):
         """When a player's attack destroys a critical part, the HP
         summary is suppressed (today's contract via
-        ``resolution.critical_part_kill``)."""
-        from caldanai.lib.rpg.combat.resolution import ResolutionResult
-        import caldanai.lib.rpg
+        ``resolution.critical_part_kill``). Phase 6d — the pipeline's
+        per-victim ``ResolutionResult`` is now the source of truth,
+        so this test patches ``Player.resolve`` to fabricate the
+        critical-part-kill signal."""
+        from caldanai.lib.rpg.combat.resolution import (
+            MultiVictimResolutionResult, ResolutionResult,
+        )
+        from caldanai.lib.rpg.creatures.player import Player
 
         goblin = _spawn("goblin")
         goblin.health = 1
@@ -336,16 +344,22 @@ class TestCriticalPartKillSuppression:
         alice = _make_player("alice", 1)
         game.combatants = [alice]
 
-        def _fake_apply(sequence, target, **kw):
-            target.health = 0
-            return ResolutionResult(
-                body_damage_total=10,
-                num_hits=1,
-                death_msg="@1np head is utterly destroyed!",
-                critical_part_kill=True,
+        def _fake_resolve(self, assignments):
+            goblin.health = 0
+            return MultiVictimResolutionResult(
+                per_victim={
+                    goblin: ResolutionResult(
+                        body_damage_total=10,
+                        num_hits=1,
+                        death_msg="@1np head is utterly destroyed!",
+                        critical_part_kill=True,
+                    ),
+                },
+                all_results=[],
+                any_critical_part_kill=True,
             )
 
-        monkeypatch.setattr(caldanai.lib.rpg, "apply_sequence_to_target", _fake_apply)
+        monkeypatch.setattr(Player, "resolve", _fake_resolve)
 
         await game.do_combat()
 
@@ -439,13 +453,13 @@ class TestDeadCombatantHandling:
 
         called_for: list = []
         from caldanai.lib.rpg.creatures.player import Player
-        real = Player.do_attack
+        real = Player.pick_actions
 
         def _record(self, *args, **kwargs):
             called_for.append(self.name)
             return real(self, *args, **kwargs)
 
-        monkeypatch.setattr(Player, "do_attack", _record)
+        monkeypatch.setattr(Player, "pick_actions", _record)
 
         await game.do_combat()
 
@@ -511,3 +525,226 @@ class TestLegacyPathStillWorks:
         )
         # Legacy produced *some* output.
         assert blob or not _patch_discord.add.call_args_list
+
+
+# ---------------------------------------------------------------------------
+# Phase 6d — player combat routed through pipeline stages
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerPipelinePort:
+    """Phase 6d: ``Game._run_player_block`` drives
+    ``player.pick_actions`` → ``pick_targets`` → ``resolve`` →
+    ``render_table`` → ``narrate_results`` rather than wrapping
+    legacy ``Player.do_attack`` + ``apply_sequence_to_target``."""
+
+    def _cripple(self, player, instance_name: str) -> None:
+        part = next(p for p in player.body_parts if p.name == instance_name)
+        part.health = 0
+
+    def test_pick_actions_unarmed_dual_hands(self):
+        """Unarmed player emits one source per usable hand."""
+        from caldanai.lib.rpg.combat.attack_source import UnarmedAttackSource
+
+        alice = _make_player("alice", 1)
+        actions = alice.pick_actions()
+        assert len(actions) == 2
+        assert all(isinstance(s, UnarmedAttackSource) for s in actions)
+        labels = {s.label for s in actions}
+        assert labels == {"Left", "Right"}
+
+    def test_pick_actions_one_weapon_one_fist(self):
+        """One weapon in the left slot → one weapon source + one fist."""
+        from caldanai.lib.rpg.combat.attack_source import (
+            UnarmedAttackSource, WeaponAttackSource,
+        )
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+
+        alice = _make_player("alice", 1)
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = EquipmentSlots.LEFT_HELD
+        weapon.damage_type = None
+        weapon.skill = "swords"
+        weapon.attack = "1d8"
+        weapon.bonus = 0
+        weapon.reach = __import__(
+            "caldanai.lib.rpg.helpers.enums", fromlist=["Reach"]
+        ).Reach.MELEE
+        alice.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        actions = alice.pick_actions()
+        assert len(actions) == 2
+        kinds = {type(s).__name__ for s in actions}
+        assert "WeaponAttackSource" in kinds
+        assert "UnarmedAttackSource" in kinds
+
+    def test_pick_actions_two_handed_yields_single_source(self):
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+
+        alice = _make_player("alice", 1)
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = (
+            EquipmentSlots.LEFT_HELD
+            | EquipmentSlots.RIGHT_HELD
+            | EquipmentSlots.MULTI_SLOT
+        )
+        weapon.damage_type = None
+        weapon.skill = "two-handed swords"
+        weapon.attack = "2d6"
+        weapon.bonus = 1
+        weapon.reach = __import__(
+            "caldanai.lib.rpg.helpers.enums", fromlist=["Reach"]
+        ).Reach.MELEE
+        alice.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        alice.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+
+        actions = alice.pick_actions()
+        assert len(actions) == 1
+        assert actions[0].label == "Two-Handed"
+
+    def test_pick_actions_drops_useless_arm_source(self):
+        alice = _make_player("alice", 1)
+        self._cripple(alice, "arm.right")
+        actions = alice.pick_actions()
+        labels = {s.label for s in actions}
+        assert "Right" not in labels
+        assert "Left" in labels
+
+    def test_pick_actions_both_arms_useless_returns_empty(self):
+        alice = _make_player("alice", 1)
+        self._cripple(alice, "arm.left")
+        self._cripple(alice, "arm.right")
+        assert alice.pick_actions() == []
+
+    @pytest.mark.asyncio
+    async def test_run_player_block_routes_through_pipeline_stages(
+        self, monkeypatch,
+    ):
+        """The block's markdown contains the diff-block table — shape
+        parity with pre-6d ``sequence.to_markdown()``."""
+        goblin = _spawn("goblin")
+        goblin.health_max = 500
+        goblin.health = 500
+        game = _make_game_with_monster(goblin)
+        alice = _make_player("alice", 1)
+        game.combatants = [alice]
+
+        call_order: list = []
+        from caldanai.lib.rpg.creatures.player import Player
+
+        real_pick = Player.pick_actions
+        real_resolve = Player.resolve
+        real_render = Player.render_table
+
+        def _pa(self):
+            call_order.append("pick_actions")
+            return real_pick(self)
+
+        def _res(self, a):
+            call_order.append("resolve")
+            return real_resolve(self, a)
+
+        def _rt(self, r):
+            call_order.append("render_table")
+            return real_render(self, r)
+
+        monkeypatch.setattr(Player, "pick_actions", _pa)
+        monkeypatch.setattr(Player, "resolve", _res)
+        monkeypatch.setattr(Player, "render_table", _rt)
+
+        msg, _damage, _res_obj = await game._run_player_block(alice, goblin)
+        # All three pipeline stages called in order.
+        assert call_order.index("pick_actions") < call_order.index("resolve")
+        assert call_order.index("resolve") < call_order.index("render_table")
+        # Table produced (unless every roll missed — accept notes-only too).
+        assert "```diff" in msg or msg == ""
+
+    @pytest.mark.asyncio
+    async def test_run_player_block_honors_explicit_part_targets(
+        self, monkeypatch,
+    ):
+        """``combat_targets[user_id] = [\"head\"]`` routes into tuple
+        assignments so the resolve stage damages the head."""
+        from caldanai.lib.rpg.combat.block import Assignment
+
+        goblin = _spawn("goblin")
+        goblin.health_max = 500
+        goblin.health = 500
+        game = _make_game_with_monster(goblin)
+        alice = _make_player("alice", 1)
+        game.combatants = [alice]
+        game.combat_targets[alice.user_id] = ["head"]
+
+        captured: list = []
+        from caldanai.lib.rpg.creatures.player import Player
+        real_resolve = Player.resolve
+
+        def _capture(self, assignments):
+            captured.append(list(assignments))
+            return real_resolve(self, assignments)
+
+        monkeypatch.setattr(Player, "resolve", _capture)
+
+        await game._run_player_block(alice, goblin)
+
+        assert captured, "resolve should have been invoked"
+        assignments = captured[0]
+        # Every assignment's target is a (goblin, head-part) tuple.
+        for a in assignments:
+            assert isinstance(a, Assignment)
+            assert isinstance(a.target, tuple)
+            victim, part = a.target
+            assert victim is goblin
+            assert part is not None and part.name.startswith("head")
+
+    @pytest.mark.asyncio
+    async def test_run_player_block_surfaces_disabled_arm_notes(self):
+        """Disabled-arm notes render in the block markdown so players
+        see why a hand didn't swing."""
+        goblin = _spawn("goblin")
+        goblin.health_max = 500
+        goblin.health = 500
+        game = _make_game_with_monster(goblin)
+        alice = _make_player("alice", 1)
+        self._cripple(alice, "arm.right")
+        game.combatants = [alice]
+
+        msg, _damage, _res = await game._run_player_block(alice, goblin)
+        assert "right arm hangs limp" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_run_player_block_no_sources_returns_notes_only(self):
+        """Two-handed weapon + one crippled arm → zero sources. The
+        block still surfaces the disabled-arm explanation rather than
+        silently rendering empty output."""
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
+
+        goblin = _spawn("goblin")
+        goblin.health_max = 500
+        goblin.health = 500
+        game = _make_game_with_monster(goblin)
+        alice = _make_player("alice", 1)
+        weapon = MagicMock(spec=Weapon)
+        weapon.slots = (
+            EquipmentSlots.LEFT_HELD
+            | EquipmentSlots.RIGHT_HELD
+            | EquipmentSlots.MULTI_SLOT
+        )
+        weapon.damage_type = None
+        weapon.skill = "two-handed swords"
+        weapon.attack = "2d6"
+        weapon.bonus = 1
+        weapon.reach = __import__(
+            "caldanai.lib.rpg.helpers.enums", fromlist=["Reach"]
+        ).Reach.MELEE
+        weapon.get_full_name = MagicMock(return_value="greatsword")
+        alice.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        self._cripple(alice, "arm.right")
+        game.combatants = [alice]
+
+        msg, damage, res = await game._run_player_block(alice, goblin)
+        assert damage == 0
+        assert res is None
+        assert "arm hangs limp" in msg.lower() or "cannot be wielded" in msg.lower()
