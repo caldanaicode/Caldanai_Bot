@@ -388,16 +388,24 @@ class Creature:
         self,
         assignments: List[Assignment],
     ) -> MultiVictimResolutionResult:
-        """Stage 3 — bucket assignments by victim, run each bucket
-        through :func:`apply_sequence_to_target`, aggregate into a
-        :class:`MultiVictimResolutionResult`.
+        """Stage 3 — pure part-routing + aggregation.
 
-        Each source's :meth:`make_attack_rolls` fires against this
-        creature (the attacker); the victim's :meth:`resolve_attack`
-        produces the per-hit :class:`AttackResult`. Target-part
-        selection mirrors today's :meth:`do_attack` — honor a coupled
-        ``(victim, part)`` assignment when present, else
-        exposure-weighted random via :func:`pick_random_part`."""
+        Bucket assignments by victim, run each bucket through
+        :func:`apply_sequence_to_target`, aggregate into a
+        :class:`MultiVictimResolutionResult`. Each source's
+        :meth:`make_attack_rolls` fires against this creature (the
+        attacker); the victim's :meth:`resolve_attack` produces the
+        per-hit :class:`AttackResult`. Target-part selection mirrors
+        today's :meth:`do_attack` — honor a coupled ``(victim, part)``
+        assignment when present, else exposure-weighted random via
+        :func:`pick_random_part`.
+
+        Body-HP application is the caller's responsibility.
+        ``Game.do_combat``, ``MonsterPlugin.attack_random``, and
+        ``Hydra.attack_random`` each own the post-resolve
+        ``victim.apply_damage(max(num_hits, total - defense))`` math
+        so this method stays a pure routing/aggregation step — which
+        is what unblocks porting Player through the pipeline."""
         if not assignments:
             return MultiVictimResolutionResult()
 
@@ -456,23 +464,12 @@ class Creature:
             # Recompute ``num_hits`` / ``body_damage_total`` across ALL
             # positive-damage results (not just part-routed) so the
             # downstream damage-summary floor matches today's behavior
-            # for partless targets.
+            # for partless targets. Body-HP application itself is the
+            # caller's job — see docstring.
             num_hits = sum(1 for r in bucket if r.damage > 0)
             raw_total = sum(r.damage for r in bucket if r.damage > 0)
             resolution.num_hits = num_hits
             resolution.body_damage_total = raw_total
-            # Body HP: apply the post-defense total via the whole-body
-            # path once per victim, mirroring today's
-            # ``MonsterPlugin.attack_random`` / ``Game.do_combat`` math.
-            # Skipped when the critical-part path already zeroed
-            # ``victim.health`` so we don't re-enter a dead-victim
-            # death transition.
-            if num_hits > 0 and not victim.is_dead():
-                defense = victim.get_defense()
-                final_body_dmg = max(num_hits, raw_total - defense)
-                d_msg = victim.apply_damage(final_body_dmg)
-                if d_msg and not resolution.death_msg:
-                    resolution.death_msg = d_msg
             per_victim[victim] = resolution
             if resolution.critical_part_kill:
                 any_crit = True

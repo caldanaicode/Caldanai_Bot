@@ -4,6 +4,26 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 6a Body-HP Ownership Refactor
+
+`Creature.resolve` no longer applies body HP — its contract is
+now pure part-routing + aggregation. Callers (`Game.do_combat`,
+`MonsterPlugin.attack_random`, `Hydra.attack_random`) own the
+body-HP write explicitly. Prerequisite for Phase 6b/c/d
+(porting all monsters + Player through the pipeline) because
+without it, any caller that wrapped resolve AND applied body HP
+of its own would double-apply.
+
+`Game.do_combat` and `MonsterPlugin.attack_random` already owned
+body HP today — no change needed. `Hydra.attack_random` gains
+an explicit apply-damage block in its per-victim loop mirroring
+MonsterPlugin's pattern (formula, guards, death-message capture
+all identical).
+
+New `TestResolveNoLongerAppliesBodyHP` pins the contract —
+seeds until a hit lands, asserts `victim.health` unchanged
+post-resolve. Would fail against the pre-6a shape.
+
 ### 2026-04-20 — `tools/repeat` Command Repetition Runner
 
 New tool: `python -m tools.repeat -n 5 -- python -m pytest -q`

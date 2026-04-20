@@ -263,33 +263,57 @@ class TestResolve:
         out = attacker.resolve(assignments)
         assert set(out.per_victim.keys()) <= {victim_a, victim_b}
 
-    def test_applies_body_hp_damage_for_parted_victim(self):
-        """resolve must mirror today's post-defense body-HP write so the
-        pipeline isn't stuck at the part-only subtotal."""
+    def test_aggregates_body_damage_totals_per_victim(self):
+        """resolve must report ``body_damage_total`` / ``num_hits`` per
+        victim so callers can do the post-defense body-HP write."""
         attacker = _populated_attacker(budget=2)
         victim = _make_victim_with_arm(name="caels")
-        # Force a hit via a synthetic assignment with a deterministic
-        # source; bypass the weighted pick so we always land one hit.
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        source = NaturalAttackSource(
+            atk="1d4", dmg_type=DamageTypes.SLASHING, label="test",
+        )
+        assignments = [Assignment(source=source, target=victim)]
+        # Seed so the roll yields a landing hit.
+        for seed in range(50):
+            random.seed(seed)
+            mv = attacker.resolve(assignments)
+            resolution = mv.per_victim.get(victim)
+            if resolution and resolution.num_hits > 0:
+                assert resolution.body_damage_total > 0
+                break
+        else:
+            pytest.fail("no seed produced a landing hit")
+
+
+class TestResolveNoLongerAppliesBodyHP:
+    """Phase 6a contract: ``Creature.resolve`` is pure part-routing +
+    aggregation. Body-HP application is the caller's responsibility
+    (``Game.do_combat``, ``MonsterPlugin.attack_random``,
+    ``Hydra.attack_random``). This pins that contract so future
+    regressions double-apply body HP instead of silently undoing the
+    refactor."""
+
+    def test_parted_victim_body_hp_unchanged_after_resolve(self):
+        attacker = _populated_attacker(budget=2)
+        victim = _make_victim_with_arm(name="caels")
         from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
         source = NaturalAttackSource(
             atk="1d4", dmg_type=DamageTypes.SLASHING, label="test",
         )
         assignments = [Assignment(source=source, target=victim)]
         start_hp = victim.health
-        # Seed so the roll yields a landing hit — a few seeds are
-        # searched in case the first misses.
         for seed in range(50):
             random.seed(seed)
-            snapshot = victim.health
-            attacker.resolve(assignments)
-            if victim.health < snapshot:
-                break
-            victim.health = start_hp  # reset for retry
-        assert victim.health < start_hp
+            mv = attacker.resolve(assignments)
+            resolution = mv.per_victim.get(victim)
+            if resolution and resolution.num_hits > 0:
+                # Body HP must be untouched even on a landing hit — the
+                # caller will apply ``max(num_hits, total - defense)``.
+                assert victim.health == start_hp
+                return
+        pytest.fail("no seed produced a landing hit")
 
-    def test_applies_body_hp_damage_for_partless_victim(self):
-        """Partless victims (Spirit) must still have body HP applied —
-        the legacy path in apply_damage handles the whole-body write."""
+    def test_partless_victim_body_hp_unchanged_after_resolve(self):
         attacker = _make_creature(name="bandit")
         victim = Creature(
             name="spirit", atk="1d4", defense=0, dodge=0,
@@ -304,12 +328,12 @@ class TestResolve:
         start_hp = victim.health
         for seed in range(50):
             random.seed(seed)
-            snapshot = victim.health
-            attacker.resolve(assignments)
-            if victim.health < snapshot:
-                break
-            victim.health = start_hp
-        assert victim.health < start_hp
+            mv = attacker.resolve(assignments)
+            resolution = mv.per_victim.get(victim)
+            if resolution and resolution.num_hits > 0:
+                assert victim.health == start_hp
+                return
+        pytest.fail("no seed produced a landing hit")
 
 
 class TestNarrateAttempt:

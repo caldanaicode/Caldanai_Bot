@@ -741,6 +741,14 @@ class Hydra(MonsterPlugin):
                         f"{victim_name}: {raw_total} damage - {defense} defense "
                         f"\u2192 {final} damage\n"
                     )
+                # Body-HP application moved out of ``Creature.resolve``
+                # in Phase 6a — the stage is pure part-routing now, so
+                # each caller owns the whole-body write plus any
+                # death-transition message it surfaces.
+                if not victim.is_dead():
+                    d_msg = victim.apply_damage(final)
+                    if d_msg and not resolution.death_msg:
+                        resolution.death_msg = d_msg
             if resolution.death_msg:
                 msg += parse(resolution.death_msg, victim)
 
