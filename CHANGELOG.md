@@ -4,6 +4,53 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — `tools/playtest_combat_harness` End-to-End Combat Simulator
+
+Drives the REAL pipeline stages headlessly — no Discord, no
+Game orchestration. Balance-checking now sees true numbers:
+part HP, exposure-weighted target-part selection, critical-
+part kills (head destruction = instant kill regardless of
+body HP), trait multipliers, skill-level bonuses, dodge/hit
+rolls, and all the emergent behavior simpler sims can't model.
+
+Usage examples:
+
+```
+# Celowin-ish dual-wield vs minotaur, 200 seeded trials
+python -m tools.playtest_combat_harness \
+    --weapon mace --offhand shortsword \
+    --monster minotaur --trials 200
+
+# Exercise the critical-part-kill path
+python -m tools.playtest_combat_harness \
+    --weapon shortsword --monster goblin \
+    --target-part head --trials 200
+
+# Two-handed MASTERWORK bow at skill 20 vs hydra
+python -m tools.playtest_combat_harness \
+    --weapon bow --quality MASTERWORK --skill 20 \
+    --monster hydra --trials 50
+```
+
+Outputs per-scenario summary: win rate, min/max/mean rounds
+per outcome, critical-part-kill rate, avg damage dealt and
+received, top destroyed parts.
+
+Smoke result: unarmed-equivalent (mace+shortsword ORDINARY
+skill-10) vs goblin at head-target converts **100%** of wins
+via critical-part kill — validates the "part-targeting is
+overpowered" signal the simpler `playtest_action_dice` /
+`playtest_weapon_sweep` couldn't surface because they don't
+model critical parts.
+
+Built on the Phase-6 completion: Player routes through
+`pick_actions` → `pick_targets` → `resolve`; monster retaliates
+via the pipeline-driven `attack_random`. Dispatcher and DB
+patched at tool-entry so hook side effects don't reach Discord
+or Mongo.
+
+12 tests in `tests/test_tools_playtest_combat_harness.py`.
+
 ### 2026-04-20 — Combat Pipeline: Phase 6d Player Pipeline Port (end-to-end complete)
 
 Player attacks now flow through the pipeline stages at runtime.
