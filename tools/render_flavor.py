@@ -1,5 +1,6 @@
 """Render a monster's flavor strings (arrival / escape / death /
-on_hugged / on_social) through the ``parse()`` pipeline so new
+on_hugged / on_social) — or a body-part plugin's DEFAULT_ACTIONS
+narrative pools — through the ``parse()`` pipeline so new
 templates can be eyeballed for token bugs without spinning up the
 bot.
 
@@ -11,13 +12,20 @@ Usage::
     python -m tools.render_flavor bandit --cmd high_five
     python -m tools.render_flavor bandit --json
 
+    # Body-part action pools (Phase 3 content):
+    python -m tools.render_flavor --part head
+    python -m tools.render_flavor --part arm --attacker goblin
+
 ``<monster_stem>`` is the plugin filename stem (``bandit``,
 ``math_teacher``, ...), matched the same way the ``$spawn monster``
-command does.
+command does. ``--part`` takes a body-part plugin name (``head``,
+``arm``, ``leg``, ``tail``, ``wing``, ``torso``).
 
 Each ``on_hugged`` / ``on_social`` branch is sampled ``--count``
 times and the unique parsed outputs are dumped. Static flavor
-(arrival, flavor, escape, death) is rendered once.
+(arrival, flavor, escape, death) is rendered once. Part-mode
+renders every template in every action's narrative pool once per
+action, with ``@Np_target`` pointing at a synthetic target part.
 
 Why this exists: rendering templates with inline ``python -c``
 forces an approval every time and drifts each rewrite. A fixed
@@ -31,9 +39,11 @@ import argparse
 import json
 import random
 import sys
-from typing import Dict, List, Optional
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
 
 from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.helpers.parser import parse
@@ -114,6 +124,82 @@ def _render_on_social(
     )
 
 
+def _build_attacker(name: str) -> Creature:
+    """Minimal Creature for the attacker side of a part render.
+    Article-using ("the goblin") and feminine by default so the
+    grammar tokens resolve without matching the player actor."""
+    c = Creature(
+        name=name, atk="1d4", defense=2, dodge=5,
+        health_max=20, health=20, pronouns="she, her, hers, her",
+    )
+    c.uses_article = True
+    return c
+
+
+def _resolve_part(name: str) -> BodyPartPlugin:
+    BodyPartPlugin.load_plugins()
+    cls = BodyPartPlugin.get_plugin_class(name)
+    if cls is None:
+        known = sorted(BodyPartPlugin._PLUGIN_REGISTRY.keys())
+        raise SystemExit(
+            f"unknown body part '{name}'. known: {', '.join(known)}"
+        )
+    return cls
+
+
+def _render_part_actions(
+    part_cls: type,
+    attacker: Creature,
+    victim: Player,
+) -> Dict[str, Dict[str, Any]]:
+    """Walk ``part_cls.DEFAULT_ACTIONS`` and render every template
+    in each action's narrative pool once. ``@Np_target`` resolves to
+    a synthetic target-part display name (``"left arm"``) so the
+    token doesn't render empty."""
+    target_part_stub = SimpleNamespace(display_name="left arm")
+    result_stub = SimpleNamespace(target_part=target_part_stub)
+    out: Dict[str, Dict[str, Any]] = {}
+    for action_name, entry in (part_cls.DEFAULT_ACTIONS or {}).items():
+        templates = entry.get("narrative") or []
+        rendered = [
+            parse(tmpl, attacker, victim, result=result_stub)
+            for tmpl in templates
+        ]
+        out[action_name] = {
+            "label": entry.get("label", action_name),
+            "templates": rendered,
+        }
+    return out
+
+
+def _render_monster_combat_actions(
+    monster: Creature, victim: Player,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Walk a live monster instance's per-part DEFAULT_ACTIONS (picked
+    up from post-spawn wiring, e.g. hydra's per-variant repertoire).
+    Useful for proofing monsters whose combat narrative is authored
+    at spawn time rather than on the part plugin class."""
+    target_part_stub = SimpleNamespace(display_name="left arm")
+    result_stub = SimpleNamespace(target_part=target_part_stub)
+    out: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for part in getattr(monster, "body_parts", []) or []:
+        actions = getattr(part, "DEFAULT_ACTIONS", {}) or {}
+        if not actions:
+            continue
+        per_action: Dict[str, Dict[str, Any]] = {}
+        for action_name, entry in actions.items():
+            templates = entry.get("narrative") or []
+            per_action[action_name] = {
+                "label": entry.get("label", action_name),
+                "templates": [
+                    parse(tmpl, monster, victim, result=result_stub)
+                    for tmpl in templates
+                ],
+            }
+        out[part.name] = per_action
+    return out
+
+
 def _print_section(title: str, lines: List[str]) -> None:
     print(f"\n== {title} ==")
     if not lines:
@@ -128,7 +214,15 @@ def _print_section(title: str, lines: List[str]) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("stem", help="monster plugin filename stem (e.g. 'bandit')")
+    ap.add_argument("stem", nargs="?", default=None,
+                    help="monster plugin filename stem (e.g. 'bandit'). "
+                         "Omit when --part is supplied.")
+    ap.add_argument("--part", default=None,
+                    help="body-part plugin name (head/arm/leg/tail/wing/"
+                         "torso). Renders DEFAULT_ACTIONS narrative pools.")
+    ap.add_argument("--attacker", default="goblin",
+                    help="name for the attacker creature in --part mode "
+                         "(default 'goblin').")
     ap.add_argument("--count", type=int, default=40,
                     help="sample iterations per random branch (default 40)")
     ap.add_argument("--actor-name", default="Caels",
@@ -139,13 +233,54 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="seed random.choice so output is reproducible")
     ap.add_argument("--json", action="store_true",
                     help="emit JSON instead of human-readable sections")
+    ap.add_argument("--combat", action="store_true",
+                    help="in monster-stem mode, render the monster's "
+                         "per-part DEFAULT_ACTIONS narrative pools "
+                         "(post-spawn wiring).")
     args = ap.parse_args(argv)
 
     if args.seed is not None:
         random.seed(args.seed)
 
+    if args.part:
+        part_cls = _resolve_part(args.part)
+        attacker = _build_attacker(args.attacker)
+        victim = _build_actor(args.actor_name)
+        rendered = _render_part_actions(part_cls, attacker, victim)
+
+        if args.json:
+            print(json.dumps(rendered, indent=2, ensure_ascii=False))
+            return 0
+
+        print(f"# {part_cls.__name__}.DEFAULT_ACTIONS — "
+              f"attacker='{args.attacker}' vs victim='{args.actor_name}'")
+        for action_name, entry in rendered.items():
+            _print_section(
+                f"{action_name} (label={entry['label']!r})",
+                entry["templates"],
+            )
+        return 0
+
+    if args.stem is None:
+        ap.error("either a monster stem or --part must be supplied")
+
     monster = _resolve_monster(args.stem)
     actor = _build_actor(args.actor_name)
+
+    if args.combat:
+        rendered = _render_monster_combat_actions(monster, actor)
+        if args.json:
+            print(json.dumps(rendered, indent=2, ensure_ascii=False))
+            return 0
+        print(f"# {monster.__class__.__name__} combat — "
+              f"variant={monster.name!r} vs victim='{args.actor_name}'")
+        for part_name, actions in rendered.items():
+            for action_name, entry in actions.items():
+                _print_section(
+                    f"{part_name} / {action_name} (label={entry['label']!r})",
+                    entry["templates"],
+                )
+        return 0
 
     static = _render_static(monster, actor)
     on_hugged = _render_on_hugged(monster, actor, args.count)

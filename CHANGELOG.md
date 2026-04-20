@@ -4,6 +4,31 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Playtest Tooling: `render_flavor` Body-Part Modes + `playtest_action_dice`
+
+Two tool additions for balance-proofing the combat refactor
+without spinning up the bot.
+
+- **`render_flavor --part <name>`** — render a body-part
+  plugin's `DEFAULT_ACTIONS` narrative pools through `parse()`.
+  All 63 Phase-3 part-default templates proof-rendered in one
+  invocation per part. Synthetic `@Np_target` stub points at
+  `"left arm"` so the dynamic target-part token doesn't render
+  empty.
+- **`render_flavor --combat`** — walk a live monster instance's
+  per-part `DEFAULT_ACTIONS` (including post-spawn wiring like
+  hydra's per-variant repertoire). Needed to proof Phase-4
+  hydra's wired action templates across all four variants.
+- **`tools/playtest_action_dice`** — new tool. Rolls every
+  Phase-3 size-scaled action across TINY→COLOSSAL and reports
+  distributions (matrix mode), drills into one action at one
+  size (focused mode), simulates rounds-to-kill against a
+  single target (`--fight`), and runs two-sided duel
+  simulations with optional hit-roll/dodge modeling (`--duel`).
+  `--vs-sizes` sweeps one attacker against representative
+  creature profiles per size tier in one invocation — avoids
+  the bash-loop permission churn for iterated runs.
+
 ### 2026-04-20 — Combat Pipeline: Phase 4 Hydra Port
 
 Hydra ported off its legacy 300-line custom combat pipeline onto
