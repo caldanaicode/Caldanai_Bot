@@ -4,6 +4,32 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 6c Dragon Thin-Override
+
+Dragon's `attack_random` now follows the post-refactor thin-
+override pattern (mirrors hydra/vampire): breath weapon pre-
+empts the pipeline with its own bespoke math (AOE, FIRE trait
+multiplier, auto-hit, post-defense subtract), and non-breath
+turns delegate to `super().attack_random(...)` which drives the
+Phase 6b pipeline-driven `MonsterPlugin.attack_random`.
+
+Behavior parity: control flow byte-identical to pre-6c. Only
+additions are a tightened return annotation (`Optional[str]`)
+and a WHY-focused docstring naming the thin-override pattern +
+Phase 6a compliance (breath applies body HP directly via
+`victim.apply_damage`, never routes through `Creature.resolve`).
+
+New `TestDragonBreathPathPreserved` (5 tests) pins:
+- Breath flavor renders when cooldown/RNG align
+- Non-breath branch produces pipeline-driven table with no
+  breath flavor leak
+- `_rounds_since_breath` counter bumps correctly across
+  successive super-delegated turns
+- Branch interleaving resets the counter cleanly
+- Breath applies body HP exactly once (no double-apply)
+
+3070 → 3075 passing. Three consecutive clean runs.
+
 ### 2026-04-20 — Combat Pipeline: Phase 6b MonsterPlugin Pipeline Port
 
 `MonsterPlugin.attack_random` now drives the pipeline stages

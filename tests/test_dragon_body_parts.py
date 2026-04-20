@@ -11,6 +11,8 @@ Test classes:
 7. ``TestDragonFullHealthBackwardsCompat`` -- stats unchanged at full HP.
 8. ``TestDragonSanityUnchanged`` -- name, loot, traits, methods present.
 9. ``TestDragonEnrage`` -- ramping breath chance + part-destruction force trigger.
+10. ``TestDragonBreathPathPreserved`` -- Phase 6c pin: breath vs pipeline-
+    driven super() delegation preserved through the 6a/6b refactor.
 """
 
 from unittest.mock import patch
@@ -706,3 +708,139 @@ class TestDragonEnrage:
         with _force_variant(False):
             d = Dragon()
         assert d.attack_random([]) is None
+
+
+# ---------------------------------------------------------------------------
+# 10. Phase 6c pin: breath vs pipeline-driven super() delegation.
+# ---------------------------------------------------------------------------
+
+
+class TestDragonBreathPathPreserved:
+    """Phase 6c: dragon's ``attack_random`` is a thin override on the
+    Phase 6b pipeline-driven base. Breath pre-empts the pipeline; every
+    other turn delegates to ``super().attack_random`` which runs the
+    ``pick_actions`` / ``resolve`` / ``narrate_*`` stages."""
+
+    def _make_target(self):
+        from caldanai.lib.rpg.creatures import Creature
+        return Creature(
+            name="dummy",
+            atk="1d4",
+            defense=5,
+            dodge=5,
+            health_max=100_000,
+            health=100_000,
+            gender="male",
+        )
+
+    def test_breath_branch_renders_breath_flavor(self):
+        """When breath fires, the signature 'column of liquid flame'
+        narration appears in the returned string."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.0,
+        ):
+            result = d.attack_random([target])
+
+        assert result is not None
+        assert "column of liquid flame" in result
+
+    def test_non_breath_branch_delegates_to_super_pipeline(self):
+        """Non-breath turns go through ``MonsterPlugin.attack_random``
+        (Phase 6b pipeline driver). The output must be the
+        ``AttackSequence.to_markdown`` diff-block — breath builds its
+        own sequence too but the dragon-specific 'column of liquid
+        flame' flavor must NOT appear."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            result = d.attack_random([target])
+
+        assert result is not None
+        assert isinstance(result, str)
+        # Phase 6b pipeline output carries the shared diff-block table.
+        assert "```diff" in result
+        # Breath flavor must not appear on a non-breath round.
+        assert "column of liquid flame" not in result
+
+    def test_non_breath_branch_increments_ramp_counter(self):
+        """Non-breath delegation must bump ``_rounds_since_breath`` so
+        the enrage ramp accumulates correctly across pipeline rounds."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            d.attack_random([target])
+            d.attack_random([target])
+            d.attack_random([target])
+        assert d._rounds_since_breath == 3
+
+    def test_breath_reset_after_super_delegation_streak(self):
+        """After several non-breath rounds, a breath roll still resets
+        the ramp counter — verifies the two branches interleave
+        cleanly without counter drift."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.99,
+        ):
+            d.attack_random([target])
+            d.attack_random([target])
+        assert d._rounds_since_breath == 2
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.0,
+        ):
+            result = d.attack_random([target])
+        assert d._rounds_since_breath == 0
+        assert "column of liquid flame" in result
+
+    def test_breath_applies_body_hp_directly(self):
+        """Phase 6a compliance: ``breath_attack`` builds its own
+        AttackSequence rather than routing through ``resolve``, and
+        applies body HP via ``victim.apply_damage(dmg)``. A victim
+        with finite HP must take the full post-defense breath damage."""
+        with _force_variant(False):
+            d = Dragon()
+        d.health_max = 10_000
+        d.health = 10_000
+        target = self._make_target()
+        start_hp = target.health
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon.random",
+            return_value=0.0,
+        ):
+            d.attack_random([target])
+
+        # Breath auto-hits — the victim must have lost some HP, and the
+        # damage path must not have double-applied (hp can't have
+        # dropped more than the max possible 6d6 * multiplier).
+        assert target.health < start_hp
+        assert start_hp - target.health <= 36 * 3  # 6d6 max × generous multiplier
+

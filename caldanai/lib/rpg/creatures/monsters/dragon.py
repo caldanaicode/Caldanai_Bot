@@ -1,4 +1,5 @@
 from random import choice, random
+from typing import Optional
 
 from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
@@ -200,7 +201,27 @@ class Dragon(MonsterPlugin):
             return "@1dc bellows in pain and rage, eyes blazing red."
         return ""
 
-    def attack_random(self, combatants: list, count=1) -> str:
+    def attack_random(self, combatants: list, count=1) -> Optional[str]:
+        """Thin override on the Phase 6b pipeline-driven base.
+
+        Pre-empts the pipeline with a full-AOE breath weapon when the
+        enrage RNG trips or a body part was destroyed since the last
+        check; otherwise delegates to :meth:`MonsterPlugin.attack_random`
+        so non-breath turns flow through ``pick_actions`` / ``resolve``
+        / ``narrate_*`` stages like any other monster.
+
+        Breath stays as a pre-empting branch (mirrors vampire's feed
+        pattern) rather than landing as a creature-level action entry
+        because it's AOE, auto-hits, subtracts defense once per victim,
+        and runs through the shared FIRE trait multiplier — none of
+        which fit the per-assignment shape the pipeline's ``resolve``
+        stage is built around.
+
+        Phase 6a compliance: :meth:`breath_attack` applies body HP
+        directly via ``victim.apply_damage(dmg)`` for each victim, so
+        the phase-6a removal of body-HP application from
+        :meth:`Creature.resolve` has no impact here.
+        """
         if combatants and 0 < count <= len(combatants):
             newly_destroyed = self._newly_destroyed_parts()
 
