@@ -69,7 +69,26 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
+
+
+_KICK_TEMPLATES = [
+    "@1D kicks @2 in the @2p_target.",
+    "@1D lashes out with a boot at @2np @2p_target.",
+    "@1D snaps a kick into @2np @2p_target.",
+    "@1D whirls and kicks @2np @2p_target.",
+    "@1D drives a heel into @2np @2p_target.",
+    "@1D plants a solid kick across @2np @2p_target.",
+]
+
+_STOMP_TEMPLATES = [
+    "@1D stomps down on @2np @2p_target.",
+    "@1D brings @1a full weight down on @2np @2p_target.",
+    "@1D raises a foot and slams it onto @2np @2p_target.",
+    "@1D crushes @2np @2p_target underfoot.",
+    "@1D grinds a heavy stomp into @2np @2p_target.",
+    "@1D pounds @2np @2p_target into the ground.",
+]
 
 
 class LegPlugin(BodyPartPlugin):
@@ -98,5 +117,23 @@ class LegPlugin(BodyPartPlugin):
         InjuryLevels.MODERATE: {Stat.DODGE: -3, Stat.ATTACK: -1},
         InjuryLevels.SEVERE:   {Stat.DODGE: -5, Stat.ATTACK: -2},
         InjuryLevels.USELESS:  {Stat.DODGE: -10, Stat.ATTACK: -4},
+    }
+    DEFAULT_ACTIONS = {
+        "kick": {
+            "cost": 1,
+            "weight": 2,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.MELEE,
+            "label": "kick",
+            "narrative": _KICK_TEMPLATES,
+        },
+        "stomp": {
+            "cost": 1,
+            "weight": 1,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.MELEE,
+            "label": "stomp",
+            "narrative": _STOMP_TEMPLATES,
+        },
     }
 

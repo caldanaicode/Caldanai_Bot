@@ -21,9 +21,12 @@ from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
     INJURY_LEVEL_DISPLAY, Pronouns, DamageTypes, InjuryLevels, Reach, Size, Stat,
 )
-from caldanai.lib.rpg.helpers.parser import article
 from caldanai.lib.rpg.helpers.roll_data import (
     AttackRoll, DamageRoll, CombinedRoll)
+from caldanai.logger import get_logger
+
+
+_log = get_logger(__name__)
 
 
 # Minimum effective exposure for per-part dodge calculations. Caps the
@@ -266,6 +269,17 @@ class Creature:
         ``DEFAULT_ACTIONS`` pool (part-default + creature override),
         then weighted-random select within :meth:`get_action_budget`.
 
+        Callable fields on action entries are invoked at this stage:
+
+        - ``is_available(actor, target) -> bool`` filters entries out
+          of the selection pool when it returns falsy.
+        - ``get_dice(actor, target) -> str`` overrides the static
+          ``dice`` field when present (also consulted if ``dice`` is
+          absent and no size-scaled tier entry exists).
+        - ``get_narrative`` is deferred to :meth:`narrate_attempt`;
+          ``pick_actions`` only needs ``is_available`` and ``get_dice``
+          to build the source.
+
         Returns ``NaturalAttackSource`` objects built from each
         selected action entry. When no part declares any actions (the
         pre-Phase-3 default for every monster), falls back to the
@@ -288,8 +302,9 @@ class Creature:
             reach = action.get("reach", Reach.MELEE)
             dmg_type = action.get("dmg_type")
             label = action.get("label", action_name)
+            dice = _resolve_action_dice(action, action_name, self)
             source = NaturalAttackSource(
-                atk=action.get("dice", "1d4"),
+                atk=dice,
                 dmg_type=dmg_type,
                 label=label,
                 skill=action.get("skill", "natural"),
@@ -310,26 +325,39 @@ class Creature:
     ) -> List[Tuple[BodyPart, Dict[str, Dict]]]:
         """Walk living parts, return ``(part, merged_actions)`` pairs.
 
-        Merged actions = part's ``DEFAULT_ACTIONS`` overlaid with any
-        matching entry in this creature's ``ACTION_OVERRIDES`` (keyed
-        by ``(part_type, action_name)``). Parts whose merged pool is
-        empty drop out — partially populated anatomies (Phase 3) need
-        to be tolerated gracefully."""
-        overrides = getattr(self, "ACTION_OVERRIDES", {}) or {}
+        Merged actions = part's ``DEFAULT_ACTIONS`` deep-merged with
+        this creature's ``ACTION_REPERTOIRE[part_type]`` — matching
+        entries override fields on the part default, non-matching
+        entries add brand-new actions (minotaur's ``gore``, etc.).
+
+        Entries carrying ``is_available(actor, target)`` that returns
+        falsy drop out of the selectable pool at this stage (target
+        is ``None`` at action-pick time; the callable may inspect
+        actor state only). Parts whose final pool is empty drop out —
+        partially populated anatomies (Phase 3 ships only six active
+        plugins) need to be tolerated gracefully."""
+        overrides = getattr(self, "ACTION_REPERTOIRE", {}) or {}
         pools: List[Tuple[BodyPart, Dict[str, Dict]]] = []
         for part in self.body_parts:
             if part.is_destroyed():
                 continue
             defaults = getattr(part, "DEFAULT_ACTIONS", {}) or {}
-            if not defaults:
-                continue
             part_type = _part_base_name(part)
+            part_overrides = overrides.get(part_type, {}) or {}
             merged: Dict[str, Dict] = {}
             for action_name, entry in defaults.items():
                 merged[action_name] = dict(entry)
-                override = overrides.get((part_type, action_name))
-                if override:
-                    merged[action_name].update(override)
+            for action_name, entry in part_overrides.items():
+                if action_name in merged:
+                    merged[action_name].update(entry)
+                else:
+                    merged[action_name] = dict(entry)
+            # Drop entries whose ``is_available`` callable vetoes them.
+            merged = {
+                name: entry
+                for name, entry in merged.items()
+                if _action_is_available(entry, self, None)
+            }
             if merged:
                 pools.append((part, merged))
         return pools
@@ -461,47 +489,43 @@ class Creature:
     ) -> Optional[str]:
         """Stage 4 — per-assignment attempt flavor lifted from each
         source's action entry. Pulls a random template from the
-        action's ``"narrative"`` pool, formats with part display name
-        / victim name / action label / article, and runs the whole
-        paragraph through :func:`parse` with this creature as ``@1``
-        and the first victim as ``@2``.
+        action's ``"narrative"`` pool (or invokes the entry's
+        ``get_narrative`` callable when present) and runs each line
+        through :func:`parse` with this creature as ``@1`` and the
+        assignment's victim as ``@2``. A synthetic ``result`` bearing
+        the part stashed on the source is passed via the ``result``
+        kwarg so ``@2p_target`` resolves to the part display name
+        even though real ``AttackResult`` objects aren't available
+        until the resolve stage.
 
         Returns ``None`` when no assignment's source carries a
-        narrative pool — this is the Phase 2 default until Phase 3
-        populates body-part pools."""
+        narrative pool (also true of old-style ``{display}`` format
+        strings once they're removed) — matches the pre-Phase-3
+        default shape."""
         if not assignments:
             return None
         lines: List[str] = []
-        first_victim = None
         for assignment in assignments:
             source = assignment.source
             action = getattr(source, "_action", None)
             if not action:
                 continue
-            templates = action.get("narrative") or []
+            target = assignment.target
+            victim = target[0] if isinstance(target, tuple) else target
+            templates = _resolve_action_narratives(action, self, victim)
             if not templates:
                 continue
             template = choice(templates)
-            target = assignment.target
-            victim = target[0] if isinstance(target, tuple) else target
-            if first_victim is None:
-                first_victim = victim
-            victim_name = getattr(victim, "name", "someone")
+            # Synthesize a result-shaped object so ``@Np_target`` in
+            # authored-ahead templates resolves to the targeted part's
+            # display name. Real ``AttackResult`` objects only exist
+            # after the resolve stage.
             part = getattr(source, "_part", None)
-            display = part.display_name if part is not None else ""
-            label = action.get("label", getattr(source, "_action_name", ""))
-            line = template.format(
-                display=display,
-                victim=victim_name,
-                label=label,
-                article=article(label),
-            )
-            lines.append(line)
+            synthetic = _TargetPartContext(target_part=part)
+            lines.append(parse(template, self, victim, result=synthetic))
         if not lines:
             return None
-        if first_victim is None:
-            return parse("\n".join(lines), self)
-        return parse("\n".join(lines), self, first_victim)
+        return "\n".join(lines)
 
     def render_table(
         self,
@@ -1627,6 +1651,96 @@ def _select_actions_within_budget(
         selected.append((part, picked_name, picked_action))
         remaining -= picked_action.get("cost", 1)
     return selected
+
+
+def _action_is_available(
+    action: Dict, actor: "Creature", target: Optional["Creature"],
+) -> bool:
+    """Evaluate an entry's ``is_available(actor, target)`` callable.
+
+    Phase 3+ action entries may carry conditional selectability; the
+    callable returns truthy to include the entry in the pool. Entries
+    without the callable are unconditionally available."""
+    checker = action.get("is_available")
+    if not callable(checker):
+        return True
+    try:
+        return bool(checker(actor, target))
+    except Exception:
+        _log.warning(
+            "is_available callable raised for %s on %s; skipping entry.",
+            action.get("label") or "<unnamed>", type(actor).__name__,
+            exc_info=True,
+        )
+        return False
+
+
+def _resolve_action_dice(
+    action: Dict, action_name: str, actor: "Creature",
+) -> str:
+    """Return the dice string for an action entry.
+
+    Precedence: ``get_dice(actor, target=None)`` callable → explicit
+    static ``dice`` field → size-scaled default per :mod:`body_parts.
+    action_dice`. The size-scaled fallback keeps naked creatures
+    working without a creature-level override for every action."""
+    getter = action.get("get_dice")
+    if callable(getter):
+        try:
+            dice = getter(actor, None)
+            if dice:
+                return dice
+        except Exception:
+            _log.warning(
+                "get_dice callable raised for %s on %s; falling through.",
+                action_name, type(actor).__name__,
+                exc_info=True,
+            )
+    static = action.get("dice")
+    if static:
+        return static
+    from caldanai.lib.rpg.creatures.body_parts.action_dice import (
+        size_scaled_dice,
+    )
+    return size_scaled_dice(action_name, getattr(actor, "size", Size.MEDIUM))
+
+
+def _resolve_action_narratives(
+    action: Dict, actor: "Creature", target: Optional["Creature"],
+) -> List[str]:
+    """Return the narrative template list for an action entry.
+
+    Precedence: ``get_narrative(actor, target)`` callable → static
+    ``narrative`` list. Empty/missing in both yields an empty list —
+    ``narrate_attempt`` then skips the assignment rather than
+    emitting a silent blank line."""
+    getter = action.get("get_narrative")
+    if callable(getter):
+        try:
+            pool = getter(actor, target)
+            if pool:
+                return list(pool)
+        except Exception:
+            _log.warning(
+                "get_narrative callable raised for %s on %s; skipping pool.",
+                action.get("label") or "<unnamed>", type(actor).__name__,
+                exc_info=True,
+            )
+            return []
+    pool = action.get("narrative") or []
+    return list(pool)
+
+
+class _TargetPartContext:
+    """Minimal ``result``-shaped carrier for :func:`parse`'s
+    ``@Np_target`` token. Used by :meth:`Creature.narrate_attempt` to
+    resolve the target-part display name without needing a real
+    :class:`AttackResult` at the attempt-narrative stage."""
+
+    __slots__ = ("target_part",)
+
+    def __init__(self, target_part):
+        self.target_part = target_part
 
 
 def round_robin_assignment(

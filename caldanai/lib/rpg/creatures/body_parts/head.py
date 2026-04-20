@@ -43,7 +43,27 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
+
+
+_BITE_TEMPLATES = [
+    "@1D bites @2np @2p_target.",
+    "@1D sinks @1a teeth into @2np @2p_target.",
+    "@1D snaps at @2, jaws closing on @2a @2p_target.",
+    "@1D lunges, jaws wide, and catches @2np @2p_target.",
+    "@1D clamps down on @2np @2p_target.",
+    "@1D darts forward and tears at @2np @2p_target.",
+    "@1D bares @1a teeth and bites into @2np @2p_target.",
+]
+
+_HEADBUTT_TEMPLATES = [
+    "@1D drives @1a skull into @2np @2p_target.",
+    "@1D slams @1a head against @2np @2p_target.",
+    "@1D throws @1a weight forward and headbutts @2np @2p_target.",
+    "@1D cracks @1a forehead into @2np @2p_target.",
+    "@1D lowers @1a head and rams @2np @2p_target.",
+    "@1D pitches forward, skull-first, into @2np @2p_target.",
+]
 
 
 class HeadPlugin(BodyPartPlugin):
@@ -72,5 +92,23 @@ class HeadPlugin(BodyPartPlugin):
         # safety net for any future design change that allows non-lethal
         # head destruction.
         InjuryLevels.USELESS:  {Stat.ATTACK: -5, Stat.HIT: -4},
+    }
+    DEFAULT_ACTIONS = {
+        "bite": {
+            "cost": 1,
+            "weight": 2,
+            "dmg_type": DamageTypes.PIERCING,
+            "reach": Reach.MELEE,
+            "label": "bite",
+            "narrative": _BITE_TEMPLATES,
+        },
+        "headbutt": {
+            "cost": 1,
+            "weight": 1,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.MELEE,
+            "label": "headbutt",
+            "narrative": _HEADBUTT_TEMPLATES,
+        },
     }
 

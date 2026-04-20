@@ -67,8 +67,18 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 from caldanai.lib.rpg.helpers.parser import parse
+
+
+_WING_BUFFET_TEMPLATES = [
+    "@1D beats @1a wing into @2np @2p_target.",
+    "@1D snaps @1a wing forward, striking @2np @2p_target.",
+    "@1D batters @2np @2p_target with a sweep of @1a wing.",
+    "@1D hammers @2np @2p_target with a wingbeat.",
+    "@1D thrashes @1a wing across @2np @2p_target.",
+    "@1D cracks the bony edge of @1a wing against @2np @2p_target.",
+]
 
 
 class WingPlugin(BodyPartPlugin):
@@ -95,6 +105,16 @@ class WingPlugin(BodyPartPlugin):
         InjuryLevels.MODERATE: {Stat.DODGE: -2, Stat.ATTACK: -1},  # weak buffet
         InjuryLevels.SEVERE:   {Stat.DODGE: -3, Stat.ATTACK: -2},
         InjuryLevels.USELESS:  {Stat.DODGE: -5, Stat.ATTACK: -3},  # + grounded via on_injury_change
+    }
+    DEFAULT_ACTIONS = {
+        "wing_buffet": {
+            "cost": 1,
+            "weight": 1,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.REACH,
+            "label": "wing buffet",
+            "narrative": _WING_BUFFET_TEMPLATES,
+        },
     }
 
     def on_injury_change(

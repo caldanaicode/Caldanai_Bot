@@ -64,7 +64,7 @@ class _TestHead(BodyPartPlugin):
             "dmg_type": DamageTypes.PIERCING,
             "reach": Reach.MELEE,
             "label": "test bite",
-            "narrative": ["@1D bites {victim} on the {display}."],
+            "narrative": ["@1D bites @2 on the @2p_target."],
         },
     }
 
@@ -180,10 +180,12 @@ class TestPickActions:
         # At budget=1, only one 1-cost action fits.
         assert len(actions) == 1
 
-    def test_respects_action_overrides(self):
+    def test_respects_action_repertoire(self):
         attacker = _populated_attacker(budget=2)
-        attacker.ACTION_OVERRIDES = {
-            ("head", "bite"): {"label": "OVERRIDDEN", "dice": "5d5"},
+        attacker.ACTION_REPERTOIRE = {
+            "head": {
+                "bite": {"label": "OVERRIDDEN", "dice": "5d5"},
+            },
         }
         for seed in range(5):
             random.seed(seed)

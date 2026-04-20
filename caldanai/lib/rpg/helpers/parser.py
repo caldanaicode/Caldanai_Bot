@@ -144,6 +144,30 @@ def article(word: str) -> str:
 # parens aren't supported (none needed in narration flavor).
 verbRegex = re.compile(r"@(?P<actor>\d+)v\((?P<content>[^)]*)\)")
 
+# Target-part tokens — both must be substituted BEFORE ``actorRegex``
+# because that regex's ``\w*`` form class would greedily eat the
+# ``p_target`` suffix as unknown form letters, and its character
+# class doesn't include ``.`` at all (so ``@1p.arm.left`` would parse
+# as ``@1p`` + literal ``.arm.left``).
+#
+# ``@Np_target`` — dynamic, reads ``result.target_part.display_name``
+# supplied as a kwarg to :func:`parse`. Case-sensitive: ``@1P_target``
+# capitalizes. Used in authored-ahead part-default narrative templates
+# where the author doesn't know which part will be hit.
+targetPartRegex = re.compile(r"@(?P<actor>\d+)(?P<p>[Pp])_target")
+
+# ``@Np.<part_name>`` — explicit fuzzy lookup via ``find_parts`` on
+# actor ``N``. Used by the API-narrator pipeline when Sonnet writes a
+# template with knowledge of the resolved result and wants to
+# reference a specific part. Name content is ``\w+`` with optional
+# ``.<segment>`` tails so ``arm.left`` / ``head.2`` resolve but a
+# sentence-ending period on ``@1p.arm.`` stays with the sentence
+# instead of being captured as part of the token — the trailing
+# period renders verbatim after the part name.
+partLookupRegex = re.compile(
+    r"@(?P<actor>\d+)(?P<p>[Pp])\.(?P<name>\w+(?:\.\w+)*)"
+)
+
 # Actor token: @<actor><form letters>.
 actorRegex = re.compile(r"@(?P<actor>\d+)(?P<form>\w*)")
 
@@ -369,12 +393,61 @@ def _process(match: Match, actors: Tuple) -> str:
 # ---------------------------------------------------------------------------
 
 
-def parse(msg: str, *actors) -> str:
+def _process_target_part(match: Match, result) -> str:
+    """Resolve ``@Np_target`` against ``result.target_part.display_name``.
+
+    Returns the empty string when ``result`` is ``None`` or its
+    ``target_part`` is missing — graceful degradation so templates
+    written against a result context don't blow up when rendered in
+    tests or out-of-combat previews."""
+    if result is None:
+        return ""
+    target_part = getattr(result, "target_part", None)
+    if target_part is None:
+        return ""
+    name = getattr(target_part, "display_name", "") or ""
+    if not name:
+        return ""
+    if match.group("p").isupper():
+        name = name[0].upper() + name[1:]
+    return name
+
+
+def _process_part_lookup(match: Match, actors: Tuple) -> str:
+    """Resolve ``@Np.<name>`` via :meth:`Creature.find_parts` on actor
+    ``N``. Empty-string fallback when the actor has no matching part
+    (or has no anatomy at all). Ambiguous matches pick the first
+    candidate — matches today's :meth:`do_attack` convention."""
+    num = int(match.group("actor")) - 1
+    if not actors or not (0 <= num < len(actors)):
+        return ""
+    actor = actors[num]
+    finder = getattr(actor, "find_parts", None)
+    if not callable(finder):
+        return ""
+    try:
+        candidates = finder(match.group("name"))
+    except Exception:
+        candidates = []
+    if not candidates:
+        return ""
+    name = getattr(candidates[0], "display_name", "") or ""
+    if not name:
+        return ""
+    if match.group("p").isupper():
+        name = name[0].upper() + name[1:]
+    return name
+
+
+def parse(msg: str, *actors, result=None) -> str:
     """
     Returns a string where placeholders have been replaced with the proper nouns/pronouns/etc.
 
     :param msg: The string to parse
     :param actors: A tuple containing the actors in the message, ordered by their @ position in the message
+    :param result: Optional ``AttackResult``-shaped object consulted by
+        the ``@Np_target`` token. When ``None`` (the default), the
+        token renders as an empty string.
     :return: The original string with all @ flags replaced appropriately
     """
 
@@ -383,6 +456,12 @@ def parse(msg: str, *actors) -> str:
     # would otherwise greedily eat the ``v`` and leave ``(...)`` as
     # literal text).
     msg = verbRegex.sub(lambda m: _process_verb(m, actors), msg)
+    # Target-part tokens BEFORE the generic actor regex: ``@Np_target``
+    # and ``@Np.<name>`` both start with ``@Np`` which would otherwise
+    # match ``_process`` as "possessive pronoun" and leave the suffix
+    # as literal text.
+    msg = targetPartRegex.sub(lambda m: _process_target_part(m, result), msg)
+    msg = partLookupRegex.sub(lambda m: _process_part_lookup(m, actors), msg)
     return actorRegex.sub(lambda m: _process(m, actors), msg)
 
 

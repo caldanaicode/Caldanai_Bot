@@ -4,6 +4,47 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 3 Content Population
+
+Third phase of the combat pipeline refactor. Part-default action
+content, two new parser tokens, registry rename, and callable-
+native action-entry convention established. Still no runtime
+surface — Phase 5 wires the stages into `Game.do_combat`.
+
+- **Body-part `DEFAULT_ACTIONS`** populated on head (bite,
+  headbutt), arm (punch, grab), leg (kick, stomp), tail
+  (tail_swipe, tail_slam), wing (wing_buffet), torso (chestbutt).
+  Ten actions total, 6–7 narrative templates each (63 templates).
+  Dialogue-free — creature-level overrides do voicing later.
+- **Size-scaled default dice** via `body_parts.action_dice.
+  size_scaled_dice(action_name, Size)`. Entries can omit the
+  `dice` field; `_resolve_action_dice` falls back through the
+  size tier table. A naked goblin bites for 1d4, a naked dragon
+  bites for 1d8, no creature-level override needed.
+- **Parser tokens.** `@Np_target` reads the target part's
+  `display_name` from a `result=` kwarg on `parse()` — used in
+  authored-ahead templates where the hit part varies per roll.
+  `@Np.<part_name>` does a fuzzy `find_parts` lookup on actor N —
+  used by the API-narrator path when a template wants to
+  reference a specific part. Both coexist with bare `@Np`
+  (possessive pronoun) via the required `.` disambiguator.
+- **Rename `ACTION_OVERRIDES` → `ACTION_REPERTOIRE`** with
+  nested-dict shape (`Dict[str, Dict[str, Dict]]`, keyed by
+  part-type then action-name). Merge semantics: key present in
+  a part's defaults ⇒ deep-merge (modify); key absent ⇒ add a
+  new action. One registry for both patterns.
+- **Callable-field convention** for action entries. Recognized
+  optional callables: `is_available(actor, target) -> bool`
+  (pick-time conditional selectability; `target` is `None` at
+  `pick_actions`), `get_dice(actor, target) -> str`, and
+  `get_narrative(actor, target) -> List[str]`. Pure-dict entries
+  still work unchanged. Callable exceptions are caught and
+  logged (`_log.warning`) so author bugs surface in logs rather
+  than silently dropping actions.
+
+72 new tests (parser, body-part defaults, action repertoire
+semantics). Full suite: 2998 passing.
+
 ### 2026-04-20 — Minotaur Flavor Capitalization Fix
 
 Three minotaur flavor strings had lowercase form-letter tokens

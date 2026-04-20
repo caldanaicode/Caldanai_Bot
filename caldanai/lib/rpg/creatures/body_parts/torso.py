@@ -47,7 +47,17 @@ Debuffs touching ATTACK, DEFENSE, and DODGE
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
+
+
+_CHESTBUTT_TEMPLATES = [
+    "@1D drives @1a chest into @2np @2p_target.",
+    "@1D slams @1a whole body into @2np @2p_target.",
+    "@1D throws @1a bulk forward, crashing into @2np @2p_target.",
+    "@1D rams @2np @2p_target with @1a chest.",
+    "@1D charges and plows @1a torso into @2np @2p_target.",
+    "@1D barrels shoulder-first into @2np @2p_target.",
+]
 
 
 class TorsoPlugin(BodyPartPlugin):
@@ -89,6 +99,16 @@ class TorsoPlugin(BodyPartPlugin):
             Stat.ATTACK: -5,
             Stat.DEFENSE: -4,
             Stat.DODGE: -4,
+        },
+    }
+    DEFAULT_ACTIONS = {
+        "chestbutt": {
+            "cost": 1,
+            "weight": 1,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.MELEE,
+            "label": "chestbutt",
+            "narrative": _CHESTBUTT_TEMPLATES,
         },
     }
 

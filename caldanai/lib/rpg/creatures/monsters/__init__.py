@@ -1,6 +1,6 @@
 from os import sep
 from random import choice, random, sample
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, List, Optional, Type, Union
 
 from caldanai import PluginManager
 from caldanai.lib.rpg import GameClock, parse
@@ -39,12 +39,17 @@ class MonsterPlugin(Creature):
     # ``math_teacher`` — the same token the old filesystem scan matched.
     _PLUGIN_REGISTRY: Dict[str, Type["MonsterPlugin"]] = {}
 
-    # Layer-2 action overrides. Keyed by ``(part_type, action_name)``
-    # (e.g. ``("head", "bite")``); values override fields on the
-    # part's ``DEFAULT_ACTIONS`` entry — typically ``dice`` / ``label``
-    # / ``narrative``. Empty until Phase 3+ wires per-monster flavor
-    # (wolf bite stronger than bandit bite, etc.).
-    ACTION_OVERRIDES: Dict[Tuple[str, str], Dict] = {}
+    # Layer-2 action repertoire — nested by part type then action
+    # name. The outer key is the part plugin's ``name`` (``"head"``,
+    # ``"arm"``, etc.); inner keys are action names. Entries both
+    # MODIFY matching part-default actions (field-level overlay) and
+    # ADD entirely new actions that the part didn't declare (e.g.
+    # a minotaur's ``head.gore``). Each entry is the same shape as a
+    # ``DEFAULT_ACTIONS`` entry — dice / dmg_type / reach / label /
+    # weight / cost / narrative / optional callable fields. Empty
+    # until Phase 6+ ports per-monster flavor; Phase 3 ships the
+    # mechanism only.
+    ACTION_REPERTOIRE: Dict[str, Dict[str, Dict]] = {}
 
     def __init__(
             self,

@@ -266,7 +266,7 @@ class TestNarrateAttemptParity:
         for part in wired_hydra.body_parts:
             for action in (getattr(part, "DEFAULT_ACTIONS", {}) or {}).values():
                 action["narrative"] = [
-                    "@1D wields {label} against {victim}.",
+                    "@1D strikes at @2.",
                 ]
         random.seed(8)
         sources = wired_hydra.pick_actions()
@@ -274,6 +274,8 @@ class TestNarrateAttemptParity:
 
         class _Dummy:
             name = "caels"
+            uses_article = False
+            plural_verbs = False
 
             def is_dead(self):
                 return False

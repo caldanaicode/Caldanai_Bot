@@ -87,7 +87,27 @@ The ``"disable_slot": True`` marker (forward-facing)
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
-from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
+from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
+
+
+_PUNCH_TEMPLATES = [
+    "@1D punches @2 square in the @2p_target.",
+    "@1D drives a fist into @2np @2p_target.",
+    "@1D snaps a quick jab at @2np @2p_target.",
+    "@1D swings a heavy hook into @2np @2p_target.",
+    "@1D slams @1a knuckles into @2np @2p_target.",
+    "@1D throws a punch that lands on @2np @2p_target.",
+    "@1D hammers a blow down on @2np @2p_target.",
+]
+
+_GRAB_TEMPLATES = [
+    "@1D seizes @2 by the @2p_target.",
+    "@1D clamps a hand around @2np @2p_target.",
+    "@1D lunges and grabs hold of @2np @2p_target.",
+    "@1D catches @2np @2p_target in a crushing grip.",
+    "@1D wrenches @2np @2p_target with both hands.",
+    "@1D grapples @2, locking onto @2a @2p_target.",
+]
 
 
 class ArmPlugin(BodyPartPlugin):
@@ -123,5 +143,23 @@ class ArmPlugin(BodyPartPlugin):
         # is inert under today's implementation but pinned by
         # ``test_useless_row_has_disable_slot_marker``.
         InjuryLevels.USELESS:  {Stat.ATTACK: -5, "disable_slot": True},
+    }
+    DEFAULT_ACTIONS = {
+        "punch": {
+            "cost": 1,
+            "weight": 2,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.MELEE,
+            "label": "punch",
+            "narrative": _PUNCH_TEMPLATES,
+        },
+        "grab": {
+            "cost": 1,
+            "weight": 1,
+            "dmg_type": DamageTypes.BLUDGEONING,
+            "reach": Reach.MELEE,
+            "label": "grab",
+            "narrative": _GRAB_TEMPLATES,
+        },
     }
 
