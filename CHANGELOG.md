@@ -4,6 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — `$spawn destroy` Admin Command
+
+New admin-gated subcommand under `$spawn` for forcing body-part
+destruction on the current monster. Fuzzy-matched like `$kill` /
+`$target` (`$spawn destroy h.1 h.2` works), variadic. Fires each
+part's `on_destroyed` hook but does NOT itself kill the
+monster — part-driven death (e.g. hydra's zero-heads rule) fires
+on the next combat round via `check_part_driven_death`, which is
+the code path playtesters need to exercise.
+
+Lives under `$spawn` (alongside `$spawn kill`, `$spawn monster`,
+etc.) because `destroy` is already an alias of `$attack` in the
+user cog — a bare `$destroy` would collide.
+
+Intended for setup in playtest scenarios where landing specific
+part-destruction sequences via natural combat would take many
+rounds of lucky rolls.
+
 ### 2026-04-19 — Parser Expansion + API-Narrator Groundwork
 
 Scaffolding for the future Claude-API narrator (see

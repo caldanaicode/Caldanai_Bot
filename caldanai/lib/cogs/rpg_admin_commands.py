@@ -502,6 +502,74 @@ class RpgAdminCommands(Cog):
         await game.kill_monster()
 
     @check_any(is_owner(), has_permissions(manage_guild=True))
+    @spawn.command(brief="Force-destroys named body parts on the current monster.")
+    async def destroy(self, ctx: Context, *parts: str):
+        """
+        Force-destroys the named body parts on the current monster.
+        Admin-only. Variadic — `$spawn destroy head.1 head.2`
+        destroys both. Parts are fuzzy-matched the same way `$kill`
+        / `$target` do, so `h.1` resolves to `head.1`.
+
+        Part destruction fires the part's ``on_destroyed`` hook but
+        does NOT itself terminate the monster — monsters with a
+        part-driven death condition (e.g. the hydra's zero-heads
+        rule) die via :meth:`Creature.check_part_driven_death`
+        during the next combat round. This is intentional: it lets
+        playtest exercises like "decapitate a hydra and verify the
+        death detection fires in the combat round that landed the
+        killing blow" actually test that code path, by using this
+        command to accelerate early-round attrition and reserving
+        the final part-destruction for a real combat attack.
+
+        Intended for playtest / admin use only.
+        """
+        game = self.bot.games.get(ctx.channel.id)
+        if game is None:
+            return
+        if game.monster is None:
+            Dispatcher.add(game.channel, "There is no monster present!")
+            return
+        if not parts:
+            Dispatcher.add(
+                ctx,
+                "Usage: `$spawn destroy <part> [<part> ...]`. Part names "
+                "are fuzzy-matched (e.g. `h.1` for `head.1`).",
+            )
+            return
+
+        destroyed = []
+        unmatched = []
+        for name in parts:
+            matches = game.monster.find_parts(name)
+            if not matches:
+                unmatched.append(name)
+                continue
+            for part in matches:
+                if part.is_destroyed():
+                    continue
+                part.health = 0
+                destroyed.append(part)
+                hook_msg = part.on_destroyed(game.monster)
+                if hook_msg:
+                    Dispatcher.add(game.channel, parse(hook_msg, game.monster))
+
+        if destroyed:
+            part_labels = ", ".join(p.display_name for p in destroyed)
+            monster_name = game.monster.name
+            article = "the " if getattr(game.monster, "uses_article", True) else ""
+            Dispatcher.add(
+                game.channel,
+                f"*An unseen force crushes {article}{monster_name}'s "
+                f"{part_labels}.*",
+            )
+        if unmatched:
+            unmatched_str = ", ".join(f"`{n}`" for n in unmatched)
+            Dispatcher.add(
+                ctx,
+                f"No body part matched: {unmatched_str}",
+            )
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
     @spawn.command(brief="Spawns the requested item to the given player's inventory.")
     async def item(self, ctx: Context, item_name: str):
         """
