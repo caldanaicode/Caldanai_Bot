@@ -151,7 +151,34 @@ class Bot(BotBase, Subject):
     async def setup(self):
         _log.info("Loading cogs...")
         self.discover_cogs()
-        await asyncio.gather(*[self.load_extension(f"caldanai.lib.cogs.{cog}") for cog in self.COGS])
+        # ``return_exceptions=True`` so a failing cog surfaces a
+        # clean error instead of stalling the gather while discord.py's
+        # other in-flight cog-loading tasks unwind. Previously a
+        # ``CommandRegistrationError`` (e.g. alias collision) would
+        # leave startup hanging until SIGINT — the exception had been
+        # raised but the gather's cancellation cascade couldn't
+        # complete, so the process appeared frozen.
+        results = await asyncio.gather(
+            *[
+                self.load_extension(f"caldanai.lib.cogs.{cog}")
+                for cog in self.COGS
+            ],
+            return_exceptions=True,
+        )
+        failures = [
+            (cog, result)
+            for cog, result in zip(self.COGS, results)
+            if isinstance(result, BaseException)
+        ]
+        if failures:
+            for cog, exc in failures:
+                _log.error(f"Failed to load cog {cog!r}: {exc}")
+            # Re-raise the first failure so startup fails fast and
+            # loud — the log lines above name every failed cog, so
+            # even when multiple fail the operator sees the full
+            # picture before the traceback.
+            _, first_exc = failures[0]
+            raise first_exc
         _log.info("Cogs loaded. Bot is setup.")
 
     def discover_cogs(self):

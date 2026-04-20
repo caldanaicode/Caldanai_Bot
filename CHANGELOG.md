@@ -4,6 +4,15 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — Cog-Loader Error Propagation
+
+When a cog failed to register (e.g. alias collision), startup hung
+silently — the exception had been raised but `asyncio.gather`'s
+cancellation cascade over the other in-flight cog-loading tasks
+couldn't complete, so the process appeared frozen until SIGINT.
+Switched the gather to `return_exceptions=True`, log every
+failure, then re-raise the first so startup fails fast and loud.
+
 ### 2026-04-19 — `$spawn destroy` Admin Command
 
 New admin-gated subcommand under `$spawn` for forcing body-part
