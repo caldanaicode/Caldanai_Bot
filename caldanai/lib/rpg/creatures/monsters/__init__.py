@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Type, Union
 
 from caldanai import PluginManager
 from caldanai.lib.rpg import GameClock, parse
+from caldanai.lib.rpg.combat.resolution import compute_body_hp_damage
 from caldanai.lib.rpg.creatures import Creature, round_robin_assignment
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.enums import (AggressionLevels, DamageTypes,
@@ -48,6 +49,13 @@ class MonsterPlugin(Creature):
     # until Phase 6+ ports per-monster flavor; Phase 3 ships the
     # mechanism only.
     ACTION_REPERTOIRE: Dict[str, Dict[str, Dict]] = {}
+
+    # Q.6 creature-wide bleed multiplier applied on top of per-part
+    # ``BodyPart.bleed_rate`` in the body-HP damage formula. No-op at
+    # 1.0; content populates per-monster after Q.6 lands (skeleton
+    # 0.3 for no-fluid, vampire 1.2 for thematic, golem 0.5 for
+    # stone body, etc.).
+    BLEED_MOD: float = 1.0
 
     def __init__(
             self,
@@ -272,10 +280,7 @@ class MonsterPlugin(Creature):
 
             if not victim.is_dead():
                 defense = victim.get_defense()
-                final = max(
-                    resolution.num_hits,
-                    resolution.body_damage_total - defense,
-                )
+                final = compute_body_hp_damage(resolution, victim, defense)
                 d_msg = victim.apply_damage(final)
                 if d_msg and not death_msg:
                     death_msg = d_msg

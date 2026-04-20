@@ -100,6 +100,11 @@ class ResolutionResult:
     death_msg: str = ""
     num_hits: int = 0
     critical_part_kill: bool = False
+    # Q.6 — the positive-damage results that contributed to this
+    # victim's body_damage_total. Carried so the Q.6 body-HP formula
+    # (``compute_body_hp_damage``) can iterate damage × part.bleed_rate
+    # without re-threading the bucket through every caller.
+    victim_results: "List[object]" = field(default_factory=list)
 
 
 @dataclass
@@ -123,6 +128,74 @@ class MultiVictimResolutionResult:
     per_victim: "Dict[Creature, ResolutionResult]" = field(default_factory=dict)
     all_results: "List[object]" = field(default_factory=list)
     any_critical_part_kill: bool = False
+
+
+def compute_body_hp_damage(
+    resolution: ResolutionResult,
+    victim: "Creature",
+    defense: int,
+    *,
+    results: "Optional[List[object]]" = None,
+) -> int:
+    """Q.6 body-HP damage formula — the post-resolve bleed-through
+    calculation applied by every body-HP caller (``Game.do_combat``,
+    ``MonsterPlugin.attack_random``, ``Hydra.attack_random``).
+
+    Formula::
+
+        body_hp_dmg = max(
+            num_hits,
+            int(sum(r.damage * r.target_part.bleed_rate) * victim.BLEED_MOD)
+            - defense
+        )
+
+    - ``num_hits`` remains the floor ("you connected").
+    - Per-part ``bleed_rate`` tunes how much part-targeted damage
+      bleeds into body HP — torso is high, eye is low.
+    - ``victim.BLEED_MOD`` is a creature-wide multiplier (default 1.0)
+      that lets skeletons / golems / vampires tune feel without new
+      structural classes.
+    - ``defense`` is subtracted once after the int()-cast sum so float
+      accumulation doesn't drift HP bookkeeping.
+
+    ``results`` overrides the damage-contributing results — legacy
+    callers that retain the old single-victim ``AttackSequence``
+    shape pass ``sequence.results``; the pipeline path omits it and
+    we pull ``victim_results`` off the per-victim
+    :class:`ResolutionResult` via the helper arg.
+    """
+    num_hits = resolution.num_hits
+    if num_hits <= 0:
+        return 0
+    iterable = results if results is not None else getattr(
+        resolution, "victim_results", []
+    )
+    bleed_total = 0.0
+    # Damage-weighted defense_mod: parts with more damage dominate
+    # the effective defense computation. A full-torso hit against a
+    # tank's torso.defense_mod=2.0 doubles effective defense; a
+    # half-torso / half-arm split averages the mods. Partless targets
+    # fall back to 1.0 (pre-Q.6 raw defense behavior).
+    weighted_mod_total = 0.0
+    damage_total = 0
+    for r in iterable:
+        damage = getattr(r, "damage", 0)
+        if damage <= 0:
+            continue
+        part = getattr(r, "target_part", None)
+        rate = getattr(part, "bleed_rate", 1.0) if part is not None else 1.0
+        mod = getattr(part, "defense_mod", 1.0) if part is not None else 1.0
+        bleed_total += damage * rate
+        weighted_mod_total += damage * mod
+        damage_total += damage
+    bleed_mod = getattr(victim, "BLEED_MOD", 1.0)
+    scaled = int(bleed_total * bleed_mod)
+    if damage_total > 0:
+        avg_defense_mod = weighted_mod_total / damage_total
+        effective_defense = int(defense * avg_defense_mod)
+    else:
+        effective_defense = defense
+    return max(num_hits, scaled - effective_defense)
 
 
 def apply_sequence_to_target(
@@ -267,4 +340,5 @@ def apply_sequence_to_target(
         death_msg=death_msg,
         num_hits=num_hits,
         critical_part_kill=critical_part_kill,
+        victim_results=[r for r in sequence.results if r.damage > 0],
     )

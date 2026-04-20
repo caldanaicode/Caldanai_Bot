@@ -126,6 +126,7 @@ class EyePlugin(BodyPartPlugin):
     name = "eye"
     health_max = "1d6"
     is_critical = False
+    bleed_rate = 0.1
     exposure = {
         Reach.MELEE:  0.1,
         Reach.REACH:  0.1,

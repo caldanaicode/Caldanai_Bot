@@ -109,10 +109,12 @@ class MathTeacher(MonsterPlugin):
         atk_roll: AttackRoll,
         dmg_roll: DamageRoll,
         target_dodge: Optional[int] = None,
+        target_part=None,
     ) -> AttackResult:
         """Halves incoming prime damage and sets LORD OF PRIMES flavor."""
         result = super().resolve_attack(
-            attacker, source, atk_roll, dmg_roll, target_dodge=target_dodge
+            attacker, source, atk_roll, dmg_roll,
+            target_dodge=target_dodge, target_part=target_part,
         )
         if self.is_prime(result.damage):
             result.damage //= 2

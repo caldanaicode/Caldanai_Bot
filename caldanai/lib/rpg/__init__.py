@@ -11,7 +11,10 @@ from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.areas import Area
 from caldanai.lib.rpg.time import GameClock
 from caldanai.lib.rpg.helpers import get_random_direction
-from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
+from caldanai.lib.rpg.combat.resolution import (
+    apply_sequence_to_target,
+    compute_body_hp_damage as _compute_body_hp_damage,
+)
 from caldanai.lib.rpg.combat_state import CombatState
 from caldanai.lib.rpg.ambience.celestial import CelestialDaemon
 from caldanai.lib.rpg.ambience.weather import WeatherDaemon
@@ -536,7 +539,9 @@ class Game:
                 num_hits = player_res.num_hits
                 if num_hits > 0 and not monster.is_dead():
                     defense = monster.get_defense()
-                    final_body_dmg = max(num_hits, player_res.body_damage_total - defense)
+                    final_body_dmg = _compute_body_hp_damage(
+                        player_res, monster, defense,
+                    )
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
                 if player_res.injury_feedback_lines:
@@ -755,7 +760,10 @@ class Game:
                 num_hits = resolution.num_hits
                 if num_hits > 0 and not monster.is_dead():
                     defense = monster.get_defense()
-                    final_body_dmg = max(num_hits, resolution.body_damage_total - defense)
+                    final_body_dmg = _compute_body_hp_damage(
+                        resolution, monster, defense,
+                        results=sequence.results,
+                    )
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
 

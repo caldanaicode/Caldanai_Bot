@@ -112,6 +112,60 @@ def _apply_body_parts_health(
             part.health = max(0, min(part.health_max, int(entry)))
 
 
+#: Q.6 schema version for player skill XP. Bumped when the XP formula
+#: changes; :func:`_migrate_skills_if_needed` one-time-rescales legacy
+#: players so existing levels stay intact and future gains feel
+#: continuous. See ``Part HP and Bleed Refactor.md``.
+SKILLS_SCHEMA_VERSION: int = 2
+
+#: Rate ratio between new (Q.6) and old XP formulas at the canonical
+#: calibration point: skill level 10, torso hit for 15 damage
+#: (torso ``bleed_rate=0.7``). See the Q.6 design doc for the full
+#: parity sample. Used as the divisor in the one-time migration
+#: top-up so in-level progress rescales (new_xp = old_xp / ratio).
+MIGRATION_RATE_RATIO: float = 36 / 41
+
+
+def _level_threshold(level: int) -> int:
+    """Inverse of :meth:`Player.get_skill_level` — the minimum XP
+    needed to be at ``level``. The forward formula is
+    ``level = min(20, floor((25 + sqrt(5 * (125 + xp))) / 50))``, so
+    the threshold for ``level`` is ``((50 * level - 25) ** 2) / 5 - 125``.
+
+    Level 1 threshold is 0, matching the default for unknown skills
+    (which :meth:`get_skill_level` returns 1 for when the skill isn't
+    in the dict)."""
+    if level <= 1:
+        return 0
+    return int(((50 * level - 25) ** 2) / 5 - 125)
+
+
+def _migrate_skills_if_needed(player: "Player") -> None:
+    """Apply the Q.6 one-time XP rescale once per Player load.
+
+    Gated by ``player.skills_schema_version``. Idempotent — a second
+    call is a no-op because the version is bumped in step.
+
+    Rescales each skill's in-level progress by dividing by
+    :data:`MIGRATION_RATE_RATIO`, so progress that earned X XP under
+    the old formula now represents X/ratio XP under the new one —
+    keeping players at the same level but preserving their relative
+    position inside the level."""
+    current = getattr(player, "skills_schema_version", 1)
+    if current >= SKILLS_SCHEMA_VERSION:
+        return
+    for skill, xp in list(player.skills.items()):
+        level = player.get_skill_level(skill)
+        floor_xp = _level_threshold(level)
+        progress = xp - floor_xp
+        if progress <= 0:
+            continue
+        rescaled = progress / MIGRATION_RATE_RATIO
+        player.skills[skill] = int(floor_xp + rescaled)
+    player.skills_schema_version = SKILLS_SCHEMA_VERSION
+    player.is_dirty = True
+
+
 class Player(Creature):
     """A simple Player object for tracking player data"""
 
@@ -139,6 +193,7 @@ class Player(Creature):
         health_regen: Optional[int] = 0,
         body_parts_health: Optional[Dict[str, int]] = None,
         social: Optional[Dict[str, object]] = None,
+        skills_schema_version: Optional[int] = None,
     ):
         super().__init__(
             name=None,
@@ -191,6 +246,27 @@ class Player(Creature):
             if not EquipmentSlots.exclude_from_output(slot.name):
                 exists = equip_slots and slot.name in equip_slots.keys()
                 self.equip_slots[slot.name] = self.inventory[str(equip_slots[slot.name])] if exists else None
+
+        # Q.6 skills-schema versioning. Absent in legacy documents;
+        # defaults to v1 when skills exist (triggers one-time migration)
+        # or the current schema when there are no skills (brand-new
+        # player — migration is a no-op).
+        if skills_schema_version is not None:
+            self.skills_schema_version = int(skills_schema_version)
+        elif self.skills:
+            self.skills_schema_version = 1
+        else:
+            self.skills_schema_version = SKILLS_SCHEMA_VERSION
+        _migrate_skills_if_needed(self)
+        # Clear is_dirty if migration was a no-op (brand-new player or
+        # already-migrated document) — the caller's "fresh Player is
+        # clean" contract holds. Legacy documents that actually got
+        # their XP rescaled stay dirty so the next save persists the
+        # migration.
+        if skills_schema_version is not None and skills_schema_version >= SKILLS_SCHEMA_VERSION:
+            self.is_dirty = False
+        elif not self.skills:
+            self.is_dirty = False
 
     def __eq__(self, o):
         return isinstance(o, Player) and self.user_id == o.user_id and self.guild_id == o.guild_id
@@ -387,12 +463,31 @@ class Player(Creature):
         return sequence.to_markdown()
 
     def _on_attack_resolved(self, source, result) -> None:
-        """Grants skill XP on hits, updates roll counts, and inherits
-        the base hook's drain handling (so a player wielding a
-        future life-drain weapon would heal naturally)."""
+        """Grants skill XP on hits (committed-damage bonus) or misses
+        (flat floor), updates roll counts, and inherits the base hook's
+        drain handling so a future life-drain weapon would heal
+        naturally.
+
+        Q.6: XP now scales with committed damage via the part's
+        ``bleed_rate`` — a torso hit for 15 damage grants more XP than
+        an eye hit for the same damage. Misses grant a flat 2 XP so
+        low-skill players still progress while learning to connect.
+        """
         super()._on_attack_resolved(source, result)
         if result.hit():
-            self.gain_skill_experience(source.skill)
+            part = getattr(result, "target_part", None)
+            # Instance-level override wins (rare) but class-level
+            # ``bleed_rate`` is the common path; partless routing
+            # falls back to the neutral 1.0.
+            bleed = getattr(part, "bleed_rate", 1.0) if part is not None else 1.0
+            # hit=True even when damage=0 — trait-immune hits (physical
+            # vs spirit, etc.) still represent committed connects and
+            # earn base_hit_xp; only the damage-bonus goes to zero.
+            self.gain_skill_experience(
+                source.skill, damage=result.damage, bleed_rate=bleed, hit=True,
+            )
+        else:
+            self.gain_skill_experience(source.skill, hit=False)
         self.update_roll_counts(result.combined)
 
     def replace_equipment(self, item: Equipment, slot_name: str) -> Tuple[bool, Equipment]:
@@ -503,6 +598,7 @@ class Player(Creature):
             health_regen=p.get("health_regen", 0),
             body_parts_health=p.get("body_parts_health"),
             social=p.get("social"),
+            skills_schema_version=p.get("skills_schema_version"),
         )
 
         eq = p.get("equip_slots") or {}
@@ -519,21 +615,47 @@ class Player(Creature):
 
         return player
 
-    def gain_skill_experience(self, skill: str) -> None:
-        """Applies experience gain for the given skill."""
+    def gain_skill_experience(
+        self,
+        skill: str,
+        damage: int = 0,
+        bleed_rate: float = 1.0,
+        *,
+        hit: bool = True,
+    ) -> None:
+        """Q.6 formula E — skill XP with a committed-damage bonus plus
+        a flat miss-path grant.
 
-        if skill not in self.skills.keys():
+        - Hit path (``hit=True``): ``base + bonus`` where
+          ``base = 5 + floor(5 * level**0.5)`` and
+          ``bonus = int(damage * bleed_rate * 1.5)``.
+          Two-handed skills double both terms. A zero-damage hit
+          (trait immunity like physical-vs-spirit) still grants the
+          base XP — connecting is committed even when damage shrugs.
+        - Miss path (``hit=False``): flat ``2`` XP, not level-scaled
+          — gives low-skill players a progression floor when they miss.
+        - Capped at level 20 (no XP past the ceiling).
+        """
+
+        if skill not in self.skills:
             self.skills[skill] = 0
 
         skill_level = self.get_skill_level(skill)
+        if skill_level >= 20:
+            return
 
-        if skill_level < 20:
-            amt = 10 + floor(10 * (skill_level**0.5))
+        if not hit:
+            amt = 2
+        else:
+            base = 5 + floor(5 * (skill_level ** 0.5))
+            bonus = int(max(0, damage) * bleed_rate * 1.5)
             if "two-handed" in skill:
-                amt *= 2
+                base *= 2
+                bonus *= 2
+            amt = base + bonus
 
-            self.skills[skill] += amt
-            self.is_dirty = True
+        self.skills[skill] += amt
+        self.is_dirty = True
 
     def get_armor_bonuses(self, *names: str) -> Dict[str, int]:
         """
@@ -881,6 +1003,7 @@ class Player(Creature):
                 for p in self.body_parts
             },
             "social": self.social,
+            "skills_schema_version": self.skills_schema_version,
         }
 
         # Empty ``social`` stays out of the saved doc so never-touched

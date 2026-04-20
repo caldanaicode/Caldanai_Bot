@@ -13,6 +13,7 @@ class ToePlugin(BodyPartPlugin):
     name = "toe"
     health_max = 1
     is_critical = False
+    bleed_rate = 0.05
     exposure = {
         Reach.MELEE:  0.3,
         Reach.REACH:  0.2,

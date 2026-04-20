@@ -331,9 +331,13 @@ class TestDefenseEmergence:
 
 
 class TestPartHpScaling:
-    """Unpaired parts (head, torso) isolate the scaling math from
-    the pair-symmetrization step. See ``TestPairSymmetrization``
-    below for the symmetrization contract."""
+    """Q.6 body-HP-relative scaling. Critical parts:
+    ``body_hp × size_scalar × def_scalar`` floored at ``body_hp × 0.5``.
+    Non-critical parts: ``body_hp × part_fraction × size_scalar``.
+
+    Unpaired parts (head, torso) isolate the scaling math from the
+    pair-symmetrization step. See ``TestPairSymmetrization`` below
+    for the symmetrization contract."""
 
     def _unpaired_parts(self):
         return [
@@ -341,45 +345,121 @@ class TestPartHpScaling:
             BodyPart.make("torso", name="torso"),
         ]
 
-    def test_medium_creature_keeps_base_hp(self):
-        c = _make_creature()
+    def test_medium_creature_scales_criticals_from_body_hp(self):
+        """MEDIUM (0.8) × def-10-neutral (1.0) × body 50 = 40; floor
+        ``body × 0.5 = 25`` doesn't activate. Applies equally to head
+        and torso (both critical)."""
+        c = _make_creature()  # defense=10, body 50
         c.size = Size.MEDIUM
         c.body_parts = self._unpaired_parts()
-        original_hps = [p.health_max for p in c.body_parts]
         c._scale_part_hp()
-        for p, original in zip(c.body_parts, original_hps):
-            assert p.health_max == original
+        for p in c.body_parts:
+            assert p.health_max == 40
+            assert p.health == p.health_max
 
-    def test_large_creature_doubles_hp(self):
-        c = _make_creature()
+    def test_large_creature_scales_criticals_to_body_hp(self):
+        """LARGE (1.0) × def-10 (1.0) × body 50 = 50 — critical parts
+        match body HP on LARGE neutral-defense creatures."""
+        c = _make_creature()  # defense=10
         c.size = Size.LARGE
         c.body_parts = self._unpaired_parts()
-        original_hps = [p.health_max for p in c.body_parts]
         c._scale_part_hp()
-        for p, original in zip(c.body_parts, original_hps):
-            assert p.health_max == int(original * 2.0)
+        for p in c.body_parts:
+            assert p.health_max == 50
             assert p.health == p.health_max
 
-    def test_huge_creature_quadruples_hp(self):
-        c = _make_creature()
+    def test_huge_creature_scales_criticals_above_body_hp(self):
+        """HUGE (1.3) × def-10 (1.0) × body 50 = 65."""
+        c = _make_creature()  # defense=10
         c.size = Size.HUGE
         c.body_parts = self._unpaired_parts()
-        original_hps = [p.health_max for p in c.body_parts]
         c._scale_part_hp()
-        for p, original in zip(c.body_parts, original_hps):
-            assert p.health_max == int(original * 4.0)
+        for p in c.body_parts:
+            assert p.health_max == 65
             assert p.health == p.health_max
+
+    def test_light_armor_critical_hp_bump(self):
+        """defense<10 lands in the 1.5 band: MEDIUM (0.8) × 1.5 × 50 = 60."""
+        c = _make_creature(defense=5)
+        c.size = Size.MEDIUM
+        c.body_parts = self._unpaired_parts()
+        c._scale_part_hp()
+        for p in c.body_parts:
+            assert p.health_max == 60
+
+    def test_heavy_armor_critical_hp_reduced_to_half_floor(self):
+        """defense>=20 lands in the 0.7 band: MEDIUM (0.8) × 0.7 × 50 =
+        28, but the ``body_hp × 0.5 = 25`` floor keeps it above the raw.
+        Here raw 28 > floor 25 → 28."""
+        c = _make_creature(defense=20)
+        c.size = Size.MEDIUM
+        c.body_parts = self._unpaired_parts()
+        c._scale_part_hp()
+        for p in c.body_parts:
+            assert p.health_max == 28
+
+    def test_critical_floor_activates_when_raw_underflows(self):
+        """The floor ``body_hp × 0.5`` wins when raw
+        ``body × size × def_scalar`` falls below it.
+
+        Setup: defense=30 × TINY defense_mod 0.5 = ``get_defense()=15``
+        (still in the 10-20 neutral band → def_scalar 1.0). TINY size
+        (0.4) × 1.0 × body 50 = 20 raw, floor = 25. Floor wins."""
+        c = _make_creature(defense=30)
+        c.size = Size.TINY
+        c.body_parts = self._unpaired_parts()
+        c._scale_part_hp()
+        for p in c.body_parts:
+            assert p.health_max == 25
+
+    def test_non_critical_scales_by_part_fraction(self):
+        """Arm (fraction 0.20) on MEDIUM (0.8) × body 50 = 8."""
+        c = _make_creature()  # defense=10
+        c.size = Size.MEDIUM
+        left = BodyPart.make("arm", name="arm.left")
+        c.body_parts = [left]
+        c._scale_part_hp()
+        # 50 * 0.20 * 0.8 = 8.0
+        assert left.health_max == 8
+
+    def test_non_critical_leg_has_higher_fraction_than_arm(self):
+        """Leg fraction (0.25) > arm fraction (0.20) so legs outscale
+        arms at the same size/body-hp."""
+        c = _make_creature()
+        c.size = Size.LARGE
+        leg = BodyPart.make("leg", name="leg")
+        arm = BodyPart.make("arm", name="arm")
+        c.body_parts = [leg, arm]
+        c._scale_part_hp()
+        assert leg.health_max > arm.health_max
+
+    def test_non_critical_eye_is_fragile(self):
+        """Eye fraction 0.05 yields a tiny HP pool even on LARGE."""
+        c = _make_creature()
+        c.size = Size.LARGE
+        eye = BodyPart.make("eye", name="eye")
+        c.body_parts = [eye]
+        c._scale_part_hp()
+        # 50 * 0.05 * 1.0 = 2.5 → 2
+        assert eye.health_max == 2
 
     def test_minimum_one_hp(self):
         """Even with tiny scaling, HP never drops below 1."""
-        c = _make_creature()
+        c = _make_creature(health_max=2)
         c.size = Size.TINY
-        c.body_parts = [BodyPart.make("head", name="head")]
-        # Force very low health_max to test clamping
-        c.body_parts[0].health_max = 1
-        c.body_parts[0].health = 1
+        c.body_parts = [BodyPart.make("toe", name="toe")]
         c._scale_part_hp()
         assert c.body_parts[0].health_max >= 1
+
+    def test_colossal_with_huge_body_hp(self):
+        """COLOSSAL emergence: defense=10 × defense_mod 2.0 =
+        ``get_defense()=20``, def_scalar=0.7. COLOSSAL size (1.6) × 0.7
+        × body 200 = 224 on a critical. Floor (100) doesn't bind."""
+        c = _make_creature(health_max=200)  # defense=10
+        c.size = Size.COLOSSAL
+        c.body_parts = [BodyPart.make("torso", name="torso")]
+        c._scale_part_hp()
+        assert c.body_parts[0].health_max == 224
 
 
 class TestPairSymmetrization:
@@ -432,23 +512,20 @@ class TestPairSymmetrization:
         assert h2.health_max == 25
 
     def test_scale_and_symmetrize_compose(self):
-        """At LARGE (scale 2.0), a pair's final HP is
-        ``max(left_rolled, right_rolled) * 2``."""
-        c = _make_creature()
+        """Q.6 scaling writes deterministic per-part HP (body-HP × part
+        fraction × size scalar), so pair left/right collapse to the
+        same value without symmetrization needing to pick a max.
+        LARGE (1.0) × leg fraction (0.25) × body 50 = 12.5 → 12."""
+        c = _make_creature()  # body 50, def 10
         c.size = Size.LARGE
         left = BodyPart.make("leg", name="leg.left")
         right = BodyPart.make("leg", name="leg.right")
-        left.health_max = 4
-        left.health = 4
-        right.health_max = 7
-        right.health = 7
         c.body_parts = [left, right]
 
         c._scale_part_hp()
 
-        # 7 (max of pair) * 2 (LARGE scale) = 14
-        assert left.health_max == 14
-        assert right.health_max == 14
+        assert left.health_max == 12
+        assert right.health_max == 12
 
 
 # ---------------------------------------------------------------------------

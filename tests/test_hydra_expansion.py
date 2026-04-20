@@ -81,7 +81,7 @@ def _mock_combatant(name="Hero"):
     # ``target_dodge`` kwarg that matches the real
     # ``Creature.resolve_attack`` signature — ``Hydra.attack_random``
     # now passes targeted-dodge math through this kwarg.
-    m.resolve_attack.side_effect = lambda attacker, source, atk_roll, dmg_roll, target_dodge=None: AttackResult(
+    m.resolve_attack.side_effect = lambda attacker, source, atk_roll, dmg_roll, target_dodge=None, target_part=None: AttackResult(
         source=source,
         combined=MagicMock(isMiss=False, isCritical=False, isFumble=False,
                            result=4, attack=MagicMock(__str__=lambda s: "1d6"),
@@ -629,44 +629,32 @@ class TestRegrowthWithTypes:
                 f"Regrown head {head.name!r} missing dmg_type"
             )
 
-    def test_regrown_heads_have_size_scaled_hp(self):
-        """Regrown heads on a LARGE hydra must have size-scaled HP.
+    def test_regrown_heads_have_body_hp_relative_hp(self):
+        """Regrown heads on a LARGE hydra match the Q.6 body-HP-relative
+        scaling applied to initial heads.
 
-        HeadPlugin base HP is 3d10 (range 3-30).  LARGE hp_scale is 2.0,
-        so scaled HP should be in [6, 60].  An unscaled head would be in
-        [3, 30].  We verify that every regrown head's HP is >= 6 (the
-        minimum scaled value), confirming scaling was applied.
+        Hydra heads are non-critical (so hydra dies from decap, not
+        head destruction) with a ``head`` part-fraction of 0.5. LARGE
+        size scalar = 1.0. So a regrown head's HP is ``body_hp * 0.5``.
         """
         from caldanai.lib.rpg.helpers.enums import Size
         h = _make_variant_hydra("hydra")
-        assert h.size == Size.LARGE  # hp_scale = 2.0
-        scale = h.size.value["hp_scale"]  # 2.0
+        assert h.size == Size.LARGE
 
         # Destroy a head, then trigger regrowth.
         heads_before = _live_heads(h)
         heads_before[0].health = 0
         h.on_combat_round({})
 
-        # Find regrown heads (names that weren't in the original set).
         original_names = {hd.name for hd in heads_before}
         regrown = [hd for hd in _live_heads(h) if hd.name not in original_names]
         assert len(regrown) >= 1, "Expected at least one regrown head"
 
+        expected = max(1, int(h.health_max * 0.5 * 1.0))
         for head in regrown:
-            # The base 3d10 rolls 3-30; scaled by 2.0 gives 6-60.
-            # An unscaled head would have max 30.  We verify the HP is
-            # consistent with scaling: health_max == int(base * scale)
-            # where base is in [3,30].  The minimum scaled value is
-            # max(1, int(3 * 2.0)) = 6.
-            assert head.health_max >= 6, (
-                f"Regrown head {head.name!r} has health_max={head.health_max}, "
-                f"expected >= 6 (min scaled value for LARGE)"
+            assert head.health_max == expected, (
+                f"Regrown head {head.name!r} has health_max="
+                f"{head.health_max}, expected {expected} "
+                f"(body_hp {h.health_max} × 0.5 × LARGE 1.0)"
             )
-            assert head.health_max <= 60, (
-                f"Regrown head {head.name!r} has health_max={head.health_max}, "
-                f"expected <= 60 (max scaled value for LARGE)"
-            )
-            assert head.health == head.health_max, (
-                f"Regrown head {head.name!r} health ({head.health}) != "
-                f"health_max ({head.health_max})"
-            )
+            assert head.health == head.health_max

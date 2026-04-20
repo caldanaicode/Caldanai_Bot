@@ -72,6 +72,7 @@ class TorsoPlugin(BodyPartPlugin):
     name = "torso"
     health_max = "6d10"
     is_critical = True
+    bleed_rate = 0.7
     exposure = {
         Reach.MELEE:  1.0,
         Reach.REACH:  1.0,

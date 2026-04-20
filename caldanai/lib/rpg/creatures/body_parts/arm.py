@@ -126,6 +126,7 @@ class ArmPlugin(BodyPartPlugin):
     name = "arm"
     health_max = "2d8"
     is_critical = False
+    bleed_rate = 0.3
     exposure = {
         Reach.MELEE:  0.8,
         Reach.REACH:  0.8,

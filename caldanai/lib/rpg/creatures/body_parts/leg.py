@@ -106,6 +106,7 @@ class LegPlugin(BodyPartPlugin):
     name = "leg"
     health_max = "2d10"
     is_critical = False
+    bleed_rate = 0.3
     exposure = {
         Reach.MELEE:  1.0,
         Reach.REACH:  1.0,

@@ -148,6 +148,11 @@ class TestSerialization:
                             if not EquipmentSlots.exclude_from_output(s.name)},
             "last_active": None,
             "health_regen": 3,
+            # Doc is already on the current skills schema, so
+            # ``_migrate_skills_if_needed`` is a no-op and the XP
+            # round-trips unchanged. See TestSkillsMigration for the
+            # legacy-doc migration behavior.
+            "skills_schema_version": 2,
         }
         p = Player.from_dict(d)
         assert p is not None
@@ -277,12 +282,14 @@ class TestGainSkillExperience:
         assert p.is_dirty is True
 
     def test_two_handed_double_xp(self):
+        # Q.6 — two-handed doubling applies on the hit path; the
+        # miss-path floor is a flat 2 XP regardless of skill.
         p = _make_player()
-        p.gain_skill_experience("two-handed swords")
+        p.gain_skill_experience("two-handed swords", damage=10, bleed_rate=0.7)
         xp_two_handed = p.skills["two-handed swords"]
 
         p2 = _make_player()
-        p2.gain_skill_experience("swords")
+        p2.gain_skill_experience("swords", damage=10, bleed_rate=0.7)
         xp_one_handed = p2.skills["swords"]
 
         assert xp_two_handed == 2 * xp_one_handed
@@ -406,14 +413,19 @@ class TestDoAttack:
         assert "unarmed bludgeoning" in p.skills
         assert p.skills["unarmed bludgeoning"] > 0
 
-    def test_no_skill_xp_on_miss(self):
+    def test_miss_grants_flat_progression_floor_xp(self):
+        """Q.6 — misses grant a flat 2 XP per attempted source so
+        low-skill players still progress when they miss a lot.
+        ``do_attack`` dispatches two unarmed sources (left + right),
+        so two misses = 4 XP."""
         p = _make_player()
         target = MagicMock()
         target.resolve_attack.return_value = _make_attack_result(damage=0, hit=False)
         target.get_dodge.return_value = 10
 
         p.do_attack(target)
-        assert p.skills.get("unarmed bludgeoning", 0) == 0
+        # 2 XP per missed source × 2 sources = 4 XP total.
+        assert p.skills.get("unarmed bludgeoning", 0) == 4
 
     def test_monster_can_modify_damage(self):
         p = _make_player()
@@ -843,7 +855,7 @@ class TestDisabledArmDisablesAttackSlot:
         target.get_targetable_parts.return_value = []
 
         from caldanai.lib.rpg.combat.attack_result import AttackResult
-        def _resolve(_a, _s, atk, dmg, target_dodge=None):
+        def _resolve(_a, _s, atk, dmg, target_dodge=None, target_part=None):
             from caldanai.lib.rpg.helpers.roll_data import CombinedRoll
             combined = CombinedRoll(atk, dmg, target_dodge if target_dodge is not None else 10)
             return AttackResult(source=_s, combined=combined, damage=0,

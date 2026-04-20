@@ -439,7 +439,8 @@ class Creature:
 
             atk_roll, dmg_roll = source.make_attack_rolls(self)
             result = victim.resolve_attack(
-                self, source, atk_roll, dmg_roll, target_dodge=target_dodge,
+                self, source, atk_roll, dmg_roll,
+                target_dodge=target_dodge, target_part=target_part,
             )
             result.target_part = target_part
             result.victim = victim
@@ -466,10 +467,14 @@ class Creature:
             # downstream damage-summary floor matches today's behavior
             # for partless targets. Body-HP application itself is the
             # caller's job — see docstring.
-            num_hits = sum(1 for r in bucket if r.damage > 0)
-            raw_total = sum(r.damage for r in bucket if r.damage > 0)
-            resolution.num_hits = num_hits
-            resolution.body_damage_total = raw_total
+            positive = [r for r in bucket if r.damage > 0]
+            resolution.num_hits = len(positive)
+            resolution.body_damage_total = sum(r.damage for r in positive)
+            # Q.6: victim_results feeds the body-HP bleed formula in
+            # ``compute_body_hp_damage``. Full positive-damage bucket
+            # (not just part-routed) so partless hits still contribute
+            # via the fallback 1.0 bleed rate.
+            resolution.victim_results = positive
             per_victim[victim] = resolution
             if resolution.critical_part_kill:
                 any_crit = True
@@ -766,7 +771,8 @@ class Creature:
 
             atk_roll, dmg_roll = source.make_attack_rolls(self)
             result = target.resolve_attack(
-                self, source, atk_roll, dmg_roll, target_dodge=target_dodge
+                self, source, atk_roll, dmg_roll,
+                target_dodge=target_dodge, target_part=target_part,
             )
             result.target_part = target_part  # store for damage application + display
             results.append(result)
@@ -980,6 +986,7 @@ class Creature:
         atk_roll: AttackRoll,
         dmg_roll: DamageRoll,
         target_dodge: Optional[int] = None,
+        target_part: Optional[BodyPart] = None,
     ) -> AttackResult:
         """Pure calculation of a single attack against this creature.
 
@@ -991,9 +998,17 @@ class Creature:
         (used by per-part dodge scaling when a player explicitly targets
         a low-exposure body part). When ``None``, the creature's base
         dodge is used.
+
+        ``target_part`` lets the caller pass the aimed-at part so the
+        per-part ``defense_mod`` (Q.6 no-op lever; defaults to 1.0)
+        scales the stored defense for display and future callers. The
+        body-HP formula still subtracts ``get_defense()`` flat once per
+        victim — this field is purely per-hit defense display today.
         """
         dodge = target_dodge if target_dodge is not None else self.get_dodge()
         defense = self.get_defense()
+        if target_part is not None:
+            defense = int(defense * getattr(target_part, "defense_mod", 1.0))
 
         # Apply attacker's HIT modifier (eye/head functionality)
         hit_mod = attacker.get_hit_modifier()
@@ -1287,20 +1302,27 @@ class Creature:
         return int((ratio - 1.0) * 5)
 
     def _scale_part_hp(self) -> None:
-        """Scale body part HP by creature size, then symmetrize paired
-        parts. Call after composing ``body_parts`` in subclass
-        ``__init__``.
+        """Q.6 body-HP-relative part HP scaling. Call after composing
+        ``body_parts`` in subclass ``__init__``.
 
-        Symmetrization always runs (even at scale 1.0) so MEDIUM
-        creatures also get left/right HP matching. The Player path
-        doesn't invoke this method — it calls
-        ``_symmetrize_paired_parts`` directly after anatomy setup.
+        Replaces the pre-Q.6 ``hp_scale``-multiplier path: critical
+        parts scale as ``body_hp × size_scalar × def_scalar`` with a
+        ``body_hp × 0.5`` floor (a critical part never has less than
+        half the body's HP); non-critical parts scale as
+        ``body_hp × part_fraction × size_scalar``. See the Q.6 design
+        doc for the numbers.
+
+        Symmetrization always runs (even at MEDIUM / def 10-20) so
+        left/right HP matches after scaling. The Player path doesn't
+        invoke this method — it calls ``_symmetrize_paired_parts``
+        directly after anatomy setup.
         """
-        scale = self.size.value["hp_scale"]
-        if scale != 1.0:
-            for part in self.body_parts:
-                part.health_max = max(1, int(part.health_max * scale))
-                part.health = part.health_max
+        defense = self.get_defense()
+        for part in self.body_parts:
+            part.health_max = _compute_scaled_part_hp(
+                part, self.health_max, self.size, defense,
+            )
+            part.health = part.health_max
         self._symmetrize_paired_parts()
 
     def _symmetrize_paired_parts(self) -> None:
@@ -1563,6 +1585,80 @@ def _part_base_name(part: BodyPart) -> str:
         if "name" in klass.__dict__:
             return klass.__dict__["name"]
     return ""
+
+
+# Q.6 body-HP-relative part HP scaling. See the Q.6 design doc for
+# the rationale — fixed-dice part HP drifts out of tune with body HP
+# as body HP varies wildly (bandit 9, hydra 203). These tables replace
+# the old ``Size.hp_scale`` multiplier path.
+_Q6_SIZE_SCALAR: Dict[Size, float] = {
+    Size.TINY:     0.4,
+    Size.SMALL:    0.6,
+    Size.MEDIUM:   0.8,
+    Size.LARGE:    1.0,
+    Size.HUGE:     1.3,
+    Size.COLOSSAL: 1.6,
+}
+
+# Keyed by the plugin's ``name`` (as returned by ``_part_base_name``).
+# Non-critical parts only — critical parts use the critical formula.
+_Q6_PART_FRACTIONS: Dict[str, float] = {
+    "arm":  0.20,
+    "leg":  0.25,   # legs carry body mass → more resilient
+    "tail": 0.15,
+    "wing": 0.15,
+    "eye":  0.05,
+    "toe":  0.03,
+    # "head" as non-critical (e.g. hydra's multi-head repertoire):
+    # sized like a torso-scale non-critical. Heads of non-critical
+    # creatures are major structural parts, so we give them a
+    # conservative share rather than rolling into the tiny-part
+    # bucket. (Baseline 0.5 matches the classic "head = ~half body
+    # HP" pattern hydra's pre-Q.6 variants relied on.)
+    "head": 0.5,
+}
+
+# Fallback fraction for any part plugin whose name isn't in the
+# per-part table above (e.g. custom per-monster parts). Conservative
+# midpoint so unknown parts don't drift wildly in either direction.
+_Q6_PART_FRACTION_DEFAULT: float = 0.20
+
+
+def _q6_def_scalar(defense: int) -> float:
+    """Defense-band scalar for the critical-part HP formula.
+
+    Light-armor creatures (def<10) get +50% critical-part HP to
+    compensate for taking full hits; heavy-armor (def 20+) get -30%
+    because their defense is already doing the protection work.
+    Medium-armor (10-20) is the neutral band.
+    """
+    if defense < 10:
+        return 1.5
+    if defense >= 20:
+        return 0.7
+    return 1.0
+
+
+def _compute_scaled_part_hp(
+    part: BodyPart, body_hp: int, size: Size, defense: int,
+) -> int:
+    """Return the Q.6 scaled ``health_max`` for ``part``.
+
+    See ``_scale_part_hp`` for the formulas. Critical parts are keyed
+    by ``part.is_critical`` (the instance flag, which may differ from
+    the plugin default — hydra's multi-head variants flip head.1..N
+    to non-critical so decapitation doesn't end the fight)."""
+    size_scalar = _Q6_SIZE_SCALAR.get(size, 1.0)
+    if part.is_critical:
+        def_scalar = _q6_def_scalar(defense)
+        raw = body_hp * size_scalar * def_scalar
+        floor = body_hp * 0.5
+        return max(1, int(max(raw, floor)))
+
+    base_name = _part_base_name(part)
+    fraction = _Q6_PART_FRACTIONS.get(base_name, _Q6_PART_FRACTION_DEFAULT)
+    raw = body_hp * fraction * size_scalar
+    return max(1, int(raw))
 
 
 _FUNCTIONALITY_WEIGHTS = {

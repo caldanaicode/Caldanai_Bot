@@ -62,6 +62,22 @@ class BodyPartPlugin(BodyPart):
     # so pipeline orchestration is testable without content yet.
     DEFAULT_ACTIONS: Dict[str, Dict] = {}
 
+    # Q.6 bleed-through multiplier: fraction of damage-to-this-part
+    # that flows into the creature's body HP via the post-resolve
+    # bleed formula in ``MonsterPlugin.attack_random`` /
+    # ``Game._run_player_block`` / ``Hydra.attack_random``. Per-class
+    # defaults land on the concrete plugins; the base stays at 1.0 so
+    # unknown plugins (custom per-monster parts) bleed fully by
+    # default rather than silently dropping body damage.
+    bleed_rate: float = 1.0
+
+    # Q.6 defense multiplier on the creature's ``get_defense()`` when
+    # this part is the hit target. No-op at 1.0 (the default on every
+    # ship-a plugin); populated content (tanky torso, exposed eye)
+    # can tune per-part without new classes. Wired in
+    # ``Creature.resolve_attack``.
+    defense_mod: float = 1.0
+
     # Name-keyed registry populated by :meth:`load_plugins`. Mirrors
     # ``PluginManager.LOADED_PLUGINS`` but keyed by the plugin's declared
     # ``name`` so the item 1.5 factory can do ``BodyPart.make("leg")``.

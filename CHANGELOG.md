@@ -4,6 +4,73 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Phase Q.6 Part HP + Bleed-Through Refactor
+
+Balance refactor sitting on top of the Combat Pipeline stack.
+Three structural changes + two no-op levers for future content.
+
+**Critical-part HP is now body-HP-relative**: `critical_hp =
+body_hp × size_scalar × def_scalar`, floored at half body HP.
+Size bands TINY 0.4 → COLOSSAL 1.6; defense bands <10 → 1.5,
+10-20 → 1.0, 20+ → 0.7. Hydra's torso climbs from ~50 to ~300
+HP via this scaling — torso-target exploit gap drops from
+80% to 20%, passing the boss-tier gate.
+
+**Non-critical part HP is also body-HP-relative**: `part_hp =
+body_hp × part_fraction × size_scalar`. Fractions: arm 0.20,
+leg 0.25, tail/wing 0.15, eye 0.05, toe 0.03. Resolves the
+"vampire arm is 9 HP while vampire body is 124 HP" incoherence
+by anchoring part resilience to the creature's power budget.
+
+**Body-HP damage flows from part-bleed**: replaces the flat
+`max(num_hits, total - defense)` with
+`max(num_hits, int(sum(dmg × bleed_rate) × BLEED_MOD) - effective_defense)`.
+Per-part bleed rates: torso 0.7, head 0.6, arm/leg 0.3,
+tail/wing 0.2, eye 0.1, toe 0.05. Non-critical part damage
+still bleeds into body HP so "target-only-non-critical-parts"
+can't farm XP without progressing toward a kill. Narrative
+weight + anti-exploit in one lever.
+
+**XP formula E**: `miss_xp=2` flat for attempts, `base_hit_xp
+= 5 + floor(5 × √level)` plus `damage × bleed_rate × 1.5`
+bonus for connected hits. Two-handed doubles both. Zero-damage
+hits (trait immunity, e.g. physical vs spirit) still grant
+base_hit_xp since the swing connected. Low-skill early-game
+gets a gentler floor via miss XP; late-game parity tunes
+to ~88% of pre-Q.6 rate.
+
+**Migration**: one-time rescale on first load (gated by new
+`skills_schema_version` field) rescales in-level XP progress
+by `1/0.878` so existing players keep current skill levels
+and don't perceive the rate drift. Idempotent via version
+check, round-trips through to_dict/from_dict, dirty-marks for
+persistence.
+
+**No-op content levers shipped** (mechanism only, no monster
+populates them yet):
+- `BodyPartPlugin.defense_mod: float = 1.0` — damage-weighted
+  into `compute_body_hp_damage`'s effective defense, so a
+  tank's `torso.defense_mod = 2.0` would actually protect the
+  body (not just display).
+- `MonsterPlugin.BLEED_MOD: float = 1.0` — creature-wide bleed
+  multiplier for skeleton/golem/vampire thematic tuning.
+
+**Post-refactor tuning sweep** (15 trials, MASTERWORK gear,
+base player HP=20 def=6 dodge=6):
+- Hydra: 80% → **20%** exploit gap ✓
+- Dragon: 27% → **20%** (stable, reference template) ✓
+- Vampire: 67% → 27%
+- Bandit: 27% → 7%
+- 5 monsters (doppelganger, bearowl, golem, cyclops, giant)
+  regressed because their rolled-low body HP now anchors
+  low critical HP too. Deferred to Q.6.x content audit
+  (body-HP dice tuning per monster + `BLEED_MOD` / `defense_mod`
+  content overrides).
+
+**Added** `tools/inspect_monster.py` for ad-hoc monster stat
+inspection (replaces inline `python -c` dumps of scaled part
+HP). 3096 → 3156 tests passing. Three consecutive clean runs.
+
 ### 2026-04-20 — `playtest_combat_harness` Multi-Monster Sweep
 
 Extends the harness with `--sweep-monsters <stem1,stem2,...>` mode

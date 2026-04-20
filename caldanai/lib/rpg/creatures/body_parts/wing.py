@@ -94,6 +94,7 @@ class WingPlugin(BodyPartPlugin):
     name = "wing"
     health_max = "2d8"
     is_critical = False
+    bleed_rate = 0.2
     exposure = {
         Reach.MELEE:  0.5,   # wings tuck away, hard to hit in melee
         Reach.REACH:  0.5,   # same; mirrors MELEE (doc sketch omitted)

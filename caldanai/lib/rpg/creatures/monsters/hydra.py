@@ -490,10 +490,13 @@ class Hydra(MonsterPlugin):
         )
         head.dmg_type = dmg_type
         if scale:
-            hp_scale = self.size.value["hp_scale"]
-            if hp_scale != 1.0:
-                head.health_max = max(1, int(head.health_max * hp_scale))
-                head.health = head.health_max
+            # Q.6: regrown heads share the body-HP-relative scaling
+            # the initial heads got from ``_scale_part_hp``.
+            from caldanai.lib.rpg.creatures import _compute_scaled_part_hp
+            head.health_max = _compute_scaled_part_hp(
+                head, self.health_max, self.size, self.get_defense(),
+            )
+            head.health = head.health_max
         return head
 
     def _get_head_dmg_type(self) -> DamageTypes:
@@ -729,12 +732,15 @@ class Hydra(MonsterPlugin):
         if injury_lines:
             msg += "\n".join(injury_lines) + "\n"
 
+        from caldanai.lib.rpg.combat.resolution import (
+            compute_body_hp_damage,
+        )
         for victim, resolution in (results.per_victim or {}).items():
             num_hits = resolution.num_hits
             raw_total = resolution.body_damage_total
             if num_hits > 0:
                 defense = victim.get_defense()
-                final = max(num_hits, raw_total - defense)
+                final = compute_body_hp_damage(resolution, victim, defense)
                 if defense and raw_total != final:
                     victim_name = getattr(victim, "name", "someone")
                     msg += (

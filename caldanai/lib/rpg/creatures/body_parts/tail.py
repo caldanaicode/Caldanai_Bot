@@ -118,6 +118,7 @@ class TailPlugin(BodyPartPlugin):
     name = "tail"
     health_max = "1d10"
     is_critical = False
+    bleed_rate = 0.2
     exposure = {
         Reach.MELEE:  0.5,
         Reach.REACH:  0.6,
