@@ -4,6 +4,49 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 4 Hydra Port
+
+Hydra ported off its legacy 300-line custom combat pipeline onto
+the Phase 2/3 base. `Hydra.attack_random` collapses from ~150
+lines to ~50 as a thin driver around `pick_actions` /
+`pick_targets` / `resolve` / `narrate_attempt` / `narrate_results`.
+The `_select_round_actions` / `_assign_to_targets` /
+`_build_narrative` methods and the module-level
+`_NARRATIVE_TEMPLATES` dict are gone — all three roles now live
+in `Creature` and are inherited. Output format is preserved
+line-for-line, so live hydra combat reads the same post-refactor.
+
+Per-variant repertoires (grotesque / swamp / hexed / elemental)
+wire into each head's `DEFAULT_ACTIONS` at spawn via
+`_wire_head_actions`, with per-head labels (`venomous bite`,
+`dark pulse`, `elemental breath`, etc.) baked in at wire time
+through `_narrative_for`. Tail and leg actions wire the same way
+onto their respective parts. Torso's inherited `chestbutt`
+default is filtered out — hydra is a heads/legs/tail attacker.
+
+Hydra-specific overrides stay on the subclass:
+- `get_action_budget` returns the dynamic `_compute_budget`
+  formula (kept for breadth of existing test coverage).
+- `pick_targets` delegates to the `round_robin_assignment`
+  module helper.
+- `_collect_part_action_pools` priority-sorts (heads → tail →
+  legs) and filters non-attackers before the base's budget
+  selection runs.
+- Breath cooldown lives in an `is_available(actor, target)`
+  callable on each wired breath entry, closing over the
+  `_breath_cooldown[head.name]` dict.
+
+Differential parity tests (`tests/test_combat_pipeline_vs_hydra.
+py`) re-authored as Phase-4 invariant tests; the fixture's
+test-scope monkey-patch is gone now that hydra permanently
+carries its wired `DEFAULT_ACTIONS`. Legacy helper-method tests
+in `test_hydra_expansion.py` ported to the pipeline surface.
+
+Playtest focus areas (reviewer-flagged): multi-destroyed-head
+budget edge cases; breath cooldown behavior across rounds and
+regrowth; target-part dodge distribution; death ordering in
+3+ victim scenarios. 3007 → 3014 passing.
+
 ### 2026-04-20 — Combat Pipeline: Phase 3 Content Population
 
 Third phase of the combat pipeline refactor. Part-default action

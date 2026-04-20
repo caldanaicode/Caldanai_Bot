@@ -3,7 +3,8 @@ damage types, multi-target combat, per-head attack repertoires, and an
 action-economy budget system.
 
 See ``{local-notes}.md`` in the local notes
-for the full design rationale.
+for the full design rationale and ``combat-pipeline-refactor.md`` for
+the Phase-4 port that wires the hydra onto the base pipeline.
 
 Variants
 ========
@@ -16,27 +17,28 @@ Variants
 Action economy
 ==============
 
-Each round the hydra has a **budget** of action points.  It selects
+Each round the hydra has a **budget** of action points. It selects
 attacks from all available body parts (heads, tail, legs) until the
-budget is spent.  More heads = more options, not more guaranteed attacks.
+budget is spent. More heads = more options, not more guaranteed
+attacks.
 
 Budget = ``max(2, sum(cheapest action cost per live attackable part) // 2)``
 
 Multi-target combat
 ===================
 
-Selected actions are distributed round-robin across combatants.  A
-narrative paragraph describes what the hydra attempts, then a combined
-``AttackSequence`` table resolves the outcomes mechanically.
+The hydra overrides :meth:`Creature.pick_targets` with
+:func:`round_robin_assignment` so selected actions distribute
+round-robin across combatants. Everything else (selection, narration,
+resolution, injury feedback, damage summary, death narration) flows
+through the base pipeline stages introduced in Phases 2-3 of the
+combat refactor.
 """
 
-from collections import defaultdict
-from random import choice, choices, sample, random
+from random import choice, choices
 from typing import Dict, List, Optional, Tuple
 
-from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
 from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
@@ -46,24 +48,30 @@ from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Reach, Size, TimePartitions,
 )
 from caldanai.lib.rpg.helpers.parser import article, parse
-from caldanai.lib.rpg.creatures import Creature, EXPOSURE_FLOOR, pick_random_part
+from caldanai.lib.rpg.creatures import round_robin_assignment
 
 # ---------------------------------------------------------------------------
-# Per-action narrative sentence templates
+# Narrative templates
 # ---------------------------------------------------------------------------
-# {display} = part display name, {victim} = target name, {label} = action label.
-# @1 is resolved by the parser as the hydra.
 
-_NARRATIVE_TEMPLATES = {
-    "bite": "One of @1d's heads lunges at {victim} with {article} {label}.",
-    "ram": "One of @1d's heads slams into {victim}.",
-    "breath": "One of @1d's heads rears back and unleashes {article} {label} at {victim}.",
-    "spit": "One of @1d's heads hocks a glob of {label} at {victim}.",
-    "hex": "One of @1d's heads crackles with dark energy aimed at {victim}.",
-    "sweep": "One of @1d's heads gusts a blast of wind at {victim}.",
-    "tail": "@1dc whips its tail at {victim}.",
-    "stomp": "@1dc brings a massive leg down on {victim}.",
-    "kick": "@1dc lashes out with a hind leg at {victim}.",
+# Keyed by action name. ``{article_label}`` is substituted at spawn time
+# with the per-variant article + label (e.g. ``"a sulfurous spit"``,
+# ``"an elemental breath"``) so the converted template is a literal
+# ``@1``/``@2``-tokened string the base parser can render without any
+# runtime ``.format()``. Kept as single-template pools for Phase-4 parity
+# — richer pools can graduate later (see Phase-3 convention in the
+# refactor doc).
+
+_TEMPLATES_BY_ACTION: Dict[str, str] = {
+    "bite": "One of @1np heads lunges at @2 with {article_label}.",
+    "ram": "One of @1np heads slams into @2.",
+    "breath": "One of @1np heads rears back and unleashes {article_label} at @2.",
+    "spit": "One of @1np heads hocks a glob of {label} at @2.",
+    "hex": "One of @1np heads crackles with dark energy aimed at @2.",
+    "sweep": "One of @1np heads gusts a blast of wind at @2.",
+    "tail_swipe": "@1D whips its tail at @2.",
+    "stomp": "@1D brings a massive leg down on @2.",
+    "kick": "@1D lashes out with a hind leg at @2.",
 }
 
 
@@ -83,7 +91,7 @@ _DECAPITATION_DEATH_POOL = [
 # ---------------------------------------------------------------------------
 
 # Each head repertoire action:
-#   key: action name (matches _NARRATIVE_TEMPLATES)
+#   key: action name (matches _TEMPLATES_BY_ACTION)
 #   cost: action budget points
 #   weight: selection probability (normalized)
 #   dice: attack dice string
@@ -142,8 +150,8 @@ _REPERTOIRE_ELEMENTAL = {
 
 # Tail and leg actions (shared across all variants).
 _ACTION_TAIL_SWIPE = {
-    "tail": {"cost": 2, "weight": 1.0, "dice": "1d8",
-             "label": "tail swipe", "dmg_type": DamageTypes.BLUDGEONING},
+    "tail_swipe": {"cost": 2, "weight": 1.0, "dice": "1d8",
+                   "label": "tail swipe", "dmg_type": DamageTypes.BLUDGEONING},
 }
 
 _ACTION_FORELEG_STOMP = {
@@ -309,11 +317,84 @@ VARIANTS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_dmg_type(
+    part_dmg_type: Optional[DamageTypes], action: dict,
+) -> Optional[DamageTypes]:
+    """Resolve an action's final damage type against the owning part's
+    element.
+
+    Precedence:
+
+    - ``dmg_type`` in the action: full override.
+    - ``dmg_mod`` in the action: OR'd with the part's element.
+    - Neither: the part's pure element.
+    """
+    if "dmg_type" in action:
+        return action["dmg_type"]
+    if "dmg_mod" in action:
+        if part_dmg_type:
+            return part_dmg_type | action["dmg_mod"]
+        return action["dmg_mod"]
+    return part_dmg_type
+
+
+def _narrative_for(action_name: str, label: str) -> List[str]:
+    """Return the single converted template for ``action_name`` with
+    ``label`` and ``article(label)`` pre-embedded. Returns an empty list
+    for unknown action names so :meth:`Creature.narrate_attempt` skips
+    the assignment cleanly instead of emitting a blank line."""
+    template = _TEMPLATES_BY_ACTION.get(action_name)
+    if template is None:
+        return []
+    return [template.format(article_label=f"{article(label)} {label}", label=label)]
+
+
+def _convert_to_base_shape(
+    entry: dict, action_name: str,
+    part_dmg_type: Optional[DamageTypes],
+    breath_cooldown_gate,
+) -> dict:
+    """Project a legacy repertoire entry into the Phase-3 action shape.
+
+    Adds the pre-resolved ``dmg_type`` (combined with the owning part's
+    element for ``dmg_mod`` entries), defaults ``reach`` to
+    :attr:`Reach.MELEE`, carries label / dice / cost / weight through
+    unchanged, and injects an ``is_available`` gate on breath actions so
+    the base :meth:`Creature.pick_actions` filters them out while the
+    per-head breath cooldown is non-zero. ``narrative`` is populated
+    from :func:`_narrative_for` so the converted entry renders through
+    the base pipeline's narrative stage without any runtime ``.format()``
+    shim.
+    """
+    label = entry.get("label", action_name)
+    converted: Dict = {
+        "cost": entry["cost"],
+        "weight": entry["weight"],
+        "dice": entry["dice"],
+        "reach": entry.get("reach", Reach.MELEE),
+        "dmg_type": _resolve_dmg_type(part_dmg_type, entry),
+        "label": label,
+        "narrative": _narrative_for(action_name, label),
+    }
+    if "cooldown" in entry:
+        converted["cooldown"] = entry["cooldown"]
+        if breath_cooldown_gate is not None:
+            converted["is_available"] = breath_cooldown_gate
+    return converted
+
+
 class Hydra(MonsterPlugin):
     """Multi-headed monster with variants, action economy, and per-head
     elemental damage types.
 
-    See module docstring and the local design doc for the full design.
+    See module docstring and the local design docs
+    (``{local-notes}.md`` and
+    ``combat-pipeline-refactor.md``) for the full design.
     """
 
     MAX_HEADS = 10
@@ -363,6 +444,11 @@ class Hydra(MonsterPlugin):
         # so _scale_part_hp reads the correct scale).
         self.size = variant["size"]
 
+        # Breath cooldown tracker: {head_name: rounds_remaining}. Must
+        # exist before ``_wire_part_actions`` runs so the breath
+        # ``is_available`` gate can close over ``self`` safely.
+        self._breath_cooldown: Dict[str, int] = {}
+
         # --- Body part composition ---
         # Quadruped body minus the generic head (we add variant heads).
         self.body_parts = [p for p in BodyPart.quadruped() if p.name != "head"]
@@ -381,8 +467,10 @@ class Hydra(MonsterPlugin):
 
         self._scale_part_hp()
 
-        # Breath cooldown tracker: {head_name: rounds_remaining}.
-        self._breath_cooldown: Dict[str, int] = {}
+        # Project per-variant action pools onto every attackable body
+        # part as instance-level DEFAULT_ACTIONS — the base pipeline
+        # reads these through ``_collect_part_action_pools``.
+        self._wire_part_actions()
 
     # ------------------------------------------------------------------
     # Head factory
@@ -425,14 +513,69 @@ class Hydra(MonsterPlugin):
         ]
 
     # ------------------------------------------------------------------
-    # Action economy
+    # Per-part action wiring — feeds the Phase-3 ``DEFAULT_ACTIONS``
+    # channel that ``Creature.pick_actions`` reads.
+    # ------------------------------------------------------------------
+
+    def _wire_head_actions(self, head: HeadPlugin) -> None:
+        """Project the variant's head repertoire onto one head as an
+        instance-level ``DEFAULT_ACTIONS`` dict, with per-head elemental
+        damage type baked into each entry and the breath ``is_available``
+        gate wired to this head's cooldown bucket."""
+        head_dmg_type = getattr(head, "dmg_type", None)
+        head_name = head.name
+
+        def _breath_gate(actor, _target):
+            return actor._breath_cooldown.get(head_name, 0) <= 0
+
+        head.DEFAULT_ACTIONS = {
+            action_name: _convert_to_base_shape(
+                entry, action_name, head_dmg_type, _breath_gate,
+            )
+            for action_name, entry in self._variant["head_repertoire"].items()
+        }
+
+    def _wire_part_actions(self) -> None:
+        """Populate every attackable part's instance-level
+        ``DEFAULT_ACTIONS`` from the variant's repertoires. Called once
+        at ``__init__`` and again after regrowth so fresh heads pick up
+        the variant's action pool."""
+        for part in self.body_parts:
+            if part.is_destroyed():
+                continue
+            if isinstance(part, HeadPlugin) and not part.is_critical:
+                self._wire_head_actions(part)
+            elif isinstance(part, TailPlugin):
+                part.DEFAULT_ACTIONS = {
+                    name: _convert_to_base_shape(entry, name, None, None)
+                    for name, entry in _ACTION_TAIL_SWIPE.items()
+                }
+            elif isinstance(part, LegPlugin):
+                if part.name.startswith("foreleg"):
+                    source = _ACTION_FORELEG_STOMP
+                elif part.name.startswith("hindleg"):
+                    source = _ACTION_HINDLEG_KICK
+                else:
+                    continue
+                part.DEFAULT_ACTIONS = {
+                    name: _convert_to_base_shape(entry, name, None, None)
+                    for name, entry in source.items()
+                }
+
+    # ------------------------------------------------------------------
+    # Budget & action-economy helpers retained for
+    # ``check_part_driven_death``, tests, and hydra-specific bookkeeping.
+    # ``Creature.pick_actions`` no longer calls these — it reads the
+    # wired ``DEFAULT_ACTIONS`` directly.
     # ------------------------------------------------------------------
 
     def _get_attackable_parts(self) -> List[Tuple["BodyPart", dict]]:
         """Return (part, repertoire) pairs for all parts that can attack.
 
-        Heads use the variant's head repertoire.  Tail and legs use their
-        fixed single-action repertoires.
+        Heads use the variant's head repertoire.  Tail and legs use
+        their fixed single-action repertoires. Retained for the budget
+        formula in :meth:`get_action_budget` and its pinning tests —
+        the pipeline itself uses the per-part ``DEFAULT_ACTIONS``.
         """
         parts = []
         head_rep = self._variant["head_repertoire"]
@@ -451,10 +594,7 @@ class Hydra(MonsterPlugin):
         return parts
 
     def _compute_budget(self, attackable: List[Tuple["BodyPart", dict]]) -> int:
-        """Compute the action budget for this round.
-
-        Budget = max(2, sum(cheapest action cost per part) // 2).
-        """
+        """Budget = max(2, sum(cheapest action cost per part) // 2)."""
         if not attackable:
             return 0
         total_cheapest = 0
@@ -466,315 +606,143 @@ class Hydra(MonsterPlugin):
     def _select_action_for_part(
         self, part: "BodyPart", repertoire: dict
     ) -> Optional[Tuple[str, dict]]:
-        """Pick an action from the repertoire for a specific part.
-
-        Returns ``(action_name, action_dict)`` or ``None`` if no valid
-        actions remain (e.g. all are cooldown-locked).
+        """Weighted-random pick from ``repertoire`` respecting breath
+        cooldown for this part. Retained so the breath-cooldown
+        invariants stay exercised by
+        ``test_breath_excluded_when_on_cooldown`` without demanding the
+        test re-learn the pipeline.
         """
         available = {}
         for name, action in repertoire.items():
-            # Breath requires cooldown to be off.
             if action.get("cooldown") and self._breath_cooldown.get(part.name, 0) > 0:
                 continue
             available[name] = action
-
         if not available:
             return None
-
         names = list(available.keys())
         weights = [available[n]["weight"] for n in names]
         picked = choices(names, weights=weights, k=1)[0]
         return picked, available[picked]
 
-    def _select_round_actions(self) -> List[Tuple["BodyPart", str, dict]]:
-        """Select this round's actions within the budget.
+    # ------------------------------------------------------------------
+    # Pipeline overrides — Phase-4 bindings.
+    # ------------------------------------------------------------------
 
-        Returns a list of ``(part, action_name, action_dict)`` triples.
+    def get_action_budget(self) -> int:
+        """Dynamic budget scales with live attackable parts.
+
+        Mirrors the legacy ``_compute_budget`` formula so parity tests
+        and playtest balance hold across the Phase-4 flip.
         """
-        attackable = self._get_attackable_parts()
-        budget = self._compute_budget(attackable)
-        if budget <= 0:
-            return []
+        return self._compute_budget(self._get_attackable_parts())
 
-        # Prioritize heads, then tail, then legs — but shuffle within
-        # each tier so the specific head/leg that acts is random.
+    def _collect_part_action_pools(self):
+        """Priority-sort parts heads → tail → legs with within-tier
+        shuffling before feeding the base budget selector, and filter
+        out non-attackers (torso, etc.) so budget + pool stay aligned
+        with :meth:`_get_attackable_parts`.
+
+        Reproduces the legacy ``_select_round_actions`` ordering — heads
+        claim the budget first and always get the chance to act. The
+        base ``body_parts`` order alone would pick cheap legs / tail
+        first and exhaust the budget before any head is considered; it
+        would also include the torso's inherited ``chestbutt``, which
+        hydra explicitly never attacks with.
+        """
+        from random import sample
+
+        pools = super()._collect_part_action_pools()
+        pools = [
+            (part, merged) for part, merged in pools
+            if isinstance(part, (HeadPlugin, TailPlugin, LegPlugin))
+            and not (isinstance(part, HeadPlugin) and part.is_critical)
+        ]
+
         def _priority(item):
             part, _ = item
             if isinstance(part, HeadPlugin):
                 return 0
             if isinstance(part, TailPlugin):
                 return 1
-            return 2  # legs
+            return 2
 
-        attackable.sort(key=_priority)
-        # Shuffle within each priority tier.
-        tiers = {}
-        for item in attackable:
-            p = _priority(item)
-            tiers.setdefault(p, []).append(item)
+        tiers: Dict[int, list] = {}
+        for item in pools:
+            tiers.setdefault(_priority(item), []).append(item)
         shuffled = []
         for p in sorted(tiers):
             tier = tiers[p]
             shuffled.extend(sample(tier, len(tier)))
+        return shuffled
 
-        selected: List[Tuple["BodyPart", str, dict]] = []
-        remaining = budget
-        for part, repertoire in shuffled:
-            if remaining <= 0:
-                break
-            result = self._select_action_for_part(part, repertoire)
-            if result is None:
-                continue
-            action_name, action = result
-            cost = action["cost"]
-            if cost > remaining:
-                # Too expensive — try to pick a cheaper action.
-                cheaper = {
-                    n: a for n, a in repertoire.items()
-                    if a["cost"] <= remaining
-                    and not (a.get("cooldown") and self._breath_cooldown.get(part.name, 0) > 0)
-                }
-                if not cheaper:
-                    continue
-                names = list(cheaper.keys())
-                weights = [cheaper[n]["weight"] for n in names]
-                action_name = choices(names, weights=weights, k=1)[0]
-                action = cheaper[action_name]
-                cost = action["cost"]
+    def pick_targets(self, actions, combatants):
+        """Distribute selected actions round-robin across combatants.
 
-            selected.append((part, action_name, action))
-            remaining -= cost
-
-            # Set breath cooldown if applicable.
-            if action.get("cooldown"):
-                self._breath_cooldown[part.name] = action["cooldown"]
-
-        return selected
-
-    # ------------------------------------------------------------------
-    # Damage type resolution
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _resolve_dmg_type(
-        part: "BodyPart", action: dict
-    ) -> Optional[DamageTypes]:
-        """Resolve the final damage type for an action.
-
-        - ``dmg_type`` in the action: full override.
-        - ``dmg_mod`` in the action: combine with the part's element.
-        - Neither: the part's pure element.
+        Hydra's defining multi-target behavior: 4 heads vs 2 players
+        means each player takes two bites, not the same player eating
+        all four.
         """
-        if "dmg_type" in action:
-            return action["dmg_type"]
-        part_type = getattr(part, "dmg_type", None)
-        if "dmg_mod" in action:
-            if part_type:
-                return part_type | action["dmg_mod"]
-            return action["dmg_mod"]
-        return part_type
+        return round_robin_assignment(actions, combatants)
 
-    # ------------------------------------------------------------------
-    # Narrative generation
-    # ------------------------------------------------------------------
-
-    def _build_narrative(
-        self, actions_with_targets: List[Tuple["BodyPart", str, dict, "Creature"]]
-    ) -> str:
-        """Build the pre-table flavor paragraph from selected actions."""
-        lines = []
-        for part, action_name, action, victim in actions_with_targets:
-            template = _NARRATIVE_TEMPLATES.get(action_name)
-            if not template:
-                continue
-            victim_name = getattr(victim, "name", "someone")
-            label = action.get("label", action_name)
-            line = template.format(
-                display=part.display_name,
-                victim=victim_name,
-                label=label,
-                article=article(label),
-            )
-            lines.append(line)
-
-        if not lines:
-            return ""
-        return parse("\n".join(lines), self)
-
-    # ------------------------------------------------------------------
-    # Multi-target distribution
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _assign_to_targets(
-        actions: List[Tuple["BodyPart", str, dict]],
-        combatants: list,
-    ) -> List[Tuple["BodyPart", str, dict, "Creature"]]:
-        """Distribute selected actions round-robin across combatants."""
-        if not combatants or not actions:
-            return []
-        shuffled = sample(actions, len(actions))
-        result = []
-        for i, (part, action_name, action) in enumerate(shuffled):
-            victim = combatants[i % len(combatants)]
-            result.append((part, action_name, action, victim))
-        return result
-
-    # ------------------------------------------------------------------
-    # attack_random override
-    # ------------------------------------------------------------------
-
-    def attack_random(self, combatants: list, count=1) -> str:
-        """Multi-target attack with action economy and narrative."""
+    def attack_random(self, combatants: list, count=1) -> Optional[str]:
+        """Multi-target retaliation. Thin driver over the Phase 2-3 base
+        pipeline stages; ``Game.do_combat`` still invokes this method so
+        the outer loop's contract is unchanged.
+        """
         if not combatants:
             return None
 
-        # 1. Select this round's actions within budget.
-        actions = self._select_round_actions()
+        actions = self.pick_actions()
         if not actions:
             return None
 
-        # 2. Assign actions to targets.
-        assignments = self._assign_to_targets(actions, combatants)
+        assignments = self.pick_targets(actions, combatants)
         if not assignments:
             return None
 
-        # 3. Build narrative paragraph.
-        narrative = self._build_narrative(assignments)
+        # Record breath cooldowns for any breath action that was
+        # selected this round. The cooldown field lives on the source's
+        # stashed ``_action`` dict (carried through pick_actions).
+        for source in actions:
+            action = getattr(source, "_action", None) or {}
+            part = getattr(source, "_part", None)
+            cooldown = action.get("cooldown")
+            if cooldown and part is not None:
+                self._breath_cooldown[part.name] = cooldown
 
-        # 4. Resolve each attack mechanically.
-        #
-        # For each head/tail/leg action targeting a victim, pick a
-        # victim body part (exposure-weighted by the action's reach)
-        # so the damage routes into Model-D per-part injury tracking
-        # — not just straight to body HP. This is the same pattern
-        # the base ``MonsterPlugin.attack_random`` uses for
-        # single-target attacks; the hydra's custom multi-target
-        # path has to repeat the wiring because it doesn't go through
-        # ``Creature.do_attack``.
-        results: List[AttackResult] = []
-        # Parallel list of the victim each result in ``results`` hit,
-        # so we can bucket into per-victim sub-sequences for the shared
-        # resolution helper without relying on ``results.index()``
-        # (which would break on duplicate AttackResults and is O(n^2)
-        # besides).
-        result_victims: List[Creature] = []
+        narrative = self.narrate_attempt(assignments)
+        results = self.resolve(assignments)
+        table = self.render_table(results)
+        injury_lines = self.narrate_results(results)
 
-        for part, action_name, action, victim in assignments:
-            dmg_type = self._resolve_dmg_type(part, action)
-            reach = action.get("reach", Reach.MELEE)
-            label = action.get("label", action_name)
-            source = NaturalAttackSource(
-                atk=action["dice"],
-                dmg_type=dmg_type,
-                label=f"{part.display_name.title()} \u2192 {getattr(victim, 'name', '?')} ({label})",
-                skill="natural",
-                reach=reach,
-            )
-
-            # Pick a target part on the victim weighted by exposure
-            # for this attack's reach, then compute the targeted-dodge
-            # the same way the base ``Creature.do_attack`` does. Tax
-            # lives with the target, not the intent — a head's bite
-            # that happens to find an eye should be just as hard to
-            # land as a head deliberately going for the eye.
-            target_part = None
-            target_dodge = None
-            if getattr(victim, "body_parts", None):
-                target_part = pick_random_part(
-                    victim.get_targetable_parts(), reach,
-                )
-                if target_part is not None:
-                    target_dodge = victim.get_targeted_dodge(
-                        self, target_part, source,
-                    )
-
-            atk_roll, dmg_roll = source.make_attack_rolls(self)
-            result = victim.resolve_attack(
-                self, source, atk_roll, dmg_roll, target_dodge=target_dodge,
-            )
-            result.target_part = target_part
-            results.append(result)
-            result_victims.append(victim)
-
-        # 5. Build combined AttackSequence.
-        first_victim = combatants[0]
-        sequence = AttackSequence(
-            attacker=self,
-            target=first_victim,
-            results=results,
-            multi_target=True,
-        )
-
-        # 6. Render output.
+        # Preserve the pre-Phase-4 output shape: opening blank line,
+        # narrative paragraph, attack table, per-victim injury
+        # feedback, per-victim defense-math line (when defense mattered),
+        # then per-victim death beats. Summaries / round-death beats
+        # land in ``Game.do_combat`` after this method returns —
+        # Phase 5 is where the outer loop migrates onto the pipeline
+        # composer.
         msg = ""
         if narrative:
             msg += f"\n{narrative}\n"
-        msg += sequence.to_markdown()
+        msg += table
+        if injury_lines:
+            msg += "\n".join(injury_lines) + "\n"
 
-        # 7. Route per-result damage + fire part-side hooks per victim
-        # via ``apply_sequence_to_target``. Bucket results by victim,
-        # preserving first-encounter order so narration reads
-        # predictably.
-        #
-        # ``num_hits`` and ``raw_total`` for the body-HP floor are
-        # computed over ALL positive-damage results per victim, not
-        # just those with a ``target_part``. The helper is fed only
-        # the part-routed subset so partless hits don't double-count
-        # against body HP via the legacy path — preserving the
-        # pre-refactor behavior of the hydra's loop, which
-        # deliberately skipped ``target_part is None`` results during
-        # per-part routing.
-        victims_order: List[Creature] = []
-        seen_ids = set()
-        victim_results: Dict[int, List[AttackResult]] = defaultdict(list)
-        for result, victim in zip(results, result_victims):
-            if id(victim) not in seen_ids:
-                seen_ids.add(id(victim))
-                victims_order.append(victim)
-            victim_results[id(victim)].append(result)
-
-        for victim in victims_order:
-            v_results = victim_results[id(victim)]
-            # Aggregate counts over ALL positive-damage hits — the
-            # floor uses these regardless of whether the hit landed on
-            # a targeted part.
-            num_hits = sum(1 for r in v_results if r.damage > 0)
-            raw_total = sum(r.damage for r in v_results if r.damage > 0)
-
-            # Helper only receives the part-routed subset so
-            # ``target.apply_damage`` fires the per-part path rather
-            # than the legacy whole-body path for partless hits
-            # (otherwise those would deduct body HP here *and* again
-            # via the floor-apply below).
-            part_routed = [
-                r for r in v_results
-                if r.damage > 0 and r.target_part is not None
-            ]
-            victim_seq = AttackSequence(
-                attacker=self, target=victim, results=part_routed,
-            )
-            resolution = apply_sequence_to_target(
-                victim_seq, victim, attacker=self,
-            )
-
-            if resolution.injury_feedback_lines:
-                msg += "\n".join(resolution.injury_feedback_lines) + "\n"
-
-            # Body HP — defense subtracted once per victim, same floor
-            # (1/hit) used by the player-attacks-monster path.
+        for victim, resolution in (results.per_victim or {}).items():
+            num_hits = resolution.num_hits
+            raw_total = resolution.body_damage_total
             if num_hits > 0:
                 defense = victim.get_defense()
                 final = max(num_hits, raw_total - defense)
-                victim_name = getattr(victim, "name", "someone")
                 if defense and raw_total != final:
+                    victim_name = getattr(victim, "name", "someone")
                     msg += (
                         f"{victim_name}: {raw_total} damage - {defense} defense "
                         f"\u2192 {final} damage\n"
                     )
-                dmg_msg = victim.apply_damage(final)
-                if dmg_msg:
-                    msg += parse(dmg_msg, victim)
+            if resolution.death_msg:
+                msg += parse(resolution.death_msg, victim)
 
         return msg
 
@@ -871,9 +839,11 @@ class Hydra(MonsterPlugin):
 
         for _ in range(to_spawn):
             dmg_type = self._get_head_dmg_type()
-            self.body_parts.append(
-                self._make_head(f"head.{self._next_head_number}", dmg_type, scale=True)
+            new_head = self._make_head(
+                f"head.{self._next_head_number}", dmg_type, scale=True,
             )
+            self.body_parts.append(new_head)
+            self._wire_head_actions(new_head)
             self._next_head_number += 1
 
         # Remove destroyed heads from body_parts.

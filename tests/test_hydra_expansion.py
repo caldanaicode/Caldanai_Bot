@@ -279,27 +279,33 @@ class TestComputeBudget:
         assert budget == 2
 
 
-class TestSelectRoundActions:
-    """_select_round_actions respects budget and returns valid actions."""
+class TestPickActionsBudgetParity:
+    """Budget-respecting action selection via the Phase-4 pipeline.
+
+    Phase-4 port note: the legacy ``_select_round_actions`` was removed
+    — its behavioral contract (budget cap, destroyed-part filter, breath
+    availability) now lives in ``Creature.pick_actions`` reading the
+    per-head ``DEFAULT_ACTIONS`` wired at spawn."""
 
     def test_total_cost_within_budget(self):
-        """The sum of action costs in the selected actions must not exceed
-        the budget."""
+        """The sum of selected-action costs must not exceed the budget."""
         h = _make_variant_hydra("hydra")
-        attackable = h._get_attackable_parts()
-        budget = h._compute_budget(attackable)
-        actions = h._select_round_actions()
-        total_cost = sum(action["cost"] for _, _, action in actions)
+        budget = h.get_action_budget()
+        sources = h.pick_actions()
+        total_cost = sum(
+            getattr(s, "_action", {}).get("cost", 1) for s in sources
+        )
         assert total_cost <= budget
 
     def test_actions_come_from_various_part_types(self):
-        """Over many iterations, actions should include heads, tail, and
-        legs (stochastic — run enough times to be near-certain)."""
+        """Over many iterations, selection should include heads (and
+        typically tail / legs)."""
         h = _make_variant_hydra("hydra")
         seen_types = set()
         for _ in range(200):
-            actions = h._select_round_actions()
-            for part, _, _ in actions:
+            sources = h.pick_actions()
+            for source in sources:
+                part = getattr(source, "_part", None)
                 if isinstance(part, HeadPlugin):
                     seen_types.add("head")
                 elif isinstance(part, TailPlugin):
@@ -307,35 +313,33 @@ class TestSelectRoundActions:
                 elif isinstance(part, LegPlugin):
                     seen_types.add("leg")
         assert "head" in seen_types
-        # Tail and legs might not always appear due to budget, but heads
-        # should reliably appear.
 
     def test_no_actions_from_destroyed_parts(self):
-        """Destroyed parts must not appear in the selected actions."""
+        """Destroyed parts must not appear in the pipeline's selection."""
         h = _make_variant_hydra("hydra")
         destroyed_head = _live_heads(h)[0]
         destroyed_head.health = 0
         for _ in range(50):
-            actions = h._select_round_actions()
-            for part, _, _ in actions:
-                assert part is not destroyed_head
+            sources = h.pick_actions()
+            for source in sources:
+                assert getattr(source, "_part", None) is not destroyed_head
 
     def test_breath_cost_two_displaces_cheaper(self):
-        """When breath is selected (cost 2), it uses budget that would
-        otherwise go to cheaper actions."""
+        """Breath (cost 2) remains selectable over many rounds despite
+        the budget pressure."""
         h = _make_variant_hydra("hydra")
-        # Force breath on first head by patching random.choices
         found_breath = False
         for _ in range(200):
-            actions = h._select_round_actions()
-            for _, action_name, action in actions:
+            sources = h.pick_actions()
+            for source in sources:
+                action = getattr(source, "_action", {}) or {}
+                action_name = getattr(source, "_action_name", None)
                 if action_name == "breath":
                     assert action["cost"] == 2
                     found_breath = True
                     break
             if found_breath:
                 break
-        # Breath should eventually be selected (weight > 0).
         assert found_breath, "Breath was never selected in 200 rounds"
 
 
@@ -401,38 +405,37 @@ class TestBreathCooldown:
 # ===========================================================================
 
 
-class TestAssignToTargets:
-    """_assign_to_targets distributes actions round-robin."""
+class TestPickTargetsRoundRobin:
+    """``Hydra.pick_targets`` distributes actions round-robin across
+    combatants via :func:`round_robin_assignment`.
+
+    Phase-4 port note: the legacy staticmethod ``_assign_to_targets``
+    was removed in favor of the instance-level ``pick_targets``
+    override that the base pipeline calls."""
 
     def test_three_actions_two_combatants(self):
-        """3 actions, 2 combatants: one gets 2, the other gets 1."""
         h = _make_variant_hydra("hydra")
-        actions = [
-            (MagicMock(), "bite", {"cost": 1}),
-            (MagicMock(), "bite", {"cost": 1}),
-            (MagicMock(), "bite", {"cost": 1}),
+        sources = [
+            NaturalAttackSource(atk="1d6", label="bite", skill="natural")
+            for _ in range(3)
         ]
         c1 = _mock_combatant("Alice")
         c2 = _mock_combatant("Bob")
-        assignments = Hydra._assign_to_targets(actions, [c1, c2])
+        assignments = h.pick_targets(sources, [c1, c2])
         assert len(assignments) == 3
-        victims = [a[3] for a in assignments]
-        assert victims.count(c1) + victims.count(c2) == 3
-        # Round-robin means one gets 2, other gets 1
+        victims = [a.target for a in assignments]
         counts = {c1: victims.count(c1), c2: victims.count(c2)}
+        assert counts[c1] + counts[c2] == 3
         assert set(counts.values()) == {1, 2}
 
     def test_no_combatants_returns_empty(self):
-        assignments = Hydra._assign_to_targets(
-            [(MagicMock(), "bite", {"cost": 1})], []
-        )
-        assert assignments == []
+        h = _make_variant_hydra("hydra")
+        source = NaturalAttackSource(atk="1d6", label="bite", skill="natural")
+        assert h.pick_targets([source], []) == []
 
     def test_no_actions_returns_empty(self):
-        assignments = Hydra._assign_to_targets(
-            [], [_mock_combatant()]
-        )
-        assert assignments == []
+        h = _make_variant_hydra("hydra")
+        assert h.pick_targets([], [_mock_combatant()]) == []
 
 
 class TestAttackRandom:
@@ -488,41 +491,46 @@ class TestAttackRandom:
 
 
 class TestNarrative:
-    """_build_narrative produces flavor text."""
+    """Narrative flavor — post-Phase-4 produced by
+    :meth:`Creature.narrate_attempt` reading the per-head
+    ``DEFAULT_ACTIONS`` wired at spawn."""
+
+    def _bite_assignment(self, h, victim):
+        from caldanai.lib.rpg.combat.block import Assignment
+        head = _live_heads(h)[0]
+        action = head.DEFAULT_ACTIONS["bite"]
+        source = NaturalAttackSource(
+            atk=action["dice"], label=action["label"], skill="natural",
+        )
+        source._part = head
+        source._action_name = "bite"
+        source._action = action
+        return Assignment(source=source, target=victim)
 
     def test_narrative_non_empty_when_actions_assigned(self):
         h = _make_variant_hydra("hydra")
-        head = _live_heads(h)[0]
         victim = _mock_combatant("Hero")
-        actions_with_targets = [
-            (head, "bite", {"cost": 1, "dice": "1d6",
-                            "dmg_mod": DamageTypes.PIERCING}, victim),
-        ]
-        narrative = h._build_narrative(actions_with_targets)
+        assignments = [self._bite_assignment(h, victim)]
+        narrative = h.narrate_attempt(assignments)
         assert isinstance(narrative, str)
         assert len(narrative) > 0
 
     def test_narrative_contains_victim_name(self):
         h = _make_variant_hydra("hydra")
-        head = _live_heads(h)[0]
         victim = _mock_combatant("Hero")
-        actions_with_targets = [
-            (head, "bite", {"cost": 1, "dice": "1d6",
-                            "dmg_mod": DamageTypes.PIERCING}, victim),
-        ]
-        narrative = h._build_narrative(actions_with_targets)
+        assignments = [self._bite_assignment(h, victim)]
+        narrative = h.narrate_attempt(assignments)
         assert "Hero" in narrative
 
     def test_narrative_contains_action_label(self):
+        """The default-hydra's bite label ('bite') is embedded into the
+        converted template at spawn time."""
         h = _make_variant_hydra("hydra")
-        head = _live_heads(h)[0]
         victim = _mock_combatant("Hero")
-        actions_with_targets = [
-            (head, "bite", {"cost": 1, "dice": "1d6", "label": "vicious bite",
-                            "dmg_mod": DamageTypes.PIERCING}, victim),
-        ]
-        narrative = h._build_narrative(actions_with_targets)
-        assert "vicious bite" in narrative
+        assignments = [self._bite_assignment(h, victim)]
+        narrative = h.narrate_attempt(assignments)
+        head = _live_heads(h)[0]
+        assert head.DEFAULT_ACTIONS["bite"]["label"] in narrative
 
 
 # ===========================================================================
@@ -531,38 +539,35 @@ class TestNarrative:
 
 
 class TestResolveDmgType:
-    """_resolve_dmg_type handles override, mod, and pure element."""
+    """``_resolve_dmg_type`` handles override, mod, and pure element.
+
+    Phase-4 port note: the helper is now a module-level function
+    (``caldanai.lib.rpg.creatures.monsters.hydra._resolve_dmg_type``)
+    invoked at spawn time while wiring per-head ``DEFAULT_ACTIONS``
+    rather than the legacy ``Hydra._resolve_dmg_type`` staticmethod."""
 
     def test_dmg_type_override_returns_override(self):
-        """Action with dmg_type fully overrides the part's element."""
-        part = MagicMock()
-        part.dmg_type = DamageTypes.FIRE
+        from caldanai.lib.rpg.creatures.monsters.hydra import _resolve_dmg_type
         action = {"dmg_type": DamageTypes.BLUDGEONING}
-        result = Hydra._resolve_dmg_type(part, action)
+        result = _resolve_dmg_type(DamageTypes.FIRE, action)
         assert result == DamageTypes.BLUDGEONING
 
     def test_dmg_mod_combines_with_part_element(self):
-        """Action with dmg_mod is OR'd with the part's element."""
-        part = MagicMock()
-        part.dmg_type = DamageTypes.PIERCING | DamageTypes.SLASHING
+        from caldanai.lib.rpg.creatures.monsters.hydra import _resolve_dmg_type
+        part_dmg_type = DamageTypes.PIERCING | DamageTypes.SLASHING
         action = {"dmg_mod": DamageTypes.PIERCING}
-        result = Hydra._resolve_dmg_type(part, action)
+        result = _resolve_dmg_type(part_dmg_type, action)
         expected = DamageTypes.PIERCING | DamageTypes.SLASHING | DamageTypes.PIERCING
         assert result == expected
 
     def test_neither_returns_pure_element(self):
-        """Action with neither dmg_type nor dmg_mod returns the part's element."""
-        part = MagicMock()
-        part.dmg_type = DamageTypes.FIRE
-        action = {}
-        result = Hydra._resolve_dmg_type(part, action)
+        from caldanai.lib.rpg.creatures.monsters.hydra import _resolve_dmg_type
+        result = _resolve_dmg_type(DamageTypes.FIRE, {})
         assert result == DamageTypes.FIRE
 
     def test_dmg_mod_without_part_element_returns_mod(self):
-        """When the part has no dmg_type, dmg_mod alone is returned."""
-        part = MagicMock(spec=[])  # no dmg_type attribute
-        action = {"dmg_mod": DamageTypes.PIERCING}
-        result = Hydra._resolve_dmg_type(part, action)
+        from caldanai.lib.rpg.creatures.monsters.hydra import _resolve_dmg_type
+        result = _resolve_dmg_type(None, {"dmg_mod": DamageTypes.PIERCING})
         assert result == DamageTypes.PIERCING
 
 
