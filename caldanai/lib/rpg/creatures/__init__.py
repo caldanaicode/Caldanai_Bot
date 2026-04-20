@@ -10,6 +10,8 @@ from caldanai.lib.rpg.combat.attack_source import (
     AttackSource,
     NaturalAttackSource,
 )
+from caldanai.lib.rpg.combat.block import Assignment, ReactionEntry
+from caldanai.lib.rpg.combat.resolution import MultiVictimResolutionResult
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
     INJURY_LEVEL_DISPLAY, Pronouns, DamageTypes, InjuryLevels, Reach, Size, Stat,
@@ -238,6 +240,120 @@ class Creature:
                 skill="natural",
             )
         ]
+
+    # Combat pipeline — per-attacker stage methods. Not yet wired into
+    # ``Game.do_combat``; see ``combat-pipeline-refactor.md`` for stage
+    # contracts and the migration phase that lights each one up.
+
+    ACTION_BUDGET: int = 2
+
+    def pick_actions(self) -> List[AttackSource]:
+        """Stage 1 — select attack sources this creature will use
+        this round. Default returns the first source from
+        :meth:`get_attack_sources` to preserve today's single-attack
+        behavior."""
+        sources = self.get_attack_sources()
+        return [sources[0]] if sources else []
+
+    def pick_targets(
+        self,
+        actions: List[AttackSource],
+        combatants: List["Creature"],
+    ) -> List[Assignment]:
+        """Stage 2 — pair each action with a target. Default is
+        single-target: every action points at the first living
+        combatant. Sources with a preset ``intended_target`` honor it.
+        Multi-target attackers (Hydra) override to distribute actions
+        across combatants."""
+        if not actions:
+            return []
+        living = [c for c in combatants if not c.is_dead()]
+        default_target = living[0] if living else (combatants[0] if combatants else None)
+        out: List[Assignment] = []
+        for source in actions:
+            target = source.intended_target or default_target
+            if target is None:
+                continue
+            out.append(Assignment(source=source, target=target))
+        return out
+
+    def resolve(
+        self,
+        assignments: List[Assignment],
+    ) -> MultiVictimResolutionResult:
+        """Stage 3 — roll to-hit + damage for each assignment, route
+        part damage, fire hooks. Default returns an empty result; the
+        live ``apply_sequence_to_target`` path remains the authoritative
+        resolver until phase 2 lifts it into the pipeline."""
+        # TODO: fills in at phase 2 — lift apply_sequence_to_target into multi-victim form.
+        return MultiVictimResolutionResult()
+
+    def narrate_attempt(
+        self,
+        assignments: List[Assignment],
+    ) -> Optional[str]:
+        """Stage 4 — pre-resolution flavor. Default no narrative;
+        heavy hitters (Hydra's multi-head intros) override."""
+        return None
+
+    def render_table(
+        self,
+        results: MultiVictimResolutionResult,
+    ) -> str:
+        """Stage 5 — the compact diff-block attack table. Default
+        empty; today's ``AttackSequence._render_compact_table`` is the
+        reference lifted in phase 2."""
+        # TODO: fills in at phase 2 — compose AttackSequence-style table over MultiVictimResolutionResult.
+        return ""
+
+    def narrate_results(
+        self,
+        results: MultiVictimResolutionResult,
+    ) -> List[str]:
+        """Stage 6 — per-part injury flavor lines bucketed by victim.
+        Default empty; today's ``ResolutionResult.injury_feedback_lines``
+        is the reference lifted in phase 2."""
+        # TODO: fills in at phase 2 — generalize injury_feedback_lines across victims.
+        return []
+
+    def summarize_damage(
+        self,
+        results: MultiVictimResolutionResult,
+        victims: List["Creature"],
+    ) -> Optional[str]:
+        """Stage 7 — the "Total damage done vs Health" line,
+        suppressed on critical-part kills. Default None."""
+        # TODO: fills in at phase 2 — HP summary per victim with critical-part suppression.
+        return None
+
+    def narrate_target_death(
+        self,
+        newly_dead: List["Creature"],
+    ) -> Optional[str]:
+        """Stage 8 — victim death flavor when this block killed
+        someone. Default None."""
+        # TODO: fills in at phase 2 — death flavor per victim killed this block.
+        return None
+
+    def reactions(
+        self,
+        attacker: "Creature",
+        victims: List["Creature"],
+        results: MultiVictimResolutionResult,
+    ) -> List[ReactionEntry]:
+        """Stage 9 — out-of-turn effects (thorns, status ticks,
+        explode-on-death). Default empty; monsters with retaliation /
+        death-triggered effects override."""
+        return []
+
+    def narrate_attacker_death(
+        self,
+        attacker: "Creature",
+        reactions_output: List[ReactionEntry],
+    ) -> Optional[str]:
+        """Stage 10 — single death beat when reactions kill the
+        block's own attacker (thorns, death-curse). Default None."""
+        return None
 
     def do_attack(
         self,

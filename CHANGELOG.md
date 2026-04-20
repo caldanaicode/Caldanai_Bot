@@ -4,6 +4,19 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — Combat Pipeline: Phase 1 Scaffolding
+
+First phase of the combat pipeline refactor (see Obsidian
+"combat-pipeline-refactor" design doc). Pure data-type
+groundwork — new `CombatBlock`, `Assignment`, `ReactionEntry`
+with `Anchor` enum, plus `MultiVictimResolutionResult`, plus
+`intended_target` on `AttackSource` and `victim` on
+`AttackResult`, plus `ACTION_BUDGET` + ten empty-body stage
+methods on `Creature`. Nothing wired into `Game.do_combat` yet;
+subsequent phases light up the stages one at a time. All types
+designed to serialize cleanly so a future API-backed narrator
+can consume a block without touching combat math.
+
 ### 2026-04-19 — Cog-Loader Error Propagation
 
 When a cog failed to register (e.g. alias collision), startup hung

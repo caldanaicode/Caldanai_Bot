@@ -24,6 +24,14 @@ class AttackSource(ABC):
     def __init__(self, label: str = "", *, reach: Reach = Reach.MELEE):
         self._label = label
         self.reach = reach
+        # Optional preset target (``None`` = pick downstream at assign
+        # time). Populated by coupled-selection overrides (hypothetical
+        # ``pick_actions_and_targets``) that decide target alongside
+        # action; the default ``pick_targets`` stage honors it when
+        # set. Attribute-set rather than constructor-arg so every
+        # ``AttackSource`` subclass inherits the field without needing
+        # to thread the kwarg through its own ``__init__``.
+        self.intended_target: Optional["Creature"] = None
 
     @property
     def label(self) -> str:

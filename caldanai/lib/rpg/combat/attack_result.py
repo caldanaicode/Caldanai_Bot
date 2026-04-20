@@ -69,6 +69,12 @@ class AttackResult:
     extra_text: str = ""           # optional flavor text appended by subclasses
     auto_hit: bool = False         # True for attacks that bypass dodge (e.g., dragon breath)
     target_part: Optional["BodyPart"] = None  # body part targeted by this hit (None = legacy whole-body)
+    # Explicit victim reference for multi-victim sequences. Today's
+    # single-victim path leaves this ``None`` — the owning
+    # ``AttackSequence.target`` is the implicit victim. Populated
+    # downstream when the multi-victim pipeline replaces the current
+    # ``do_attack`` path.
+    victim: Optional["Creature"] = None
 
     def total_damage(self) -> int:
         """Returns the final damage this result contributes."""

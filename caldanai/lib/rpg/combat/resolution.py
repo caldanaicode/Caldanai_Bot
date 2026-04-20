@@ -102,6 +102,29 @@ class ResolutionResult:
     critical_part_kill: bool = False
 
 
+@dataclass
+class MultiVictimResolutionResult:
+    """Multi-victim aggregate over per-victim :class:`ResolutionResult`.
+
+    Shape the pipeline's ``resolve`` stage produces once a block can
+    attack several targets at once (hydra today, swarms + AoE magic
+    later). Legacy single-victim callers continue to use
+    ``apply_sequence_to_target`` / :class:`ResolutionResult` directly —
+    this wrapper is additive.
+
+    - ``per_victim`` — one ``ResolutionResult`` per distinct victim,
+      keyed by the victim ``Creature``.
+    - ``all_results`` — flat list of every :class:`AttackResult` in
+      assignment order; the renderer's table iterates this.
+    - ``any_critical_part_kill`` — sticky OR across ``per_victim`` so
+      the damage-summary suppression gate reads one field.
+    """
+
+    per_victim: "Dict[Creature, ResolutionResult]" = field(default_factory=dict)
+    all_results: "List[object]" = field(default_factory=list)
+    any_critical_part_kill: bool = False
+
+
 def apply_sequence_to_target(
     sequence: "AttackSequence",
     target: "Creature",
