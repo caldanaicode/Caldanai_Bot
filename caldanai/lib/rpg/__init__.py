@@ -484,7 +484,167 @@ class Game:
         return msg
 
     async def do_combat(self):
-        """Tallies and displays combat results."""
+        """Phase-5 pipeline-driven round composer.
+
+        Players attack in join order (``self.combatants`` forward),
+        monster retaliates afterwards. Each attacker produces a
+        :class:`CombatBlock` whose fields render into the final
+        message shape — output-parity with the pre-Phase-5 legacy
+        path is the bar.
+
+        The legacy monolithic body is preserved as
+        :meth:`_do_combat_legacy` so a playtest regression can flip
+        the call site in one line.
+        """
+
+        if self.monster is None:
+            _log.error(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
+            await self.end_combat()
+            await self.set_spawn_timer()
+            return
+
+        monster = self.monster
+        msg = ""
+        actual_body_damage = 0
+        damage_by_player: Dict[int, Tuple[Player, int]] = {}
+        death_msg = ""
+        critical_part_kill = False
+        health_before = monster.health
+
+        # Phase 5 turn order: players in join order (replaces today's
+        # reverse-of-join accident). Dead players get popped instead
+        # of attacking. Iterating a copy so safe-remove stays safe.
+        dead_idx: List[int] = []
+        for i, player in enumerate(self.combatants):
+            if player.is_dead():
+                dead_idx.append(i)
+                continue
+            player_block_msg, player_damage, player_res = await self._run_player_block(
+                player, monster,
+            )
+            msg += player_block_msg
+            if player.user_id not in damage_by_player:
+                damage_by_player[player.user_id] = (player, 0)
+            _, prev = damage_by_player[player.user_id]
+            damage_by_player[player.user_id] = (player, prev + player_damage)
+
+            if player_res is not None:
+                if player_res.death_msg and not death_msg:
+                    death_msg = player_res.death_msg
+                if player_res.critical_part_kill:
+                    critical_part_kill = True
+                num_hits = player_res.num_hits
+                if num_hits > 0 and not monster.is_dead():
+                    defense = monster.get_defense()
+                    final_body_dmg = max(num_hits, player_res.body_damage_total - defense)
+                    monster.health = max(0, monster.health - final_body_dmg)
+                    actual_body_damage += final_body_dmg
+                if player_res.injury_feedback_lines:
+                    msg += "\n".join(player_res.injury_feedback_lines) + "\n"
+
+        # Remove dead combatants in reverse order so indices stay
+        # valid. Matches the legacy ``combatants.pop(i)`` semantics.
+        for i in reversed(dead_idx):
+            self.combatants.pop(i)
+
+        # Part-driven death check — same priority as legacy: more
+        # specific than the HP-zero fallback.
+        if not death_msg:
+            part_death_msg = monster.check_part_driven_death()
+            if part_death_msg:
+                death_msg = part_death_msg
+                critical_part_kill = True
+
+        if not death_msg and monster.is_dead():
+            death_msg = monster.death if hasattr(monster, 'death') else ""
+
+        if not critical_part_kill:
+            remaining = 0 if monster.is_dead() else max(health_before - actual_body_damage, 0)
+            msg += (
+                f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "
+                f"= **{remaining} health remaining.**\n"
+            )
+
+        msg += parse(death_msg, monster)
+
+        if monster.is_dead():
+            self.monster_statics[f"{monster.name}.killed"] += 1
+            msg += parse(await self.on_monster_death(), monster)
+            msgs = Dispatcher.split_message(msg, "```\n", True)
+            for m in msgs:
+                Dispatcher.add(self.channel, m)
+            return
+
+        # Monster retaliation block — their turn in the new turn order.
+        # Today's ``attack_random`` is the backward-compat entry point
+        # for every monster (hydra is the only one driving the
+        # pipeline internally; others still own their attack_random).
+        if self.combatants and (
+            monster.aggression & (AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE)
+        ):
+            # Unconditional append preserves legacy output shape even
+            # when attack_random returns "" — the trailing \n still
+            # lands the same way the pre-Phase-5 loop did.
+            msg += f"\n{monster.attack_random(self.combatants)}"
+            if round_msg := monster.on_combat_round(list(damage_by_player.values())):
+                msg += f"\n{round_msg}"
+
+            if monster.aggression & AggressionLevels.RAMPAGE or (
+                monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() > 0.1
+            ):
+                Dispatcher.add(self.channel, msg)
+                self.combatants.clear()
+                self.combat_targets.clear()
+                self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
+                return
+
+        if (
+            not self.combatants
+            or monster.aggression in (AggressionLevels.VENGEFUL, AggressionLevels.PASSIVE)
+            or (monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() <= 0.1)
+        ):
+            self.monster_statics[f"{monster.name}.escaped"] += 1
+            Dispatcher.add(self.channel, f"{msg}\n{parse(monster.escape, monster)}")
+            await self.cancel_combat()
+
+    async def _run_player_block(
+        self,
+        player: "Player",
+        monster: "MonsterPlugin",
+    ) -> "Tuple[str, int, Optional[object]]":
+        """Execute one player's attacker-block and return its rendered
+        markdown, total damage dealt, and the underlying
+        :class:`ResolutionResult` (for body-HP + death bookkeeping).
+
+        Player's attacks still flow through ``do_attack`` +
+        ``apply_sequence_to_target``; Phase 5 wraps that as one block
+        in the new round-composer loop rather than porting Player onto
+        the part-driven ``Creature.resolve`` path. Player targeting
+        (equipment-as-sources, explicit part names, dual-wield) stays
+        owned by ``Player.do_attack`` / ``Player.get_attack_sources``.
+        """
+        player.health_regen = 0
+        if player not in self.looters:
+            await self.player_manager.set_player_combatant(player)
+            self.looters.append(player)
+        explicit_targets = self.combat_targets.get(player.user_id)
+        sequence = player.do_attack(monster, explicit_part_names=explicit_targets)
+        block_msg = sequence.to_markdown()
+        damage = sequence.total_damage()
+        resolution = apply_sequence_to_target(sequence, monster)
+        # Phase 6 follow-up: populate a CombatBlock for the API-narrator
+        # bridge. Today Player still runs the legacy do_attack path so
+        # constructing a hollow block here would rot; deferred until
+        # Player genuinely flows through Creature.pick_actions / resolve
+        # and body-HP ownership moves out of Creature.resolve.
+        return block_msg, damage, resolution
+
+    async def _do_combat_legacy(self):
+        """Pre-Phase-5 monolithic combat loop. Preserved so a regression
+        can revert the ``do_combat`` call site in one line — the
+        design-doc Phase 7/8 cleanup deletes this after parity
+        stabilizes in playtest.
+        """
 
         if self.monster is None:
             _log.error(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
@@ -499,8 +659,6 @@ class Game:
         damage_by_player = {}
         death_msg = ""
         critical_part_kill = False
-        # Snapshot health before any per-result damage is applied so the
-        # "Total damage done vs Health" summary line stays accurate.
         health_before = monster.health
 
         for i in range(len(self.combatants) - 1, -1, -1):

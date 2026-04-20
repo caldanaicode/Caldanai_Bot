@@ -4,6 +4,47 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 5 Round Composer
+
+Rewires `Game.do_combat` around a pipeline-driven round composer.
+The monolithic player-attack loop becomes an ordered walk over
+combatants in join order (was reverse-of-join via the pop-while-
+iterating safe-remove artifact — design doc locked the change).
+Each attacker produces a block via `_run_player_block`, and the
+round composer aggregates damage tallies, death messages, and
+HP summaries the same way as before. Output format preserved;
+the user will see live combat play out identically except for
+the turn-order change.
+
+Player combat still runs its legacy `do_attack` +
+`apply_sequence_to_target` internals inside the round composer
+rather than routing through `Creature.pick_actions` / `resolve`
+directly — routing through `Creature.resolve` would double-apply
+body-HP damage (resolve's `victim.apply_damage(final)` plus the
+round-composer's explicit `monster.health -= final_body_dmg`).
+Fixing the ownership split is Phase 6+ work; Phase 5 stops at
+the round-composer structure so playtest can confirm turn-order
+change and no regression.
+
+Pre-Phase-5 body preserved as `Game._do_combat_legacy` so the
+call site can flip back in one line if a playtest regression
+surfaces. Design doc Phase 7/8 eventually deletes the legacy.
+
+New `tests/test_game_do_combat_parity.py` — 14 parity tests +
+an autouse RNG seed fixture so combat rolls are deterministic
+(attack hits, death-flavor choice, etc. would otherwise drift
+across test orderings).
+
+3014 → 3044 passing (+14 parity tests + 16 repeat tool tests
+from the separate tooling commit).
+
+Playtest focus:
+- Turn order (join order now — players in the order they
+  registered, not reverse).
+- Hydra regrowth + decapitation (same path as before, routed
+  through the new retaliation branch).
+- RAMPAGE / SURVIVE re-entry (same game-clock routine).
+
 ### 2026-04-20 — Playtest Tooling: `playtest_weapon_sweep`
 
 New tool for balance-proofing against the actual weapon catalog
