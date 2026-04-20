@@ -966,6 +966,22 @@ class Creature:
         """
         return self.health <= 0
 
+    def check_part_driven_death(self) -> Optional[str]:
+        """Hook for part-state-driven death detection, called by the
+        combat loop **before** the HP-based :meth:`is_dead` branch.
+
+        Subclasses override when the creature can die from body-part
+        state alone — e.g. a hydra whose every non-critical head is
+        destroyed, regardless of remaining body HP. The override is
+        expected to set ``self.health = 0`` as a side effect so any
+        subsequent :meth:`is_dead` calls agree, then return the death
+        narration (parsed, ready for the death branch to consume).
+
+        Returning ``None`` means no part-driven death this round — the
+        combat loop then falls through to the normal HP-based flow.
+        """
+        return None
+
 
     def on_hugged(self, actor: "Creature", invocation: str) -> str:
         """

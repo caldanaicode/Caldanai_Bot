@@ -379,11 +379,17 @@ class TestOnCombatRoundRegrowth:
         assert "biological limit" in msg.lower()
 
 
-class TestOnCombatRoundLastHeadDeath:
+class TestCheckPartDrivenDeathLastHead:
     """The load-bearing win-condition test — the whole point of the
     turn-based regrowth mechanic is that the player CAN win by killing
-    every live head in a single round. If regrowth fired before the
-    death check, the player could never wipe out all heads."""
+    every live head in a single round.
+
+    Detection lives on :meth:`Hydra.check_part_driven_death`, which
+    the combat loop calls before its HP-based ``is_dead`` branch so
+    the decap death fires the same round it happens (no post-death
+    retaliation swing). ``on_combat_round`` stays focused on
+    regrowth + cooldowns for still-living hydras.
+    """
 
     def test_all_heads_destroyed_sets_health_to_zero(self):
         h = Hydra()
@@ -391,7 +397,7 @@ class TestOnCombatRoundLastHeadDeath:
             if isinstance(p, HeadPlugin) and not p.is_critical:
                 p.health = 0
 
-        h.on_combat_round({})
+        h.check_part_driven_death()
 
         assert h.health == 0
 
@@ -401,36 +407,44 @@ class TestOnCombatRoundLastHeadDeath:
             if isinstance(p, HeadPlugin) and not p.is_critical:
                 p.health = 0
 
-        msg = h.on_combat_round({})
+        msg = h.check_part_driven_death()
 
         assert isinstance(msg, str)
-        assert "last head" in msg.lower()
+        # Pool is three lines; all mention a head and all use a
+        # finality marker ("last" or "final"). Don't pin a specific
+        # line — flavor drifts, the contract is "something about the
+        # head ending the hydra."
+        lower = msg.lower()
+        assert "head" in lower
+        assert "last" in lower or "final" in lower
 
-    def test_all_heads_destroyed_does_not_spawn_new_heads(self):
-        """Death check must fire BEFORE regrowth — otherwise regrowth
-        would save the hydra and the win condition would be
-        unreachable."""
+    def test_live_heads_present_returns_none(self):
+        """Hook is a no-op while any non-critical head survives."""
         h = Hydra()
-        head_count_before = sum(
-            1 for p in h.body_parts if isinstance(p, HeadPlugin) and not p.is_critical
-        )
+        # Leave all heads alive (default).
+        assert h.check_part_driven_death() is None
+
+    def test_on_combat_round_no_longer_kills_on_zero_heads(self):
+        """Regression pin: the old 0-heads detection lived in
+        ``on_combat_round``, which fired AFTER retaliation and
+        caused round-late death handling. The detection moved to
+        ``check_part_driven_death``; ``on_combat_round`` must no
+        longer zero health on its own."""
+        h = Hydra()
         for p in h.body_parts:
             if isinstance(p, HeadPlugin) and not p.is_critical:
                 p.health = 0
 
+        # on_combat_round alone shouldn't kill the hydra anymore —
+        # check_part_driven_death is the authority.
         h.on_combat_round({})
+        assert h.health > 0
 
-        head_count_after = sum(
-            1 for p in h.body_parts if isinstance(p, HeadPlugin) and not p.is_critical
-        )
-        assert head_count_after == head_count_before
-
-    def test_death_check_fires_before_regrowth_ordering_pin(self):
-        """Ordering pin: destroying all live heads and calling
-        ``on_combat_round`` must set ``self.health = 0``. If the
-        implementation reversed the order (regrow first, then death
-        check), the regrown heads would make the creature 'healthy'
-        and the death condition would never be reached."""
+    def test_check_fires_before_regrowth_ordering_pin(self):
+        """Ordering pin: zero live heads + ``check_part_driven_death``
+        must set ``self.health = 0``. Regrowth (in ``on_combat_round``)
+        would otherwise save the hydra; the combat loop sequences
+        the hook BEFORE any regrowth so the death wins."""
         h = Hydra()
         h.health_max = 100
         h.health = 100
@@ -438,11 +452,8 @@ class TestOnCombatRoundLastHeadDeath:
             if isinstance(p, HeadPlugin) and not p.is_critical:
                 p.health = 0
 
-        h.on_combat_round({})
+        h.check_part_driven_death()
 
-        # If regrowth ran first, the hydra would have live heads and
-        # the death check wouldn't fire. The fact that health == 0 pins
-        # the ordering.
         assert h.health == 0
 
 
@@ -485,10 +496,10 @@ class TestEndToEndApplyDamage:
         ]
         assert len(live_heads) == _starting_heads() - 1 + 2
 
-    def test_apply_damage_destroys_all_then_on_combat_round_kills_hydra(self):
+    def test_apply_damage_destroys_all_then_check_part_driven_death_kills_hydra(self):
         """Second-pass: destroy all four heads individually via
-        ``apply_damage``, then call ``on_combat_round`` — the hydra's
-        all-heads-destroyed death condition fires."""
+        ``apply_damage``, then call ``check_part_driven_death`` —
+        the hydra's all-heads-destroyed death condition fires."""
         h = self._hydra_with_deterministic_hp()
 
         # First, destroy one and regrow to 4 heads.
@@ -517,10 +528,10 @@ class TestEndToEndApplyDamage:
 
         # Hydra body took full collateral damage from each head hit
         # (Model D unified HP), but should still be alive — the death
-        # condition is triggered only by on_combat_round (not by
-        # non-critical part destruction).
+        # condition is triggered only by ``check_part_driven_death``
+        # (not by non-critical part destruction on its own).
         # (We sized health_max to 500 to prevent overkill.)
-        h.on_combat_round({})
+        h.check_part_driven_death()
 
         assert h.health == 0
 
@@ -681,3 +692,91 @@ class TestLoot:
             items = h.get_loot()
             for it in items:
                 assert isinstance(it, Item)
+
+
+# ---------------------------------------------------------------------------
+# Combat-loop integration pin
+# ---------------------------------------------------------------------------
+
+
+class TestDoCombatInvokesCheckPartDrivenDeath:
+    """Pins the wiring between ``Game.do_combat`` and
+    ``Creature.check_part_driven_death``. Without this test, deleting
+    the hook call from ``caldanai/lib/rpg/__init__.py`` would leave
+    the hook-level tests in ``TestCheckPartDrivenDeathLastHead``
+    green while silently reintroducing the post-death-retaliation +
+    round-late-``$loot`` bug surfaced in 2026-04-19 playtest.
+    """
+
+    @pytest.mark.asyncio
+    async def test_do_combat_invokes_hook_when_no_death_yet(self, monkeypatch):
+        """Construct a minimal ``Game`` around a live hydra with
+        no combatants, run ``do_combat``, and verify the monster's
+        ``check_part_driven_death`` was invoked.
+
+        Empty-combatants skips the player-attack loop so we isolate
+        the hook wiring itself from damage-resolution side effects.
+        The downstream ``else``-branch (retaliation, regrowth) is
+        unavoidable but doesn't affect the spy assertion.
+        """
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from caldanai.lib.rpg import Game
+
+        hook_spy = MagicMock(return_value=None)
+
+        with (
+            patch("caldanai.lib.rpg.Dispatcher") as mock_dispatch,
+            patch("caldanai.lib.rpg.DB") as mock_db,
+            patch("caldanai.lib.rpg.player_manager"),
+            patch("caldanai.lib.rpg.GameClock") as mock_gc_cls,
+        ):
+            mock_db.get_server_by_guild_id.return_value = {"prefix": "$"}
+            mock_gc = MagicMock()
+            mock_gc.get_seconds.return_value = 0
+            mock_gc.time_scale = 4
+            mock_gc_cls.return_value = mock_gc
+
+            guild = MagicMock()
+            guild.id = 111
+            guild.roles = []
+            channel = MagicMock()
+            channel.id = 222
+
+            game = Game(
+                guild=guild,
+                channel=channel,
+                game_id="g1",
+                use_spawn_timer=False,
+                enable_ambience=False,
+            )
+            # Minimal state for do_combat to reach the hook.
+            game.monster = Hydra()
+            game.combatants = []
+            game.combat_targets = {}
+            game.looters = []
+            # ``monster_statics`` is a defaultdict(int) in production
+            # so the escape/kill counters don't need pre-seeded keys.
+            from collections import defaultdict
+            game.monster_statics = defaultdict(int)
+
+            # Spy on the hook, returning None so the hydra stays
+            # alive and do_combat falls through the rampage /
+            # escape branches harmlessly.
+            monkeypatch.setattr(game.monster, "check_part_driven_death", hook_spy)
+
+            # ``cancel_combat`` / ``end_combat`` are async — stub so
+            # the escape branch (empty combatants → escape) doesn't
+            # blow up.
+            game.cancel_combat = AsyncMock()
+            game.end_combat = AsyncMock()
+            game.set_spawn_timer = AsyncMock()
+            game.on_monster_death = AsyncMock(return_value="")
+
+            await game.do_combat()
+
+        assert hook_spy.called, (
+            "Game.do_combat did not invoke monster.check_part_driven_death "
+            "— the hook wiring in caldanai/lib/rpg/__init__.py may have "
+            "regressed. See TestCheckPartDrivenDeathLastHead for the "
+            "hook-level contract this integration pin protects."
+        )

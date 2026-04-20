@@ -4,6 +4,81 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-19 — Parser Expansion + API-Narrator Groundwork
+
+Scaffolding for the future Claude-API narrator (see
+`memory/project_phase2_api_narration.md` and the local
+[[API Narrator Prompt]] doc) shipped alongside directly-useful
+parser upgrades. Nothing wired to the API yet — just the
+primitives the integration will consume.
+
+- **`parser.article()`** — moved from `hydra._article` and
+  migrated two in-tree reinventions (parser internal + item
+  `get_article`) to use the shared helper. Parser is the single
+  source of truth for English-grammar utilities.
+- **`@Nnp` auto-article for monsters** — parser bug fix. Previously
+  `@Nnp` rendered "goblin's" (no article) even for article-using
+  creatures, despite the docstring promising "the goblin's". Now
+  matches the documented intent. `@Ndnp` still works idempotently.
+- **Case-sensitive form letters** — uppercase anywhere in a token's
+  form string implies capitalization: `@1A` ≡ `@1ac`, `@1D` ≡
+  `@1dc`, `@1Np` ≡ `@1npc`. Authoring intent lives in case
+  choice directly instead of a preprocessor guessing sentence
+  boundaries. Explicit `c`/`l`/`t`/`u` still win for edge cases
+  (bare-name cap via `@1c`, title case via `@1dt`, full upper
+  via `@1u`).
+- **`@Nm` Discord mention form** — for actors carrying
+  `member.mention` (Players), emits the Discord mention string;
+  falls through to the bare name for monsters / NPCs. Possessive
+  composition: `@Nmp` / `@Nma` / `@Nmnp` → `<@!id>'s`. Uses
+  `discord.Member.mention` rather than hardcoding `<@!{id}>` so
+  the parser stays aligned with discord.py's canonical format.
+- **Narrator-output lint functions** — `parser.lint_narrative(s)`
+  and `parser.lint_output(obj)` auto-fix the mechanical failure
+  modes observed in Sonnet validation runs (invalid noun-mode
+  combos `@Nno` etc., duplicate `@Nm*` per string, sentence-start
+  capitalization, mid-sentence over-capitalization) and warn on
+  literal-pronoun leaks. `its` / `itself` get softened warnings
+  plus a per-occurrence whitelist (`its wearer`, `its blade`, etc.)
+  that fully suppresses the common inanimate-object cases.
+- **New tools** — `tools/parse_template.py` renders arbitrary
+  `@`-tokened templates through `parse()` with stubbed actors (for
+  iterating on LLM-generated narratives without spinning up the
+  full game). `tools/postprocess_narrator_output.py` is the CLI
+  wrapper around the parser's lint functions — reads JSON from
+  stdin / file, emits cleaned JSON + warnings.
+
+`CLAUDE.md` token cheat-sheet updated to reflect the case-sensitive
+convention and `@Nm` mention form.
+
+### 2026-04-19 — Hydra Decapitation Death: Timing + Flavor
+
+The hydra's "last head destroyed" path fires cleanly now — same
+round it happens, with correctly-timed `$loot` — instead of
+round-late with a free post-death retaliation in between.
+
+- **New `Creature.check_part_driven_death()` hook** — runs in the
+  combat loop before the HP-based `is_dead()` branch so monsters
+  can declare themselves dead on body-part state alone. Default
+  returns `None` (opt-in per monster).
+- **Hydra override** detects 0 non-critical heads, zeroes
+  `self.health`, and returns the decap narration. The old
+  detection inside `on_combat_round` (which fired AFTER
+  retaliation) is gone; `on_combat_round` is now regrowth +
+  cooldowns only.
+- **Grammar + pool** — prior decap line had a grammar bug;
+  replaced with a correct-article 3-line pool. Per-variant flavor
+  is still backlogged.
+
+Also: test-architecture hardening that the hydra work surfaced.
+`tests/conftest.py` now autouse-isolates `random` module state
+around every test — any test (or tool invocation from a test)
+that seeds `random` no longer poisons the RNG for later tests.
+Per-monster backwards-compat tests (sheep, dragon, giant, goblin,
+toad) also mirror `get_defense` / `get_dodge`'s min-1 clamp so a
+low stat roll × small size_mod doesn't flake `int()` truncation
+against an equality assert.
+
 ### 2026-04-19 — Social Warmth: `$warmth` + 14 Social Verbs
 
 Players can now tune how warmly they receive and attempt social

@@ -161,7 +161,10 @@ class TestGoblinFullHealthBackwardsCompat:
 
     def test_get_defense_matches_size_scaled(self):
         g = Goblin()
-        expected = int(g.defense * 1.0 * 0.75)
+        # SMALL defense_mod=0.75; ``get_defense`` floors at 1 when
+        # torso remains, so mirror the clamp — a low defense roll
+        # × 0.75 can ``int``-truncate to 0 otherwise.
+        expected = max(1, int(g.defense * 1.0 * 0.75))
         assert g.get_defense() == expected
 
     def test_get_dodge_matches_size_scaled(self):

@@ -546,13 +546,36 @@ class Game:
                     final_body_dmg = max(num_hits, resolution.body_damage_total - defense)
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
-                    if monster.health == 0 and not death_msg:
-                        death_msg = monster.death if hasattr(monster, 'death') else ""
 
                 if resolution.injury_feedback_lines:
                     msg += "\n".join(resolution.injury_feedback_lines) + "\n"
             else:
                 self.combatants.pop(i)
+
+        # Part-state-driven death check (e.g. hydra with zero live
+        # heads) runs BEFORE the generic HP-zero fallback below so
+        # that when both conditions fire in the same round — last
+        # head destroyed AND body HP depleted — the more-specific
+        # decapitation narration wins over the bleed-out default.
+        # Also avoids the post-death retaliation swing and round-
+        # late ``$loot`` hint the prior ``on_combat_round``-based
+        # detection produced. Hook zeroes ``self.health`` when it
+        # fires; we treat it as a critical-part kill so the HP
+        # summary doesn't print a confusing "0 vs X remaining"
+        # after.
+        if not death_msg:
+            part_death_msg = monster.check_part_driven_death()
+            if part_death_msg:
+                death_msg = part_death_msg
+                critical_part_kill = True
+
+        # Generic HP-zero fallback — fires only if no more-specific
+        # death narration was set by a critical-part destruction
+        # (via ``resolution.death_msg``) or by the part-driven hook
+        # above. Moved out of the player-attack loop so the
+        # priority ordering is explicit.
+        if not death_msg and monster.is_dead():
+            death_msg = monster.death if hasattr(monster, 'death') else ""
 
         # Skip the HP summary if the creature died from a critical
         # part destruction — the "utterly destroyed" feedback + death

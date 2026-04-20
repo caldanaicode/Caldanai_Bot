@@ -589,10 +589,11 @@ class TestInjuryFeedback:
         lightly battered." becomes unreadable in multi-target rounds
         (hydra today, swarms / AoE later). Owner-possessive prefix
         via ``@1npc`` disambiguates. For a monster target named
-        "goblin", renders as "Goblin's right arm…" (the parser's
-        ``np`` form uses the name directly for creatures, same as
-        for players). Functional goal met: whose part it is, is
-        unambiguous."""
+        "goblin", renders as "The goblin's right arm…" — the parser's
+        ``np`` form auto-prepends the article for article-using
+        creatures (matches the parser docstring's intent). Functional
+        goal met: whose part it is, is unambiguous, and the phrasing
+        is grammatical."""
         arm = _RecordingPart(name="arm.right", health_max=10)
         target = _make_creature(name="goblin", health_max=100)
         target.body_parts = [arm]
@@ -603,7 +604,7 @@ class TestInjuryFeedback:
         rr = apply_sequence_to_target(seq, target)
 
         joined = "\n".join(rr.injury_feedback_lines)
-        assert "Goblin's right arm seems" in joined, (
+        assert "The goblin's right arm seems" in joined, (
             f"owner-prefixed phrasing missing in: {joined!r}"
         )
         # The old bare "The right arm seems..." (no owner) should no

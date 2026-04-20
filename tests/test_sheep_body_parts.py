@@ -198,12 +198,16 @@ class TestSheepFullHealthBackwardsCompat:
 
     def test_get_defense_matches_size_scaled(self):
         s = Sheep()
-        expected = int(s.defense * 1.0 * 0.75)
+        # ``get_defense`` floors at 1 when torso functionality is
+        # non-zero, so a Sheep that rolled a low ``1d6`` defense
+        # (e.g. 1) would otherwise produce ``int(1 * 0.75) == 0``
+        # and fail the bare equality. Mirror the clamp here.
+        expected = max(1, int(s.defense * 1.0 * 0.75))
         assert s.get_defense() == expected
 
     def test_get_dodge_matches_size_scaled(self):
         s = Sheep()
-        expected = int(s.dodge * 1.0 * 1.25)
+        expected = max(1, int(s.dodge * 1.0 * 1.25))
         assert s.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):

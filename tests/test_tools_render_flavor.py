@@ -9,12 +9,18 @@ without exceptions and produces the expected shape.
 
 import io
 import json
-import random
 from contextlib import redirect_stdout
 
 import pytest
 
 from tools import render_flavor
+
+
+# ``random`` state leakage is handled repo-wide by the autouse
+# ``_isolate_random_state`` fixture in ``tests/conftest.py`` — no
+# per-file save/restore needed. The tool's ``--seed`` flag still
+# scopes cleanly within a test because conftest snapshots before
+# and restores after each invocation.
 
 
 class TestSampleBranches:
@@ -53,7 +59,6 @@ class TestCLI:
         Smoke test — we only assert the render succeeded and produced
         some recognizable output, not exact wording (that's owned by
         the bandit file, which drifts as flavor evolves)."""
-        random.seed(0)
         buf = io.StringIO()
         with redirect_stdout(buf):
             exit_code = render_flavor.main([

@@ -6,6 +6,7 @@ from discord import Embed, File
 from random import randint
 
 from caldanai.lib.rpg.helpers.enums import Qualities
+from caldanai.lib.rpg.helpers.parser import article as _indefinite_article
 from bson.objectid import ObjectId
 
 
@@ -50,7 +51,9 @@ class Item:
 
     def get_article(self, next_word: str = None) -> str:
         exclusions = ("unique",)
-        if self.article not in (None, "some") and next_word not in exclusions and next_word[0].lower() in "aeiou":
+        if (self.article not in (None, "some")
+                and next_word not in exclusions
+                and _indefinite_article(next_word) == "an"):
             return f"an {next_word}"
         return f"{self.article} {next_word}"
 

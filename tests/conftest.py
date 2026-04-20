@@ -1,6 +1,7 @@
 """Shared fixtures for Caldanai Bot tests."""
 
 import os
+import random
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,34 @@ import pytest
 
 # Ensure the project root is on the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+
+# ---------------------------------------------------------------------------
+# Global ``random`` state isolation.
+# ---------------------------------------------------------------------------
+#
+# Tests that call ``random.seed(...)`` (or invoke tooling that does,
+# like ``tools.render_flavor.main`` with ``--seed``) otherwise leak
+# a deterministic RNG into every later test that consumes ``random``
+# — including Creature stat rolls (``"1d6"`` defense, ``"2d10"``
+# health, etc.). Save / restore here so the leak is local to the
+# offending test and the rest of the suite keeps its "real random"
+# semantics.
+#
+# Discovered 2026-04-19 when a hydra-death-timing change shifted
+# RNG consumption enough to trip a pre-existing latent fragility in
+# ``test_sheep_body_parts.py::test_get_defense_matches_size_scaled``.
+# Root cause was the test's own flawed assertion (fixed separately),
+# but the fragility was reachable in the first place because seed
+# state could flow across tests at all.
+
+@pytest.fixture(autouse=True)
+def _isolate_random_state():
+    state = random.getstate()
+    try:
+        yield
+    finally:
+        random.setstate(state)
 
 
 # ---------------------------------------------------------------------------

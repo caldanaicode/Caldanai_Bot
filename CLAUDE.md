@@ -53,28 +53,35 @@ Shape to follow when adding a new tool:
 substitutes numbered tokens. `@1` is the first actor passed, `@2`
 is the second, etc. Common forms:
 
+**Capitalization: case of the form letter carries it.** An uppercase form letter anywhere in the token (e.g. `@1A`, `@1D`, `@1Np`) implies `c` — the output is capitalized. Lowercase form letters render lowercase as always. This makes sentence-start capitalization the author's deliberate choice, not a preprocessor's guess.
+
 | Token | Meaning | "Caels" (player) | "bandit" (monster) |
 |-------|---------|------------------|--------------------|
 | `@1` | bare name | `Caels` | `bandit` |
-| `@1d` | name with article | `Caels` | `the bandit` |
-| `@1dc` | capitalized article form | `Caels` | `The bandit` |
-| `@1s` / `@1sc` | subject pronoun / cap | `he` / `He` | `she` / `She` |
-| `@1o` | object pronoun | `him` | `her` |
-| `@1a` | possessive adjective | `his` | `her` |
-| `@1r` | reflexive | `himself` | `herself` |
-| `@1np` / `@1npc` | name-possessive / cap | `Caels's` | `the bandit's` / `The bandit's` |
+| `@1d` / `@1D` | article form / cap | `Caels` | `the bandit` / `The bandit` |
+| `@1s` / `@1S` | subject pronoun / cap | `he` / `He` | `she` / `She` |
+| `@1o` / `@1O` | object pronoun / cap | `him` / `Him` | `her` / `Her` |
+| `@1a` / `@1A` | possessive adjective / cap | `his` / `His` | `her` / `Her` |
+| `@1p` / `@1P` | possessive pronoun / cap | `his` / `His` | `hers` / `Hers` |
+| `@1r` / `@1R` | reflexive / cap | `himself` / `Himself` | `herself` / `Herself` |
+| `@1np` / `@1Np` | noun-possessive / cap | `Caels's` | `the bandit's` / `The bandit's` |
+| `@1m` | Discord mention (player) / fallback bare name | `<@!user_id>` | `bandit` |
+| `@1mp` / `@1ma` / `@1mnp` | mention + possessive | `<@!user_id>'s` | `the bandit's` (fallback) |
+
+Edge-case casing letters (rarely needed):
+
+- `@1c` — capitalize a bare name: `cyclops` → `Cyclops`. Needed because bare `@N` has no form letter to carry uppercase intent.
+- `@1dt` — title case across a multi-word monster name: `the dread cyclops` → `The Dread Cyclops`.
+- `@1u` — full upper for dramatic emphasis: `CYCLOPS`.
+- `@1l` — force lowercase. Default is already lowercase, so mostly unused.
+
+Explicit casing letters always win over the uppercase-form-letter implicit capitalize — `@1Al` forces lowercase even though `A` is upper.
 
 Common bugs:
 
-- **`@1dc` mid-sentence** produces "The bandit" (capitalized)
-  where the sentence wants "the bandit". Use `@1d` unless at
-  sentence start.
-- **`@1's` vs `@1np`** — `@1's` is literal-name + apostrophe-s, so
-  it renders as "bandit's" (no article). Usually want `@1np` →
-  "the bandit's".
-- **Dialogue quoting** — spoken dialogue inside narration uses
-  escaped double quotes (`\"...\"`), not single quotes. Matches
-  existing convention in `rpg_social_commands.py` and flavor pools.
+- **`@1's` vs `@1np`** — `@1's` is literal-name + apostrophe-s, so it renders as "bandit's" (no article). Use `@1np` → "the bandit's".
+- **Dialogue quoting** — spoken dialogue inside narration uses escaped double quotes (`\"...\"`), not single quotes. Matches existing convention in `rpg_social_commands.py` and flavor pools.
+- **Sentence-start intent** — write `@1D` / `@1A` / `@1Np` at sentence start (uppercase letter carries the capitalization); `@1d` / `@1a` / `@1np` mid-sentence.
 
 Always render-proof new flavor strings with
 `python -m tools.render_flavor ...` before shipping.

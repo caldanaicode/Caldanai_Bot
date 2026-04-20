@@ -188,14 +188,17 @@ class TestToadFullHealthBackwardsCompat:
 
     def test_get_defense_matches_size_scaled(self):
         t = Toad()
+        # Toad is SMALL or MEDIUM by variant — SMALL defense_mod is
+        # 0.75, so a low defense roll can ``int``-truncate to 0.
+        # ``get_defense`` floors at 1 when torso remains; mirror it.
         defense_mod = t.size.value["defense_mod"]
-        expected = int(t.defense * 1.0 * defense_mod)
+        expected = max(1, int(t.defense * 1.0 * defense_mod))
         assert t.get_defense() == expected
 
     def test_get_dodge_matches_size_scaled(self):
         t = Toad()
         dodge_mod = t.size.value["dodge_mod"]
-        expected = int(t.dodge * 1.0 * dodge_mod)
+        expected = max(1, int(t.dodge * 1.0 * dodge_mod))
         assert t.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):

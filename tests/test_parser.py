@@ -229,8 +229,18 @@ class TestNounPossessive:
         kra = _actor("Kra'tal", uses_article=False)
         assert parse("@1np", kra) == "Kra'tal's"
 
-    def test_noun_possessive_composes_with_definite_article(self):
-        # @1dnp → article + noun-possessive: "the werewolf's"
+    def test_noun_possessive_auto_prepends_article_for_article_using_creatures(self):
+        # Bare ``@1np`` on an article-using creature auto-prepends
+        # "the" — the possessive of "the werewolf" is "the werewolf's",
+        # not "werewolf's" (bare-name possessive reads as a grammar
+        # error for article-using creatures).
+        beast = _actor("werewolf")
+        assert parse("@1np fangs glisten.", beast) == "the werewolf's fangs glisten."
+
+    def test_noun_possessive_with_explicit_article_still_works(self):
+        # ``@1dnp`` explicitly requests the article. The article path
+        # sets ``result = "the werewolf"`` first; the possessive path
+        # then sees the "the " prefix and doesn't double up.
         beast = _actor("werewolf")
         assert parse("@1dnp fangs glisten.", beast) == "the werewolf's fangs glisten."
 
@@ -387,3 +397,166 @@ class TestNoActors:
         # No actors supplied → _process bails out and returns the raw
         # match text.
         assert parse("@1d", ) == "@1d"
+
+
+# ---------------------------------------------------------------------------
+# Case-sensitive form letters — uppercase anywhere in the form string
+# implies ``c`` (capitalize). Ergonomic shortcut: ``@1A`` ≡ ``@1ac``.
+# ---------------------------------------------------------------------------
+
+
+class TestCaseSensitiveForms:
+    def test_uppercase_possessive_adjective(self):
+        caels = _actor("Caels", uses_article=False, adjective="his")
+        # @1A ≡ @1ac → "His"
+        assert parse("@1A", caels) == "His"
+
+    def test_lowercase_possessive_adjective_stays_lowercase(self):
+        # Default behavior unchanged.
+        caels = _actor("Caels", uses_article=False, adjective="his")
+        assert parse("@1a", caels) == "his"
+
+    def test_uppercase_definite_article_on_monster(self):
+        # @1D ≡ @1dc → "The cyclops"
+        assert parse("@1D roars.", _actor("cyclops")) == "The cyclops roars."
+
+    def test_uppercase_subjective_pronoun(self):
+        # @1S ≡ @1sc → "She"
+        assert parse("@1S swings.", _actor("cyclops")) == "She swings."
+
+    def test_uppercase_noun_possessive_on_monster(self):
+        # @1Np ≡ @1npc → "The werewolf's"
+        assert parse("@1Np fangs", _actor("werewolf")) == "The werewolf's fangs"
+
+    def test_uppercase_on_any_letter_implies_capitalize(self):
+        # Whichever letter is cased upper, the output is capitalized.
+        # @1nP and @1Np should both equal @1npc.
+        beast = _actor("werewolf")
+        assert parse("@1nP", beast) == "The werewolf's"
+        assert parse("@1Np", beast) == "The werewolf's"
+
+    def test_explicit_c_still_works_and_is_idempotent_with_uppercase(self):
+        # Explicit ``c`` and uppercase letter both set implicit
+        # capitalize; appending ``c`` to an already-uppercase-flagged
+        # token is redundant but not harmful.
+        caels = _actor("Caels", uses_article=False, adjective="his")
+        assert parse("@1Ac", caels) == "His"
+
+    def test_explicit_casing_overrides_uppercase_hint(self):
+        # ``l`` (force lowercase) beats an uppercase form letter's
+        # implicit ``c`` because explicit casing was written first in
+        # the casing_forms list and applies deterministically.
+        # Practically: authors choose explicit casing when they want
+        # deviant behavior; don't second-guess them.
+        caels = _actor("Caels", uses_article=False, adjective="his")
+        # @1Al → "His" via uppercase A, then ``l`` lowercases → "his".
+        assert parse("@1Al", caels) == "his"
+
+
+# ---------------------------------------------------------------------------
+# Mention form (``m``) — renders Discord-mention tag for players,
+# falls back to normal rendering for non-player actors.
+# ---------------------------------------------------------------------------
+
+
+class TestMentionForm:
+    def _player(self, name="Caels", user_id=111111111111111111):
+        """Actor stub with a Discord-``member`` carrying a ``.mention``
+        attribute — mirrors the shape the parser's mention form
+        reads: ``actor.member.mention`` (discord.py's canonical
+        format, so this module doesn't hardcode ``<@!id>``)."""
+        return SimpleNamespace(
+            name=name,
+            pronouns={
+                Pronouns.SUBJECTIVE: "he",
+                Pronouns.OBJECTIVE:  "him",
+                Pronouns.POSSESSIVE: "his",
+                Pronouns.ADJECTIVE:  "his",
+                Pronouns.REFLEXIVE:  "himself",
+            },
+            uses_article=False,
+            indefinite_article=None,
+            plural_verbs=False,
+            member=SimpleNamespace(mention=f"<@!{user_id}>"),
+        )
+
+    def test_mention_form_emits_discord_mention_tag_for_player(self):
+        caels = self._player(user_id=12345)
+        assert parse("@1m swings.", caels) == "<@!12345> swings."
+
+    def test_mention_form_falls_back_to_name_for_monster(self):
+        # Monster has no ``user_id`` attribute → fall through to normal
+        # processing. Bare ``@1m`` with no other form letters → bare
+        # name (equivalent to ``@1``).
+        bandit = _actor("bandit")
+        assert parse("@1m lunges.", bandit) == "bandit lunges."
+
+    def test_mention_form_fallthrough_respects_other_form_letters(self):
+        # If mention isn't available (no user_id), the rest of the
+        # form string processes normally. So ``@1md`` on a monster
+        # behaves like ``@1d`` → "the bandit".
+        bandit = _actor("bandit")
+        assert parse("@1md lunges.", bandit) == "the bandit lunges."
+
+    def test_mention_dominates_non_possessive_forms(self):
+        # Non-possessive form letters (subject, object, reflexive,
+        # article) on the same token as ``m`` are ignored — a
+        # mention tag doesn't have pronoun/article variants.
+        caels = self._player(user_id=12345)
+        assert parse("@1ms swings.", caels) == "<@!12345> swings."
+        assert parse("@1mD swings.", caels) == "<@!12345> swings."
+        assert parse("@1mo targeted.", caels) == "<@!12345> targeted."
+        assert parse("@1mr bleeds.", caels) == "<@!12345> bleeds."
+
+    def test_mention_composes_with_possessive_pronoun(self):
+        # ``@1mp`` — mention + possessive pronoun → mention's
+        # possessive form: ``<@!id>'s``. Reads naturally in
+        # "@1mp dagger slides between @2p ribs" constructions where
+        # the mention is the owner of something.
+        caels = self._player(user_id=12345)
+        assert parse("@1mp dagger slides.", caels) == "<@!12345>'s dagger slides."
+
+    def test_mention_composes_with_possessive_adjective(self):
+        # ``@1ma`` — mention + possessive adjective → same
+        # possessive mention form.
+        caels = self._player(user_id=12345)
+        assert parse("@1ma blade.", caels) == "<@!12345>'s blade."
+
+    def test_mention_composes_with_noun_possessive(self):
+        # ``@1mnp`` — mention + noun-possessive → ``<@!id>'s``.
+        # Semantically equivalent to ``@1mp`` for mention context;
+        # both express "the mentioned player's ...".
+        caels = self._player(user_id=12345)
+        assert parse("@1mnp shadow falls.", caels) == "<@!12345>'s shadow falls."
+
+    def test_mention_possessive_fallthrough_still_works_for_monster(self):
+        # Monster has no user_id → fall through; ``@1mnp`` for a
+        # monster behaves like ``@1np`` → "the bandit's".
+        bandit = _actor("bandit")
+        assert parse("@1mnp fangs glisten.", bandit) == "the bandit's fangs glisten."
+
+    def test_uppercase_M_implicit_capitalize_is_harmless_on_mention(self):
+        # ``@1M`` sets the implicit-capitalize flag, but the mention
+        # short-circuit skips casing entirely, so the output is the
+        # raw mention tag unchanged.
+        caels = self._player(user_id=12345)
+        assert parse("@1M swings.", caels) == "<@!12345> swings."
+
+    def test_no_member_attribute_at_all_falls_back_cleanly(self):
+        # Actor object that doesn't declare ``member`` —
+        # ``getattr(actor, "member", None)`` returns None and the
+        # fallthrough path emits the bare name.
+        barebones = SimpleNamespace(
+            name="ghost",
+            pronouns={
+                Pronouns.SUBJECTIVE: "they",
+                Pronouns.OBJECTIVE:  "them",
+                Pronouns.POSSESSIVE: "theirs",
+                Pronouns.ADJECTIVE:  "their",
+                Pronouns.REFLEXIVE:  "themself",
+            },
+            uses_article=True,
+            indefinite_article=None,
+            plural_verbs=True,
+        )
+        assert parse("@1m drifts past.", barebones) == "ghost drifts past."

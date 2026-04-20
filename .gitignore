@@ -6,5 +6,6 @@ __pycache__
 .vscode
 .pytest_cache
 .patch-notes-scratch.md
+.sonnet-output-*.txt
 tools/.ideas_cursor.*.json
 tools/.last_posted.*.json

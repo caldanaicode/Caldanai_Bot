@@ -197,8 +197,9 @@ class TestDragonFlyingFlag:
         with _force_variant(True):
             d = Dragon()
         assert "flying" in d.flags
-        # HUGE dodge_mod=0.5, wings healthy → ratio 1.0
-        expected = int(d.dodge * 1.0 * 0.5)
+        # HUGE dodge_mod=0.5, wings healthy → ratio 1.0. Clamp to
+        # min-1 to match ``get_dodge``'s floor.
+        expected = max(1, int(d.dodge * 1.0 * 0.5))
         assert d.get_dodge() == expected
 
     def test_has_toes_variant_grounded_gets_penalty(self):
@@ -257,8 +258,9 @@ class TestDragonGetDodgeOverride:
         with _force_variant(True):
             d = Dragon()
         assert "flying" in d.flags
-        # Flying: uses wings, HUGE dodge_mod=0.5
-        expected = int(d.dodge * 1.0 * 0.5)
+        # Flying: uses wings, HUGE dodge_mod=0.5. Clamp matches
+        # ``get_dodge``'s floor.
+        expected = max(1, int(d.dodge * 1.0 * 0.5))
         assert d.get_dodge() == expected
 
     def test_override_no_penalty_without_toes(self):
@@ -472,8 +474,10 @@ class TestDragonFullHealthBackwardsCompat:
     def test_get_dodge_matches_size_scaled(self):
         with _force_variant(False):
             d = Dragon()
-        # Flying, HUGE dodge_mod=0.5
-        expected = int(d.dodge * 1.0 * 0.5)
+        # Flying, HUGE dodge_mod=0.5. ``get_dodge`` floors at 1
+        # when mobility remains, so mirror the clamp — a low
+        # ``dodge`` roll × 0.5 can ``int``-truncate to 0 otherwise.
+        expected = max(1, int(d.dodge * 1.0 * 0.5))
         assert d.get_dodge() == expected
 
     def test_stat_modifier_total_zero_at_full_health_non_toe(self):
@@ -498,7 +502,7 @@ class TestDragonFullHealthBackwardsCompat:
         """Toe variant while flying: get_dodge uses wings with HUGE mod."""
         with _force_variant(True):
             d = Dragon()
-        expected = int(d.dodge * 1.0 * 0.5)
+        expected = max(1, int(d.dodge * 1.0 * 0.5))
         assert d.get_dodge() == expected
 
 

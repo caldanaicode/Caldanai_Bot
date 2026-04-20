@@ -45,7 +45,7 @@ from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Reach, Size, TimePartitions,
 )
-from caldanai.lib.rpg.helpers.parser import parse
+from caldanai.lib.rpg.helpers.parser import article, parse
 from caldanai.lib.rpg.creatures import Creature, EXPOSURE_FLOOR, pick_random_part
 
 # ---------------------------------------------------------------------------
@@ -67,9 +67,16 @@ _NARRATIVE_TEMPLATES = {
 }
 
 
-def _article(word: str) -> str:
-    """Return 'an' if *word* starts with a vowel sound, otherwise 'a'."""
-    return "an" if word and word[0].lower() in "aeiou" else "a"
+# Decapitation-death pool. Fires when every non-critical head is
+# destroyed — the HP-based death path (``self.death``) still covers
+# the more common bleed-out ending. Kept variant-agnostic; per-variant
+# lines are tracked as a follow-up in
+# ``memory/project_hydra_decapitation_death_flavor.md``.
+_DECAPITATION_DEATH_POOL = [
+    "@1dc's last head topples from the neck stump, and what's left of the body crumples into a still, heavy heap.",
+    "@1dc's final head falls — the bulk shudders once, then goes still, no mind left to drive it.",
+    "@1dc's last head hits the ground with a wet thud. The body lurches, twitches, and gives up the ghost.",
+]
 
 # ---------------------------------------------------------------------------
 # Variant definitions
@@ -405,6 +412,18 @@ class Hydra(MonsterPlugin):
         """Pick a damage type for a regrown head from the variant's pool."""
         return choice(self._variant["head_dmg_types"])
 
+    def _live_non_critical_heads(self) -> List[HeadPlugin]:
+        """Return the hydra's live, non-critical heads.
+
+        The decap-death path, combat-round bookkeeping, and
+        ``get_attack_sources`` all care about the same slice; centralizing
+        the filter keeps those three call sites in lockstep."""
+        return [
+            p for p in self.body_parts
+            if isinstance(p, HeadPlugin) and not p.is_critical
+            and not p.is_destroyed()
+        ]
+
     # ------------------------------------------------------------------
     # Action economy
     # ------------------------------------------------------------------
@@ -574,7 +593,7 @@ class Hydra(MonsterPlugin):
                 display=part.display_name,
                 victim=victim_name,
                 label=label,
-                article=_article(label),
+                article=article(label),
             )
             lines.append(line)
 
@@ -771,11 +790,7 @@ class Hydra(MonsterPlugin):
         The hydra's own retaliation uses ``attack_random`` which bypasses
         this method entirely.
         """
-        live_heads = [
-            p for p in self.body_parts
-            if isinstance(p, HeadPlugin) and not p.is_critical
-            and not p.is_destroyed()
-        ]
+        live_heads = self._live_non_critical_heads()
 
         if not live_heads:
             return [
@@ -801,19 +816,38 @@ class Hydra(MonsterPlugin):
     # on_combat_round — cooldown tick + regrowth
     # ------------------------------------------------------------------
 
+    def check_part_driven_death(self) -> Optional[str]:
+        """Decapitation death: every non-critical head destroyed
+        means dead, regardless of remaining body HP.
+
+        Called by the combat loop before the HP-based ``is_dead``
+        branch, so the decap death fires in the same round it
+        happened — no post-death retaliation swing, no round-late
+        ``$loot`` hint. Zeros ``self.health`` so downstream
+        ``is_dead()`` callers agree.
+        """
+        if self._live_non_critical_heads():
+            return None
+        self.health = 0
+        return parse(choice(_DECAPITATION_DEATH_POOL), self)
+
     def on_combat_round(self, damage_by_player) -> str:
-        """Breath cooldown tick, last-head death check, and regrowth."""
+        """Breath cooldown tick and head regrowth.
+
+        Decapitation-death detection used to live here too, but it
+        moved to :meth:`check_part_driven_death` so the combat loop
+        sees the death in the same round it happens. By the time
+        ``on_combat_round`` runs, a zero-heads hydra has already been
+        caught by the death branch — so we only need to tick
+        cooldowns and regrow heads for still-living hydras.
+        """
         # Tick breath cooldowns.
         for key in list(self._breath_cooldown):
             self._breath_cooldown[key] -= 1
             if self._breath_cooldown[key] <= 0:
                 del self._breath_cooldown[key]
 
-        live_heads = [
-            p for p in self.body_parts
-            if isinstance(p, HeadPlugin) and not p.is_critical
-            and not p.is_destroyed()
-        ]
+        live_heads = self._live_non_critical_heads()
         destroyed_heads = [
             p for p in self.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical
@@ -826,21 +860,12 @@ class Hydra(MonsterPlugin):
         for key in destroyed_names & set(self._breath_cooldown):
             del self._breath_cooldown[key]
 
-        # 1. Death check — no live heads means death BEFORE regrowth.
-        if live_count == 0:
-            self.health = 0
-            return parse(
-                "@1dc's last head falls. With no brain to direct it, @1's "
-                "body collapses in a lifeless heap.",
-                self,
-            )
-
-        # 2. Count destroyed heads.
+        # Count destroyed heads for regrowth.
         destroyed_count = len(destroyed_heads)
         if destroyed_count == 0:
             return ""
 
-        # 3. Regrowth: 2 per destroyed head, capped by MAX_HEADS.
+        # Regrowth: 2 per destroyed head, capped by MAX_HEADS.
         slots_available = max(0, self.MAX_HEADS - live_count)
         to_spawn = min(destroyed_count * 2, slots_available)
 
