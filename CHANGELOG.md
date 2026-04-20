@@ -4,6 +4,45 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Combat Pipeline: Phase 6b MonsterPlugin Pipeline Port
+
+`MonsterPlugin.attack_random` now drives the pipeline stages
+(`pick_actions` → `pick_targets` → `resolve` → narration) in
+place of the legacy `do_attack` + `apply_sequence_to_target`
+loop. Every monster except hydra (Phase 4) and dragon (Phase 6c)
+inherits the new path automatically. Output format preserved
+line-for-line for the `count=1` production case (attack table
+→ injury feedback → death beat).
+
+Body HP is applied per-victim after resolve via the same
+`max(num_hits, body_damage_total - defense)` formula the legacy
+path used, gated on `num_hits > 0` and `not victim.is_dead()`.
+Phase 6a removed body-HP from `Creature.resolve`, so this is
+the only place body HP lands for non-player retaliation now.
+
+Vampire regression caught in review: `Vampire.do_attack`
+overrode the attack to fire `feed(victim)` at ≤50% HP, but the
+pipeline port routes through `pick_actions` / `resolve` and
+bypasses `do_attack`. Fixed with a thin `Vampire.attack_random`
+override mirroring hydra's / dragon's pattern — checks HP up
+front, returns `feed(victim)` when eligible, else delegates to
+super. Pre-6b behavior preserved exactly. `TestVampireFeedRestoredInRetaliation`
+pins both branches (low HP → feed fires, full HP → pipeline).
+
+Dragon compat: dragon's own `attack_random` override calls
+`super().attack_random()` for non-breath turns; that call now
+drives the new pipeline code. Verified via
+`TestDragonSuperCallStillWorks`.
+
+3045 → 3070 passing (+25 tests covering monster port, vampire
+restoration, dragon delegation). Three consecutive clean runs
+via `tools/repeat`.
+
+Playtest focus:
+- Monster retaliation output shape across non-hydra monsters.
+- Vampire feed at low HP (regression-fix surface).
+- Dragon non-breath rounds.
+
 ### 2026-04-20 — Combat Pipeline: Phase 6a Body-HP Ownership Refactor
 
 `Creature.resolve` no longer applies body HP — its contract is

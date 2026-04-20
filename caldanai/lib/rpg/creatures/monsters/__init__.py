@@ -4,9 +4,7 @@ from typing import Dict, List, Optional, Type, Union
 
 from caldanai import PluginManager
 from caldanai.lib.rpg import GameClock, parse
-from caldanai.lib.rpg.combat.attack_source import AttackSource
-from caldanai.lib.rpg.combat.resolution import apply_sequence_to_target
-from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures import Creature, round_robin_assignment
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.enums import (AggressionLevels, DamageTypes,
                                             TimePartitions, TimesOfDay,
@@ -217,47 +215,61 @@ class MonsterPlugin(Creature):
 
         return items
 
-    def attack_random(self, combatants: list, count=1) -> str:
+    def attack_random(self, combatants: list, count=1) -> Optional[str]:
         """Attack ``count`` randomly chosen combatants and return the
         rendered attack markdown plus any resulting injury / death
         messages.
 
-        Mirrors the player-attacks-monster path in ``Game.do_combat``:
-        per-result damage routes to the targeted body part for injury
-        tracking (no body-HP touch), injury-level transitions coalesce
-        across the sequence into one message per part, and the
-        post-defense total hits body HP once via ``victim.apply_damage``
-        so the victim's own death-transition detection still fires.
+        Thin driver over the Phase 2-3 base pipeline stages — mirrors
+        :meth:`Hydra.attack_random`'s shape. ``pick_actions`` walks
+        body-part ``DEFAULT_ACTIONS`` pools, ``pick_targets`` pairs each
+        action with a victim (round-robin for ``count > 1``, single-
+        target otherwise), ``resolve`` routes per-part damage, and the
+        narration stages compose the output.
 
-        Defense is subtracted from the per-victim total (variant B),
-        with a ``max(num_hits, total - defense)`` floor so defense
-        can't trivialize every hit in a multi-source attack.
+        ``narrate_attempt`` output is deliberately suppressed here to
+        preserve today's "no pre-attack narrative for plain monsters"
+        shape — hydra composes its own per-head paragraph inside its
+        own override. Phase 6b is a structural port; adding attempt
+        narration for every monster is a content-pass decision.
+
+        Body HP is still applied per-victim with a
+        ``max(num_hits, total - defense)`` floor so defense can't
+        trivialize every hit in a multi-source attack. ``resolve``
+        stopped applying body HP in Phase 6a, so this method owns the
+        whole-body write (and the death-transition message it returns).
         """
         if not combatants or not (0 < count <= len(combatants)):
             return None
 
         victims = sample(combatants, count)
-        msg = ""
-        for victim in victims:
-            sequence = self.do_attack(victim)
-            msg += sequence.to_markdown()
 
-            # Per-result part routing + coalesced injury feedback +
-            # part-side hooks + attacker-side
-            # ``on_target_part_destroyed`` all happen inside the helper.
-            # Passing ``attacker=self`` is what distinguishes the
-            # monster -> player path from the (``attacker=None``) player
-            # -> monster path in ``Game.do_combat``.
-            resolution = apply_sequence_to_target(
-                sequence, victim, attacker=self,
-            )
-            if resolution.num_hits == 0:
+        actions = self.pick_actions()
+        if not actions:
+            return None
+
+        if len(victims) > 1:
+            assignments = round_robin_assignment(actions, victims)
+        else:
+            assignments = self.pick_targets(actions, victims)
+        if not assignments:
+            return None
+
+        results = self.resolve(assignments)
+        table = self.render_table(results)
+        injury_lines = self.narrate_results(results)
+
+        msg = table
+        if injury_lines:
+            msg += "\n".join(injury_lines) + "\n"
+
+        for victim in victims:
+            resolution = (results.per_victim or {}).get(victim)
+            if resolution is None or resolution.num_hits == 0:
                 continue
 
             death_msg = resolution.death_msg
 
-            # Body HP: apply post-defense total once via the whole-body
-            # path so the victim's death-transition messaging fires.
             if not victim.is_dead():
                 defense = victim.get_defense()
                 final = max(
@@ -268,13 +280,6 @@ class MonsterPlugin(Creature):
                 if d_msg and not death_msg:
                     death_msg = d_msg
 
-            # Injury feedback first, then the death beat — death is
-            # the narrative crescendo for this victim and reads
-            # correctly as the last line. ``do_combat`` and
-            # ``Hydra.attack_random`` already order their per-victim
-            # sections this way.
-            if resolution.injury_feedback_lines:
-                msg += "\n".join(resolution.injury_feedback_lines) + "\n"
             if death_msg:
                 msg += parse(death_msg, victim)
 

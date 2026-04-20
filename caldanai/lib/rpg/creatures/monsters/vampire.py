@@ -139,3 +139,21 @@ class Vampire(MonsterPlugin):
         if self.health / self.health_max <= 0.5:
             return AttackSequence(attacker=self, target=creature, narrative=self.feed(creature))
         return super().do_attack(creature)
+
+    def attack_random(self, combatants: list, count=1):
+        """Override the Phase 6b pipeline-driven base so the
+        feed-at-low-HP mechanic survives the refactor. Mirrors the
+        pre-6b behavior where ``do_attack`` swapped to a feed-only
+        narrative sequence when HP <= 50%.
+
+        Phase 6c/6d / API-narrator work may later port this onto a
+        creature-level ``ACTION_REPERTOIRE`` with side-effect hooks;
+        the thin override is the scope-appropriate Phase 6b fix."""
+        if (
+            combatants
+            and 0 < count <= len(combatants)
+            and self.health / self.health_max <= 0.5
+        ):
+            victim = combatants[0] if count == 1 else choice(combatants)
+            return self.feed(victim)
+        return super().attack_random(combatants, count)
