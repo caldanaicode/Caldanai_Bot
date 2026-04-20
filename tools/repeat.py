@@ -1,16 +1,23 @@
-"""Run a command N times inside one Python process so the outer
-invocation stays covered by the ``python -m tools.*`` permission
-allowlist — no per-iteration approval prompt.
+"""Run a command N times (or once per value in a list) inside one
+Python process so the outer invocation stays covered by the
+``python -m tools.*`` permission allowlist — no per-iteration
+approval prompt.
 
 Usage::
 
+    # Count-based: run the same command N times.
     python -m tools.repeat --count 5 -- python -m pytest -q
-    python -m tools.repeat -n 10 -- python -m tools.playtest_action_dice --vs-sizes --seed 0
     python -m tools.repeat -n 3 -- python -m tools.playtest_weapon_sweep --seed {i}
 
-``{i}`` anywhere in the command's args is replaced with the current
-iteration number (1-indexed). Use it to vary seeds across runs when
-checking for variance.
+    # Value-based: run the command once per value in --each.
+    python -m tools.repeat --each pixie,goblin,bandit -- python -m tools.inspect_monster {v}
+    python -m tools.repeat --each "mace,shortsword,spear" -- \\
+        python -m tools.playtest_combat_harness --weapon {v} --monster goblin
+
+Substitution tokens:
+    ``{i}`` — 1-indexed iteration number.
+    ``{v}`` — current value from ``--each`` (only when ``--each`` is
+              supplied; raises if referenced without a value list).
 
 The command after ``--`` is executed via ``subprocess.run`` with the
 argv split the shell already handed us — no shell re-parsing, no
@@ -32,10 +39,17 @@ import time
 from typing import List, Optional
 
 
-def _apply_iter(args: List[str], iteration: int) -> List[str]:
-    """Replace ``{i}`` in each arg with the iteration number."""
+def _apply_iter(args: List[str], iteration: int, value: Optional[str] = None) -> List[str]:
+    """Replace ``{i}`` with the iteration number and (when supplied)
+    ``{v}`` with the current value."""
     token = str(iteration)
-    return [arg.replace("{i}", token) for arg in args]
+    out: List[str] = []
+    for arg in args:
+        substituted = arg.replace("{i}", token)
+        if value is not None:
+            substituted = substituted.replace("{v}", value)
+        out.append(substituted)
+    return out
 
 
 def _resolve_python(cmd: List[str]) -> List[str]:
@@ -56,7 +70,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     ap.add_argument(
         "-n", "--count", type=int, default=5,
-        help="Number of iterations (default 5).",
+        help="Number of iterations (default 5). Ignored when "
+             "--each is supplied — iteration count becomes the "
+             "length of the --each list.",
+    )
+    ap.add_argument(
+        "--each", default=None,
+        help="Comma-separated values to iterate over. Command runs "
+             "once per value; ``{v}`` in the command is replaced "
+             "with the current value.",
     )
     ap.add_argument(
         "--stop-on-failure", action="store_true",
@@ -70,7 +92,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "command", nargs=argparse.REMAINDER,
         help="Command to run, passed after ``--`` (e.g. "
              "``-- python -m pytest -q``). ``{i}`` in any arg is "
-             "replaced with the iteration number.",
+             "replaced with the iteration number; ``{v}`` with the "
+             "current --each value.",
     )
     args = ap.parse_args(argv)
 
@@ -80,12 +103,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not cmd:
         ap.error("command is required after ``--``")
 
+    if args.each is not None:
+        values: List[Optional[str]] = [v.strip() for v in args.each.split(",") if v.strip()]
+        if not values:
+            ap.error("--each received no values")
+    else:
+        # Count-mode: iterate without a value. Sentinels of None keep
+        # the single loop below shape-clean.
+        values = [None] * args.count
+
     results: List[int] = []
     start = time.time()
-    for i in range(1, args.count + 1):
+    total_iterations = len(values)
+    for i, value in enumerate(values, start=1):
         if not args.quiet:
-            print(f"\n--- iteration {i}/{args.count} ---", flush=True)
-        actual = _resolve_python(_apply_iter(cmd, i))
+            label = f"value={value}" if value is not None else f"{i}/{total_iterations}"
+            print(f"\n--- iteration {label} ---", flush=True)
+        actual = _resolve_python(_apply_iter(cmd, i, value))
         result = subprocess.run(actual)
         results.append(result.returncode)
         if args.stop_on_failure and result.returncode != 0:

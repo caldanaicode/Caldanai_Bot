@@ -130,3 +130,66 @@ class TestMain:
             rc = main(["-n", "1", "cmd", "arg1"])
         assert rc == 0
         assert run.call_args.args[0] == ["cmd", "arg1"]
+
+
+class TestEachMode:
+    def test_runs_once_per_value(self):
+        calls = []
+        def _capture(cmd, *a, **kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0)
+        with patch("tools.repeat.subprocess.run", side_effect=_capture):
+            rc = main(["--each", "pixie,goblin,bandit", "--", "cmd", "{v}"])
+
+        assert rc == 0
+        assert calls == [
+            ["cmd", "pixie"],
+            ["cmd", "goblin"],
+            ["cmd", "bandit"],
+        ]
+
+    def test_trims_whitespace_around_values(self):
+        calls = []
+        def _capture(cmd, *a, **kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0)
+        with patch("tools.repeat.subprocess.run", side_effect=_capture):
+            main(["--each", " a , b , c ", "--", "cmd", "{v}"])
+
+        assert calls == [["cmd", "a"], ["cmd", "b"], ["cmd", "c"]]
+
+    def test_empty_each_errors(self):
+        with pytest.raises(SystemExit):
+            main(["--each", ",,", "--", "cmd"])
+
+    def test_each_overrides_count(self):
+        """When --each is supplied, iteration count is len(values),
+        not --count."""
+        calls = []
+        def _capture(cmd, *a, **kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0)
+        with patch("tools.repeat.subprocess.run", side_effect=_capture):
+            main(["-n", "10", "--each", "x,y", "--", "cmd", "{v}"])
+
+        assert len(calls) == 2
+
+    def test_both_i_and_v_substitute(self):
+        calls = []
+        def _capture(cmd, *a, **kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0)
+        with patch("tools.repeat.subprocess.run", side_effect=_capture):
+            main(["--each", "a,b", "--", "cmd", "{i}", "{v}"])
+
+        assert calls == [["cmd", "1", "a"], ["cmd", "2", "b"]]
+
+    def test_count_mode_still_works_without_each(self):
+        calls = []
+        def _capture(cmd, *a, **kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0)
+        with patch("tools.repeat.subprocess.run", side_effect=_capture):
+            main(["-n", "3", "--", "cmd"])
+
+        assert len(calls) == 3
