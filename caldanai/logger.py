@@ -56,11 +56,32 @@ class MongoHandler(logging.Handler):
         if any(record.message.startswith(msg) for msg in self.ignored):
             return
 
-        entry = {"asctime": record.asctime, "level": record.levelname, "name": record.name, "message": record.message}
+        # Read the per-game channel context if any is in scope for
+        # this task (stamped by ``GameClock.tick`` / ``Bot.on_command``).
+        # Absent context -> record reads identical to pre-refactor
+        # logs, so non-game code paths (Dispatcher, main, db,
+        # top-level startup) emit unchanged.
+        from caldanai.log_context import channel_id_var
+        channel_id = channel_id_var.get()
+
+        entry = {
+            "asctime": record.asctime,
+            "level": record.levelname,
+            "name": record.name,
+            "message": record.message,
+        }
+        if channel_id is not None:
+            entry["channel_id"] = channel_id
 
         self.queue.put(entry)
+        name_display = (
+            f"{record.name} ({channel_id})"
+            if channel_id is not None
+            else record.name
+        )
         stdout(
-            f"{record.asctime} {record.levelname:8s} [{record.name}] - {record.message}", False, False, record.levelno
+            f"{record.asctime} {record.levelname:8s} [{name_display}] - {record.message}",
+            False, False, record.levelno,
         )
 
 

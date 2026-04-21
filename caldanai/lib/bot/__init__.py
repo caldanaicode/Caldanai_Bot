@@ -198,6 +198,22 @@ class Bot(BotBase, Subject):
     async def reload_all_cogs(self):
         await asyncio.gather(*[self.reload_extension(f"caldanai.lib.cogs.{cog}") for cog in self.COGS])
 
+    async def invoke(self, ctx: Context):
+        """Wrap every command invocation in a per-channel log
+        context so any ``_log`` call fired by the command handler
+        or anything it dispatches into carries the channel id.
+
+        Overriding ``invoke`` (rather than hooking ``before_invoke``
+        + ``after_invoke``) guarantees the ``with`` block's reset
+        fires on exit, even if the command raises — we don't want a
+        leaked channel id bleeding into whatever the next task on
+        this worker pulls off the event loop.
+        """
+        from caldanai.log_context import channel_log_context
+        channel_id = ctx.channel.id if ctx.channel else None
+        with channel_log_context(channel_id):
+            await super().invoke(ctx)
+
     async def on_command(self, ctx: Context):
         # Track by user id and guild id
         guild = ctx.guild.id if ctx.guild else "dm"
@@ -209,6 +225,22 @@ class Bot(BotBase, Subject):
         entry = {"guild_id": guild, "channel_id": channel, "user_id": player, "command": cmd, "alias": alias, "timestamp": dt}
         self.command_usage.append(entry)
         self.last_command = entry
+
+        # Audit-log every admin/owner command at INFO level so the
+        # live trace captures who did what with elevated permissions
+        # without tangling with the noisier player-level commands.
+        # Detection heuristic: cog name contains "admin" — covers
+        # ``BotAdminCommands`` + ``RpgAdminCommands`` + anything
+        # future that follows the same naming. Simpler and more
+        # robust than walking ``ctx.command.checks`` for
+        # ``is_owner`` / ``has_permissions`` predicates.
+        cog_name = ctx.cog.qualified_name if ctx.cog else ""
+        if cog_name and "admin" in cog_name.lower():
+            author = getattr(ctx.author, "name", None) or "unknown"
+            _log.info(
+                f"Admin command: {author} ({player}) ran "
+                f"`{ctx.message.content}`"
+            )
 
     async def on_command_completion(self, ctx: Context):
         if ctx.guild and ctx.channel:
@@ -266,7 +298,11 @@ class Bot(BotBase, Subject):
         elif isinstance(exc, HTTPException):
             _log.error("HTTPException occurred.", exc_info=True)
             if "Retry-After" in exc.response.headers.keys():
-                _log.info(f"Retry After {exc.response.headers['Retry-After']} seconds")
+                # Rate-limit context for the error above — upgrade to
+                # warning since it sits on an error path.
+                _log.warning(
+                    f"Retry After {exc.response.headers['Retry-After']} seconds"
+                )
 
         else:
             raise exc

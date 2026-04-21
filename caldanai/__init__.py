@@ -128,7 +128,7 @@ class PluginManager:
                             and issubclass(item, base_type) \
                             and item is not base_type:
                         loaded.append(item)
-                        _log.info(
+                        _log.debug(
                             f"Plugin loaded: {item_name}<{base_type.__name__}>"
                         )
             except Exception:

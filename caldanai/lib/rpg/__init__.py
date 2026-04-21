@@ -270,7 +270,10 @@ class Game:
         self.enable_ambience_local = enable_ambience_local
         self.enable_ambience_celestial = enable_ambience_celestial
         self.enable_ambience_weather = enable_ambience_weather
-        self.game_clock = GameClock(game_time=game_time)
+        self.game_clock = GameClock(
+            game_time=game_time,
+            channel_id=channel.id if channel else None,
+        )
         # WeatherDaemon + CelestialDaemon are created here but
         # not started — starting schedules routines on the clock
         # registry, which requires the game to be registered. Both
@@ -285,7 +288,7 @@ class Game:
             self.prefix = DB.get_server_by_guild_id(guild.id)["prefix"]
 
         if self.enable_ambience or self.use_spawn_timer:
-            _log.debug(f"Game clock starting for {game_id}")
+            _log.info(f"Game clock starting for {game_id}")
             self.game_clock.tick.start()
             # Regen timer is triggered every game hour (15 minutes for default time scale)
             # Regen ticks every 30 game-minutes (7.5 real-min at
@@ -436,7 +439,7 @@ class Game:
                     _log.error(f"Monster definition not found for `{monster}`")
                     return False
             self.monster = monster_cls()
-            _log.debug(f"{self.monster} spawned selectively")
+            _log.info(f"{self.monster} spawned administratively")
 
         embed, file = self.monster.get_embed()
         Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
@@ -897,7 +900,7 @@ class Game:
         """
 
         if not self.ambience_enabled("local"):
-            _log.debug(f"Removing ambience loop for game on {self.guild.name}.")
+            _log.info(f"Removing ambience loop for game on {self.guild.name}.")
             self.game_clock.remove_routine(self.do_ambience)
             return
 

@@ -393,11 +393,11 @@ class RpgUtilities:
             MonsterPlugin.load_plugins()
             for g in games:
                 await RpgUtilities.add_game(game=g)
-            _log.debug("Starting save_game_data loop")
+            _log.info("Starting save_game_data loop")
             save_game_data.start()
 
             if not DB.watchdog.is_running():
-                _log.debug("Starting watchdog loop")
+                _log.info("Starting watchdog loop")
                 DB.watchdog.start()
 
             RpgUtilities.is_initialized = True

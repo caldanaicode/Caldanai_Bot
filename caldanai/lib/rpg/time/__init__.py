@@ -88,7 +88,14 @@ class GameClock:
                 _log.debug(f"Game routine running: {self.name}")
             asyncio.create_task(self.function())
 
-    def __init__(self, game_time: int = 0):
+    def __init__(self, game_time: int = 0, channel_id: "Optional[int]" = None):
+        # ``channel_id`` identifies the owning ``Game`` for the
+        # per-game logging context — stamped on every tick so log
+        # lines from routines scheduled on this clock carry the
+        # channel id automatically. Defaults to ``None`` for
+        # standalone instantiation (tests, utilities) where no
+        # channel scope makes sense.
+        self._channel_id = channel_id
         self._seconds = game_time
         self._ticks = 0
 
@@ -467,24 +474,34 @@ class GameClock:
 
     @tasks.loop(seconds=1)
     async def tick(self):
-        """Continuously updates the game clock's internal value and executes any pending tasks."""
+        """Continuously updates the game clock's internal value and
+        executes any pending tasks.
 
-        self._seconds += self.tick_speed
-        self._ticks += 1
+        Every tick runs inside a ``channel_log_context`` bound to
+        this clock's owning game — routines scheduled on this clock
+        (monster actions, weather daemon updates, ambience, combat
+        pipeline composer) emit logs stamped with the channel id
+        automatically, no call-site changes required."""
 
-        h, m, s = self.get_time_components()
-        if not self._time_map or (h == 0 and m == 0 and s < 8):
-            self.update_times_of_day()
+        from caldanai.log_context import channel_log_context
 
-        for i in range(len(self._tick_routines)):
-            routine = self._tick_routines[i]
-            if (self._ticks - routine.time_added) % routine.seconds == 0:
-                routine.run()
+        with channel_log_context(self._channel_id):
+            self._seconds += self.tick_speed
+            self._ticks += 1
 
-        for i in range(len(self._tick_run_once) - 1, -1, -1):
-            if (self._ticks - self._tick_run_once[i].time_added) % self._tick_run_once[i].seconds == 0:
-                routine = self._tick_run_once.pop(i)
-                routine.run()
+            h, m, s = self.get_time_components()
+            if not self._time_map or (h == 0 and m == 0 and s < 8):
+                self.update_times_of_day()
+
+            for i in range(len(self._tick_routines)):
+                routine = self._tick_routines[i]
+                if (self._ticks - routine.time_added) % routine.seconds == 0:
+                    routine.run()
+
+            for i in range(len(self._tick_run_once) - 1, -1, -1):
+                if (self._ticks - self._tick_run_once[i].time_added) % self._tick_run_once[i].seconds == 0:
+                    routine = self._tick_run_once.pop(i)
+                    routine.run()
 
 
 # ---------------------------------------------------------------------------

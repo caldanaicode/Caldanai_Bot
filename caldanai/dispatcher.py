@@ -210,7 +210,7 @@ async def send():
                 # tables (hydra + 4 attackers easily clears 2k chars)
                 # don't get silently dropped. The first chunk carries
                 # the embed / file; subsequent chunks are text-only.
-                _log.info(
+                _log.debug(
                     f"Splitting oversized message ({len(message.text)} chars) "
                     "into send-safe chunks."
                 )

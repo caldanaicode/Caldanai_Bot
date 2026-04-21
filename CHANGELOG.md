@@ -4,6 +4,74 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Per-game log context + log-level sweep
+
+**Per-game channel context in logs.** Log lines emitted inside a
+specific game's scope now carry the channel id automatically for
+post-hoc filtering / grouping in multi-game deployments. The
+stdout rendering shifts from ``[caldanai.lib.rpg.time] - …`` to
+``[caldanai.lib.rpg.time (824900326313164801)] - …`` when
+context is set; Mongo log documents gain a ``channel_id``
+field.
+
+- New ``caldanai/log_context.py`` — ``channel_id_var``
+  ``ContextVar`` + ``channel_log_context(channel_id)`` context
+  manager. Absent context reads as ``None`` and the handler
+  format falls back to the pre-refactor bracket shape, so
+  non-game code paths (Dispatcher, main, db, top-level startup)
+  are byte-identical.
+- ``GameClock.__init__`` takes a ``channel_id`` kwarg; ``tick``
+  wraps its body in the context manager so every routine the
+  clock drives (monster hooks, weather daemon, ambience, combat
+  pipeline composer) inherits the context without call-site
+  changes.
+- ``Bot.invoke`` override wraps each command invocation so cog
+  command handlers emit under the ``ctx.channel.id`` context.
+  Overriding ``invoke`` (rather than hooking
+  ``before_invoke`` / ``after_invoke``) guarantees the ``with``
+  block's reset fires on exit, including when the command
+  raises.
+
+**Log-level sweep.** Three downgrades, five upgrades, and one new
+audit-trail path.
+
+**INFO → DEBUG / WARNING (drop noise):**
+- ``PluginManager.load`` per-item "Plugin loaded: X<Base>" lines
+  were firing 26+ times at startup at INFO — downgraded to
+  DEBUG. The total-count summary ("N plugins loaded") stays at
+  INFO so operators still get a one-line confirmation without
+  the per-plugin spam.
+- ``Dispatcher.send`` oversized-message split log: INFO → DEBUG.
+  An internal chunking step, not an operator-actionable event.
+- ``Bot.on_command_error`` HTTP "Retry After N seconds" line:
+  INFO → WARNING. Sits directly on an error branch; matching
+  severity with its surrounding context.
+
+**DEBUG → INFO (surface rare state transitions at live level):**
+- ``RpgUtilities`` ``save_game_data`` loop start.
+- ``DB.watchdog`` loop start.
+- ``Game`` clock starting for game — pairs with the existing
+  INFO "Game added for guild".
+- ``Game.do_spawn`` admin / forced spawn (``$spawn monster X``).
+  Wording normalized from "selectively" → "administratively"
+  (player-facing ``$spawn monster`` IS an admin action — the
+  word describes the path, not the mechanic).
+- ``Game.do_ambience`` removing local ambience loop at game
+  teardown.
+
+**Admin-command audit trail.** ``Bot.on_command`` now emits an
+INFO line for every invocation from a cog with ``admin`` in its
+name (``BotAdminCommands`` + ``RpgAdminCommands``). Format:
+``"Admin command: {author} ({user_id}) ran `{message.content}`"``.
+Captures who did what with elevated permissions without
+logging the noisier player-level commands.
+
+10 regression tests in ``tests/test_log_context.py`` covering
+the contextvar semantics (default, set, reset, nested,
+exception-safe, explicit-None scoping) and the ``MongoHandler``
+surfacing behavior (stdout bracket, Mongo entry field, legacy
+shape when unset).
+
 ### 2026-04-21 — Q.6 latent-bug sweep: defense-param drop, summarize-damage fix, per-victim AOE footer
 
 Three Q.6.2/Q.6.3 review-flagged latent bugs closed in one pass.
