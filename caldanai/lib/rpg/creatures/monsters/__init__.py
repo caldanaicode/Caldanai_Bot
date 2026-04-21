@@ -279,8 +279,7 @@ class MonsterPlugin(Creature):
             death_msg = resolution.death_msg
 
             if not victim.is_dead():
-                defense = victim.get_defense()
-                final = compute_body_hp_damage(resolution, victim, defense)
+                final = compute_body_hp_damage(resolution, victim)
                 d_msg = victim.apply_damage(final)
                 if d_msg and not death_msg:
                     death_msg = d_msg

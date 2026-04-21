@@ -587,15 +587,25 @@ class Creature:
             return None
         multi = len(per_victim) > 1
         out_lines: List[str] = []
+        # Import here to avoid a circular import at module load.
+        from caldanai.lib.rpg.combat.resolution import (
+            compute_body_hp_damage,
+        )
         for victim in victims:
             resolution = per_victim.get(victim)
             if resolution is None or resolution.num_hits == 0:
                 continue
-            defense = victim.get_defense()
-            final = max(
-                resolution.num_hits,
-                resolution.body_damage_total - defense,
-            )
+            # Q.6.3-followup: the earlier ``max(num_hits,
+            # body_damage_total - defense)`` double-subtracted defense
+            # under Q.6.2's per-hit-defense regime (``body_damage_total``
+            # is already the sum of post-defense damages). Route through
+            # the authoritative ``compute_body_hp_damage`` bleed formula
+            # so this stage's summary matches exactly what the other
+            # body-HP callers (``MonsterPlugin.attack_random``,
+            # ``_run_player_block``, ``Hydra.attack_random``) actually
+            # apply — no more arithmetic divergence when the composer
+            # eventually wires this stage as the single source of truth.
+            final = compute_body_hp_damage(resolution, victim)
             if health_snapshots is not None and victim in health_snapshots:
                 reference = health_snapshots[victim]
             else:

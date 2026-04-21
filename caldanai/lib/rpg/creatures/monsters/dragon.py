@@ -188,13 +188,26 @@ class Dragon(MonsterPlugin):
                     dodge=0,
                     dmg_type=DamageTypes.FIRE,
                     auto_hit=True,
+                    # Q.6.3-followup: populate victim so the multi-
+                    # target per-victim footer groups correctly
+                    # without relying on the label string.
+                    victim=victim,
                 )
             )
 
             if p := victim.apply_damage(dmg):
                 post += f"{p}\n"
 
-        sequence = AttackSequence(attacker=self, target=combatants[0] if combatants else self, results=results)
+        # Breath is always AOE: mark multi_target so the shared
+        # compact-table footer breaks out per-victim totals instead
+        # of rendering a single aggregate (which misleads readers
+        # into thinking every victim took the combined damage).
+        sequence = AttackSequence(
+            attacker=self,
+            target=combatants[0] if combatants else self,
+            results=results,
+            multi_target=len(combatants) > 1,
+        )
         return f"{flavor}\n{sequence.to_markdown()}{post}"
 
     def _breath_chance(self) -> float:

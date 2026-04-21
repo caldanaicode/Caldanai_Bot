@@ -560,9 +560,8 @@ class Game:
                     critical_part_kill = True
                 num_hits = player_res.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    defense = monster.get_defense()
                     final_body_dmg = _compute_body_hp_damage(
-                        player_res, monster, defense,
+                        player_res, monster,
                     )
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
@@ -781,9 +780,8 @@ class Game:
                 # num_hits is the minimum damage floor (dual-wield = 2, single = 1).
                 num_hits = resolution.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    defense = monster.get_defense()
                     final_body_dmg = _compute_body_hp_damage(
-                        resolution, monster, defense,
+                        resolution, monster,
                         results=sequence.results,
                     )
                     monster.health = max(0, monster.health - final_body_dmg)

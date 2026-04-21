@@ -4,6 +4,53 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Q.6 latent-bug sweep: defense-param drop, summarize-damage fix, per-victim AOE footer
+
+Three Q.6.2/Q.6.3 review-flagged latent bugs closed in one pass.
+
+**`compute_body_hp_damage(defense=)` parameter removed.** The arg
+was accepted for call-site compatibility but silently ignored
+since Q.6.2 (defense is applied per-hit inside
+``resolve_attack``, so ``result.damage`` is already post-defense).
+A silently-ignored parameter is a footgun — future callers pass
+a number, write a test that passes without the value mattering,
+never realize it did nothing. Signature now raises ``TypeError``
+if ``defense=`` is passed. Three production callers updated to
+drop the ``victim.get_defense()`` call that was feeding it.
+
+**`Creature.summarize_damage` double-subtract fixed.** The
+pipeline-stage summary helper used ``max(num_hits,
+body_damage_total - defense)`` — but ``body_damage_total`` is
+already the sum of post-defense ``result.damage``, so the
+subtract was a second bite at defense. Now routes through
+``compute_body_hp_damage`` so this stage's summary matches
+exactly what the other body-HP callers
+(``MonsterPlugin.attack_random``, ``_run_player_block``,
+``Hydra.attack_random``) actually apply. Latent until the Phase-7+
+round composer wires this stage in; fixed now to prevent the
+divergence from biting downstream.
+
+**Multi-target / AOE footer: per-victim totals.** A multi-target
+``AttackSequence`` (dragon breath, hydra AOE) used to render a
+single ``Total: N damage`` across all victims, which mislead
+readers into thinking everyone took ``N`` (Celowin's LIVE-
+playtest observation on dragon breath). The footer now breaks
+out one line per victim:
+
+```
+Caels: 19 raw - 3 absorbed → 16 damage  🔥
+Serena: 15 raw - 3 absorbed → 12 damage  🔥
+```
+
+Grouping keys off ``result.victim`` when the pipeline populates
+it; falls back to ``source.label`` for bespoke AOE paths
+(dragon breath already uses the victim's display name as the
+label). Dragon breath now also sets ``result.victim`` and marks
+the sequence ``multi_target=True`` when hitting more than one
+victim, so the shared renderer handles it uniformly.
+
+Retired backlog memo: ``project_q6_latent_bugs.md``.
+
 ### 2026-04-21 — Dice spec: signed-constant modifier (``"NdM+C"`` / ``"NdM-C"``)
 
 ``Dice.from_ndn`` now parses an optional signed constant after

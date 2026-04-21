@@ -330,6 +330,64 @@ class TestAttackSequence:
         assert "🔥" in md
         assert "💧" in md
 
+    def test_multi_target_emits_per_victim_footer_lines(self):
+        """Q.6.3-followup: a multi-target sequence (dragon breath,
+        hydra AOE) renders a separate footer line per victim so
+        readers can see what each victim actually took — not a
+        single aggregate ``Total: N damage`` that misleads as
+        "every victim took N."
+
+        Dragon breath AOE: Caels takes 12, Serena takes 16. The
+        footer should show both lines rather than one "Total: 28"."""
+        attacker = MagicMock()
+        attacker.name = "dragon"
+        attacker.member = None
+        caels = MagicMock(); caels.name = "Caels"
+        serena = MagicMock(); serena.name = "Serena"
+        # Manually build results with explicit ``victim`` populated
+        # (the dragon-breath path sets this).
+        r_caels = _make_result(label="Caels", damage=12)
+        r_caels.victim = caels
+        r_serena = _make_result(label="Serena", damage=16)
+        r_serena.victim = serena
+        seq = AttackSequence(
+            attacker=attacker,
+            target=caels,
+            results=[r_caels, r_serena],
+            multi_target=True,
+        )
+        md = seq.to_markdown()
+        # Per-victim lines, not a single aggregate.
+        assert "Caels:" in md
+        assert "Serena:" in md
+        assert "12" in md
+        assert "16" in md
+
+    def test_multi_target_footer_falls_back_to_source_label(self):
+        """When ``result.victim`` isn't populated (legacy / bespoke
+        AOE paths), the footer groups by ``source.label`` instead.
+        Dragon breath historically labels each result with the
+        victim's display name, so this fallback preserves the
+        per-victim breakdown without requiring the caller to set
+        ``victim`` explicitly."""
+        attacker = MagicMock()
+        attacker.name = "dragon"
+        attacker.member = None
+        target = MagicMock()
+        target.name = "Party"
+        # victim attribute left as default None
+        r_alice = _make_result(label="Alice", damage=7)
+        r_bob = _make_result(label="Bob", damage=9)
+        seq = AttackSequence(
+            attacker=attacker,
+            target=target,
+            results=[r_alice, r_bob],
+            multi_target=True,
+        )
+        md = seq.to_markdown()
+        assert "Alice:" in md
+        assert "Bob:" in md
+
     def test_extra_text_appears_on_own_line(self):
         attacker = MagicMock()
         attacker.name = "math_teacher"

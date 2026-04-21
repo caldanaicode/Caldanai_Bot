@@ -137,7 +137,6 @@ class MultiVictimResolutionResult:
 def compute_body_hp_damage(
     resolution: ResolutionResult,
     victim: "Creature",
-    defense: int = 0,
     *,
     results: "Optional[List[object]]" = None,
 ) -> int:
@@ -156,10 +155,15 @@ def compute_body_hp_damage(
     - ``victim.BLEED_MOD`` is a creature-wide multiplier (default 1.0)
       that lets skeletons / golems / vampires tune feel without new
       structural classes.
-    - **Defense is already applied per-hit** inside
-      ``Creature.resolve_attack`` (Q.6.2 change from per-sum to
-      per-hit). ``result.damage`` is post-defense. The ``defense``
-      arg is accepted for call-site compatibility but ignored.
+
+    **No defense parameter.** Defense is already applied per-hit inside
+    ``Creature.resolve_attack`` (Q.6.2 change from per-sum to
+    per-hit), so ``result.damage`` — and therefore every term in the
+    bleed sum — is already post-defense. The earlier version of this
+    function accepted (and silently ignored) a ``defense`` kwarg for
+    call-site compatibility; that parameter was dropped in the
+    follow-up pass because a silently-ignored arg is a footgun —
+    future callers pass a number and don't realize it had no effect.
 
     ``results`` overrides the damage-contributing results — legacy
     callers that retain the old single-victim ``AttackSequence``

@@ -58,33 +58,39 @@ class TestBleedThroughFormula:
         final = max(num_hits=1, 14) = 14."""
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 14
+        assert compute_body_hp_damage(res, _victim()) == 14
 
     def test_single_eye_hit_low_bleed(self):
         """Eye bleed_rate 0.1 × damage 20 = 2. Below num_hits floor
         (1 is less than 2, so 2 wins)."""
         eye = BodyPart.make("eye", name="eye")
         res = _resolution(1, [_result(20, eye)])
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 2
+        assert compute_body_hp_damage(res, _victim()) == 2
 
     def test_num_hits_floor_kicks_in_on_tiny_bleed(self):
         """Toe bleed 0.05 × damage 5 = 0 (int truncates from 0.25).
         num_hits=1 is the floor → 1 body HP."""
         toe = BodyPart.make("toe", name="toe")
         res = _resolution(1, [_result(5, toe)])
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 1
+        assert compute_body_hp_damage(res, _victim()) == 1
 
-    def test_defense_arg_is_ignored_post_q62(self):
-        """Q.6.2: defense is applied per-hit inside ``resolve_attack``,
-        so ``result.damage`` is already post-defense. The ``defense``
-        arg on ``compute_body_hp_damage`` is accepted for call-site
-        compat but ignored — passing any value yields the same result."""
+    def test_defense_param_dropped(self):
+        """Q.6.3-followup: the ``defense`` param that earlier was
+        accepted-but-ignored has been removed. Passing ``defense=``
+        now raises ``TypeError`` — the footgun of silently ignoring
+        a number a caller thought mattered is gone.
+
+        Defense has been applied per-hit inside ``resolve_attack``
+        since Q.6.2, so ``result.damage`` (and therefore every term
+        in the bleed sum) is already post-defense. No call site
+        needs to pass defense through this helper."""
+        import pytest
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
-        # 20 damage × 0.7 bleed = 14; defense arg no longer subtracts.
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 14
-        assert compute_body_hp_damage(res, _victim(), defense=10) == 14
-        assert compute_body_hp_damage(res, _victim(), defense=999) == 14
+        with pytest.raises(TypeError):
+            compute_body_hp_damage(res, _victim(), defense=0)
+        # The bare-args call still works (the canonical form).
+        assert compute_body_hp_damage(res, _victim()) == 14
 
     def test_multi_source_bucket_sums_across_parts(self):
         """Dual-wield 15 torso + 15 arm = 15*0.7 + 15*0.3 = 15.
@@ -92,7 +98,7 @@ class TestBleedThroughFormula:
         torso = BodyPart.make("torso", name="torso")
         arm = BodyPart.make("arm", name="arm")
         res = _resolution(2, [_result(15, torso), _result(15, arm)])
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 15
+        assert compute_body_hp_damage(res, _victim()) == 15
 
     def test_bleed_mod_multiplier_applies(self):
         """Creature-wide ``BLEED_MOD=0.5`` halves the scaled sum.
@@ -100,7 +106,7 @@ class TestBleedThroughFormula:
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
         victim = _victim(bleed_mod=0.5)
-        assert compute_body_hp_damage(res, victim, defense=0) == 7
+        assert compute_body_hp_damage(res, victim) == 7
 
     def test_bleed_mod_greater_than_one(self):
         """``BLEED_MOD=1.5`` scales bleed-sum by 1.5. Torso 0.7 × 20
@@ -108,27 +114,27 @@ class TestBleedThroughFormula:
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
         victim = _victim(bleed_mod=1.5)
-        assert compute_body_hp_damage(res, victim, defense=0) == 21
+        assert compute_body_hp_damage(res, victim) == 21
 
     def test_zero_defense_yields_raw_bleed(self):
         """Sanity: defense=0 path just passes through the scaled sum.
         Torso 100 × 0.7 = 70."""
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(100, torso)])
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 70
+        assert compute_body_hp_damage(res, _victim()) == 70
 
     def test_zero_num_hits_returns_zero(self):
-        """num_hits=0 short-circuits before the sum, so we don't end up
-        with ``max(0, -defense)`` producing a negative-ish surprise."""
+        """``num_hits == 0`` short-circuits before the bleed sum so
+        an all-missed sequence never produces body-HP damage."""
         res = _resolution(0, [])
-        assert compute_body_hp_damage(res, _victim(), defense=50) == 0
+        assert compute_body_hp_damage(res, _victim()) == 0
 
     def test_partless_target_falls_back_to_neutral_bleed(self):
         """Results with ``target_part=None`` (partless targets like
         Spirit) use the neutral 1.0 bleed so the pre-Q.6 raw total
         shape still materializes."""
         res = _resolution(1, [_result(10, None)])
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 10
+        assert compute_body_hp_damage(res, _victim()) == 10
 
     def test_int_cast_guards_against_float_drift(self):
         """Bleed sum is cast to int before the defense subtract so
@@ -138,7 +144,7 @@ class TestBleedThroughFormula:
         torso = BodyPart.make("torso", name="torso")
         results = [_result(10, torso) for _ in range(3)]
         res = _resolution(3, results)
-        assert compute_body_hp_damage(res, _victim(), defense=0) == 21
+        assert compute_body_hp_damage(res, _victim()) == 21
 
 
 class TestDefenseBonusAppliesPerHit:

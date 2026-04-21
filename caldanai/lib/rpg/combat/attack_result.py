@@ -345,7 +345,47 @@ class AttackSequence:
                 lines.append(f"!  {' ' * label_w}   {p['extra_text']}")
 
         if self.multi_target:
-            lines.append(f"   Total: {total_damage} damage")
+            # Q.6.3-followup: break out per-victim totals. A single
+            # "Total: N damage" across an AOE misleads readers into
+            # thinking every victim took N (Celowin's LIVE-playtest
+            # confusion on dragon breath — "it looks like it rolls
+            # for each of us then applies the total to everyone").
+            #
+            # Group by explicit ``result.victim`` when set by the
+            # pipeline (``Creature.resolve``). Dragon breath builds
+            # its results directly and also sets ``victim`` on each.
+            # Historical fallback: ``source.label`` (dragon breath
+            # already uses the victim's name as the source label).
+            grouped = []
+            seen: Dict[object, int] = {}
+            for r in self.results:
+                key_obj = getattr(r, "victim", None)
+                if key_obj is None:
+                    display = (
+                        r.source.label if r.source and r.source.label
+                        else "someone"
+                    )
+                    dedupe_key = ("label", display)
+                else:
+                    display = (
+                        getattr(key_obj, "name", None) or "someone"
+                    )
+                    dedupe_key = ("victim", id(key_obj))
+                if dedupe_key not in seen:
+                    seen[dedupe_key] = len(grouped)
+                    grouped.append([display, 0, 0])
+                idx = seen[dedupe_key]
+                grouped[idx][1] += r.sub_damage
+                grouped[idx][2] += r.damage
+            for display, raw_v, final_v in grouped:
+                if raw_v != final_v:
+                    absorbed = raw_v - final_v
+                    lines.append(
+                        f"   {display}: {raw_v} raw - {absorbed} "
+                        f"absorbed \u2192 {final_v} damage"
+                    )
+                else:
+                    lines.append(f"   {display}: {final_v} damage")
         else:
             # Q.6.2: defense is applied per-hit inside resolve_attack,
             # so ``r.damage`` is already post-defense. The footer now
