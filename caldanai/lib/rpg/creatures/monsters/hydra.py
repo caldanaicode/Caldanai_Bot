@@ -737,15 +737,20 @@ class Hydra(MonsterPlugin):
         )
         for victim, resolution in (results.per_victim or {}).items():
             num_hits = resolution.num_hits
+            # Q.6.2: ``body_damage_total`` is sum of already-post-defense
+            # ``result.damage`` values, and ``final`` is that sum
+            # bleed-scaled via ``compute_body_hp_damage``. Armor has
+            # already bitten per-hit before we get here, so this display
+            # surfaces the bleed-through fraction rather than the
+            # defense math.
             raw_total = resolution.body_damage_total
             if num_hits > 0:
-                defense = victim.get_defense()
-                final = compute_body_hp_damage(resolution, victim, defense)
-                if defense and raw_total != final:
+                final = compute_body_hp_damage(resolution, victim)
+                if raw_total != final:
                     victim_name = getattr(victim, "name", "someone")
                     msg += (
-                        f"{victim_name}: {raw_total} damage - {defense} defense "
-                        f"\u2192 {final} damage\n"
+                        f"{victim_name}: {raw_total} post-defense "
+                        f"\u2192 {final} to body HP (bleed-through)\n"
                     )
                 # Body-HP application moved out of ``Creature.resolve``
                 # in Phase 6a — the stage is pure part-routing now, so

@@ -1000,12 +1000,15 @@ class Creature:
         dodge is used.
 
         ``target_part`` lets the caller pass the aimed-at part so the
-        per-part ``defense_mod`` scales effective defense for THIS
-        hit. Q.6.2: defense applies per-hit at the part level (not
-        once per round at body HP), so an armored torso actually
-        gates part destruction. Body HP is then drained by the
-        already-post-defense ``result.damage`` × ``bleed_rate``
-        without further defense subtract.
+        per-part ``defense_bonus`` adjusts effective defense for THIS
+        hit. Q.6.2 made defense apply per-hit at the part level (not
+        once per round at body HP) so an armored torso actually gates
+        part destruction; Q.6.3 replaced the earlier multiplicative
+        ``defense_mod`` with an additive integer ``defense_bonus``
+        for integer-exact math and directly-readable declaration
+        sites. Body HP is then drained by the already-post-defense
+        ``result.damage`` × ``bleed_rate`` without further defense
+        subtract.
         """
         dodge = target_dodge if target_dodge is not None else self.get_dodge()
         defense = self.get_defense()
@@ -1030,9 +1033,9 @@ class Creature:
         multiplier = self.get_trait_multiplier(source.damage_type)
         sub_dmg = int(multiplier * combined.result)
         # Q.6.2: per-hit defense subtract, floor at 1 so "you
-        # connected" still registers. ``defense_mod`` on the part
-        # (set by content like tank torso + exposed eye) scales how
-        # much of this hit the part absorbs before the HP pool
+        # connected" still registers. Q.6.3: ``defense_bonus`` on
+        # the part (tank torso +4, exposed eye SOFT_PART) adjusts
+        # how much of this hit the part absorbs before the HP pool
         # actually drops.
         if combined.isMiss or sub_dmg <= 0:
             damage = 0

@@ -71,8 +71,12 @@ class ResolutionResult:
     Fields:
 
     - ``body_damage_total``: sum of ``result.damage`` across hits with
-      positive damage — the raw pre-defense total. Callers apply the
-      ``max(num_hits, total - defense)`` floor on top of this.
+      positive damage. Q.6.2: ``result.damage`` is already post-
+      defense (armor bit per-hit inside ``resolve_attack``), so this
+      total is the post-defense sum. Callers hand it to
+      ``compute_body_hp_damage`` for bleed scaling; the legacy
+      ``max(num_hits, total - defense)`` floor has been replaced by
+      the per-part bleed formula there.
     - ``injury_feedback_lines``: fully-formatted feedback lines in the
       order the helper emitted them (one per part transition, optionally
       followed by non-empty hook returns).  Each line already carries

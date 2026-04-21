@@ -48,9 +48,9 @@ creatures earn their tank feel via explicit per-part overrides.
   `"NdM+C"` (backlog memory captured).
 
 **Display** — compact-table footer reads
-`Total: {raw} raw - armor absorbed → {final} damage` when armor
-absorbed some of the sequence; collapses to `Total: N damage`
-when it didn't.
+`Total: {raw} raw - {absorbed} absorbed → {final} damage` when
+armor absorbed some of the sequence; collapses to
+`Total: N damage` when it didn't.
 
 **Monster-specific downstream fixes:**
 - `MathTeacher` prime-halving checks `sub_damage` (pre-defense)

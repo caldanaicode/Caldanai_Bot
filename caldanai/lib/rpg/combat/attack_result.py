@@ -345,9 +345,12 @@ class AttackSequence:
             num_hits = sum(1 for r in self.results if r.damage > 0)
             raw_total = sum(r.sub_damage for r in self.results)
             if num_hits > 0 and raw_total != total_damage:
-                # Defense absorbed some of the raw damage.
+                # Defense absorbed some of the raw damage — surface
+                # the absorbed amount explicitly so the arithmetic
+                # reads at a glance.
+                absorbed = raw_total - total_damage
                 lines.append(
-                    f"   Total: {raw_total} raw - armor absorbed "
+                    f"   Total: {raw_total} raw - {absorbed} absorbed "
                     f"→ {total_damage} damage"
                 )
             else:
