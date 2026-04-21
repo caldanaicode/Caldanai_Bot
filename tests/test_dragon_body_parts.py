@@ -419,12 +419,22 @@ class TestDragonBreathDamageMath:
 
     def _force_raw_roll(self, value: int):
         """Patch ``Dice.from_ndn`` inside dragon.py so ``raw_dice.value``
-        returns the given value for breath rolls."""
+        returns the given value for breath rolls.
+
+        ``modifier`` is pinned to an explicit 0 because Q.6.3's
+        dice-spec modifier support reads it via ``getattr(dice,
+        "modifier", 0)`` downstream; without the explicit pin,
+        MagicMock auto-vivifies a child mock for that attribute
+        name and breaks the ``> 0`` comparisons in the display
+        renderer.
+        """
         from unittest.mock import MagicMock
 
         fake_dice = MagicMock()
         fake_dice.value = value
         fake_dice.result = value
+        fake_dice.modifier = 0
+        fake_dice.rolls = (value,)
         return patch(
             "caldanai.lib.rpg.creatures.monsters.dragon.Dice.from_ndn",
             return_value=fake_dice,

@@ -1,3 +1,4 @@
+import re
 from random import randint
 from typing import Tuple, Optional, Union
 
@@ -7,43 +8,83 @@ from caldanai.logger import get_logger
 _log = get_logger(__name__)
 
 
+# Parses ``NdM`` with an optional signed constant: ``"2d6"``,
+# ``"4d4+6"``, ``"3d10 - 2"``. Whitespace around the sign is
+# optional. ``N`` (die count) is optional and defaults to 1 so
+# ``"d20"`` still works the way the legacy parser treated it.
+_NDN_WITH_MOD_RE = re.compile(
+    r"""
+    ^\s*
+    (?P<count>\d*)              # optional die count
+    d
+    (?P<sides>\d+)              # sides
+    \s*
+    (?:                         # optional signed constant
+        (?P<sign>[+\-])\s*
+        (?P<mod>\d+)
+    )?
+    \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
 class Dice:
-    def __init__(self, count: int, sides: int):
+    def __init__(self, count: int, sides: int, modifier: int = 0):
         """
         Create a new instance of a Dice object, and initializes the rolls and value as if the dice were rolled.
 
         :param count: The number of dice to use.
         :param sides: The number of sides for each die.
+        :param modifier: Optional signed constant added to (or subtracted
+            from) the sum of the die rolls — the ``+6`` in ``"4d4+6"``.
+            Baked into :attr:`value` so downstream consumers don't need
+            to track the constant separately; rendered as a distinct
+            term in :meth:`__str__` so the breakdown still reads as
+            ``(r1 + r2) + C`` rather than a pre-summed total.
         """
         self.count = count
         self.sides = sides
+        self.modifier = modifier
         self.value: int = 0
         self.rolls: Tuple[int] = self.roll()
 
     def __str__(self) -> str:
-        s = f"{self.count}d{self.sides}"
-        if len(self.rolls) > 0:
-            s += f" ({', '.join(str(d) for d in self.rolls)})"
+        base = self.get_ndn()
+        if not self.rolls:
+            return base
+        roll_part = ", ".join(str(d) for d in self.rolls)
+        breakdown = f"({roll_part})"
+        if self.modifier > 0:
+            breakdown += f" + {self.modifier}"
+        elif self.modifier < 0:
+            breakdown += f" - {abs(self.modifier)}"
+        s = f"{base} {breakdown}"
         if self.value:
             s += f" = {self.value}"
         return s
 
     def __repr__(self):
+        mod = ""
+        if self.modifier:
+            mod = f", modifier={self.modifier:+d}"
         return (
-            f"Dice <count={self.count}, sides={self.sides}, value={self.value}, "
-            f"rolls=[ {', '.join(map(str, self.rolls))} ]>"
+            f"Dice <count={self.count}, sides={self.sides}{mod}, "
+            f"value={self.value}, rolls=[ {', '.join(map(str, self.rolls))} ]>"
         )
 
     def roll(self) -> Tuple[int]:
         """
-        Rolls the dice in this instance and sets the value as the sum. Individual rolls are stored in the rolls
-        variable.
+        Rolls the dice in this instance and sets the value as the sum
+        of the rolls plus :attr:`modifier`. Individual rolls are
+        stored unchanged in :attr:`rolls` so a renderer can still
+        show ``(r1 + r2) + C``.
 
-        :return: A tuple containing the individual rolls.
+        :return: A tuple containing the individual rolls (pre-modifier).
         """
         result: Tuple[int] = tuple(randint(1, self.sides) for _ in range(self.count))
         self.rolls = result
-        self.value = sum(result)
+        self.value = sum(result) + self.modifier
         return result
 
     @staticmethod
@@ -65,7 +106,15 @@ class Dice:
         return dice.value if dice else None
 
     def get_ndn(self):
-        return f"{self.count}d{self.sides}"
+        """Canonical string form: ``"NdM"`` or ``"NdM+C"`` / ``"NdM-C"``
+        when the modifier is non-zero. Round-trippable through
+        :meth:`from_ndn`."""
+        s = f"{self.count}d{self.sides}"
+        if self.modifier > 0:
+            s += f"+{self.modifier}"
+        elif self.modifier < 0:
+            s += f"{self.modifier}"  # negative sign is already in the int
+        return s
 
     @staticmethod
     def __int__(s: str):
@@ -78,17 +127,36 @@ class Dice:
     @classmethod
     def from_ndn(cls, ndn: str) -> Union["Dice", None]:
         """
-        Creates a new ndn instance of dice from a string.
+        Creates a new instance of dice from a string spec.
 
-        :param ndn: The number of dice and the sides per dice, such as "1d6" or "2d10"
-        :return: The Dice instance created.
+        Accepts:
+
+        - ``"2d6"`` — two six-sided dice, modifier 0
+        - ``"4d4+6"`` — four d4 with a flat +6 constant bonus
+        - ``"3d10-2"`` — three d10 with a flat -2 constant penalty
+        - ``"d20"`` — single d20 (die count defaults to 1)
+        - whitespace around the sign is tolerated
+
+        :param ndn: The dice spec, as documented above.
+        :return: The :class:`Dice` instance, or ``None`` on invalid input.
         """
-        count, sides = map(Dice.__int__, ndn.lower().split("d"))
+        if not ndn:
+            return None
+        match = _NDN_WITH_MOD_RE.match(ndn)
+        if not match:
+            return None
+
+        count = int(match.group("count")) if match.group("count") else 1
+        sides = int(match.group("sides"))
+        modifier = 0
+        if match.group("mod"):
+            magnitude = int(match.group("mod"))
+            modifier = magnitude if match.group("sign") == "+" else -magnitude
 
         if count < 1 or sides < 2:
             return None
 
-        return cls(count, sides)
+        return cls(count, sides, modifier)
 
     @classmethod
     def d4(cls, count: int = 1) -> "Dice":

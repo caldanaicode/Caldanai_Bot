@@ -4,6 +4,42 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Dice spec: signed-constant modifier (``"NdM+C"`` / ``"NdM-C"``)
+
+``Dice.from_ndn`` now parses an optional signed constant after
+the ``NdM`` portion. ``"2d6"`` keeps working as before; ``"4d4+6"``
+/ ``"3d10-2"`` add a flat bump/penalty to the rolled total.
+Whitespace around the sign is tolerated (``"2d6 + 2"`` fine),
+legacy forms like ``"d20"`` still default the count to 1.
+
+- ``Dice.value`` now equals ``sum(rolls) + modifier`` — downstream
+  consumers (``DamageRoll``, ``Ability``, ``quick_roll``) see the
+  correct total without a separate modifier-tracking pipe.
+- ``Dice.rolls`` stays raw per-die so a renderer can still show
+  ``(r1 + r2) + C`` rather than a pre-combined single number.
+- ``DamageRoll.__str__`` surfaces the dice modifier as its own
+  term between the parenthesized roll sum and the skill / weapon
+  bonuses: ``"2d6+2"`` rolled (6, 5) → ``"(6 + 5) + 2 = 13"``.
+- Bare ``"2d6"`` with no bonuses renders as ``"(6 + 5)"`` — no
+  ``+0`` noise.
+- Weapons' runtime ``weapon_bonus`` pipe stays as-is (quality
+  tiers produce per-instance dynamic bonuses that aren't cleanly
+  expressible as a static constant in the spec). The two pipes
+  coexist — a ``"1d6+2"`` weapon with a quality bonus of 3 would
+  render as ``"(4) + 2 + 3 = 9"``.
+
+**Dragon defense** migrated to the new syntax: ``defense="4d4+6"``
+replaces the earlier ``defense="4d4"`` + inline ``self.defense
++= 6`` workaround.
+
+22 regression tests in ``tests/test_dice_modifier.py``:
+parser variants (with / without modifier, negative, whitespace,
+implicit count, garbage), ``Dice.value`` / ``Dice.__str__`` /
+``Dice.get_ndn`` round-tripping, and ``DamageRoll.__str__``
+emitting the ``(rolls) + modifier + ... = total`` shape in all
+four combinations (modifier only, modifier + weapon bonus, no
+bonuses, negative modifier).
+
 ### 2026-04-21 — Fuzzy matching: part shorthand substring fallback + monster-name aliases
 
 Two resolver widenings for common player shorthand that

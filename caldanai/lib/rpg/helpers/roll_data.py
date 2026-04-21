@@ -22,6 +22,12 @@ class RollData:
     def __init__(self, dice: Dice, skill_bonus: int):
         self.rolls: Tuple[int] = dice.rolls
         self.sides = dice.sides
+        # Q.6.3-followup: dice specs can carry a static constant
+        # modifier (``"2d6+2"``). ``dice.value`` already sums rolls +
+        # modifier, so ``result`` below is correct — the modifier is
+        # surfaced separately so the renderer can show ``(r1 + r2) +
+        # C`` rather than a pre-merged single number.
+        self.diceModifier: int = getattr(dice, "modifier", 0)
         self.skillBonus: int = skill_bonus
         self.result = dice.value + skill_bonus
 
@@ -61,18 +67,39 @@ class DamageRoll(RollData):
         self.result += weapon_bonus
 
     def __str__(self):
+        # Render order: ``(r1 + r2 + ... + rN)`` then each non-zero
+        # term appended — dice-spec modifier first (it was baked into
+        # the spec string and conceptually belongs with the dice),
+        # then skill bonus, then weapon bonus. Parens open whenever
+        # there's more than one die OR any bonus term (a bare single-
+        # die roll stays unwrapped — ``5`` not ``(5)``).
+        needs_parens = (
+            len(self.rolls) > 1
+            or self.diceModifier
+            or self.skillBonus
+            or self.weaponBonus
+        )
         msg = (
-            f"{'(' if len(self.rolls) > 1 or self.skillBonus or self.weaponBonus else ''}"
+            f"{'(' if needs_parens else ''}"
             f"{' + '.join(str(r) for r in self.rolls)}"
+            f"{')' if needs_parens else ''}"
         )
         show_result = False
+
+        def _signed(value: int) -> str:
+            return (
+                f" {'+' if value > 0 else '-'} {abs(value)}"
+            )
+
+        if self.diceModifier != 0:
+            msg += _signed(self.diceModifier)
+            show_result = True
         if self.skillBonus != 0:
-            msg += f" {'+' if self.skillBonus > 0 else '-'} {self.skillBonus}"
+            msg += _signed(self.skillBonus)
             show_result = True
         if self.weaponBonus != 0:
-            msg += f" {'+' if self.weaponBonus > 0 else '-'} {self.weaponBonus}"
+            msg += _signed(self.weaponBonus)
             show_result = True
-        msg += f"{')' if len(self.rolls) > 1 or self.skillBonus or self.weaponBonus else ''}"
         if show_result:
             msg += f" = {self.result}"
 
