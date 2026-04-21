@@ -41,7 +41,7 @@ class Minotaur(MonsterPlugin):
             atk="2d8",
             defense="2d6",
             dodge="1d8",
-            health_max="6d10",
+            health_max="14d12",
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

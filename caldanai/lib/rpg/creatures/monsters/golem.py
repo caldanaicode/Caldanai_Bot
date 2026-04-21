@@ -55,7 +55,7 @@ class Golem(MonsterPlugin):
             atk="2d6",        # heavy slam, nothing fancy
             defense="4d8",    # enormous — stone doesn't flinch
             dodge="1d4",      # almost never dodges anything
-            health_max="8d10",
+            health_max="25d12",
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

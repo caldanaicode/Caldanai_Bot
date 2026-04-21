@@ -154,7 +154,7 @@ class Doppelganger(MonsterPlugin):
             atk="2d10",
             defense="5d4",
             dodge="5d4",
-            health_max="20d6"
+            health_max="20d10"
         )
 
         self.time_partition = TimePartitions.CATHEMERAL

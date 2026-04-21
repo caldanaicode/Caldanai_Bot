@@ -4,6 +4,51 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Monster Body HP Tuning (Q.6.1)
+
+First content-audit pass following the Q.6 refactor. Seven
+monsters' body HP dice bumped to match their intended size /
+role — Q.6's body-HP-relative part scaling surfaced several
+monsters whose rolled body HP was too small for a coherent
+ratio (dragon body 150 / torso 145 reads correctly; cyclops
+body 53 / torso 74 does not for a HUGE "tanky" creature).
+
+| Monster | Before | After | Avg |
+|---|---|---|---|
+| bandit | 3d8 (13) | 4d12 | 26 |
+| minotaur | 6d10 (33) | 14d12 | 91 |
+| golem | 8d10 (44) | 25d12 | 162 |
+| cyclops | 10d10 (55) | 20d12 | 130 |
+| doppelganger | 20d6 (70) | 20d10 | 110 |
+| bearowl | 15d10 (82) | 22d10 | 121 |
+| giant | 15d12 (97) | 25d12 | 162 |
+
+Post-tuning sweep (15 trials, MASTERWORK, skill-20, base
+player): hydra stays OK (20% → 13%), dragon near-OK (20% →
+27%), cyclops TRIVIAL → major (80% → 60%), giant TRIVIAL →
+major (87% → 53%). Absolute fight difficulty increased across
+the board — skill-20 no-target win rates dropped 7-20pp on
+the tuned LARGE/HUGE bosses.
+
+bearowl, golem, doppelganger, minotaur didn't close their gap
+meaningfully via body HP alone — the `defense_mod` and
+`BLEED_MOD` content levers (Q.6-shipped no-ops) are the
+natural next lever. Full pre/post comparison + analysis in
+`{local-notes}/
+{local-notes}.md`.
+
+### 2026-04-20 — `tools/repeat` value-iteration mode (`--each`)
+
+Extends the command-repetition runner with `--each <csv>` for
+running a command once per value in a list, substituting `{v}`
+per iteration. Complements the existing `{i}` iteration-number
+token. Used to inspect every monster's Q.6-scaled part stats
+in one allowlisted invocation:
+`python -m tools.repeat --each pixie,goblin,... -- python -m
+tools.inspect_monster {v}`.
+
++6 tests for the --each path.
+
 ### 2026-04-20 — Phase Q.6 Part HP + Bleed-Through Refactor
 
 Balance refactor sitting on top of the Combat Pipeline stack.

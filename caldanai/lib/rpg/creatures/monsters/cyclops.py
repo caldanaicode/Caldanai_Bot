@@ -52,7 +52,7 @@ class Cyclops(MonsterPlugin):
             atk="2d10",          # huge club, big swings
             defense="2d8",       # thick hide
             dodge="1d6",         # sluggish — HUGE size already pushes this down
-            health_max="10d10",  # tanky
+            health_max="20d12",  # tanky
         )
 
         self.time_partition = TimePartitions.CATHEMERAL
