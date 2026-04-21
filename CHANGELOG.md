@@ -4,6 +4,40 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Dragon flying-agility bonus + Doppelganger fresh-stats-per-switch
+
+Two unrelated balance / design fixes bundled.
+
+**Dragon dodge** — a flying dragon is now meaningfully harder to
+hit than a grounded one of similar stats. ``Dragon.get_dodge``
+applies a ``×1.5`` bonus on top of the base emergence when the
+``flying`` flag is set, layered cleanly on the HUGE 0.5
+``dodge_mod`` (which scales by mass, not aerial agility). The
+base ``Creature.get_dodge`` already does the right thing when
+the dragon is grounded — wings destroyed drops the flag, and the
+mobility-source lookup falls through to legs — so an intact-legs
+grounded dragon retains real dodge rather than collapsing to 0
+the way LIVE playtest showed it could. Toed-variant ``-62``
+grounded penalty is preserved.
+
+**Doppelganger form-copy** — ``imitate`` now adopts the target's
+stats outright instead of taking ``max(current, target)`` across
+switches. Previously a doppy that copied a tanky player and
+then shifted into a squishy target would keep the tank's
+defense / dodge / HP — in-fiction "become this creature" should
+mean exactly that, not "become an aggregate of everyone you've
+copied." HP adoption preserves wound state: the doppy's current
+``health`` is capped at the new ``health_max`` rather than
+reset, so shifting doesn't heal damage. Resolves the persistent
+64% torso-exploit gap on doppelganger in the sweep (the exploit
+was largely an artifact of accumulated best-of stats after
+repeated imitation).
+
+Four regression tests added: two pinning the new Dragon dodge
+shape (flying exceeds grounded; grounded with intact legs stays
+nonzero) and two pinning Doppelganger's fresh adoption
+(downgrade-on-switch + HP cap-at-new-max).
+
 ### 2026-04-21 — Combat fix: landed-hit damage floors at 1 under partial resistance
 
 Under Q.6.3's per-hit defense, a landed hit against a partially-

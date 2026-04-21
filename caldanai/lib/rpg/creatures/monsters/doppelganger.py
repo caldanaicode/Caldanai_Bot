@@ -241,20 +241,31 @@ class Doppelganger(MonsterPlugin):
         if hasattr(target, "pronouns") and target.pronouns:
             self.pronouns = dict(target.pronouns)
 
-        # Copy stats, taking the better of current vs target
+        # Adopt the target's stats freshly on every form switch.
+        # Pre-fix behavior took ``max(self.X, target.X)`` across
+        # switches, which meant a doppy that copied a tanky player
+        # once would keep that player's defense / dodge / HP even
+        # after shifting into a squishier target. That made the
+        # doppy accumulate best-of-all-copied-stats over a fight
+        # — unintended. The in-fiction contract is "become this
+        # creature," not "become an aggregate of every creature
+        # you've become."
+        #
+        # HP handling: adopt the target's ``health_max`` outright,
+        # but preserve the doppelganger's current wound state by
+        # capping current ``health`` at the new max. Shifting
+        # should not heal a damaged doppy.
         defense = target.get_defense()
         dodge = target.get_dodge()
         health_max = target.get_health_max()
-        self.defense = max(self.defense, defense)
+        self.defense = defense
         # TODO(Phase C): This stores a pre-computed dodge value that
         # emergence (get_dodge) will re-process through leg functionality
         # and size modifiers, effectively double-applying those factors.
         # Phase C (player integration) should address this.
-        self.dodge = max(self.dodge, dodge)
-        # Take the min of current HP vs the new max so we don't heal
-        new_max = max(self.health_max, health_max)
-        self.health = min(self.health, new_max)
-        self.health_max = new_max
+        self.dodge = dodge
+        self.health = min(self.health, health_max)
+        self.health_max = health_max
 
         # Add the player's inventory items to the loot table with re-rolled rarity
         for item in target.inventory.all():

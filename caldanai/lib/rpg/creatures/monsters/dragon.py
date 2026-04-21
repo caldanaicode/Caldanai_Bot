@@ -108,8 +108,28 @@ class Dragon(MonsterPlugin):
     BREATH_RAMP_PER_ROUND = 0.10
 
     def get_dodge(self):
+        """Dragon dodge on top of the base Creature emergence.
+
+        Base ``Creature.get_dodge`` already picks the right mobility
+        source (wings while flying, legs once grounded) so a dragon
+        with all four legs intact retains real dodge even after a
+        wing destruction drops it out of the sky. The adjustments
+        here are dragon-specific flavor:
+
+        - **Flying bonus** (``×1.5``): a dragon on the wing is
+          genuinely harder to hit than a ground-based creature of
+          the same stats. The HUGE ``dodge_mod`` (``0.5``) scales
+          dodge by mass; a flying dragon undoes half of that
+          because mass in the air is still mobile.
+        - **Toed-variant grounded penalty** (``-62``): if this is
+          the 62-toe variant and it's been grounded, the ludicrous
+          toe count tanks footwork. Pre-existing; preserved here.
+        """
         base = super().get_dodge()
-        if self._has_toes and not self.is_flying():
+        flying = self.is_flying()
+        if flying:
+            base = int(base * 1.5)
+        if self._has_toes and not flying:
             base -= 62
         return max(0, base)
 

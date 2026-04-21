@@ -195,13 +195,16 @@ class TestDragonFlyingFlag:
         assert "flying" not in d.flags
 
     def test_has_toes_variant_flying_no_penalty(self):
-        """While flying, get_dodge uses wings with HUGE size mod (no 62-toe penalty)."""
+        """While flying, get_dodge uses wings with HUGE size mod +
+        the dragon's 1.5x flying bonus (no 62-toe penalty)."""
         with _force_variant(True):
             d = Dragon()
         assert "flying" in d.flags
-        # HUGE dodge_mod=0.5, wings healthy → ratio 1.0. Clamp to
-        # min-1 to match ``get_dodge``'s floor.
-        expected = max(1, int(d.dodge * 1.0 * 0.5))
+        # HUGE dodge_mod=0.5, wings healthy → ratio 1.0, then Dragon
+        # applies the 1.5x flying bonus on top. Floor at 1 matches
+        # the base get_dodge floor.
+        base = max(1, int(d.dodge * 1.0 * 0.5))
+        expected = int(base * 1.5)
         assert d.get_dodge() == expected
 
     def test_has_toes_variant_grounded_gets_penalty(self):
@@ -226,6 +229,40 @@ class TestDragonFlyingFlag:
         ratio = _functionality_ratio(legs)
         expected = int(d.dodge * ratio * 0.5)
         assert d.get_dodge() == expected
+
+    def test_flying_dodge_exceeds_grounded_intact_legs(self):
+        """Regression guard: flying dragon should have higher dodge
+        than a grounded dragon with intact legs — being in the air
+        is genuinely harder to hit. Previously a flying dragon's
+        dodge was merely the HUGE-halved base, tying with a
+        grounded dragon with legs intact."""
+        with _force_variant(False):
+            d_flying = Dragon()
+            # Force a deterministic dodge stat so the delta isn't
+            # drowned by RNG when the two instances roll differently.
+            d_flying.dodge = 10
+
+        with _force_variant(False):
+            d_grounded = Dragon()
+            d_grounded.flags.discard("flying")
+            d_grounded.dodge = 10
+
+        assert d_flying.get_dodge() > d_grounded.get_dodge(), (
+            f"flying={d_flying.get_dodge()} should exceed "
+            f"grounded={d_grounded.get_dodge()} with intact legs"
+        )
+
+    def test_grounded_with_intact_legs_keeps_dodge(self):
+        """Regression guard for the LIVE-playtest observation
+        (2026-04-21): a non-toed grounded dragon with all four
+        legs intact must have nonzero dodge. Leg-based mobility
+        path must not drop to the 0-floor just because wings are
+        gone."""
+        with _force_variant(False):
+            d = Dragon()
+        d.flags.discard("flying")
+        d.dodge = 10
+        assert d.get_dodge() > 0
 
 
 # ---------------------------------------------------------------------------
@@ -257,12 +294,13 @@ class TestDragonGetDodgeOverride:
         assert d.get_dodge() == max(0, base_emergence - 62)
 
     def test_override_no_penalty_when_flying_with_toes(self):
+        """Flying dragon uses wings for mobility + gets the 1.5x
+        flying agility bonus layered on top."""
         with _force_variant(True):
             d = Dragon()
         assert "flying" in d.flags
-        # Flying: uses wings, HUGE dodge_mod=0.5. Clamp matches
-        # ``get_dodge``'s floor.
-        expected = max(1, int(d.dodge * 1.0 * 0.5))
+        base = max(1, int(d.dodge * 1.0 * 0.5))
+        expected = int(base * 1.5)
         assert d.get_dodge() == expected
 
     def test_override_no_penalty_without_toes(self):
@@ -479,10 +517,12 @@ class TestDragonFullHealthBackwardsCompat:
     def test_get_dodge_matches_size_scaled(self):
         with _force_variant(False):
             d = Dragon()
-        # Flying, HUGE dodge_mod=0.5. ``get_dodge`` floors at 1
-        # when mobility remains, so mirror the clamp — a low
-        # ``dodge`` roll × 0.5 can ``int``-truncate to 0 otherwise.
-        expected = max(1, int(d.dodge * 1.0 * 0.5))
+        # Flying dragon: HUGE dodge_mod=0.5 halves the rolled
+        # dodge (mass), then Dragon's 1.5x flying bonus applies
+        # (agility aloft). ``get_dodge`` floors at 1 before the
+        # flying bonus.
+        base = max(1, int(d.dodge * 1.0 * 0.5))
+        expected = int(base * 1.5)
         assert d.get_dodge() == expected
 
     def test_stat_modifier_total_zero_at_full_health_non_toe(self):
@@ -504,10 +544,12 @@ class TestDragonFullHealthBackwardsCompat:
         assert d.get_stat_modifier_total(Stat.HIT) == 0
 
     def test_get_dodge_matches_size_scaled_on_toe_variant(self):
-        """Toe variant while flying: get_dodge uses wings with HUGE mod."""
+        """Toe variant while flying: get_dodge uses wings with HUGE
+        mod + Dragon's 1.5x flying bonus."""
         with _force_variant(True):
             d = Dragon()
-        expected = max(1, int(d.dodge * 1.0 * 0.5))
+        base = max(1, int(d.dodge * 1.0 * 0.5))
+        expected = int(base * 1.5)
         assert d.get_dodge() == expected
 
 

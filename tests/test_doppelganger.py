@@ -55,10 +55,15 @@ class TestImitate:
 
         assert doppel.name == "Foxglove"
 
-    def test_takes_max_of_stats(self):
+    def test_adopts_target_stats(self):
+        """Q.6.3-followup: ``imitate`` adopts the target's stats
+        freshly on every switch. Pre-fix behavior took ``max()``
+        across switches, which let a doppy accumulate best-of
+        defense / dodge across every player it had ever copied —
+        in-fiction "become this creature" should mean exactly that,
+        not "become an aggregate of everyone you've copied."
+        """
         doppel = Doppelganger()
-        original_defense = doppel.defense
-        original_dodge = doppel.dodge
         player = _make_player(defense=999, dodge=999)
 
         doppel.imitate(player)
@@ -66,14 +71,22 @@ class TestImitate:
         assert doppel.defense == 999
         assert doppel.dodge == 999
 
-    def test_does_not_downgrade_stats(self):
+    def test_adopts_lower_stats_on_switch(self):
+        """Switching to a weaker target drops the doppy's stats to
+        match (no max-of preservation). Regression guard for the
+        fix: a doppy that copies a tank then shifts to a squishy
+        player should now have the squishy player's stats."""
         doppel = Doppelganger()
-        original_defense = doppel.defense
-        player = _make_player(defense=1, dodge=1, health_max=1)
+        strong = _make_player(defense=50, dodge=40, health_max=200)
+        weak = _make_player(defense=1, dodge=1, health_max=10)
 
-        doppel.imitate(player)
+        doppel.imitate(strong)
+        assert doppel.defense == 50
+        assert doppel.dodge == 40
 
-        assert doppel.defense == original_defense
+        doppel.imitate(weak)
+        assert doppel.defense == 1
+        assert doppel.dodge == 1
 
     def test_does_not_heal_on_imitate(self):
         doppel = Doppelganger()
@@ -83,10 +96,15 @@ class TestImitate:
 
         doppel.imitate(player)
 
+        # Adopt target max; current health unchanged (wound preserved).
         assert doppel.health == 5
         assert doppel.health_max == 100
 
     def test_hp_capped_at_new_max(self):
+        """Switching to a target with lower max-HP caps current HP at
+        the new max — preserves the spirit of 'no healing on switch'
+        while also not letting the doppy keep a bigger HP pool than
+        the creature it's pretending to be."""
         doppel = Doppelganger()
         doppel.health = 80
         doppel.health_max = 100
@@ -94,8 +112,8 @@ class TestImitate:
 
         doppel.imitate(player)
 
-        # health_max stays at 100 (max of 100, 30), health stays at 80
-        assert doppel.health == 80
+        assert doppel.health_max == 30
+        assert doppel.health == 30
 
     def test_adds_inventory_to_loot(self):
         doppel = Doppelganger()
