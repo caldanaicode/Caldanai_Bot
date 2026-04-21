@@ -154,13 +154,79 @@ class TestFindParts:
 
     def test_does_not_match_later_segment_content(self):
         """Pure substring would have matched ``h`` to ``arm.right``
-        (the ``h`` in ``right``); segment-prefix correctly rejects it."""
+        (the ``h`` in ``right``); segment-per-segment matching
+        (prefix OR substring) correctly rejects it."""
         c = _make_creature()
         head = _make_part("head")
         arm_right = _make_part("arm.right")
         c.body_parts = [head, arm_right]
 
         assert c.find_parts("h") == [head]
+
+    def test_substring_fallback_reaches_foreleg_from_l(self):
+        """Q.6.3-followup: when strict prefix returns nothing, fall
+        back to per-segment substring. Werewolf has ``foreleg.left``
+        / ``hindleg.left`` but no ``leg`` — ``l.l`` should resolve
+        to both, not fail into random targeting.
+
+        Spotted in LIVE playtest 2026-04-21 (alice typed
+        ``$attack l.l`` three times, got random routing each time)."""
+        c = _make_creature()
+        foreleg_left = _make_part("foreleg.left")
+        hindleg_left = _make_part("hindleg.left")
+        foreleg_right = _make_part("foreleg.right")
+        torso = _make_part("torso")
+        c.body_parts = [foreleg_left, foreleg_right, hindleg_left, torso]
+
+        result = c.find_parts("l.l")
+        assert foreleg_left in result
+        assert hindleg_left in result
+        assert foreleg_right not in result
+        assert torso not in result
+        assert len(result) == 2
+
+    def test_substring_fallback_does_not_preempt_prefix(self):
+        """Prefix-wins invariant: creatures with a literal ``leg`` +
+        ``foreleg`` part should still resolve ``leg`` via prefix to
+        the literal ``leg``, not via substring to both. Ensures the
+        fallback only runs when prefix returns empty."""
+        c = _make_creature()
+        literal_leg = _make_part("leg")
+        foreleg = _make_part("foreleg.left")
+        c.body_parts = [literal_leg, foreleg]
+
+        # Exact match short-circuits first — ``leg`` → literal leg.
+        assert c.find_parts("leg") == [literal_leg]
+
+    def test_substring_fallback_rejects_cross_segment_bleed(self):
+        """``h`` over a monster with ``torso`` / ``head`` / ``arm.right``:
+        prefix matches only ``head``. Substring fallback must NOT run
+        (prefix non-empty) so ``arm.right`` still doesn't match even
+        though it contains ``h`` in its second segment."""
+        c = _make_creature()
+        head = _make_part("head")
+        torso = _make_part("torso")
+        arm_right = _make_part("arm.right")
+        c.body_parts = [head, torso, arm_right]
+
+        assert c.find_parts("h") == [head]
+
+    def test_substring_fallback_handles_single_segment(self):
+        """``leg`` on a werewolf with ``foreleg.*`` / ``hindleg.*``
+        still resolves to all four legs via the substring
+        fallback — prefix returns nothing, substring matches all
+        parts where ``leg`` appears in the first segment."""
+        c = _make_creature()
+        fl = _make_part("foreleg.left")
+        fr = _make_part("foreleg.right")
+        hl = _make_part("hindleg.left")
+        hr = _make_part("hindleg.right")
+        head = _make_part("head")
+        c.body_parts = [fl, fr, hl, hr, head]
+
+        result = c.find_parts("leg")
+        assert {fl, fr, hl, hr}.issubset(set(result))
+        assert head not in result
 
     def test_query_with_more_segments_than_part_does_not_match(self):
         c = _make_creature()

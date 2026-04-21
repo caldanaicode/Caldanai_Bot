@@ -12,6 +12,11 @@ from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
 
 
 class MathTeacher(MonsterPlugin):
+    # In-fiction display name ("flying math teacher") diverges from
+    # the filename stem ("math_teacher"); register both so players
+    # who type either in ``$spawn monster`` can resolve the plugin.
+    ALIASES = ["flying math teacher"]
+
     def __init__(self):
         super().__init__(
             name="flying math teacher",

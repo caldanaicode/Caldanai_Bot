@@ -402,17 +402,39 @@ class Game:
                 return False
             _log.debug(f"{self.monster} spawned randomly")
         else:
-            # Registry lookup replaces the old per-call filesystem glob
-            # + importlib scan. Every monster plugin is already loaded
-            # at startup via ``MonsterPlugin.load_plugins``; matching by
-            # filename stem (case-insensitive) preserves the exact name
-            # set the old glob accepted (``goblin``, ``math_teacher``,
-            # ``GOBLIN`` all still resolve).
+            # Exact stem / alias match first (fast path, unambiguous).
+            # On miss, fall through to the fuzzy matcher so partial
+            # names (``hyd``, ``math``) and abbreviations resolve when
+            # they would have silently errored pre-refactor. Ambiguous
+            # matches surface the candidate list so the operator can
+            # pick explicitly.
             monster_cls = MonsterPlugin.get_plugin_class(monster)
             if monster_cls is None:
-                Dispatcher.add(self.channel, f"There is no such thing as a {monster}! (But there could be... 😈)")
-                _log.error(f"Monster definition not found for `{monster}`")
-                return False
+                candidates = MonsterPlugin.find_plugin_classes(monster)
+                if len(candidates) == 1:
+                    monster_cls = candidates[0]
+                    _log.debug(
+                        f"Fuzzy-resolved `{monster}` -> "
+                        f"{monster_cls.__name__}"
+                    )
+                elif len(candidates) > 1:
+                    display = ", ".join(
+                        sorted(c.__module__.rsplit(".", 1)[-1] for c in candidates)
+                    )
+                    Dispatcher.add(
+                        self.channel,
+                        f"Did you mean one of: {display}? "
+                        f"(`{monster}` matched {len(candidates)} monsters.)"
+                    )
+                    _log.debug(
+                        f"Ambiguous monster query `{monster}` -> "
+                        f"{display}"
+                    )
+                    return False
+                else:
+                    Dispatcher.add(self.channel, f"There is no such thing as a {monster}! (But there could be... 😈)")
+                    _log.error(f"Monster definition not found for `{monster}`")
+                    return False
             self.monster = monster_cls()
             _log.debug(f"{self.monster} spawned selectively")
 

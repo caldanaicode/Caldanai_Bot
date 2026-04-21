@@ -94,3 +94,84 @@ class TestEveryDiscoveredMonsterIsReachable:
     def test_filename_stem_resolves_case_insensitively(self, cls):
         filename_stem = cls.__module__.rsplit(".", 1)[-1]
         assert MonsterPlugin.get_plugin_class(filename_stem.upper()) is cls
+
+
+class TestAliasRegistrations:
+    """Q.6.3-followup: plugins with ``ALIASES`` declared have each
+    alias registered alongside the filename stem, so both the API
+    stem and the in-fiction display name resolve via exact lookup."""
+
+    def test_math_teacher_display_name_alias(self):
+        from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+        assert MonsterPlugin.get_plugin_class("flying math teacher") is MathTeacher
+        # Stem still works.
+        assert MonsterPlugin.get_plugin_class("math_teacher") is MathTeacher
+
+    def test_hydra_variant_names_all_resolve(self):
+        from caldanai.lib.rpg.creatures.monsters.hydra import Hydra
+        for alias in ("hydra", "swamp hydra", "hexed hydra", "elemental hydra"):
+            assert MonsterPlugin.get_plugin_class(alias) is Hydra, (
+                f"alias {alias!r} did not resolve"
+            )
+
+    def test_alias_is_case_insensitive(self):
+        from caldanai.lib.rpg.creatures.monsters.hydra import Hydra
+        assert MonsterPlugin.get_plugin_class("SWAMP HYDRA") is Hydra
+        assert MonsterPlugin.get_plugin_class("Swamp Hydra") is Hydra
+
+
+class TestFindPluginClasses:
+    """Fuzzy lookup used by ``Game.do_spawn`` when the exact-stem +
+    alias lookup misses. Two-pass design mirrors
+    ``Creature.find_parts``: prefix, then substring fallback."""
+
+    def test_empty_query_returns_empty(self):
+        assert MonsterPlugin.find_plugin_classes("") == []
+        assert MonsterPlugin.find_plugin_classes("   ") == []
+
+    def test_exact_match_returns_single_class(self):
+        from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+        result = MonsterPlugin.find_plugin_classes("goblin")
+        assert result == [Goblin]
+
+    def test_prefix_partial_resolves_unique(self):
+        """``gobl`` → Goblin (no other plugin starts with "gobl")."""
+        from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+        result = MonsterPlugin.find_plugin_classes("gobl")
+        assert result == [Goblin]
+
+    def test_hydra_query_dedupes_across_aliases(self):
+        """"hydra" prefix-matches the stem AND every variant alias
+        (all registered). Dedupe must collapse to one class."""
+        from caldanai.lib.rpg.creatures.monsters.hydra import Hydra
+        result = MonsterPlugin.find_plugin_classes("hydra")
+        assert result == [Hydra]
+
+    def test_two_token_query_resolves_display_name(self):
+        """``math teacher`` should resolve to MathTeacher via prefix
+        across both tokens."""
+        from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+        result = MonsterPlugin.find_plugin_classes("math teacher")
+        assert MathTeacher in result
+
+    def test_substring_fallback_when_prefix_empty(self):
+        """No plugin starts with ``eacher`` so prefix returns empty;
+        substring fallback catches "math_teacher" / "flying math
+        teacher" via the second token."""
+        from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+        result = MonsterPlugin.find_plugin_classes("flying eacher")
+        assert MathTeacher in result
+
+    def test_dot_separator_normalized_to_whitespace(self):
+        """``math.teacher`` (as a body-part-style reach) still
+        resolves — dots tokenize the same as spaces."""
+        from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+        result = MonsterPlugin.find_plugin_classes("math.teacher")
+        assert MathTeacher in result
+
+    def test_unknown_query_returns_empty(self):
+        assert MonsterPlugin.find_plugin_classes("not_a_monster_xyz") == []
+
+    def test_query_with_only_unresolvable_token_returns_empty(self):
+        """``xyzzy`` matches nothing in any pass."""
+        assert MonsterPlugin.find_plugin_classes("xyzzy") == []

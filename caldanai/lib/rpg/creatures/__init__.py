@@ -1410,15 +1410,34 @@ class Creature:
     def find_parts(self, name: str) -> List[BodyPart]:
         """Fuzzy, case-insensitive lookup over non-destroyed body parts.
 
-        Matches per dotted segment: each ``.``-separated segment of
-        ``name`` must be a prefix of the corresponding segment of the
-        part name. So ``leg.r`` matches ``leg.right`` (and not
-        ``leg.left``), ``leg`` matches both sided legs, and ``h`` on a
-        monster with ``head``/``hand.left``/``hand.right`` matches all
-        three but never stray parts whose later segments merely happen
-        to contain ``h`` (e.g. ``arm.right``). Exact matches
-        short-circuit so a bare ``leg`` part beats its dotted variants
-        when the user types ``leg`` exactly.
+        Matches per dotted segment. The resolver runs three passes in
+        order and stops at the first one that returns anything:
+
+        1. **Exact** — whole-name equality. ``leg.left`` → bare
+           ``leg.left``. Short-circuits so a part literally named
+           ``leg`` beats its dotted variants when the user types
+           ``leg`` exactly.
+        2. **Per-segment prefix** — each dot-separated query segment
+           must be a prefix of the matching part segment. ``leg.r``
+           → ``leg.right``; ``leg`` → both sided legs; ``h`` over a
+           monster with ``head``/``hand.left`` → both, but never
+           ``arm.right`` (whose later ``right`` segment happens to
+           contain ``h``). The cross-segment-bleed guard is the
+           segment-by-segment structure, not the prefix check
+           itself.
+        3. **Per-segment substring fallback** — runs only when pass
+           2 returns nothing. Each query segment must appear as a
+           substring of the matching part segment. This lets players
+           say ``leg.l`` on a werewolf (parts ``foreleg.left`` /
+           ``hindleg.left``) and get matches rather than a "no
+           targetable part" error followed by random routing. Still
+           per-segment, so ``h`` never matches ``arm.right``.
+
+        The fallback keeps the prefix-wins invariant: creatures that
+        DO have a literal ``leg`` part still resolve ``leg`` to it
+        (via exact / prefix), even though ``foreleg`` would also
+        contain ``leg`` as a substring. Only when prefix fails do we
+        broaden the search.
         """
         q = name.lower().strip()
         if not q:
@@ -1435,13 +1454,23 @@ class Creature:
         if any(seg == "" for seg in query_segs):
             return []
 
-        def segment_match(part: BodyPart) -> bool:
+        def segment_prefix_match(part: BodyPart) -> bool:
             name_segs = part.name.lower().split(".")
             if len(query_segs) > len(name_segs):
                 return False
             return all(ns.startswith(qs) for qs, ns in zip(query_segs, name_segs))
 
-        return [p for p in candidates if segment_match(p)]
+        prefix_matches = [p for p in candidates if segment_prefix_match(p)]
+        if prefix_matches:
+            return prefix_matches
+
+        def segment_substring_match(part: BodyPart) -> bool:
+            name_segs = part.name.lower().split(".")
+            if len(query_segs) > len(name_segs):
+                return False
+            return all(qs in ns for qs, ns in zip(query_segs, name_segs))
+
+        return [p for p in candidates if segment_substring_match(p)]
 
     def get_health_scale(self) -> float:
         return self.health / self.get_health_max()

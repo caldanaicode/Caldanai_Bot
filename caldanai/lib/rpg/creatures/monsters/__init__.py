@@ -290,24 +290,45 @@ class MonsterPlugin(Creature):
 
         return msg
 
+    # Extra names this plugin should resolve from, beyond its filename
+    # stem. Populated per-plugin where the in-fiction display name
+    # diverges from the stem (``MathTeacher.ALIASES = ["flying math
+    # teacher"]``) or where a plugin has multiple valid display names
+    # at runtime (hydra variants). Case-insensitive; stem is always
+    # registered automatically.
+    ALIASES: "List[str]" = []
+
     @classmethod
     def load_plugins(cls) -> None:
         """Load all monster plugin files under :attr:`BASEPATH`.
 
         After :class:`PluginManager` finishes filesystem discovery, the
-        filename-keyed ``_PLUGIN_REGISTRY`` is rebuilt so
-        :meth:`get_plugin_class` can resolve a name without touching
-        disk. The registry key is the plugin's module filename stem
-        (``cls.__module__.rsplit('.', 1)[-1]``) — the same token the
-        old ``Game.get_monster`` filesystem scan matched.
+        name-keyed ``_PLUGIN_REGISTRY`` is rebuilt. Keys come from:
+
+        - The plugin's module filename stem (``goblin``, ``math_teacher``).
+          Always registered — this is the canonical API-friendly name.
+        - Each ``ALIASES`` entry the plugin declares — the in-fiction
+          display names a player would naturally type. ``MathTeacher``
+          registers ``"flying math teacher"``; ``Hydra`` registers its
+          variant display names (``"swamp hydra"`` / ``"hexed hydra"`` /
+          ``"elemental hydra"``).
+
+        Registry keys are lowercased on insertion. Conflicts between
+        two plugins' aliases are resolved first-write-wins (deterministic
+        since plugin load order is alphabetical by filename); a future
+        collision would need explicit scoping.
         """
         PluginManager.load(MonsterPlugin, MonsterPlugin.BASEPATH)
 
         registry: Dict[str, Type["MonsterPlugin"]] = {}
         for plugin_cls in PluginManager.LOADED_PLUGINS.get(MonsterPlugin, []):
-            key = plugin_cls.__module__.rsplit(".", 1)[-1].lower()
-            if key:
-                registry[key] = plugin_cls
+            stem = plugin_cls.__module__.rsplit(".", 1)[-1].lower()
+            if stem:
+                registry.setdefault(stem, plugin_cls)
+            for alias in getattr(plugin_cls, "ALIASES", []) or []:
+                key = alias.lower().strip()
+                if key:
+                    registry.setdefault(key, plugin_cls)
         MonsterPlugin._PLUGIN_REGISTRY = registry
 
     @classmethod
@@ -316,17 +337,90 @@ class MonsterPlugin(Creature):
     ) -> Optional[Type["MonsterPlugin"]]:
         """Look up a loaded monster plugin class by name.
 
-        Matches case-insensitively against the filename stem of each
-        loaded plugin (e.g. ``"goblin"``, ``"math_teacher"``). Mirrors
-        the case-handling the pre-refactor filesystem scan provided:
-        ``"Goblin"``, ``"GOBLIN"`` and ``"goblin"`` all resolve to
-        :class:`Goblin`.
+        Matches case-insensitively against the filename stem AND any
+        class-declared ``ALIASES`` of each loaded plugin. ``"goblin"``,
+        ``"math_teacher"``, ``"flying math teacher"``, ``"swamp hydra"``
+        all resolve via this single lookup.
 
         Returns ``None`` if the name is unknown (or if
-        :meth:`load_plugins` has never been called). Callers —
-        notably :meth:`Game.get_monster` — are responsible for the
-        user-facing error message on miss.
+        :meth:`load_plugins` has never been called). For fuzzy
+        resolution against partial queries, see
+        :meth:`find_plugin_classes`.
         """
         if not name:
             return None
-        return MonsterPlugin._PLUGIN_REGISTRY.get(name.lower())
+        return MonsterPlugin._PLUGIN_REGISTRY.get(name.lower().strip())
+
+    @classmethod
+    def find_plugin_classes(
+        cls, query: str,
+    ) -> "List[Type[MonsterPlugin]]":
+        """Fuzzy lookup — returns every plugin class whose stem or
+        alias matches ``query`` under the same two-pass rules
+        :meth:`Creature.find_parts` uses: exact, then per-whitespace-
+        token prefix, then per-token substring fallback.
+
+        Dedupes on the plugin class itself — ``"hydra"`` matches the
+        stem AND three of its variant aliases, but returns
+        :class:`Hydra` once.
+
+        Callers (typically ``Game.do_spawn``) treat the result as:
+
+        - empty → "unknown monster"
+        - one match → spawn it
+        - many matches → ambiguous; prompt the user with the list
+
+        Whitespace is the token separator (``"flying math"`` has two
+        query tokens that must each match SOME name token, no
+        positional requirement — multi-word display names are
+        phrases, not structured paths). Dots are treated as
+        whitespace for friendliness since some operators may reach
+        for ``math.teacher`` out of body-part-targeting habit.
+        """
+        q = query.lower().strip() if query else ""
+        if not q:
+            return []
+
+        registry = MonsterPlugin._PLUGIN_REGISTRY
+
+        # Exact — short-circuit, single-class result.
+        if q in registry:
+            return [registry[q]]
+
+        q_tokens = q.replace(".", " ").split()
+        if not q_tokens or any(not t for t in q_tokens):
+            return []
+
+        def tokens(name: str) -> List[str]:
+            return name.replace("_", " ").replace(".", " ").split()
+
+        def unordered_prefix_match(name: str) -> bool:
+            name_tokens = tokens(name)
+            # Every query token must be a prefix of SOME name token.
+            # Ordering doesn't matter — ``"teacher flying"`` should
+            # resolve the same as ``"flying teacher"``.
+            return all(
+                any(nt.startswith(qt) for nt in name_tokens)
+                for qt in q_tokens
+            )
+
+        def unordered_substring_match(name: str) -> bool:
+            name_tokens = tokens(name)
+            return all(
+                any(qt in nt for nt in name_tokens)
+                for qt in q_tokens
+            )
+
+        def collect(matcher) -> "List[Type[MonsterPlugin]]":
+            seen: set = set()
+            out: "List[Type[MonsterPlugin]]" = []
+            for key, plugin_cls in registry.items():
+                if matcher(key) and plugin_cls not in seen:
+                    seen.add(plugin_cls)
+                    out.append(plugin_cls)
+            return out
+
+        prefix_hits = collect(unordered_prefix_match)
+        if prefix_hits:
+            return prefix_hits
+        return collect(unordered_substring_match)

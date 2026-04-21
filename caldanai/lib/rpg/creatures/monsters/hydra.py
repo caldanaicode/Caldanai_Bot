@@ -397,6 +397,11 @@ class Hydra(MonsterPlugin):
     ``combat-pipeline-refactor.md``) for the full design.
     """
 
+    # Every ``VARIANTS[i]["name"]`` is a valid in-fiction display name
+    # a player might type. Register all except the bare ``"hydra"`` (which
+    # is the filename stem and registered automatically).
+    ALIASES = [v["name"] for v in VARIANTS if v["name"] != "hydra"]
+
     MAX_HEADS = 10
 
     def __init__(self):

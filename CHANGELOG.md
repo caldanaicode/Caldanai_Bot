@@ -4,6 +4,57 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Fuzzy matching: part shorthand substring fallback + monster-name aliases
+
+Two resolver widenings for common player shorthand that
+previously failed silently.
+
+**Part shorthand** — ``Creature.find_parts`` now runs a
+per-segment substring fallback when strict per-segment prefix
+matching returns nothing. ``$attack l.l`` on a werewolf (parts
+``foreleg.left`` / ``hindleg.left``) now resolves to both legs
+instead of routing to a random part. The prefix-wins invariant
+holds: creatures with a literal ``leg`` part still resolve
+``leg`` → literal leg, never the substring-of-foreleg branch.
+Cross-segment bleed is still blocked (``h`` never matches
+``arm.right``).
+
+Surfaced by alice in LIVE playtest 2026-04-21 (three
+``$attack l.l`` attempts, random routing each time).
+
+**Monster name aliases + fuzzy spawn** —
+
+- ``MonsterPlugin.ALIASES`` class attr: plugins declare
+  in-fiction display names that diverge from the filename stem.
+  ``MathTeacher.ALIASES = ["flying math teacher"]``; ``Hydra``
+  auto-populates from ``VARIANTS`` so ``"swamp hydra"`` /
+  ``"hexed hydra"`` / ``"elemental hydra"`` all resolve.
+- ``MonsterPlugin._PLUGIN_REGISTRY`` widens to include aliases
+  alongside the filename stem — ``get_plugin_class("swamp
+  hydra")`` now hands back the Hydra class directly, no changes
+  needed in callers.
+- ``MonsterPlugin.find_plugin_classes(query)`` — new fuzzy
+  helper, two-pass (unordered token prefix, then substring
+  fallback) with plugin-class deduping. Whitespace and dots
+  tokenize identically (``"math.teacher"`` and ``"math
+  teacher"`` both resolve).
+- ``Game.do_spawn`` uses the fuzzy helper as a fallback when
+  exact lookup misses: 1 match → spawn; >1 match → "Did you
+  mean X, Y, Z?" prompt surfacing the candidate stems; 0 → the
+  existing unknown-monster error.
+
+Doppelganger's runtime-dynamic display name (``???`` pre-
+imitation, copied-player's name post-imitation) remains
+out of scope — the alias path assumes class-time-known names;
+the ``doppelganger`` stem still works. Multi-monster
+disambiguation (``hydra.1`` / ``goblin.2`` style) also deferred;
+memo: ``project_fuzzy_monster_names.md``.
+
+~12 regression tests covering the alias registrations, the
+two-pass fuzzy semantics, cross-segment-bleed guards on the
+part side, and the exact-prefix-substring tier ordering on
+both.
+
 ### 2026-04-21 — Dragon flying-agility bonus + Doppelganger fresh-stats-per-switch
 
 Two unrelated balance / design fixes bundled.
