@@ -4,6 +4,80 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Phase Q.6.3 Additive Defense Bonuses + Content Pass
+
+Replaces the Q.6.2 multiplicative `defense_mod: float` with an
+additive `defense_bonus: int`. Formula in `Creature.resolve_attack`:
+
+```
+defense_per_hit = max(0, base_def + part.defense_bonus)
+```
+
+The integer additive model eliminates the `int(base × mult)`
+truncation surprise at small base_def values (goblin def 2 × 1.3
+= 2, not 2.6) and reads more directly at declaration sites
+("golem torso absorbs base_def + 4" vs "base_def × 1.5"). Wins
+against multipliers picked over the playtest session: scaling
+predictability is linear, tank bonuses are site-local numbers
+rather than percentage-of-varying-base, and soft parts can be
+declared via the `SOFT_PART` sentinel (clamps to 0 absorption
+regardless of creature base_def).
+
+**Default is `SOFT_PART`** on every shipped body-part plugin:
+unarmored parts absorb no defense, base_def only bites on parts
+that explicitly opt in. This matches the playtested balance —
+unarmored creatures (goblin, bandit, minotaur, doppelganger) feel
+squishy everywhere, and armored creatures earn their tank feel
+via specific part overrides.
+
+Tank content pass (additive bonuses on top of creature base_def):
+
+| Monster | Part | `defense_bonus` |
+|---|---|---|
+| bearowl | torso | +3 |
+| golem | torso, head | +4 |
+| cyclops | torso | +5 |
+| giant | torso | +2 |
+| dragon | — | none (scales reverted — apex trait profile already tanks) |
+
+Plus:
+- `EyePlugin` keeps `SOFT_PART` (the canonical soft-part example,
+  now just inherits the base default).
+- `Golem` base defense `4d8` → `3d6` to dial down over-tuned total
+  absorption once the +4 torso/head bonuses were in place.
+- `Dragon` base defense `3d8` → `4d4 + 6` (range 10-22) via inline
+  `self.defense += 6` since `Dice.from_ndn` doesn't support
+  `"NdM+C"` yet (backlog memory captured).
+
+Also in this phase:
+
+- **Round-not-int for safer defense math.** `resolve_attack` now
+  uses `round()` instead of `int()` when a fractional multiplier
+  drifts in from anywhere else — matters less under additive but
+  prevents silent zeroing if a legacy caller injects a float.
+- **Parallel sweep harness.** `tools/playtest_combat_harness`'s
+  `--sweep-monsters` path now distributes per-monster sweeps
+  across a `ProcessPoolExecutor`. Worker serializes results and
+  the parent prints in input order; local speedup is modest on
+  9-monster sweeps (process spawn + plugin reload eat most of
+  the win on Windows) but the shape is right for larger sweep
+  matrices.
+- **`inspect_monster` renders `defense_bonus`** in the per-part
+  readout (was `defense_mod`).
+
+Post-Q.6.3 sweep (25 trials, MASTERWORK, base player): 6 of 9
+monsters land in the OK band (goblin / bandit / bearowl / cyclops
+/ giant / dragon-gap), golem moderate, minotaur + doppelganger
+remain major — both by design rather than by bug. Minotaur is
+earmarked for literal equipment (needs the equipment-on-parts
+work to land); doppelganger's persistent torso gap will self-heal
+once form-copy adopts the target player's armor instead of
+keeping max-of across switches (backlog memories captured for
+both).
+
+~10 tests updated for new bleed-default + additive semantic;
+full suite green on Python 3.14 (3166 passed).
+
 ### 2026-04-20 — Phase Q.6.2 Per-Hit Defense + Tank Content Tuning
 
 Follow-up to Q.6 / Q.6.1 that makes `defense_mod` (shipped as a

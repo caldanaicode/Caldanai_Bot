@@ -127,6 +127,8 @@ class EyePlugin(BodyPartPlugin):
     health_max = "1d6"
     is_critical = False
     bleed_rate = 0.1
+    # Q.6.3: no defense_bonus override — inherits SOFT_PART from
+    # BodyPartPlugin. Eyes stay the canonical soft-part example.
     exposure = {
         Reach.MELEE:  0.1,
         Reach.REACH:  0.1,

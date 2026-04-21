@@ -73,6 +73,8 @@ class TorsoPlugin(BodyPartPlugin):
     health_max = "6d10"
     is_critical = True
     bleed_rate = 0.7
+    # Q.6.3: no defense_bonus override — inherits SOFT_PART. Tank
+    # monsters opt torso in with a positive bonus when needed.
     exposure = {
         Reach.MELEE:  1.0,
         Reach.REACH:  1.0,

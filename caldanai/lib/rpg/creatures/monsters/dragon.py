@@ -43,13 +43,17 @@ class Dragon(MonsterPlugin):
     ]
 
     def __init__(self):
+        # Defense is rolled as ``4d4`` (range 4-16) then bumped by +6
+        # below for a 10-22 clamp — the ``quick_roll`` dice parser
+        # only handles ``NdM`` so the constant rolls as its own step.
         super().__init__(
             name="dragon",
             atk="3d10",
-            defense="3d8",
+            defense="4d4",
             dodge="3d10",
             health_max="25d12"
         )
+        self.defense += 6
 
         self.time_partition = TimePartitions.CATHEMERAL
         self.image = None

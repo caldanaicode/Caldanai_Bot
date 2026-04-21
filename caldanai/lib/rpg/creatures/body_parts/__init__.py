@@ -71,12 +71,29 @@ class BodyPartPlugin(BodyPart):
     # default rather than silently dropping body damage.
     bleed_rate: float = 1.0
 
-    # Q.6 defense multiplier on the creature's ``get_defense()`` when
-    # this part is the hit target. No-op at 1.0 (the default on every
-    # ship-a plugin); populated content (tanky torso, exposed eye)
-    # can tune per-part without new classes. Wired in
+    # Q.6.3 additive defense adjustment applied when this part is the
+    # hit target. Formula: ``defense_per_hit = max(0, base_def +
+    # defense_bonus)``. **Default is ``SOFT_PART``** so unarmored
+    # parts clamp to zero absorption regardless of creature base_def
+    # — monster armor is opt-in per-part (tank torso +3, dragon
+    # scales +5, etc.). This matches the playtested balance from the
+    # "default-0 multiplier" run: unarmored creatures feel unarmored,
+    # and base_def only bites on parts that explicitly declare a
+    # positive bonus.
+    #
+    # Additive (int) rather than multiplicative (float) because
+    # integer math is exact at small base_def values (no ``int()``-
+    # truncation noise) and because "torso absorbs base_def + 3"
+    # reads directly without mental arithmetic. Wired in
     # ``Creature.resolve_attack``.
-    defense_mod: float = 1.0
+
+    # Sentinel for parts that always clamp to zero defense regardless
+    # of creature base_def (eye, belly on armored creatures, and the
+    # default for every part). Named so ``defense_bonus = SOFT_PART``
+    # reads at the declaration site rather than a raw ``-999``.
+    SOFT_PART = -999
+
+    defense_bonus: int = SOFT_PART
 
     # Name-keyed registry populated by :meth:`load_plugins`. Mirrors
     # ``PluginManager.LOADED_PLUGINS`` but keyed by the plugin's declared

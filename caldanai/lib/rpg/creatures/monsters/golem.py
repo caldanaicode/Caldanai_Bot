@@ -53,7 +53,7 @@ class Golem(MonsterPlugin):
         super().__init__(
             name="golem",
             atk="2d6",        # heavy slam, nothing fancy
-            defense="4d8",    # enormous — stone doesn't flinch
+            defense="3d6",    # heavy stone armor; Q.6.3 tank +4 on torso/head does the rest
             dodge="1d4",      # almost never dodges anything
             health_max="25d12",
         )
@@ -117,11 +117,12 @@ class Golem(MonsterPlugin):
         self.size = Size.LARGE
         self._scale_part_hp()
         # Stone construct — torso and head are solid rock, not just
-        # armored flesh. Layer defense_mod on top of the already-high
-        # base defense so critical-destroy takes real effort.
+        # armored flesh. Add a flat +4 defense_bonus on top of the
+        # already-high base defense so critical-destroy takes real
+        # effort.
         for part in self.body_parts:
             if part.name in ("torso", "head"):
-                part.defense_mod = 1.5
+                part.defense_bonus = 4
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([

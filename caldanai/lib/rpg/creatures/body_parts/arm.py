@@ -127,6 +127,7 @@ class ArmPlugin(BodyPartPlugin):
     health_max = "2d8"
     is_critical = False
     bleed_rate = 0.3
+    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
     exposure = {
         Reach.MELEE:  0.8,
         Reach.REACH:  0.8,

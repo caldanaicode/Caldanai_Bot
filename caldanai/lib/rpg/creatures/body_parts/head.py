@@ -77,6 +77,7 @@ class HeadPlugin(BodyPartPlugin):
     health_max = "3d10"
     is_critical = True
     bleed_rate = 0.6
+    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
     exposure = {
         Reach.MELEE:  0.7,
         Reach.REACH:  0.8,

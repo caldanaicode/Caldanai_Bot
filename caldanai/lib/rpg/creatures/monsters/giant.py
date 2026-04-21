@@ -43,10 +43,10 @@ class Giant(MonsterPlugin):
 
         self.size = Size.HUGE
         self._scale_part_hp()
-        # Leathery hide over slab-of-meat mass — modest torso armor.
+        # Leathery hide over slab-of-meat mass — modest +2 torso armor.
         for part in self.body_parts:
             if part.name == "torso":
-                part.defense_mod = 1.3
+                part.defense_bonus = 2
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         dmg = Dice.quick_roll("1d4")

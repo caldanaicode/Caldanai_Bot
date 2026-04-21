@@ -252,7 +252,7 @@ class AttackSequence:
         # Q.6.2: Final column shows post-defense damage
         # (``r.damage``) — what actually landed after the part's
         # armor absorbed. Diverges from the Multiplier column when
-        # the target's defense (or ``defense_mod``) bit into the
+        # the target's defense (or part ``defense_bonus``) bit into the
         # hit. Miss stays 0.
         final_col_list = [
             f"→ {0 if p['is_miss'] else p['final_damage']}" for p in parts_list

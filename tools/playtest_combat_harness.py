@@ -46,10 +46,12 @@ from __future__ import annotations
 import argparse
 import importlib
 import itertools
+import os
 import random
 import statistics
 import sys
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -432,16 +434,20 @@ def _compute_monster_summary(rows: List[dict]) -> dict:
     return out
 
 
-def _print_monster_header(stem: str) -> None:
-    """One-line monster stat readout for the sweep header."""
+def _collect_monster_header(stem: str) -> Optional[str]:
+    """Return the one-line monster stat readout string (None on unknown).
+
+    Split out from ``_print_monster_header`` so the parallel sweep
+    worker can compute the header inside a subprocess (where the
+    monster instance lives) and return a string the parent prints
+    in input order.
+    """
     MonsterPlugin.load_plugins()
     cls = MonsterPlugin.get_plugin_class(stem)
     if cls is None:
-        print(f"[{stem}: unknown monster — skipping]")
-        return
+        return None
     m = cls()
     size = getattr(m, "size", "?")
-    parts_info = []
     torso_hp = None
     head_hp = None
     for part in getattr(m, "body_parts", []) or []:
@@ -450,11 +456,60 @@ def _print_monster_header(stem: str) -> None:
         if part.name.startswith("head"):
             if head_hp is None or part.health_max > head_hp:
                 head_hp = part.health_max
-    print(
+    return (
         f"[{stem}] size={size.name if hasattr(size, 'name') else size} "
         f"body_hp={m.health_max} def={m.get_defense()} dodge={m.get_dodge()} "
         f"torso_hp={torso_hp} head_hp={head_hp}"
     )
+
+
+def _print_monster_header(stem: str) -> None:
+    """One-line monster stat readout for the sweep header."""
+    header = _collect_monster_header(stem)
+    if header is None:
+        print(f"[{stem}: unknown monster — skipping]")
+    else:
+        print(header)
+
+
+def _sweep_monster_worker(
+    stem: str,
+    quality_name: str,
+    trials: int,
+    rounds_cap: int,
+    player_hp: int,
+    player_defense: int,
+    player_dodge: int,
+) -> dict:
+    """Multiprocessing worker: sweep one monster end-to-end.
+
+    Runs in a subprocess because each sweep is CPU-bound on Python
+    dice / combat arithmetic. Re-establishes the
+    ``Dispatcher`` / ``DB`` patches inside the child so hook side
+    effects don't reach Discord / Mongo from the worker. Returns a
+    dict the parent can print in input order (header, rows, summary).
+    ``quality_name`` is the enum name rather than the instance — the
+    enum isn't guaranteed to round-trip cleanly through the
+    multiprocessing pickle boundary on every Python build.
+    """
+    quality = Qualities[quality_name]
+    with (
+        patch("caldanai.dispatcher.Dispatcher"),
+        patch("caldanai.lib.rpg.Dispatcher"),
+        patch("caldanai.lib.rpg.creatures.DB", create=True),
+    ):
+        header = _collect_monster_header(stem)
+        rows = _run_sweep_scenarios(
+            monster_stem=stem,
+            quality=quality,
+            trials=trials,
+            rounds_cap=rounds_cap,
+            player_hp=player_hp,
+            player_defense=player_defense,
+            player_dodge=player_dodge,
+        )
+        summary = _compute_monster_summary(rows)
+    return {"stem": stem, "header": header, "rows": rows, "summary": summary}
 
 
 def _print_monster_summary(stem: str, summary: dict) -> None:
@@ -592,23 +647,41 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.sweep_monsters:
             stems = [s.strip() for s in args.sweep_monsters.split(",")]
             summaries = []
-            for stem in stems:
+            # Parallelize per-monster sweeps. Each monster is an
+            # independent CPU-bound run, so ProcessPoolExecutor (with
+            # default workers = os.cpu_count()) gives ~N× speedup where
+            # N = min(len(stems), cpus). Results are collected in input
+            # order before printing so the per-monster block ordering
+            # matches the command line.
+            max_workers = min(len(stems), os.cpu_count() or 1)
+            with ProcessPoolExecutor(max_workers=max_workers) as pool:
+                futures = [
+                    pool.submit(
+                        _sweep_monster_worker,
+                        stem,
+                        quality.name,
+                        args.sweep_trials,
+                        args.rounds,
+                        args.player_hp,
+                        args.player_defense,
+                        args.player_dodge,
+                    )
+                    for stem in stems
+                ]
+                worker_results = [f.result() for f in futures]
+            for result in worker_results:
+                stem = result["stem"]
                 print(f"\n\n==== {stem.upper()} ====")
-                _print_monster_header(stem)
-                rows = _run_sweep_scenarios(
-                    monster_stem=stem,
-                    quality=quality,
-                    trials=args.sweep_trials,
-                    rounds_cap=args.rounds,
-                    player_hp=args.player_hp,
-                    player_defense=args.player_defense,
-                    player_dodge=args.player_dodge,
-                )
-                summary = _compute_monster_summary(rows)
-                _print_monster_summary(stem, summary)
+                if result["header"] is None:
+                    print(f"[{stem}: unknown monster — skipping]")
+                    continue
+                print(result["header"])
+                _print_monster_summary(stem, result["summary"])
                 if args.verbose_sweep:
-                    _print_sweep(stem, quality, args.sweep_trials, rows)
-                summaries.append((stem, summary))
+                    _print_sweep(
+                        stem, quality, args.sweep_trials, result["rows"],
+                    )
+                summaries.append((stem, result["summary"]))
             # Cross-monster chart
             print("\n\n==== CROSS-MONSTER TUNING CHART ====")
             print(

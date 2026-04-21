@@ -40,7 +40,7 @@ def inspect(stem: str) -> str:
         lines.append(
             f"  {crit} {p.name:<20} hp={p.health_max:>4}  "
             f"bleed_rate={getattr(p, 'bleed_rate', 1.0):.2f}  "
-            f"defense_mod={getattr(p, 'defense_mod', 1.0):.2f}"
+            f"defense_bonus={getattr(p, 'defense_bonus', 0):+d}"
         )
     return "\n".join(lines)
 

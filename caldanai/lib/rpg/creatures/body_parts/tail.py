@@ -119,6 +119,7 @@ class TailPlugin(BodyPartPlugin):
     health_max = "1d10"
     is_critical = False
     bleed_rate = 0.2
+    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
     exposure = {
         Reach.MELEE:  0.5,
         Reach.REACH:  0.6,

@@ -64,11 +64,11 @@ class Bearowl(MonsterPlugin):
 
         self.size = Size.LARGE
         self._scale_part_hp()
-        # Thick pelt + layered muscle — torso-targeting is harder
-        # than the raw body-defense value implies.
+        # Thick pelt + layered muscle — torso-targeting absorbs a
+        # flat +3 on top of base defense.
         for part in self.body_parts:
             if part.name == "torso":
-                part.defense_mod = 1.4
+                part.defense_bonus = 3
 
     # Reacts to hugs.
     def on_hugged(self, actor: Creature, invocation: str) -> str:

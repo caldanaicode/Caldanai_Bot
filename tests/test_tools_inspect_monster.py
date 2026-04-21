@@ -11,7 +11,7 @@ class TestInspectMonster:
         assert "GOBLIN" in out
         assert "body_hp=" in out
         assert "bleed_rate=" in out
-        assert "defense_mod=" in out
+        assert "defense_bonus=" in out
 
     def test_unknown_monster_returns_message(self):
         out = inspect("not_a_real_stem_xyz")

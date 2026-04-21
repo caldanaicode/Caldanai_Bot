@@ -1,4 +1,4 @@
-"""Q.6 body-HP bleed-through formula + BLEED_MOD + defense_mod.
+"""Q.6 body-HP bleed-through formula + BLEED_MOD + defense_bonus.
 
 Covers the three levers the design doc locks in:
 
@@ -7,8 +7,10 @@ Covers the three levers the design doc locks in:
   ``num_hits`` floor still applies.
 - ``MonsterPlugin.BLEED_MOD`` creature-wide multiplier stacks on top
   of per-part ``bleed_rate``.
-- ``BodyPart.defense_mod`` scales the defense stored per-hit on the
-  resolved :class:`AttackResult` (display + future per-hit math).
+- ``BodyPart.defense_bonus`` — Q.6.3 additive integer adjustment to
+  base_def per hit, applied in :meth:`Creature.resolve_attack`. Pre-
+  Q.6.3 this was a ``defense_mod`` multiplier; integer additive
+  eliminated truncation drama and reads more directly.
 """
 
 from unittest.mock import MagicMock
@@ -59,8 +61,8 @@ class TestBleedThroughFormula:
         assert compute_body_hp_damage(res, _victim(), defense=0) == 14
 
     def test_single_eye_hit_low_bleed(self):
-        """Eye bleed_rate 0.1 × damage 20 = 2. Below num_hits floor (1
-        is less than 2, so 2 wins)."""
+        """Eye bleed_rate 0.1 × damage 20 = 2. Below num_hits floor
+        (1 is less than 2, so 2 wins)."""
         eye = BodyPart.make("eye", name="eye")
         res = _resolution(1, [_result(20, eye)])
         assert compute_body_hp_damage(res, _victim(), defense=0) == 2
@@ -85,8 +87,8 @@ class TestBleedThroughFormula:
         assert compute_body_hp_damage(res, _victim(), defense=999) == 14
 
     def test_multi_source_bucket_sums_across_parts(self):
-        """Dual-wield 15 torso + 15 arm = 15*0.7 + 15*0.3 = 15. Two
-        hits, defense 0 → max(2, 15) = 15."""
+        """Dual-wield 15 torso + 15 arm = 15*0.7 + 15*0.3 = 15.
+        Two hits, defense 0 → max(2, 15) = 15."""
         torso = BodyPart.make("torso", name="torso")
         arm = BodyPart.make("arm", name="arm")
         res = _resolution(2, [_result(15, torso), _result(15, arm)])
@@ -101,15 +103,16 @@ class TestBleedThroughFormula:
         assert compute_body_hp_damage(res, victim, defense=0) == 7
 
     def test_bleed_mod_greater_than_one(self):
-        """``BLEED_MOD=1.5`` scales bleed-sum by 1.5. Torso 0.7 × 20 = 14;
-        × 1.5 = 21. Defense 0 → 21."""
+        """``BLEED_MOD=1.5`` scales bleed-sum by 1.5. Torso 0.7 × 20
+        = 14; × 1.5 = 21. Defense 0 → 21."""
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
         victim = _victim(bleed_mod=1.5)
         assert compute_body_hp_damage(res, victim, defense=0) == 21
 
     def test_zero_defense_yields_raw_bleed(self):
-        """Sanity: defense=0 path just passes through the scaled sum."""
+        """Sanity: defense=0 path just passes through the scaled sum.
+        Torso 100 × 0.7 = 70."""
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(100, torso)])
         assert compute_body_hp_damage(res, _victim(), defense=0) == 70
@@ -138,73 +141,27 @@ class TestBleedThroughFormula:
         assert compute_body_hp_damage(res, _victim(), defense=0) == 21
 
 
-class TestDefenseModWireIn:
-    def test_default_one_is_noop(self):
-        """Every shipped plugin defaults to ``defense_mod=1.0`` so the
-        effective defense stored on AttackResult matches the victim's
-        raw ``get_defense()``."""
+class TestDefenseBonusAppliesPerHit:
+    """Q.6.3: ``defense_bonus`` is an additive integer applied
+    per-hit inside resolve_attack. Part HP takes post-defense damage,
+    which means an armored torso absorbs more per hit than a less-
+    armored part — actually gating critical-part destruction.
+    Replaces the earlier ``defense_mod`` multiplicative approach,
+    which suffered from integer truncation at small base_def."""
+
+    def _setup(self, base_def: int, part_name: str, bonus: int):
+        """Build a MEDIUM target + matching part with an overridden
+        ``defense_bonus``, then resolve one attack against that part.
+        Returns the resolved :class:`AttackResult`."""
         from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-        from caldanai.lib.rpg.helpers.dice import Dice
         c = Creature(
-            name="target", atk=None, defense=10, dodge=0,
+            name="target", atk=None, defense=base_def, dodge=0,
             health_max=100, gender="male",
         )
         torso = BodyPart.make("torso", name="torso")
-        c.body_parts = [torso]
-        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
-        attacker = Creature(
-            name="attacker", atk="1d4", defense=0, dodge=0,
-            health_max=10, gender="male",
-        )
-        source = NaturalAttackSource(atk="1d4", dmg_type=None, label="A", skill="natural")
-        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
-        result = c.resolve_attack(
-            attacker, source, atk_roll, dmg_roll, target_part=torso,
-        )
-        assert result.defense == c.get_defense()
-
-    def test_defense_mod_scales_stored_defense(self):
-        """A part with ``defense_mod=0.5`` halves the defense stored on
-        its resolved AttackResult. Wires into ``resolve_attack`` only;
-        body-HP formula keeps using flat ``get_defense()`` per the doc."""
-        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-        c = Creature(
-            name="target", atk=None, defense=10, dodge=0,
-            health_max=100, gender="male",
-        )
-        torso = BodyPart.make("torso", name="torso")
-        # Per-instance override (content populates these on tank
-        # monsters via class attrs; the mechanism is instance-safe).
-        torso.defense_mod = 0.5
-        c.body_parts = [torso]
-        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
-        attacker = Creature(
-            name="attacker", atk="1d4", defense=0, dodge=0,
-            health_max=10, gender="male",
-        )
-        source = NaturalAttackSource(atk="1d4", dmg_type=None, label="A", skill="natural")
-        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
-        result = c.resolve_attack(
-            attacker, source, atk_roll, dmg_roll, target_part=torso,
-        )
-        assert result.defense == int(c.get_defense() * 0.5)
-
-
-class TestDefenseModAppliesPerHit:
-    """Q.6.2: defense_mod is applied per-hit inside resolve_attack.
-    Part HP takes post-defense damage, which means an armored torso
-    absorbs more per hit than a less-armored part — actually gating
-    critical-part destruction, not just tinting body-HP math."""
-
-    def test_default_defense_mod_full_defense(self):
-        """defense_mod=1.0 → full creature.defense subtracted per hit."""
-        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-        c = Creature(
-            name="target", atk=None, defense=5, dodge=0,
-            health_max=100, gender="male",
-        )
-        torso = BodyPart.make("torso", name="torso")
-        c.body_parts = [torso]
+        part = BodyPart.make(part_name, name=part_name) if part_name != "torso" else torso
+        part.defense_bonus = bonus
+        c.body_parts = [torso] if part_name == "torso" else [torso, part]
         c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
         attacker = Creature(
             name="attacker", atk="1d4", defense=0, dodge=0,
@@ -214,64 +171,30 @@ class TestDefenseModAppliesPerHit:
             atk="1d4", dmg_type=None, label="A", skill="natural",
         )
         atk_roll, dmg_roll = source.make_attack_rolls(attacker)
-        result = c.resolve_attack(
-            attacker, source, atk_roll, dmg_roll, target_part=torso,
+        return c.resolve_attack(
+            attacker, source, atk_roll, dmg_roll, target_part=part,
         )
-        # Whatever the roll was, result.defense should equal creature.defense
-        # (no scaling from default mod=1.0).
+
+    def test_zero_bonus_yields_base_defense(self):
+        """defense_bonus=0 → stored defense equals creature.get_defense()."""
+        result = self._setup(base_def=5, part_name="torso", bonus=0)
         assert result.defense == 5
 
-    def test_defense_mod_scales_stored_defense(self):
-        """torso.defense_mod=2.0 doubles the per-hit defense subtract.
-        Part takes correspondingly less raw damage per hit."""
-        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-        c = Creature(
-            name="target", atk=None, defense=5, dodge=0,
-            health_max=100, gender="male",
-        )
-        torso = BodyPart.make("torso", name="torso")
-        torso.defense_mod = 2.0
-        c.body_parts = [torso]
-        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
-        attacker = Creature(
-            name="attacker", atk="1d4", defense=0, dodge=0,
-            health_max=10, gender="male",
-        )
-        source = NaturalAttackSource(
-            atk="1d4", dmg_type=None, label="A", skill="natural",
-        )
-        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
-        result = c.resolve_attack(
-            attacker, source, atk_roll, dmg_roll, target_part=torso,
-        )
-        assert result.defense == 10  # 5 × 2.0
+    def test_positive_bonus_adds_to_base(self):
+        """torso.defense_bonus=+3 → base_def + 3."""
+        result = self._setup(base_def=5, part_name="torso", bonus=3)
+        assert result.defense == 8
 
-    def test_defense_mod_below_one_exposes_part(self):
-        """eye.defense_mod=0.5 halves defense → hits pierce easier.
-        Include a torso so ``get_defense()`` (which emerges from torso
-        functionality) returns a non-zero baseline."""
-        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-        c = Creature(
-            name="target", atk=None, defense=10, dodge=0,
-            health_max=100, gender="male",
-        )
-        torso = BodyPart.make("torso", name="torso")
-        eye = BodyPart.make("eye", name="eye.left")
-        eye.defense_mod = 0.5
-        c.body_parts = [torso, eye]
-        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
-        attacker = Creature(
-            name="attacker", atk="1d4", defense=0, dodge=0,
-            health_max=10, gender="male",
-        )
-        source = NaturalAttackSource(
-            atk="1d4", dmg_type=None, label="A", skill="natural",
-        )
-        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
-        result = c.resolve_attack(
-            attacker, source, atk_roll, dmg_roll, target_part=eye,
-        )
-        assert result.defense == 5  # 10 × 0.5
+    def test_negative_bonus_subtracts_from_base(self):
+        """Squishy part (bonus=-2) → base_def - 2."""
+        result = self._setup(base_def=10, part_name="arm", bonus=-2)
+        assert result.defense == 8
+
+    def test_bonus_clamps_at_zero(self):
+        """defense_bonus low enough to drive total negative clamps
+        at 0 — a SOFT_PART (-999) can't become a damage-amplifier."""
+        result = self._setup(base_def=5, part_name="eye", bonus=-999)
+        assert result.defense == 0
 
 
 class TestBleedRatePerPartClass:
@@ -302,11 +225,18 @@ class TestBleedRatePerPartClass:
     def test_toe_bleed_rate(self):
         assert BodyPart.make("toe", name="toe").bleed_rate == 0.05
 
-    def test_default_defense_mod_is_one(self):
-        """Every shipped plugin defaults to 1.0 defense_mod (no-op)."""
+    def test_every_plugin_defaults_to_soft_part(self):
+        """Q.6.3: every shipped plugin inherits ``SOFT_PART`` so an
+        unarmored creature's parts clamp to 0 defense. Monster tanks
+        opt specific parts in via instance override."""
+        from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
         for plugin in ("torso", "head", "arm", "leg", "tail",
                        "wing", "eye", "toe"):
-            assert BodyPart.make(plugin, name=plugin).defense_mod == 1.0
+            part = BodyPart.make(plugin, name=plugin)
+            assert part.defense_bonus == BodyPartPlugin.SOFT_PART, (
+                f"{plugin} declares a non-default defense_bonus; "
+                "Q.6.3 expects opt-in armor per monster."
+            )
 
 
 class TestMonsterBleedMod:

@@ -1010,7 +1010,15 @@ class Creature:
         dodge = target_dodge if target_dodge is not None else self.get_dodge()
         defense = self.get_defense()
         if target_part is not None:
-            defense = int(defense * getattr(target_part, "defense_mod", 1.0))
+            # Q.6.3: additive integer adjustment per part. Anatomy
+            # adjusts base_def by a signed bonus — tank torso +3,
+            # limb -1, eye clamps via SOFT_PART. Integer math avoids
+            # the earlier ``int(base × mult)`` truncation drama, and
+            # reads as "base_def plus/minus N" at the part declaration
+            # site.
+            defense = max(
+                0, defense + getattr(target_part, "defense_bonus", 0),
+            )
 
         # Apply attacker's HIT modifier (eye/head functionality)
         hit_mod = attacker.get_hit_modifier()
