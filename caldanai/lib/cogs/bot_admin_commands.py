@@ -78,7 +78,7 @@ class BotAdminCommands(Cog):
             else:
                 Dispatcher.add(ctx, f"There is no cog '{cog}' loaded.")
 
-    @group(brief="Per-guild bot configuration.", invoke_without_command=True)
+    @group(brief="Per-guild bot configuration.", invoke_without_command=True, case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     async def config(self, ctx: Context):
@@ -101,7 +101,7 @@ class BotAdminCommands(Cog):
                 lines.append(f"• `{key}`: <#{cid}>")
         Dispatcher.add(ctx, "\n".join(lines))
 
-    @config.group(name="channel", brief="Per-guild named-channel registration.", invoke_without_command=True)
+    @config.group(name="channel", brief="Per-guild named-channel registration.", invoke_without_command=True, case_insensitive=True)
     async def config_channel(self, ctx: Context):
         """Sub-group for per-guild named channels.
 

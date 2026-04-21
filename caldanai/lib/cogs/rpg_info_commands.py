@@ -550,6 +550,7 @@ class RpgInfoCommands(Cog):
         name="weather",
         brief="Describes the current weather, or admin subcommands.",
         invoke_without_command=True,
+        case_insensitive=True,
     )
     async def weather(self, ctx: Context):
         """

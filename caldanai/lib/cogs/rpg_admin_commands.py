@@ -95,7 +95,7 @@ class RpgAdminCommands(Cog):
     def __init__(self, bot: Bot):
         self.bot: Bot = bot
 
-    @group(aliases=["rpg"], brief="Groups the various Game commands.")
+    @group(aliases=["rpg"], brief="Groups the various Game commands.", case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     async def game_cmd(self, ctx: Context):
@@ -145,7 +145,7 @@ class RpgAdminCommands(Cog):
         await RpgUtilities.remove_game(ctx.guild.id, ctx.channel.id)
         Dispatcher.add(ctx, "The game has been removed.")
 
-    @group(brief="Role settings for the game.")
+    @group(brief="Role settings for the game.", case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)
@@ -276,7 +276,7 @@ class RpgAdminCommands(Cog):
                 else:
                     Dispatcher.add(game.channel, "Everyone mentioned appears to already be in good health.")
 
-    @group(brief="Displays or sets various spawning options.")
+    @group(brief="Displays or sets various spawning options.", case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)
@@ -619,7 +619,7 @@ class RpgAdminCommands(Cog):
             return False
         return None
 
-    @group(brief="Displays or sets ambience options.", invoke_without_command=True)
+    @group(brief="Displays or sets ambience options.", invoke_without_command=True, case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)

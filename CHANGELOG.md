@@ -4,6 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Group subcommand dispatch: case-insensitive
+
+Top-level ``Bot`` has ``case_insensitive=True`` but
+``discord.ext.commands`` groups don't inherit — subcommands
+dispatch case-sensitively unless each ``@group(...)`` sets its own
+flag. ``$ambience Celestial on`` silently rejected even though
+``$ambience celestial on`` worked. All nine cog groups (game,
+warmth, weather, game-admin, roles, spawn, ambience, config,
+config.channel) now pass ``case_insensitive=True``. New test
+``test_group_case_insensitivity`` walks every cog's
+``__cog_commands__`` and asserts the flag on every Group / nested
+subgroup so future additions can't regress.
+
+Free-text arg lookups audited (body parts via ``find_parts``,
+monster names via ``MonsterPlugin.get``, ambience toggles via
+``_parse_ambience_bool``, chat monster-name matching) — all
+already lowercase both sides, no fix needed.
+
 ### 2026-04-21 — DB write pipeline: loop collapse + retry queue wired
 
 **Loop collapse — worst-case write latency 2 min → 1 min.** The DB

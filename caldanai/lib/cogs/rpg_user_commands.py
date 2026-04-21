@@ -33,7 +33,7 @@ class RpgUserCommands(Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @group(brief="Groups together various game commands for players.")
+    @group(brief="Groups together various game commands for players.", case_insensitive=True)
     @guild_only()
     @cooldown(1, 10, BucketType.member)
     async def game(self, ctx: Context):

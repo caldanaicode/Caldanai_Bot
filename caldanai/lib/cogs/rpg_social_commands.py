@@ -1822,6 +1822,7 @@ class RpgSocialCommands(Cog):
         name="warmth",
         brief="Show or tune your social-warmth preferences (DM-only).",
         invoke_without_command=True,
+        case_insensitive=True,
     )
     async def warmth(self, ctx: Context):
         """
