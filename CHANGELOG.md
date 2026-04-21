@@ -4,128 +4,77 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
-### 2026-04-20 — Phase Q.6.3 Additive Defense Bonuses + Content Pass
+### 2026-04-20 — Phase Q.6.2 / Q.6.3 Per-Hit Defense (final shape: additive integer bonuses)
 
-Replaces the Q.6.2 multiplicative `defense_mod: float` with an
-additive `defense_bonus: int`. Formula in `Creature.resolve_attack`:
+Two-commit arc landing per-hit defense application. Q.6.2
+introduced per-hit subtraction with a multiplicative
+`defense_mod: float`; Q.6.3 (after playtest surfaced truncation
+issues and over-tuning) reworked it to an additive
+`defense_bonus: int`. The additive shape is the shipped version;
+Q.6.2's multiplier-tier tank values (bearowl 1.4, golem 1.5,
+etc.) were reinterpreted as integer bonuses.
+
+**Formula** — `Creature.resolve_attack` now computes:
 
 ```
 defense_per_hit = max(0, base_def + part.defense_bonus)
+damage_per_hit  = max(1, sub_dmg - defense_per_hit)   # if hit
 ```
 
-The integer additive model eliminates the `int(base × mult)`
-truncation surprise at small base_def values (goblin def 2 × 1.3
-= 2, not 2.6) and reads more directly at declaration sites
-("golem torso absorbs base_def + 4" vs "base_def × 1.5"). Wins
-against multipliers picked over the playtest session: scaling
-predictability is linear, tank bonuses are site-local numbers
-rather than percentage-of-varying-base, and soft parts can be
-declared via the `SOFT_PART` sentinel (clamps to 0 absorption
-regardless of creature base_def).
+Defense subtracts per-hit rather than once-per-sequence, so an
+armored torso actually gates part destruction (not just tints
+the display). `compute_body_hp_damage` drops its own defense
+subtract because damage is already post-defense.
 
-**Default is `SOFT_PART`** on every shipped body-part plugin:
-unarmored parts absorb no defense, base_def only bites on parts
-that explicitly opt in. This matches the playtested balance —
-unarmored creatures (goblin, bandit, minotaur, doppelganger) feel
-squishy everywhere, and armored creatures earn their tank feel
-via specific part overrides.
+**Default is `SOFT_PART` (-999)** on every shipped body-part
+plugin — unarmored parts clamp to zero absorption regardless of
+base_def. Armor is opt-in per monster so goblin / bandit /
+minotaur / doppelganger feel squishy everywhere, and armored
+creatures earn their tank feel via explicit per-part overrides.
 
-Tank content pass (additive bonuses on top of creature base_def):
+**Tank content pass** (additive bonuses on top of creature base_def):
 
 | Monster | Part | `defense_bonus` |
 |---|---|---|
 | bearowl | torso | +3 |
 | golem | torso, head | +4 |
-| cyclops | torso | +5 |
+| cyclops | torso | +5 (eye stays `SOFT_PART` — signature weakness) |
 | giant | torso | +2 |
-| dragon | — | none (scales reverted — apex trait profile already tanks) |
 
-Plus:
-- `EyePlugin` keeps `SOFT_PART` (the canonical soft-part example,
-  now just inherits the base default).
-- `Golem` base defense `4d8` → `3d6` to dial down over-tuned total
-  absorption once the +4 torso/head bonuses were in place.
-- `Dragon` base defense `3d8` → `4d4 + 6` (range 10-22) via inline
-  `self.defense += 6` since `Dice.from_ndn` doesn't support
-  `"NdM+C"` yet (backlog memory captured).
+**Stat-dice retuning** on top of the additive shift:
+- `Golem` base defense `4d8` → `3d6` (tank bonuses do the rest).
+- `Dragon` base defense `3d8` → `4d4 + 6` (range 10-22) via an
+  inline `self.defense += 6` — `Dice.from_ndn` doesn't yet parse
+  `"NdM+C"` (backlog memory captured).
 
-Also in this phase:
+**Display** — compact-table footer reads
+`Total: {raw} raw - armor absorbed → {final} damage` when armor
+absorbed some of the sequence; collapses to `Total: N damage`
+when it didn't.
 
-- **Round-not-int for safer defense math.** `resolve_attack` now
-  uses `round()` instead of `int()` when a fractional multiplier
-  drifts in from anywhere else — matters less under additive but
-  prevents silent zeroing if a legacy caller injects a float.
-- **Parallel sweep harness.** `tools/playtest_combat_harness`'s
-  `--sweep-monsters` path now distributes per-monster sweeps
-  across a `ProcessPoolExecutor`. Worker serializes results and
-  the parent prints in input order; local speedup is modest on
-  9-monster sweeps (process spawn + plugin reload eat most of
-  the win on Windows) but the shape is right for larger sweep
-  matrices.
-- **`inspect_monster` renders `defense_bonus`** in the per-part
+**Monster-specific downstream fixes:**
+- `MathTeacher` prime-halving checks `sub_damage` (pre-defense)
+  rather than post-defense, so Lord-of-Primes fires on the same
+  rolls regardless of target defense.
+- `Dragon.breath_attack` stores post-defense value, matching the
+  resolve_attack convention.
+- `inspect_monster` renders `defense_bonus` in the per-part
   readout (was `defense_mod`).
 
-Post-Q.6.3 sweep (25 trials, MASTERWORK, base player): 6 of 9
-monsters land in the OK band (goblin / bandit / bearowl / cyclops
-/ giant / dragon-gap), golem moderate, minotaur + doppelganger
-remain major — both by design rather than by bug. Minotaur is
-earmarked for literal equipment (needs the equipment-on-parts
-work to land); doppelganger's persistent torso gap will self-heal
-once form-copy adopts the target player's armor instead of
-keeping max-of across switches (backlog memories captured for
-both).
+**Incidental:** `tools/playtest_combat_harness`'s
+`--sweep-monsters` path distributes per-monster sweeps across a
+`ProcessPoolExecutor` (modest speedup on Windows — the shape is
+right for larger sweep matrices).
 
-~10 tests updated for new bleed-default + additive semantic;
-full suite green on Python 3.14 (3166 passed).
+**Post-Q.6.3 sweep** (25 trials, MASTERWORK, base player): 6 of
+9 monsters balanced (goblin / bandit / bearowl / cyclops / giant
+/ dragon-as-apex-boss), golem moderate, minotaur + doppelganger
+remain exploit-prone by design — both earmarked for later fixes
+(minotaur needs literal equipment via equipment-on-parts;
+doppelganger's torso gap self-heals once form-copy adopts
+copied-target armor instead of max-of across switches).
 
-### 2026-04-20 — Phase Q.6.2 Per-Hit Defense + Tank Content Tuning
-
-Follow-up to Q.6 / Q.6.1 that makes `defense_mod` (shipped as a
-display / body-HP lever only) actually gate part destruction.
-Defense is now subtracted per hit inside `Creature.resolve_attack`
-(floored at 1 damage on a landed hit), not from the summed
-body-HP bleed at round end. Multi-hit sequences against armored
-targets now lose meaningful damage to armor — matches the
-"armored tank" design intent the content levers assumed.
-
-Per-hit defense semantic changes:
-- `Creature.resolve_attack` stores post-defense damage in
-  `AttackResult.damage`; `sub_damage` remains the pre-defense
-  multiplier result for display and downstream checks.
-- `compute_body_hp_damage` drops its own defense subtract —
-  defense already bit per hit.
-- Compact-table footer reads
-  `Total: {raw} raw - armor absorbed → {final} damage` when
-  armor absorbed some of the sequence; collapses to
-  `Total: N damage` when it didn't.
-- `MathTeacher` prime-halving now checks `sub_damage` (the
-  roll itself being prime) rather than post-defense damage,
-  so Lord-of-Primes fires on the same rolls regardless of
-  target defense.
-- `Dragon.breath_attack` updated to the new convention
-  (stores post-defense value).
-
-Tank content pass — `defense_mod` on the torso / head of the
-LARGE+ armored roster so per-hit defense actually scales there:
-
-| Monster | Part | `defense_mod` |
-|---|---|---|
-| bearowl | torso | 1.4 |
-| golem | torso + head | 1.5 |
-| cyclops | torso | 1.5 (eye stays 1.0 — signature weakness) |
-| giant | torso | 1.3 |
-
-Post-Q.6.2 sweep (25 trials, MASTERWORK, base player): tank
-no-target win rates now scale meaningfully with skill (golem
-20% → 80% from skill 0 → 20 with torso focus; bearowl 28% →
-100% with head focus). Torso-bleed exploit gap persists on
-doppelganger / bearowl / golem / cyclops / giant / minotaur —
-bleed-rate / part-HP ratio is the next tuning lever, not a
-code-shape question.
-
-~16 tests updated for the new per-hit-defense semantic (compact
-footer shape, trait-multiplier integration tests, math teacher,
-dragon breath display); full suite green on Python 3.14.
+Full suite green on Python 3.14 (3166 passed).
 
 ### 2026-04-20 — Fix `NameError` in `DamageTypes.from_skill_key`
 
@@ -134,6 +83,23 @@ annotation was a bare name inside the class body, which Python
 evaluates at class-creation time — blowing up at import with
 `NameError: name 'DamageTypes' is not defined`. Quoted the
 annotation so it's a string forward-reference.
+
+### 2026-04-20 — Dispatcher: Auto-Split Oversized Messages + Fence-Aware
+
+A single text message > 2000 chars hit a warn-and-drop branch in
+`Dispatcher.send()` instead of being chunked (`split_message`
+existed as a helper but was never wired in). Hydra + 4 attackers
+clears the limit (observed 2287 chars in prod warn logs). Now:
+oversized text auto-splits; first chunk carries any embed/file,
+rest are text-only.
+
+`split_message` was also code-fence blind — a split mid-`` ``` ``
+block would leave chunk 1 unclosed and chunk 2 rendered outside
+the block. Combat tables use `` ```diff `` spans so every
+multi-player swing broke the render. The splitter now tracks
+fence state per-chunk, closes unclosed fences, and reopens the
+same language in the next chunk. 20-char fence reserve against
+the working limit so markers don't push chunks past the cap.
 
 ### 2026-04-20 — Monster Body HP Tuning (Q.6.1)
 
