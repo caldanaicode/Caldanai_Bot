@@ -445,8 +445,9 @@ class TestDragonBreathDamageMath:
         assert target.health == 1000
 
     def test_rendered_total_subtracts_defense_exactly_once(self):
-        """The renderer subtracts defense once; breath's AttackResult.damage
-        must be pre-defense so the footer arithmetic matches reality."""
+        """Q.6.2: defense is applied per-hit inside resolve_attack, so
+        ``r.damage`` is already post-defense. The compact-table footer
+        shows raw (sub_damage) → damage when the two diverge."""
         with _force_variant(False):
             d = Dragon()
         target = self._make_target(defense=6, health=1000)
@@ -454,9 +455,11 @@ class TestDragonBreathDamageMath:
         with self._force_raw_roll(26):
             rendered = d.breath_attack([target])
 
-        # Footer should read "26 damage - 6 defense → 20 damage". Prior
-        # bug rendered "20 damage - 6 defense → 14 damage" (double subtract).
-        assert "26 damage - 6 defense" in rendered
+        # 26 raw, 6 defense → 20 damage. The footer surfaces the
+        # pre/post totals so players see the armor bite; per-hit
+        # subtraction (rather than the pre-Q.6.2 sum-then-subtract)
+        # is not double-applied.
+        assert "26 raw" in rendered
         assert "→ 20 damage" in rendered
 
 

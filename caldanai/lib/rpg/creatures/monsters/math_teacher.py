@@ -111,12 +111,19 @@ class MathTeacher(MonsterPlugin):
         target_dodge: Optional[int] = None,
         target_part=None,
     ) -> AttackResult:
-        """Halves incoming prime damage and sets LORD OF PRIMES flavor."""
+        """Halves incoming prime damage and sets LORD OF PRIMES flavor.
+
+        Q.6.2: check primality on ``sub_damage`` (the pre-defense,
+        post-multiplier value) rather than ``damage`` (post-defense) —
+        the trait is "the roll itself was prime," not "the post-armor
+        damage was prime." Halving is still applied to the
+        defense-adjusted ``damage`` so the lord-of-primes effect
+        compounds with the per-hit defense subtract."""
         result = super().resolve_attack(
             attacker, source, atk_roll, dmg_roll,
             target_dodge=target_dodge, target_part=target_part,
         )
-        if self.is_prime(result.damage):
+        if self.is_prime(result.sub_damage):
             result.damage //= 2
             result.extra_text = f"LORD OF PRIMES! / 2 = {result.damage}"
         return result

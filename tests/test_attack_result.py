@@ -252,6 +252,9 @@ class TestAttackSequence:
         assert "Total:" in md
 
     def test_multi_result_total_damage_in_footer(self):
+        """Q.6.2: defense is applied per-hit. When raw (sub_damage)
+        diverges from damage, footer shows 'raw - armor absorbed →
+        damage'; when they match, footer shows 'Total: N damage'."""
         attacker = MagicMock()
         attacker.name = "bandit"
         attacker.member = None
@@ -266,7 +269,9 @@ class TestAttackSequence:
             ],
         )
         md = seq.to_markdown()
-        assert "Total: 7 damage" in md
+        # damage=4,3 totals 7; sub_damage is 6 each (forced_damage=6 * 1.0)
+        # so raw_total=12. Divergence triggers the armor-absorbed form.
+        assert "→ 7 damage" in md
 
     def test_multi_result_includes_damage_emoji(self):
         attacker = MagicMock()

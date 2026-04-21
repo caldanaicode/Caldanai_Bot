@@ -125,9 +125,10 @@ class Dragon(MonsterPlugin):
 
         # Build an AttackSequence with one result per victim. Breath
         # auto-hits (no dodge roll), applies the victim's FIRE trait
-        # multiplier, then subtracts defense once. ``AttackResult.damage``
-        # stores the pre-defense value so the shared renderer's
-        # ``total - defense`` footer math lines up with normal attacks.
+        # multiplier, then subtracts defense once per victim.
+        # Q.6.2: ``AttackResult.damage`` stores the post-defense value
+        # (matching the shared resolve_attack convention); the compact
+        # table's footer surfaces the raw → post-defense divergence.
         results = []
         post = ""
         for victim in combatants:
@@ -156,7 +157,7 @@ class Dragon(MonsterPlugin):
                 AttackResult(
                     source=source,
                     combined=combined,
-                    damage=sub_dmg,
+                    damage=dmg,
                     multiplier=multiplier,
                     defense=df,
                     dodge=0,

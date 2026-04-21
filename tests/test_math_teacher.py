@@ -29,10 +29,16 @@ class TestAttackSources:
 
 
 def _make_result_with_damage(damage: int, dmg_type=DamageTypes.MATHEMAGICAL):
-    """Build a minimal AttackResult with a specific damage value."""
+    """Build a minimal AttackResult with a specific damage value.
+
+    Q.6.2: math_teacher's incoming prime-halving checks
+    ``result.sub_damage`` (pre-defense, via the combined roll).
+    Seed combined.result to match so sub_damage matches damage —
+    otherwise the random d4 roll inside CombinedRoll diverges."""
     atk = AttackRoll(skill_bonus=0)
     dmg = DamageRoll(dice=Dice.d4(), weapon_bonus=0, skill_bonus=0)
     combined = CombinedRoll(atk, dmg, 0)
+    combined.result = damage
     source = NaturalAttackSource(atk="1d4", dmg_type=dmg_type)
     return AttackResult(
         source=source,

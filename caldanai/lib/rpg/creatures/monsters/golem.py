@@ -116,6 +116,12 @@ class Golem(MonsterPlugin):
 
         self.size = Size.LARGE
         self._scale_part_hp()
+        # Stone construct — torso and head are solid rock, not just
+        # armored flesh. Layer defense_mod on top of the already-high
+        # base defense so critical-destroy takes real effort.
+        for part in self.body_parts:
+            if part.name in ("torso", "head"):
+                part.defense_mod = 1.5
 
     def on_hugged(self, actor: Creature, invocation: str) -> str:
         return choice([

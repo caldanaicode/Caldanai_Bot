@@ -1000,10 +1000,12 @@ class Creature:
         dodge is used.
 
         ``target_part`` lets the caller pass the aimed-at part so the
-        per-part ``defense_mod`` (Q.6 no-op lever; defaults to 1.0)
-        scales the stored defense for display and future callers. The
-        body-HP formula still subtracts ``get_defense()`` flat once per
-        victim — this field is purely per-hit defense display today.
+        per-part ``defense_mod`` scales effective defense for THIS
+        hit. Q.6.2: defense applies per-hit at the part level (not
+        once per round at body HP), so an armored torso actually
+        gates part destruction. Body HP is then drained by the
+        already-post-defense ``result.damage`` × ``bleed_rate``
+        without further defense subtract.
         """
         dodge = target_dodge if target_dodge is not None else self.get_dodge()
         defense = self.get_defense()
@@ -1019,7 +1021,15 @@ class Creature:
         combined = CombinedRoll(atk_roll, dmg_roll, dodge)
         multiplier = self.get_trait_multiplier(source.damage_type)
         sub_dmg = int(multiplier * combined.result)
-        damage = 0 if combined.isMiss else max(0, sub_dmg)
+        # Q.6.2: per-hit defense subtract, floor at 1 so "you
+        # connected" still registers. ``defense_mod`` on the part
+        # (set by content like tank torso + exposed eye) scales how
+        # much of this hit the part absorbs before the HP pool
+        # actually drops.
+        if combined.isMiss or sub_dmg <= 0:
+            damage = 0
+        else:
+            damage = max(1, sub_dmg - defense)
         result = AttackResult(
             source=source,
             combined=combined,

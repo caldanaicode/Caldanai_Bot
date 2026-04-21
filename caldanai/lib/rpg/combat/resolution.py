@@ -133,30 +133,29 @@ class MultiVictimResolutionResult:
 def compute_body_hp_damage(
     resolution: ResolutionResult,
     victim: "Creature",
-    defense: int,
+    defense: int = 0,
     *,
     results: "Optional[List[object]]" = None,
 ) -> int:
-    """Q.6 body-HP damage formula — the post-resolve bleed-through
-    calculation applied by every body-HP caller (``Game.do_combat``,
-    ``MonsterPlugin.attack_random``, ``Hydra.attack_random``).
+    """Q.6.2 body-HP damage formula.
 
     Formula::
 
         body_hp_dmg = max(
             num_hits,
             int(sum(r.damage * r.target_part.bleed_rate) * victim.BLEED_MOD)
-            - defense
         )
 
     - ``num_hits`` remains the floor ("you connected").
-    - Per-part ``bleed_rate`` tunes how much part-targeted damage
-      bleeds into body HP — torso is high, eye is low.
+    - Per-part ``bleed_rate`` tunes how much part-damage bleeds into
+      body HP — torso is high, eye is low.
     - ``victim.BLEED_MOD`` is a creature-wide multiplier (default 1.0)
       that lets skeletons / golems / vampires tune feel without new
       structural classes.
-    - ``defense`` is subtracted once after the int()-cast sum so float
-      accumulation doesn't drift HP bookkeeping.
+    - **Defense is already applied per-hit** inside
+      ``Creature.resolve_attack`` (Q.6.2 change from per-sum to
+      per-hit). ``result.damage`` is post-defense. The ``defense``
+      arg is accepted for call-site compatibility but ignored.
 
     ``results`` overrides the damage-contributing results — legacy
     callers that retain the old single-victim ``AttackSequence``
@@ -171,31 +170,16 @@ def compute_body_hp_damage(
         resolution, "victim_results", []
     )
     bleed_total = 0.0
-    # Damage-weighted defense_mod: parts with more damage dominate
-    # the effective defense computation. A full-torso hit against a
-    # tank's torso.defense_mod=2.0 doubles effective defense; a
-    # half-torso / half-arm split averages the mods. Partless targets
-    # fall back to 1.0 (pre-Q.6 raw defense behavior).
-    weighted_mod_total = 0.0
-    damage_total = 0
     for r in iterable:
         damage = getattr(r, "damage", 0)
         if damage <= 0:
             continue
         part = getattr(r, "target_part", None)
         rate = getattr(part, "bleed_rate", 1.0) if part is not None else 1.0
-        mod = getattr(part, "defense_mod", 1.0) if part is not None else 1.0
         bleed_total += damage * rate
-        weighted_mod_total += damage * mod
-        damage_total += damage
     bleed_mod = getattr(victim, "BLEED_MOD", 1.0)
     scaled = int(bleed_total * bleed_mod)
-    if damage_total > 0:
-        avg_defense_mod = weighted_mod_total / damage_total
-        effective_defense = int(defense * avg_defense_mod)
-    else:
-        effective_defense = defense
-    return max(num_hits, scaled - effective_defense)
+    return max(num_hits, scaled)
 
 
 def apply_sequence_to_target(

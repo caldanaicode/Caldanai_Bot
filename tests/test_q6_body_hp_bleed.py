@@ -72,12 +72,17 @@ class TestBleedThroughFormula:
         res = _resolution(1, [_result(5, toe)])
         assert compute_body_hp_damage(res, _victim(), defense=0) == 1
 
-    def test_defense_subtracted_once_after_sum(self):
-        """Defense is flat, applied after the bleed-scaled sum.
-        Torso 0.7 × 20 = 14; defense 10 → max(1, 14 - 10) = 4."""
+    def test_defense_arg_is_ignored_post_q62(self):
+        """Q.6.2: defense is applied per-hit inside ``resolve_attack``,
+        so ``result.damage`` is already post-defense. The ``defense``
+        arg on ``compute_body_hp_damage`` is accepted for call-site
+        compat but ignored — passing any value yields the same result."""
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
-        assert compute_body_hp_damage(res, _victim(), defense=10) == 4
+        # 20 damage × 0.7 bleed = 14; defense arg no longer subtracts.
+        assert compute_body_hp_damage(res, _victim(), defense=0) == 14
+        assert compute_body_hp_damage(res, _victim(), defense=10) == 14
+        assert compute_body_hp_damage(res, _victim(), defense=999) == 14
 
     def test_multi_source_bucket_sums_across_parts(self):
         """Dual-wield 15 torso + 15 arm = 15*0.7 + 15*0.3 = 15. Two
@@ -185,67 +190,88 @@ class TestDefenseModWireIn:
         assert result.defense == int(c.get_defense() * 0.5)
 
 
-class TestDefenseModInBodyHpFormula:
-    """Per-part defense_mod is damage-weighted into effective defense
-    inside compute_body_hp_damage. Not just display tint on AttackResult.
-    Doc Step 7: populated defense_mod values TAKE EFFECT in balance."""
+class TestDefenseModAppliesPerHit:
+    """Q.6.2: defense_mod is applied per-hit inside resolve_attack.
+    Part HP takes post-defense damage, which means an armored torso
+    absorbs more per hit than a less-armored part — actually gating
+    critical-part destruction, not just tinting body-HP math."""
 
-    def _make_result(self, damage, bleed_rate=0.5, defense_mod=1.0):
-        from unittest.mock import MagicMock
-        r = MagicMock()
-        r.damage = damage
-        part = MagicMock()
-        part.bleed_rate = bleed_rate
-        part.defense_mod = defense_mod
-        r.target_part = part
-        return r
-
-    def test_default_defense_mod_one_is_baseline(self):
-        from caldanai.lib.rpg.combat.resolution import (
-            compute_body_hp_damage, ResolutionResult,
+    def test_default_defense_mod_full_defense(self):
+        """defense_mod=1.0 → full creature.defense subtracted per hit."""
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        c = Creature(
+            name="target", atk=None, defense=5, dodge=0,
+            health_max=100, gender="male",
         )
-        from unittest.mock import MagicMock
-        victim = MagicMock()
-        victim.BLEED_MOD = 1.0
-        results = [self._make_result(damage=20, bleed_rate=1.0, defense_mod=1.0)]
-        res = ResolutionResult(num_hits=1, body_damage_total=0)
-        # bleed_total = 20, defense = 5 → 20 - 5 = 15
-        out = compute_body_hp_damage(res, victim, defense=5, results=results)
-        assert out == 15
-
-    def test_torso_defense_mod_doubles_effective_defense(self):
-        """Full-torso hit against torso.defense_mod=2.0 doubles the
-        defense subtracted — a tank's armored torso actually protects."""
-        from caldanai.lib.rpg.combat.resolution import (
-            compute_body_hp_damage, ResolutionResult,
+        torso = BodyPart.make("torso", name="torso")
+        c.body_parts = [torso]
+        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
+        attacker = Creature(
+            name="attacker", atk="1d4", defense=0, dodge=0,
+            health_max=10, gender="male",
         )
-        from unittest.mock import MagicMock
-        victim = MagicMock()
-        victim.BLEED_MOD = 1.0
-        results = [self._make_result(damage=20, bleed_rate=1.0, defense_mod=2.0)]
-        res = ResolutionResult(num_hits=1, body_damage_total=0)
-        # bleed_total = 20, effective_defense = 5 * 2 = 10 → 20 - 10 = 10
-        out = compute_body_hp_damage(res, victim, defense=5, results=results)
-        assert out == 10
-
-    def test_split_hit_averages_defense_mod(self):
-        """Half torso (mod=2.0) + half arm (mod=1.0), same damage →
-        weighted avg = 1.5, effective defense = 1.5x."""
-        from caldanai.lib.rpg.combat.resolution import (
-            compute_body_hp_damage, ResolutionResult,
+        source = NaturalAttackSource(
+            atk="1d4", dmg_type=None, label="A", skill="natural",
         )
-        from unittest.mock import MagicMock
-        victim = MagicMock()
-        victim.BLEED_MOD = 1.0
-        results = [
-            self._make_result(damage=10, bleed_rate=1.0, defense_mod=2.0),
-            self._make_result(damage=10, bleed_rate=1.0, defense_mod=1.0),
-        ]
-        res = ResolutionResult(num_hits=2, body_damage_total=0)
-        # bleed_total = 20, weighted_mod = (10*2 + 10*1)/20 = 1.5
-        # effective_defense = int(4 * 1.5) = 6 → 20 - 6 = 14
-        out = compute_body_hp_damage(res, victim, defense=4, results=results)
-        assert out == 14
+        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
+        result = c.resolve_attack(
+            attacker, source, atk_roll, dmg_roll, target_part=torso,
+        )
+        # Whatever the roll was, result.defense should equal creature.defense
+        # (no scaling from default mod=1.0).
+        assert result.defense == 5
+
+    def test_defense_mod_scales_stored_defense(self):
+        """torso.defense_mod=2.0 doubles the per-hit defense subtract.
+        Part takes correspondingly less raw damage per hit."""
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        c = Creature(
+            name="target", atk=None, defense=5, dodge=0,
+            health_max=100, gender="male",
+        )
+        torso = BodyPart.make("torso", name="torso")
+        torso.defense_mod = 2.0
+        c.body_parts = [torso]
+        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
+        attacker = Creature(
+            name="attacker", atk="1d4", defense=0, dodge=0,
+            health_max=10, gender="male",
+        )
+        source = NaturalAttackSource(
+            atk="1d4", dmg_type=None, label="A", skill="natural",
+        )
+        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
+        result = c.resolve_attack(
+            attacker, source, atk_roll, dmg_roll, target_part=torso,
+        )
+        assert result.defense == 10  # 5 × 2.0
+
+    def test_defense_mod_below_one_exposes_part(self):
+        """eye.defense_mod=0.5 halves defense → hits pierce easier.
+        Include a torso so ``get_defense()`` (which emerges from torso
+        functionality) returns a non-zero baseline."""
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        c = Creature(
+            name="target", atk=None, defense=10, dodge=0,
+            health_max=100, gender="male",
+        )
+        torso = BodyPart.make("torso", name="torso")
+        eye = BodyPart.make("eye", name="eye.left")
+        eye.defense_mod = 0.5
+        c.body_parts = [torso, eye]
+        c.size = __import__("caldanai.lib.rpg.helpers.enums", fromlist=["Size"]).Size.MEDIUM
+        attacker = Creature(
+            name="attacker", atk="1d4", defense=0, dodge=0,
+            health_max=10, gender="male",
+        )
+        source = NaturalAttackSource(
+            atk="1d4", dmg_type=None, label="A", skill="natural",
+        )
+        atk_roll, dmg_roll = source.make_attack_rolls(attacker)
+        result = c.resolve_attack(
+            attacker, source, atk_roll, dmg_roll, target_part=eye,
+        )
+        assert result.defense == 5  # 10 × 0.5
 
 
 class TestBleedRatePerPartClass:

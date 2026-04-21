@@ -4,6 +4,63 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-20 — Phase Q.6.2 Per-Hit Defense + Tank Content Tuning
+
+Follow-up to Q.6 / Q.6.1 that makes `defense_mod` (shipped as a
+display / body-HP lever only) actually gate part destruction.
+Defense is now subtracted per hit inside `Creature.resolve_attack`
+(floored at 1 damage on a landed hit), not from the summed
+body-HP bleed at round end. Multi-hit sequences against armored
+targets now lose meaningful damage to armor — matches the
+"armored tank" design intent the content levers assumed.
+
+Per-hit defense semantic changes:
+- `Creature.resolve_attack` stores post-defense damage in
+  `AttackResult.damage`; `sub_damage` remains the pre-defense
+  multiplier result for display and downstream checks.
+- `compute_body_hp_damage` drops its own defense subtract —
+  defense already bit per hit.
+- Compact-table footer reads
+  `Total: {raw} raw - armor absorbed → {final} damage` when
+  armor absorbed some of the sequence; collapses to
+  `Total: N damage` when it didn't.
+- `MathTeacher` prime-halving now checks `sub_damage` (the
+  roll itself being prime) rather than post-defense damage,
+  so Lord-of-Primes fires on the same rolls regardless of
+  target defense.
+- `Dragon.breath_attack` updated to the new convention
+  (stores post-defense value).
+
+Tank content pass — `defense_mod` on the torso / head of the
+LARGE+ armored roster so per-hit defense actually scales there:
+
+| Monster | Part | `defense_mod` |
+|---|---|---|
+| bearowl | torso | 1.4 |
+| golem | torso + head | 1.5 |
+| cyclops | torso | 1.5 (eye stays 1.0 — signature weakness) |
+| giant | torso | 1.3 |
+
+Post-Q.6.2 sweep (25 trials, MASTERWORK, base player): tank
+no-target win rates now scale meaningfully with skill (golem
+20% → 80% from skill 0 → 20 with torso focus; bearowl 28% →
+100% with head focus). Torso-bleed exploit gap persists on
+doppelganger / bearowl / golem / cyclops / giant / minotaur —
+bleed-rate / part-HP ratio is the next tuning lever, not a
+code-shape question.
+
+~16 tests updated for the new per-hit-defense semantic (compact
+footer shape, trait-multiplier integration tests, math teacher,
+dragon breath display); full suite green on Python 3.14.
+
+### 2026-04-20 — Fix `NameError` in `DamageTypes.from_skill_key`
+
+Forward reference to `DamageTypes` in the method's return-type
+annotation was a bare name inside the class body, which Python
+evaluates at class-creation time — blowing up at import with
+`NameError: name 'DamageTypes' is not defined`. Quoted the
+annotation so it's a string forward-reference.
+
 ### 2026-04-20 — Monster Body HP Tuning (Q.6.1)
 
 First content-audit pass following the Q.6 refactor. Seven

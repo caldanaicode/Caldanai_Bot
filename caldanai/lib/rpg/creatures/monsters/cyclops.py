@@ -111,6 +111,11 @@ class Cyclops(MonsterPlugin):
 
         self.size = Size.HUGE
         self._scale_part_hp()
+        # Thick hide per creature comment above. The single eye stays
+        # at default 1.0 — it's the signature weakness.
+        for part in self.body_parts:
+            if part.name == "torso":
+                part.defense_mod = 1.5
 
         # Tracks the one-time blind-rage announcement so the bellow
         # only fires the round the eye actually goes out, not every

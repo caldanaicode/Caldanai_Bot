@@ -184,7 +184,7 @@ class DamageTypes(IntFlag):
         return skill_key.replace(" combined", "").strip()
 
     @staticmethod
-    def from_skill_key(skill_key: str) -> Optional[DamageTypes]:
+    def from_skill_key(skill_key: str) -> Optional["DamageTypes"]:
         """Reverse of ``canonical``: parse a skill key (e.g.
         ``"one-handed slashing ice"``, ``"two-handed bludgeoning
         fire combined"``) back into a ``DamageTypes`` bitmask.

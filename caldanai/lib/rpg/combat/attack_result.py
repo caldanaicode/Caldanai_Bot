@@ -249,14 +249,13 @@ class AttackSequence:
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]
         mult_col_list = [self._build_mult_column(p) for p in parts_list]
-        # Final column mirrors the Multiplier column's result (sub_damage)
-        # so post-hook multipliers — e.g. math-teacher prime doubling —
-        # don't create a silent jump between the row's math and the
-        # "Final" total. Post-hook bumps are rendered on the extra_text
-        # line below the row ("LORD OF PRIMES! * 2 = 58"), and still
-        # contribute to the footer total via r.total_damage().
+        # Q.6.2: Final column shows post-defense damage
+        # (``r.damage``) — what actually landed after the part's
+        # armor absorbed. Diverges from the Multiplier column when
+        # the target's defense (or ``defense_mod``) bit into the
+        # hit. Miss stays 0.
         final_col_list = [
-            f"→ {0 if p['is_miss'] else p['sub_damage']}" for p in parts_list
+            f"→ {0 if p['is_miss'] else p['final_damage']}" for p in parts_list
         ]
 
         # Header labels per column (Def column removed — defense is
@@ -339,28 +338,18 @@ class AttackSequence:
         if self.multi_target:
             lines.append(f"   Total: {total_damage} damage")
         else:
-            defense = self.results[0].defense if self.results else 0
+            # Q.6.2: defense is applied per-hit inside resolve_attack,
+            # so ``r.damage`` is already post-defense. The footer now
+            # shows raw → post-defense rather than the pre-Q.6.2
+            # subtract-at-body shape.
             num_hits = sum(1 for r in self.results if r.damage > 0)
-            if num_hits > 0:
-                raw_after_defense = total_damage - defense
-                final = max(num_hits, raw_after_defense)
-                if defense and total_damage != final:
-                    # Distinguish the "defense partially absorbed" case from
-                    # the "defense fully absorbed but the 1-per-hit floor
-                    # kicked in" case so the footer arithmetic reads
-                    # honestly rather than looking like a math error.
-                    if raw_after_defense < num_hits:
-                        lines.append(
-                            f"   Total: {total_damage} damage - {defense} defense, "
-                            f"floored at {num_hits} (1/hit) → {final} damage"
-                        )
-                    else:
-                        lines.append(
-                            f"   Total: {total_damage} damage - {defense} defense "
-                            f"→ {final} damage"
-                        )
-                else:
-                    lines.append(f"   Total: {total_damage} damage")
+            raw_total = sum(r.sub_damage for r in self.results)
+            if num_hits > 0 and raw_total != total_damage:
+                # Defense absorbed some of the raw damage.
+                lines.append(
+                    f"   Total: {raw_total} raw - armor absorbed "
+                    f"→ {total_damage} damage"
+                )
             else:
                 lines.append(f"   Total: {total_damage} damage")
         lines.append("```")

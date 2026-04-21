@@ -380,6 +380,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         teacher = MathTeacher()
         teacher.defense = 0
         teacher.dodge = 0
+        defense = teacher.get_defense()  # torso floor keeps this >= 1
         attacker = MagicMock()
         attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
@@ -387,14 +388,21 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
 
         result = teacher.resolve_attack(attacker, source, atk, dmg)
 
-        assert result.damage == 8
+        # Q.6.2: defense applied per-hit. 8 raw - torso_floor_defense.
+        assert result.damage == max(1, 8 - defense)
         assert result.extra_text == ""
 
     def test_resolve_attack_halves_various_primes(self):
-        """Sweep a handful of primes and pin the ``// 2`` floor."""
+        """Sweep a handful of primes and pin the post-defense halving.
+
+        Q.6.2: defense is subtracted per-hit inside super().resolve_attack
+        BEFORE the prime check + halving. Each prime's final damage is
+        ``max(1, prime - defense) // 2`` (with prime check on the
+        pre-defense ``sub_damage`` value)."""
         teacher = MathTeacher()
         teacher.defense = 0
         teacher.dodge = 0
+        defense = teacher.get_defense()  # torso floor keeps this >= 1
         attacker = MagicMock()
         attacker.get_hit_modifier.return_value = 0
         source = NaturalAttackSource(atk="1d100", dmg_type=DamageTypes.SLASHING)
@@ -402,8 +410,10 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         for prime in [2, 3, 5, 7, 11, 13]:
             atk, dmg = _make_attack_rolls(prime)
             result = teacher.resolve_attack(attacker, source, atk, dmg)
-            assert result.damage == prime // 2, (
-                f"prime {prime} should halve to {prime // 2}, got {result.damage}"
+            expected = max(1, prime - defense) // 2
+            assert result.damage == expected, (
+                f"prime {prime}: max(1, {prime}-{defense})//2 = {expected}, "
+                f"got {result.damage}"
             )
 
     def test_resolve_attack_then_apply_damage_routes_halved_value(self):
