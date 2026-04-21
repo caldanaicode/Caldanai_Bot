@@ -1037,9 +1037,17 @@ class Creature:
         # the part (tank torso +4, exposed eye SOFT_PART) adjusts
         # how much of this hit the part absorbs before the HP pool
         # actually drops.
-        if combined.isMiss or sub_dmg <= 0:
+        #
+        # Sub-damage floor: a landed hit against a *partially*-
+        # resistant trait (e.g. werewolf 0.75x on a d4 roll of 1 =
+        # int(0.75) = 0) should still deal at least 1 damage — the
+        # hit connected and the creature isn't immune. Full immunity
+        # is signalled explicitly by ``multiplier == 0``, which still
+        # produces zero damage below.
+        if combined.isMiss or multiplier == 0:
             damage = 0
         else:
+            sub_dmg = max(1, sub_dmg)
             damage = max(1, sub_dmg - defense)
         result = AttackResult(
             source=source,

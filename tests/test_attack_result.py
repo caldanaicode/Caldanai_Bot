@@ -75,6 +75,45 @@ class TestAttackResultBasics:
         # combined.result is 6 (from forced_damage), sub_damage = 12
         assert r.sub_damage == 12
 
+    def test_sub_damage_landed_hit_floors_at_one_on_partial_resistance(self):
+        """Q.6.3 fix: a landed hit against a partial resistance
+        (e.g. 0.75) with a low damage roll (e.g. 1) previously
+        int-truncated to 0 and displayed ``* 0.75 = 0``. The hit
+        connected, so the reported sub-damage and the applied
+        damage both floor at 1."""
+        combined = _make_combined(forced_attack=15, forced_damage=1, dodge=10)
+        r = AttackResult(
+            source=_make_source(),
+            combined=combined,
+            damage=1,
+            multiplier=0.75,
+            defense=0,
+            dodge=10,
+            dmg_type=DamageTypes.SLASHING,
+        )
+        assert r.sub_damage == 1
+
+    def test_sub_damage_zero_on_full_immunity(self):
+        """Full immunity (``multiplier == 0``) reads as 0 sub-damage
+        even on a landed hit — the floor only applies when the
+        target is merely resistant, not immune."""
+        combined = _make_combined(forced_attack=15, forced_damage=6, dodge=10)
+        r = AttackResult(
+            source=_make_source(),
+            combined=combined,
+            damage=0,
+            multiplier=0.0,
+            defense=0,
+            dodge=10,
+            dmg_type=DamageTypes.SLASHING,
+        )
+        assert r.sub_damage == 0
+
+    def test_sub_damage_miss_reads_zero(self):
+        """Miss reads as 0 regardless of multiplier."""
+        r = _make_result(is_miss=True, multiplier=1.0)
+        assert r.sub_damage == 0
+
 
 # ---------------------------------------------------------------------------
 # AttackResult.to_markdown

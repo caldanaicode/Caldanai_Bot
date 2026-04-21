@@ -86,8 +86,17 @@ class AttackResult:
 
     @property
     def sub_damage(self) -> int:
-        """The damage after multiplier but before defense subtraction."""
-        return int(self.multiplier * self.combined.result)
+        """The damage after multiplier but before defense subtraction.
+
+        Mirrors the landed-hit floor in :meth:`Creature.resolve_attack`:
+        a partial-resistance multiplier (e.g. 0.75) against a low
+        damage roll that would ``int()``-truncate to 0 still reports
+        a minimum of 1 because the hit *connected*. Full immunity
+        (``multiplier == 0``) and misses both read as 0.
+        """
+        if self.combined.isMiss or self.multiplier == 0:
+            return 0
+        return max(1, int(self.multiplier * self.combined.result))
 
     def to_display_parts(self) -> Dict[str, Any]:
         """Returns a dict of display-ready pieces for this result.
