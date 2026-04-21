@@ -513,12 +513,22 @@ def save_all_now() -> None:
 
 @tasks.loop(minutes=1)
 async def save_game_data():
-    """Database loop to save player and game data.
+    """Single driver for the DB write pipeline: populate queues
+    from dirty state, then drain them to Mongo — both in the same
+    tick.
 
-    Delegates to :func:`save_all_now` so the periodic save and the
-    one-shot shutdown save share a single implementation.
+    Pre-collapse (2026-04-21): this loop and ``DB.batch_write``
+    each ran independently on 1-minute ticks. Ops put into the
+    DoubleBuffer by one loop waited for the other's phase offset
+    to come around (0–60s additional latency), so a user action
+    could sit for up to 2 minutes end-to-end. Collapsing both
+    steps into this single loop caps the window at 1 minute while
+    preserving the DoubleBuffer's "swap before drain" semantic —
+    writes that land during the bulk_write itself go into the
+    new-active queue and get flushed next cycle.
     """
     save_all_now()
+    await DB.drain_queues_once()
 
 
 @save_game_data.error

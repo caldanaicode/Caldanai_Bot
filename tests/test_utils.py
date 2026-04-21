@@ -150,6 +150,12 @@ class TestSaveGameData:
     @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
     @patch("caldanai.lib.rpg.helpers.utils.DB")
     async def test_dirty_players_saved(self, mock_db, mock_rpg):
+        # Post-2026-04-21 loop collapse: save_game_data drains the
+        # queues at the end of each tick via DB.drain_queues_once().
+        # Patching DB wipes that method to a plain MagicMock — we
+        # need an AsyncMock so the ``await`` in the loop body resolves.
+        mock_db.drain_queues_once = AsyncMock()
+
         player_dirty = MagicMock()
         player_dirty.is_dirty = True
         player_dirty.user_id = 1
@@ -186,6 +192,8 @@ class TestSaveGameData:
     @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
     @patch("caldanai.lib.rpg.helpers.utils.DB")
     async def test_clean_players_skipped(self, mock_db, mock_rpg):
+        mock_db.drain_queues_once = AsyncMock()
+
         player = MagicMock()
         player.is_dirty = False
         player.user_id = 5
@@ -209,6 +217,8 @@ class TestSaveGameData:
     @patch("caldanai.lib.rpg.helpers.utils.RpgUtilities")
     @patch("caldanai.lib.rpg.helpers.utils.DB")
     async def test_new_player_id_resolved(self, mock_db, mock_rpg):
+        mock_db.drain_queues_once = AsyncMock()
+
         new_player = MagicMock()
         new_player.id = None
         new_player.guild_id = 50
@@ -314,6 +324,7 @@ class TestSaveAllNow:
         """The loop body was extracted into save_all_now — verify
         the task still writes. The two share one implementation so
         any regression in save_all_now also regresses the loop."""
+        mock_db.drain_queues_once = AsyncMock()
         game = MagicMock()
         game.guild.id = 7
         game.channel.id = 8

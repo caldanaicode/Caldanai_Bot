@@ -54,31 +54,29 @@ def fresh_db(_patch_mongo):
 
 class TestConnectionState:
     def test_on_connected_sets_flag(self, fresh_db):
+        """2026-04-21 loop-collapse: ``on_connected`` no longer starts
+        ``batch_write`` (the task loop is gone — ``save_game_data`` is
+        the single DB-write-pipeline driver now and its start is owned
+        by ``RpgUtilities.initialize``, not the DB connection hook)."""
         DB = fresh_db
         DB._is_connected = False
         DB.poll_for_connection = MagicMock()
         DB.poll_for_connection.is_running.return_value = True
-        DB.batch_write = MagicMock()
-        DB.batch_write.is_running.return_value = False
 
         DB.on_connected()
 
         assert DB._is_connected is True
         assert DB._write_alert_sent is False
         DB.poll_for_connection.stop.assert_called_once()
-        DB.batch_write.start.assert_called_once()
 
     def test_on_connected_does_not_stop_poll_if_not_running(self, fresh_db):
         DB = fresh_db
         DB.poll_for_connection = MagicMock()
         DB.poll_for_connection.is_running.return_value = False
-        DB.batch_write = MagicMock()
-        DB.batch_write.is_running.return_value = True
 
         DB.on_connected()
 
         DB.poll_for_connection.stop.assert_not_called()
-        DB.batch_write.start.assert_not_called()
 
     def test_on_disconnected_sets_flag(self, fresh_db):
         DB = fresh_db
@@ -248,7 +246,7 @@ class TestGuildChannels:
     def _wire_get_helpers(self, DB):
         """Pre-arrange the mocks the ``@check_connection`` decorator
         depends on so a sync test can call a wrapped DB getter
-        without spinning up an event loop for the batch_write
+        without spinning up an event loop for the drain-queue
         scheduler."""
         DB._is_connected = True
         DB._mongoClient = MagicMock()
@@ -292,8 +290,6 @@ class TestCheckConnectionDecorator:
         DB._mongoClient.admin.command.return_value = {"ok": 1}
         DB.poll_for_connection = MagicMock()
         DB.poll_for_connection.is_running.return_value = False
-        DB.batch_write = MagicMock()
-        DB.batch_write.is_running.return_value = True
 
         @DB.check_connection
         def my_func():
@@ -384,8 +380,9 @@ class TestFlushAll:
 
     def test_drains_mongo_log_handler_queue(self, fresh_db):
         """The Mongo log handler has its own queue that
-        ``batch_write`` drains into ``DB._logs``. ``flush_all`` must
-        mirror that — otherwise in-flight log lines die on shutdown."""
+        ``drain_queues_once`` drains into ``DB._logs``. ``flush_all``
+        must mirror that — otherwise in-flight log lines die on
+        shutdown."""
         DB = fresh_db
         DB._logs = MagicMock()
         DB._logs.full_name = "db.logs"
@@ -409,3 +406,88 @@ class TestFlushAll:
         DB._mongoHandler = None
         # Should not raise.
         DB.flush_all()
+
+
+class TestDrainQueuesOnceRetry:
+    """``DB.drain_queues_once`` pushes batches that failed with a
+    transient connection error onto each DoubleBuffer's ``retry``
+    sub-queue, then drains the retry queue ahead of fresh ops on
+    the next cycle. Pins: (1) transient-error re-queue, (2) retry
+    drain priority on recovery, (3) BulkWriteError ops are NOT
+    re-queued (data errors don't heal on retry)."""
+
+    @pytest.mark.asyncio
+    async def test_transient_error_requeues_ops_to_retry_buffer(self, fresh_db):
+        from pymongo.errors import AutoReconnect
+        DB = fresh_db
+        DB._mongoClient = MagicMock()
+        DB._mongoClient.admin.command.return_value = {"ok": 1}
+        DB._is_connected = True
+
+        collection = MagicMock()
+        collection.full_name = "db.games"
+        collection.bulk_write.side_effect = AutoReconnect("connection dropped")
+        op1 = UpdateOne({"_id": 1}, {"$set": {"x": 1}})
+        op2 = UpdateOne({"_id": 2}, {"$set": {"x": 2}})
+        DB._queues[collection].put(op1)
+        DB._queues[collection].put(op2)
+
+        await DB.drain_queues_once()
+
+        # Fresh queues drained, ops sitting in the retry holding pen.
+        buf = DB._queues[collection]
+        assert buf.get_all() == []
+        retry_ops = []
+        while not buf.retry.empty():
+            retry_ops.append(buf.retry.get_nowait())
+        assert len(retry_ops) == 2
+        # Connection flag flipped so the next caller knows to reconnect.
+        assert DB._is_connected is False
+
+    @pytest.mark.asyncio
+    async def test_retry_ops_drained_ahead_of_fresh_on_recovery(self, fresh_db):
+        """Once Mongo comes back, the next drain merges retry + fresh
+        into one bulk_write with retry ops first (they've been waiting
+        longer)."""
+        DB = fresh_db
+        DB._mongoClient = MagicMock()
+        DB._mongoClient.admin.command.return_value = {"ok": 1}
+        DB._is_connected = True
+
+        collection = MagicMock()
+        collection.full_name = "db.games"
+        retry_op = UpdateOne({"_id": 1}, {"$set": {"x": 1}})
+        fresh_op = UpdateOne({"_id": 2}, {"$set": {"x": 2}})
+        buf = DB._queues[collection]
+        buf.retry.put(retry_op)
+        buf.put(fresh_op)
+
+        await DB.drain_queues_once()
+
+        collection.bulk_write.assert_called_once()
+        sent_ops = collection.bulk_write.call_args.args[0]
+        assert sent_ops == [retry_op, fresh_op]
+        # Retry sub-queue is drained too.
+        assert buf.retry.empty()
+
+    @pytest.mark.asyncio
+    async def test_bulk_write_error_does_not_requeue(self, fresh_db):
+        """Data-shape errors (schema violation, duplicate key, etc.)
+        won't heal on retry — requeuing would create an infinite
+        loop. The batch must be logged and dropped."""
+        from pymongo.errors import BulkWriteError
+        DB = fresh_db
+        DB._mongoClient = MagicMock()
+        DB._mongoClient.admin.command.return_value = {"ok": 1}
+        DB._is_connected = True
+
+        collection = MagicMock()
+        collection.full_name = "db.games"
+        collection.bulk_write.side_effect = BulkWriteError(
+            {"errmsg": "schema", "nInserted": 0, "nModified": 0}
+        )
+        DB._queues[collection].put(UpdateOne({"_id": 1}, {"$set": {"x": 1}}))
+
+        await DB.drain_queues_once()
+
+        assert DB._queues[collection].retry.empty()

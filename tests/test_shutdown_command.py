@@ -65,19 +65,22 @@ def dispatcher_patch():
 @pytest.fixture
 def db_patch():
     """Patch the DB module's task loops and flush_all so tests can
-    assert the shutdown command drives them in the right order."""
+    assert the shutdown command drives them in the right order.
+
+    Post-2026-04-21 loop collapse: only ``watchdog`` remains on DB —
+    ``batch_write`` was merged into ``save_game_data`` (patched via
+    ``save_patch``)."""
     with patch("caldanai.console_commands.shutdown.DB") as DB:
-        # ``batch_write`` and ``watchdog`` are ``tasks.Loop``
-        # instances; replace with mocks that carry the subset of
-        # the Loop API the shutdown command actually uses.
-        for name in ("batch_write", "watchdog"):
-            loop = MagicMock()
-            loop.is_running.return_value = True
-            loop.cancel = MagicMock()
-            inner = MagicMock()
-            inner.done.return_value = True
-            loop._task = inner
-            setattr(DB, name, loop)
+        # ``watchdog`` is a ``tasks.Loop`` instance; replace with a
+        # mock carrying the subset of the Loop API the shutdown
+        # command actually uses.
+        loop = MagicMock()
+        loop.is_running.return_value = True
+        loop.cancel = MagicMock()
+        inner = MagicMock()
+        inner.done.return_value = True
+        loop._task = inner
+        DB.watchdog = loop
         DB.flush_all = MagicMock()
         DB._mongoClient = MagicMock()
         yield DB
@@ -115,24 +118,24 @@ class TestShutdownOrder:
         self, mock_state, mock_bot, dispatcher_patch, db_patch,
         save_patch, os_exit_patch,
     ):
-        """Full-sequence order contract:
+        """Full-sequence order contract (post-2026-04-21 loop collapse,
+        where ``batch_write`` was merged into ``save_game_data``):
 
         1. Dispatcher.flush flipped to True
         2. Per-game daemons + clock ticks stopped
-        3. bot.close() — no new commands can enter
-        4. watchdog cancelled (so it can't restart batch_write)
-        5. save_game_data cancelled
-        6. batch_write cancelled
+        3. state.set_shutdown() — arms main.start_bot's exit check
+        4. bot.close() — no new commands can enter
+        5. watchdog cancelled (so it can't restart save_game_data)
+        6. save_game_data cancelled
         7. save_all_now() — final enqueue
         8. DB.flush_all() — synchronous drain
-        9. state.set_shutdown()
-        10. Mongo client closed
-        11. os._exit(0)
+        9. Mongo client closed
+        10. os._exit(0)
 
         The critical invariants this encodes:
-        - bot.close BEFORE stopping batch_write, so in-flight
+        - bot.close BEFORE stopping save_game_data, so in-flight
           command saves still make it through the flush.
-        - watchdog dies BEFORE batch_write, so it can't restart
+        - watchdog dies BEFORE save_game_data, so it can't restart
           the stopped loop mid-shutdown.
         - save_all_now + flush_all atomic (no await between).
         """
@@ -153,7 +156,6 @@ class TestShutdownOrder:
         dispatcher_patch.send.cancel.side_effect = record("dispatcher.send.cancel")
         db_patch.watchdog.cancel.side_effect = record("watchdog.cancel")
         save_task.cancel.side_effect = record("save_game_data.cancel")
-        db_patch.batch_write.cancel.side_effect = record("batch_write.cancel")
         save_now.side_effect = record("save_all_now")
         db_patch.flush_all.side_effect = record("flush_all")
         mock_state.set_shutdown.side_effect = record("set_shutdown")
@@ -181,10 +183,9 @@ class TestShutdownOrder:
         # in playtest 2026-04-18).
         assert_before("set_shutdown", "bot.close")
         assert_before("bot.close", "watchdog.cancel")
-        assert_before("bot.close", "batch_write.cancel")
-        assert_before("watchdog.cancel", "batch_write.cancel")
-        assert_before("save_game_data.cancel", "batch_write.cancel")
-        assert_before("batch_write.cancel", "save_all_now")
+        assert_before("bot.close", "save_game_data.cancel")
+        assert_before("watchdog.cancel", "save_game_data.cancel")
+        assert_before("save_game_data.cancel", "save_all_now")
         assert_before("save_all_now", "flush_all")
         assert_before("flush_all", "mongo_close")
         assert_before("mongo_close", "os._exit")
@@ -235,24 +236,29 @@ class TestShutdownOrder:
         assert all(flag is True for flag in observed_flush)
 
     @pytest.mark.asyncio
-    async def test_watchdog_stopped_before_batch_write(
+    async def test_watchdog_stopped_before_save_game_data(
         self, mock_state, mock_bot, dispatcher_patch, db_patch,
         save_patch, os_exit_patch,
     ):
-        """Critical for correctness: if we stop ``batch_write``
+        """Critical for correctness: if we stop ``save_game_data``
         before ``watchdog``, the watchdog's next tick can restart
-        ``batch_write`` while we're mid-flush, letting it race the
-        synchronous drain. Order must be watchdog → batch_write."""
+        ``save_game_data`` while we're mid-flush, letting it race the
+        synchronous drain. Order must be watchdog → save_game_data.
+
+        Post-2026-04-21 loop collapse: the old ``batch_write`` task
+        loop was merged into ``save_game_data``, so the ordering
+        invariant applies to the merged loop."""
         mock_state.get_bot.return_value = mock_bot
+        _save_now, save_task = save_patch
 
         calls = []
         db_patch.watchdog.cancel.side_effect = lambda: calls.append("watchdog")
-        db_patch.batch_write.cancel.side_effect = lambda: calls.append("batch_write")
+        save_task.cancel.side_effect = lambda: calls.append("save_game_data")
 
         await ShutdownCommand.execute([], mock_state)
 
-        assert "watchdog" in calls and "batch_write" in calls
-        assert calls.index("watchdog") < calls.index("batch_write")
+        assert "watchdog" in calls and "save_game_data" in calls
+        assert calls.index("watchdog") < calls.index("save_game_data")
 
 
 # ---------------------------------------------------------------------------

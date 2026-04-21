@@ -44,13 +44,15 @@ class DbStatusCommand(CommandPlugin):
         # Task loop liveness. ``is_running`` returns False if the
         # task crashed or was stopped; watchdog restarts it within
         # 5 minutes if it's supposed to be running.
-        batch_running = DB.batch_write.is_running()
+        #
+        # ``save_game_data`` (rpg/helpers/utils.py) is the single
+        # DB-write-pipeline driver post-2026-04-21 loop collapse —
+        # it calls save_all_now() to populate queues and then
+        # DB.drain_queues_once() to flush, both in the same 1-minute
+        # tick. No separate ``batch_write`` loop anymore.
         watchdog_running = DB.watchdog.is_running()
-        lines.append(f"  batch_write:     {'running' if batch_running else 'STOPPED'}")
         lines.append(f"  watchdog:        {'running' if watchdog_running else 'STOPPED'}")
 
-        # save_game_data lives in utils.py; it's what enqueues
-        # player/game updates onto the DB queues.
         try:
             from caldanai.lib.rpg.helpers.utils import save_game_data
             sgd_running = save_game_data.is_running()

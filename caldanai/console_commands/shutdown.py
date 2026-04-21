@@ -103,7 +103,7 @@ class ShutdownCommand(CommandPlugin):
         # 4. Close discord.py cleanly. Any in-flight command
         #    coroutines complete (their ``game.save()`` calls land
         #    in ``DB._queues``) before the websocket closes.
-        #    Must happen BEFORE we stop ``batch_write`` —
+        #    Must happen BEFORE we stop ``save_game_data`` —
         #    otherwise a long-running command racing the shutdown
         #    could still enqueue writes after our final flush.
         try:
@@ -114,24 +114,23 @@ class ShutdownCommand(CommandPlugin):
 
         # 5. Now that no new writes can enter the queues, cancel
         #    both the watchdog (which would otherwise restart
-        #    ``batch_write`` on its next 5-minute tick) and
-        #    ``batch_write`` itself. Cancel + await rather than
+        #    ``save_game_data`` on its next 5-minute tick) and
+        #    ``save_game_data`` itself. Cancel + await rather than
         #    just ``stop()`` so any in-flight iteration is
         #    guaranteed to be done before we proceed. ``stop()``
         #    is cooperative and leaves a mid-execution tick still
         #    running, which could enqueue or drain concurrently
         #    with our synchronous flush.
+        #
+        # ``batch_write`` used to be a separate task loop here;
+        # after the 2026-04-21 collapse there's only one loop on
+        # the DB write path (``save_game_data`` drives both steps).
         await ShutdownCommand._stop_task_loop(
             _get_task(DB, "watchdog"), "watchdog",
         )
-        # save_game_data is only used by the loop — it delegates
-        # to save_all_now which we're about to call directly.
         from caldanai.lib.rpg.helpers import utils as _utils
         await ShutdownCommand._stop_task_loop(
             _get_task(_utils, "save_game_data"), "save_game_data",
-        )
-        await ShutdownCommand._stop_task_loop(
-            _get_task(DB, "batch_write"), "batch_write",
         )
 
         # 6. One-shot final enqueue — mirror save_game_data once

@@ -4,6 +4,32 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — DB write pipeline: loop collapse + retry queue wired
+
+**Loop collapse — worst-case write latency 2 min → 1 min.** The DB
+write path used to be two independent ``@tasks.loop(minutes=1)``
+loops: ``save_game_data`` enqueued dirty state, ``batch_write``
+drained the queues. Phase offset between their ticks meant a
+mutation could sit up to two minutes before reaching Mongo. The
+``batch_write`` body moves into a new ``DB.drain_queues_once()``
+static method; ``save_game_data`` calls it immediately after
+``save_all_now()`` in the same tick, so a mutation now reaches
+Mongo within one minute in the worst case.
+
+**``DoubleBuffer.retry`` wired.** The retry sub-queue was an
+unused stub — transient Mongo blips (``AutoReconnect``,
+``ConnectionFailure``, ``NetworkTimeout``,
+``ServerSelectionTimeoutError``) silently dropped the current
+batch. ``drain_queues_once`` now catches those errors, requeues
+the ops onto ``buf.retry``, and drains retry ops ahead of fresh
+ops on the next cycle. ``BulkWriteError`` ops (schema violations,
+duplicate keys) are still logged and dropped — retrying them
+would loop forever.
+
+Shutdown command, ``db_status`` console command, and ``DB.watchdog``
+updated to the single-loop architecture. Three new regression
+tests in ``TestDrainQueuesOnceRetry``.
+
 ### 2026-04-21 — Per-game log context + log-level sweep
 
 **Per-game channel context in logs.** Log lines emitted inside a

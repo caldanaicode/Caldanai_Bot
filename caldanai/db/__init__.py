@@ -9,7 +9,13 @@ from datetime import datetime
 from discord.ext import tasks
 from pymongo import DESCENDING, DeleteMany, DeleteOne, InsertOne, MongoClient, UpdateOne
 from pymongo.database import Database
-from pymongo.errors import BulkWriteError
+from pymongo.errors import (
+    AutoReconnect,
+    BulkWriteError,
+    ConnectionFailure,
+    NetworkTimeout,
+    ServerSelectionTimeoutError,
+)
 
 from caldanai.double_buffer import DoubleBuffer
 from caldanai.environment import DB_CONNECTION, LIVE_DB_NAME, STAGE, TEST_DB_NAME
@@ -53,10 +59,6 @@ class DB:
         if DB.poll_for_connection.is_running():
             DB.poll_for_connection.stop()
             _log.debug("poll_for_connection() stopped")
-
-        if not DB.batch_write.is_running():
-            DB.batch_write.start()
-            _log.debug("batch_write() started")
 
     @staticmethod
     def on_disconnected() -> None:
@@ -110,9 +112,14 @@ class DB:
     @check_connection
     @staticmethod
     def close_db_connection():
-        """Closes the database connection."""
+        """Closes the database connection.
 
-        DB.batch_write.stop()
+        The periodic-write loop that used to live here as
+        ``batch_write`` has been collapsed into ``save_game_data``
+        (rpg/helpers/utils.py) so the shutdown order is now "stop
+        save_game_data → flush_all → close mongo client" rather
+        than separately stopping two loops.
+        """
         DB._mongoClient.close()
 
     @staticmethod
@@ -165,40 +172,97 @@ class DB:
                     f"flush_all: log bulk_write failed: {error_info}"
                 )
 
-    @tasks.loop(minutes=1)
-    async def batch_write():
-        """Performs batch writing to the database for the queued items.
+    @staticmethod
+    async def drain_queues_once():
+        """Drain every queued DB op to Mongo in one pass.
 
-        Handles its own connection checking inline so that a failed ping
-        skips the current cycle without ever stopping the task loop.
+        Called from the ``save_game_data`` task loop right after
+        ``save_all_now()`` populates the queues — so queued ops land
+        in Mongo within the same 1-minute tick rather than waiting
+        for a second, independent ``batch_write`` tick (which in
+        the pre-collapse architecture produced a 0–2 minute
+        write-visibility window, depending on phase offset between
+        the two loops).
+
+        Retry handling: each :class:`DoubleBuffer` exposes a
+        ``retry`` sub-queue. Ops that failed on a previous cycle
+        with a *transient* error (connection drops, server-selection
+        timeouts) are pushed there and drained ahead of fresh ops
+        on the next cycle, so a momentary Mongo blip doesn't lose
+        writes. Data-validation failures inside a ``BulkWriteError``
+        are logged and dropped — retrying a malformed op loops
+        forever.
         """
-
         try:
             DB._mongoClient.admin.command("ping")
             if not DB._is_connected:
                 DB.on_connected()
         except Exception:
-            _log.error("DB ping failed during batch_write.", exc_info=True)
+            _log.error("DB ping failed during drain_queues_once.", exc_info=True)
             if DB._is_connected:
                 DB.on_disconnected()
-            return  # skip this cycle; the task stays alive
+            return  # skip this cycle; queued ops stay put for next one
 
         attempts = 0
         successes = 0
         collections = list(DB._queues.keys())
         for collection in collections:
-            if ops := DB._queues[collection].get_all():
-                _log.debug(
-                    f"Writing {len(ops)} queued DB update{'s' if len(ops) != 1 else ''} to '{collection.full_name}'"
-                )
-                attempts += 1
+            buf = DB._queues[collection]
+            # Retry sub-queue is drained ahead of the fresh batch so
+            # previously-failed ops take priority (they've already
+            # waited a cycle). Both lists get merged into a single
+            # bulk_write so the DB round-trip count doesn't balloon.
+            retry_ops = []
+            while not buf.retry.empty():
                 try:
-                    result = collection.bulk_write(ops, ordered=False)
-                    _log.debug(f"{result=}")
+                    retry_ops.append(buf.retry.get_nowait())
+                except Exception:
+                    break
+            fresh_ops = buf.get_all()
+            ops = retry_ops + fresh_ops
+            if not ops:
+                continue
+            _log.debug(
+                f"Writing {len(ops)} queued DB update"
+                f"{'s' if len(ops) != 1 else ''} to "
+                f"'{collection.full_name}'"
+                f"{f' (incl. {len(retry_ops)} retried)' if retry_ops else ''}"
+            )
+            attempts += 1
+            try:
+                result = collection.bulk_write(ops, ordered=False)
+                _log.debug(f"{result=}")
+                successes += 1
+            except BulkWriteError as e:
+                # Partial failure: some ops succeeded, some didn't.
+                # Data-shape errors (schema violation, duplicate key,
+                # etc.) won't heal on retry, so we log + drop.
+                error_info = traceback.format_exc()
+                _log.error(
+                    f"BulkWriteError on '{collection.full_name}': "
+                    f"{error_info}"
+                )
+                # Still count as a partial success — at least one
+                # op likely landed (MongoDB's ordered=False keeps
+                # going past individual failures).
+                if e.details.get("nInserted", 0) or e.details.get("nModified", 0):
                     successes += 1
-                except BulkWriteError:
-                    error_info = traceback.format_exc()
-                    _log.error(f"Error occurred while performing bulk write operation: {error_info}")
+            except (
+                AutoReconnect, ConnectionFailure,
+                NetworkTimeout, ServerSelectionTimeoutError,
+            ) as e:
+                # Transient connection problems: requeue the whole
+                # batch so the next cycle tries again. ``buf.retry``
+                # is the explicit "these need re-drive" holding pen.
+                _log.error(
+                    f"Transient write failure on "
+                    f"'{collection.full_name}' ({type(e).__name__}): "
+                    f"requeuing {len(ops)} op(s) for retry."
+                )
+                for op in ops:
+                    buf.retry.put(op)
+                if DB._is_connected:
+                    DB.on_disconnected()
 
         if DB._mongoHandler and (errors := [InsertOne(item) for item in DB._mongoHandler.queue.get_all()]):
             attempts += 1
@@ -207,7 +271,19 @@ class DB:
                 successes += 1
             except BulkWriteError:
                 error_info = traceback.format_exc()
-                _log.error(f"Error occurred while performing bulk write operation: {error_info}")
+                _log.error(f"Log bulk_write failed: {error_info}")
+            except (
+                AutoReconnect, ConnectionFailure,
+                NetworkTimeout, ServerSelectionTimeoutError,
+            ) as e:
+                # Log queue doesn't have a retry-sub-queue analogue
+                # today; dropped log lines are less catastrophic than
+                # dropped gameplay state. Note the loss and move on.
+                _log.error(
+                    f"Transient log-write failure "
+                    f"({type(e).__name__}): {len(errors)} log "
+                    "line(s) dropped."
+                )
 
         # Only bump the watchdog timestamp if we either had nothing to write
         # (connection is healthy, confirmed by the earlier ping) or at least
@@ -216,11 +292,6 @@ class DB:
         if attempts == 0 or successes > 0:
             DB._last_successful_write = datetime.now()
             DB._write_alert_sent = False
-
-    @batch_write.error
-    async def batch_write_error(e):
-        error_info = traceback.format_exc()
-        _log.error(f"batch_write task error: {error_info}")
 
     @tasks.loop(minutes=1)
     async def poll_for_connection():
@@ -500,11 +571,11 @@ class DB:
 
         restarted = []
 
-        if not DB.batch_write.is_running():
-            _log.error("WATCHDOG: batch_write was not running — restarting.")
-            DB.batch_write.start()
-            restarted.append("batch_write")
-
+        # ``batch_write`` was removed in the 2026-04-21 loop-collapse;
+        # ``save_game_data`` now drives both the dirty-state sweep
+        # AND the DB drain in the same 1-minute tick, so only one
+        # task loop needs watchdog-style heartbeat checking for the
+        # DB write pipeline.
         if not save_game_data.is_running():
             _log.error("WATCHDOG: save_game_data was not running — restarting.")
             save_game_data.start()
@@ -543,7 +614,7 @@ class DB:
                         author_display_name="Watchdog",
                         message=(
                             f"No successful database write in {int(elapsed)} seconds.\n"
-                            f"batch_write running: {DB.batch_write.is_running()}\n"
+                            f"save_game_data running: {save_game_data.is_running()}\n"
                             f"DB connected flag: {DB._is_connected}\n"
                             f"Tasks restarted this cycle: {restarted or 'none'}"
                         ),
@@ -552,7 +623,7 @@ class DB:
                     _log.error("WATCHDOG: Failed to send alert.", exc_info=True)
                 DB._write_alert_sent = True
 
-        elif DB.batch_write.is_running():
+        elif save_game_data.is_running():
             # First cycle after startup — seed the timestamp
             DB._last_successful_write = datetime.now()
 
