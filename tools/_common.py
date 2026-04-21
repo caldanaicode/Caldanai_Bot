@@ -31,7 +31,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 # Windows consoles default to a legacy codepage (cp1252) which
 # mangles em-dashes and other non-latin1 glyphs in tool output.
@@ -66,6 +66,35 @@ for _stream in (sys.stdout, sys.stderr):
 # new ``base_name`` we add.
 
 _STATE_DIR = Path(__file__).parent
+
+
+# Shared ``tail_*`` environment shortnames. Operators pass ``LIVE``
+# / ``TEST`` on the command line; tools map that to (env-var-name,
+# default-inspector-port). The default ports are convention-only —
+# overridable via ``--port`` on each tool — but sticking to them
+# keeps "which env is this process tailing?" readable from
+# ``ps``/``tasklist`` alone, because the positional arg is the
+# authoritative tag.
+TAIL_ENVS: "Dict[str, Tuple[str, int]]" = {
+    "LIVE": ("LIVE_DB_NAME", 8765),
+    "TEST": ("TEST_DB_NAME", 8766),
+}
+
+
+def resolve_tail_env(shortname: str) -> "Tuple[str, int]":
+    """Map a ``LIVE`` / ``TEST`` shortname to ``(env_var, port)``.
+
+    Case-insensitive. Raises :class:`SystemExit` with a clear
+    message on an unknown shortname — better than a KeyError
+    deep in a tool when the operator typos.
+    """
+    key = shortname.upper()
+    if key not in TAIL_ENVS:
+        raise SystemExit(
+            f"Unknown tail env {shortname!r}. Valid: "
+            f"{', '.join(TAIL_ENVS)}."
+        )
+    return TAIL_ENVS[key]
 
 
 def state_file_path(base_name: str, db_env_var: str) -> Path:

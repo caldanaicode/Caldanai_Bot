@@ -4,6 +4,69 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Combat fix: landed-hit damage floors at 1 under partial resistance
+
+Under Q.6.3's per-hit defense, a landed hit against a partially-
+resistant trait with a low damage roll could silently do zero
+damage via ``int()``-truncation — e.g. werewolf's ``0.75x`` trait
+on a d4 roll of ``1`` gave ``int(0.75) = 0``, the hit "landed" on
+the roll check but dealt nothing and showed ``* 0.75 = 0 → 0`` in
+the table. Now: landed hits floor at 1 both for the applied
+damage and the displayed ``sub_damage``, so the connection always
+registers. Full immunity (``multiplier == 0``) still reads as 0
+— the floor only fires when the target is merely resistant.
+
+Spotted by Caels in LIVE playtest 2026-04-21 after the Q.6.3 push.
+
+**Balance impact (post-fix sweep, 25 trials, MASTERWORK, base
+player):** the silent-zero was quietly depressing damage against
+any resistance-heavy monster. Meaningful shifts:
+
+- **Dragon** (0.5× most types, 0.75× pure piercing): win-rate at
+  skill 0/10/20 was ``0/0/28%``, now ``0/36/40%``. Genuinely
+  winnable with skill rather than capped at boss-unreachable.
+- **Golem** (0.25× piercing, 0.5× slashing, 0.25× earth): exploit
+  gap tightened from 44% to 32%; resistance-heavy armor no longer
+  zeroes the low-roll hits that were making swings feel wasted.
+
+No regressions on the unresisted roster (goblin / bandit / werewolf
+/ skeleton / etc. still trivially beatable). Fix is a pure damage
+floor — the balance numbers pre-fix were what we shipped Q.6.3
+with, so the Q.6.3 tuning set assumed a silent zero that shouldn't
+have existed; numbers are now closer to what we thought we were
+tuning.
+
+### 2026-04-21 — `tools/tail_*` consolidation: LIVE / TEST positional + new watcher + balance aggregator
+
+Four tail tools now share a single ``LIVE`` / ``TEST`` first-
+argument interface. The shortname maps to both the DB env var
+(``LIVE_DB_NAME`` / ``TEST_DB_NAME``) and the default inspector
+port (``LIVE=8765``, ``TEST=8766``). Operators no longer need to
+remember which env lives on which port — ``ps`` / ``tasklist``
+on the running process answers it directly.
+
+```
+python -m tools.tail_channel LIVE --follow     # starts inspector
+python -m tools.tail_peek    LIVE --tail 20    # pretty-print
+python -m tools.tail_watch   LIVE              # filtered watcher
+python -m tools.tail_balance LIVE              # metrics roll-up
+```
+
+Plus:
+- ``tools/tail_watch`` is a new filtered watcher that polls the
+  inspector and emits only ``ERROR`` / ``COMPLAINT?`` / ``PLAYER-Q``
+  / ``WIPE`` events — for overnight monitoring without the combat-
+  chatter noise.
+- ``tools/tail_balance`` rolls the last N hours of inspector buffer
+  into a summary: spawn counts, monster escapes, player deaths,
+  hit/miss/crit rates, per-player activity. ``--since-hours`` or
+  ``--after`` for the window; ``--json`` for machine-readable.
+- ``--help`` on all four tools now fronts the ``{LIVE|TEST}``
+  positional in the usage line and leads the description with
+  "FIRST ARGUMENT" so the required arg is impossible to miss.
+- ``TAIL_ENVS`` mapping + ``resolve_tail_env`` helper added to
+  ``tools/_common.py`` so any future tail-tool stays in sync.
+
 ### 2026-04-20 — Phase Q.6.2 / Q.6.3 Per-Hit Defense (final shape: additive integer bonuses)
 
 Two-commit arc landing per-hit defense application. Q.6.2

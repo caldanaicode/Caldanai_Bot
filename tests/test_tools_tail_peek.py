@@ -73,7 +73,11 @@ class TestFetch:
         assert excinfo.value.code == 1
         captured = capsys.readouterr()
         assert "Could not reach" in captured.err
-        assert "tools.tail_channel --follow" in captured.err
+        # Hint now names the new LIVE / TEST positional instead of
+        # the old env-var arg.
+        assert "tools.tail_channel" in captured.err
+        assert "<LIVE|TEST>" in captured.err
+        assert "--follow" in captured.err
 
     def test_http_error_exits_with_status(self, capsys):
         def fake_urlopen(url, timeout=5):

@@ -9,11 +9,12 @@ footer (buffer usage, dropped count, latest id).
 
 Usage::
 
-    python -m tools.tail_peek                         # full buffer
-    python -m tools.tail_peek --since <message_id>    # only newer than id
-    python -m tools.tail_peek --tail 10               # last 10 after filter
-    python -m tools.tail_peek --json                  # raw JSON passthrough
-    python -m tools.tail_peek --port 8766             # custom port
+    python -m tools.tail_peek LIVE                    # full LIVE buffer
+    python -m tools.tail_peek TEST                    # full TEST buffer
+    python -m tools.tail_peek LIVE --since <msg_id>   # only newer than id
+    python -m tools.tail_peek LIVE --tail 10          # last 10 after filter
+    python -m tools.tail_peek LIVE --json             # raw JSON passthrough
+    python -m tools.tail_peek LIVE --port 8999        # port override
 
 No DB / auth involved — the inspector is a localhost HTTP
 endpoint served by ``tail_channel --follow``. If that process
@@ -91,7 +92,8 @@ def _fetch(host: str, port: int, since: Optional[int]) -> dict:
     except urllib.error.URLError as e:
         print(
             f"Could not reach the inspector at {url}: {e.reason}. "
-            f"Is `python -m tools.tail_channel --follow` running?",
+            f"Is `python -m tools.tail_channel <LIVE|TEST> --follow` "
+            "running for this env?",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -171,7 +173,34 @@ def _format_snapshot(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    from tools._common import TAIL_ENVS, resolve_tail_env
+
+    parser = argparse.ArgumentParser(
+        usage="python -m tools.tail_peek {LIVE|TEST} [options]",
+        description=(
+            "Pretty-print a tail_channel inspector's buffer. The "
+            "FIRST ARGUMENT picks which env's inspector to read: "
+            "LIVE (port 8765) or TEST (port 8766). Override the "
+            "port with --port when running a non-default inspector."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  python -m tools.tail_peek LIVE\n"
+            "  python -m tools.tail_peek LIVE --tail 20\n"
+            "  python -m tools.tail_peek TEST --since 1496000000000000000\n"
+            "  python -m tools.tail_peek LIVE --after 2026-04-21T00:00:00Z\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "env",
+        choices=list(TAIL_ENVS.keys()),
+        metavar="ENV",
+        help=(
+            "REQUIRED. LIVE or TEST. Picks the inspector port "
+            "(LIVE=8765, TEST=8766)."
+        ),
+    )
     parser.add_argument(
         "--host",
         default=_DEFAULT_HOST,
@@ -180,8 +209,11 @@ def main() -> int:
     parser.add_argument(
         "--port",
         type=int,
-        default=_DEFAULT_PORT,
-        help=f"Inspector port (default: {_DEFAULT_PORT}).",
+        default=None,
+        help=(
+            "Inspector port override. Default is derived from the "
+            "``env`` positional (LIVE=8765, TEST=8766)."
+        ),
     )
 
     # --since and --after both set the lower-bound cursor; mutually
@@ -232,6 +264,10 @@ def main() -> int:
         help="Print the raw JSON payload from the endpoint (for scripts).",
     )
     args = parser.parse_args()
+
+    _, default_port = resolve_tail_env(args.env)
+    if args.port is None:
+        args.port = default_port
 
     since_value: Optional[int] = args.since
     if args.after is not None:

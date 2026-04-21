@@ -11,12 +11,20 @@ automation or when the game's channel id is already known.
 
 Usage::
 
-    python -m tools.tail_channel                               # LIVE, pick game interactively
-    python -m tools.tail_channel TEST_DB_NAME                  # TEST DB, pick game
-    python -m tools.tail_channel TEST_DB_NAME --limit 20       # last 20 messages
-    python -m tools.tail_channel TEST_DB_NAME --follow         # tail new messages (poll)
-    python -m tools.tail_channel TEST_DB_NAME --channel-id 999 # skip picker
-    python -m tools.tail_channel TEST_DB_NAME --guild 123      # narrow picker to one guild
+    python -m tools.tail_channel LIVE                          # pick game interactively
+    python -m tools.tail_channel TEST                          # same, against TEST DB
+    python -m tools.tail_channel LIVE --limit 20               # last 20 messages
+    python -m tools.tail_channel LIVE --follow                 # tail new messages (poll)
+    python -m tools.tail_channel LIVE --channel-id 999         # skip picker
+    python -m tools.tail_channel LIVE --guild 123              # narrow picker to one guild
+
+The ``LIVE`` / ``TEST`` positional is mandatory and maps to the
+matching ``LIVE_DB_NAME`` / ``TEST_DB_NAME`` env var internally.
+It's also the authoritative "which environment is this process
+tailing?" tag — visible in ``ps`` / ``tasklist`` without any
+lookup — so the reader tools (``tail_peek``, ``tail_watch``,
+``tail_balance``) accept the same shortname and connect to the
+matching default port (LIVE=8765, TEST=8766).
 
 Output is plain markdown — header with channel context, one
 sub-header per message with timestamp + author, body quoted
@@ -67,6 +75,8 @@ from tools._common import (
     DiscordRestClient,
     get_auth,
     live_db,
+    resolve_tail_env,
+    TAIL_ENVS,
     use_db_env_var,
 )
 
@@ -636,14 +646,32 @@ async def _run(args: argparse.Namespace, token: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(
+        usage="python -m tools.tail_channel {LIVE|TEST} [options]",
+        description=(
+            "Tail a game's Discord channel. The FIRST ARGUMENT is "
+            "required and picks the environment: LIVE or TEST. That "
+            "shortname maps to the corresponding DB env var AND to a "
+            "default inspector port (LIVE=8765, TEST=8766), so the "
+            "running process tag in ``ps`` / ``tasklist`` answers "
+            "'which env is this tailing?' without any lookup."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  python -m tools.tail_channel LIVE --follow\n"
+            "  python -m tools.tail_channel TEST --limit 20\n"
+            "  python -m tools.tail_channel LIVE --channel-id 123 --follow\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
-        "db_env_var",
-        nargs="?",
-        default="LIVE_DB_NAME",
+        "env",
+        choices=list(TAIL_ENVS.keys()),
+        metavar="ENV",
         help=(
-            "Env var holding the Mongo DB name to target "
-            "(default: LIVE_DB_NAME). Use TEST_DB_NAME for local testing."
+            "REQUIRED. LIVE or TEST. Picks the DB env var "
+            "(LIVE_DB_NAME / TEST_DB_NAME) and the default inspector "
+            "port (LIVE=8765, TEST=8766)."
         ),
     )
     parser.add_argument(
@@ -691,15 +719,19 @@ def main() -> int:
     parser.add_argument(
         "--port",
         type=int,
-        default=_DEFAULT_HTTP_PORT,
+        default=None,
         help=(
-            f"Localhost port for the --follow inspector HTTP endpoint "
-            f"(default: {_DEFAULT_HTTP_PORT}). 127.0.0.1-bound only."
+            "Localhost inspector port override. When omitted, the "
+            "port is chosen by env (LIVE=8765, TEST=8766). 127.0.0.1-"
+            "bound only."
         ),
     )
     args = parser.parse_args()
 
-    use_db_env_var(args.db_env_var)
+    env_var, default_port = resolve_tail_env(args.env)
+    effective_port = args.port if args.port is not None else default_port
+    args.port = effective_port
+    use_db_env_var(env_var)
 
     auth = get_auth()
     token = auth.get("TOKEN")
