@@ -288,6 +288,151 @@ class TestItemBareKeyAmbiguates:
         assert res.items == [right]
 
 
+class TestBestSelectorInSellMode:
+    """``.best`` should pick the best from the CANDIDATE POOL for
+    the mode — in sell mode, that's unequipped items only. Pre-fix
+    the filter ran globally and then sell subtracted equipped,
+    which made ``$sell wand.best`` return nothing when the best
+    wand was equipped (the common case after ``$equip wand.best``)."""
+
+    def _three_quality_wands(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p = _player()
+        items = []
+        for q in (Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR):
+            w = Inventory.load_item(name="wand")
+            w.quality = q
+            p.inventory.add(w)
+            items.append(w)
+        return p, items
+
+    def test_sell_best_with_nothing_equipped_picks_superior(self):
+        p, (junk, fine, superior) = self._three_quality_wands()
+        res = p.resolve_item_query("wand.best", "sell")
+        assert res.items == [superior]
+
+    def test_sell_best_falls_back_to_next_best_when_best_equipped(self):
+        p, (junk, fine, superior) = self._three_quality_wands()
+        p.part_equipment["arm.left"]["held"] = superior
+        res = p.resolve_item_query("wand.best", "sell")
+        assert res.items == [fine]
+
+    def test_sell_best_empty_when_all_equipped(self):
+        p, (junk, fine, superior) = self._three_quality_wands()
+        p.part_equipment["arm.left"]["held"] = superior
+        p.part_equipment["arm.right"]["held"] = fine
+        # junk stays unequipped — best of unequipped is junk.
+        res = p.resolve_item_query("wand.best", "sell")
+        assert res.items == [junk]
+
+
+class TestBestSelectorInEquipMode:
+    """Same fix as sell mode: ``$equip wand.best`` with the
+    globally-best wand already equipped picks the next-best
+    unequipped rather than bouncing off "Item already equipped."
+    Lets a player fill their second hand with the second-best
+    wand in a single command. Full quality form (``wand.superior``)
+    or index form (``wand.1``) is the escape hatch when the
+    player really wants to re-equip the worn item."""
+
+    def _three_quality_wands(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p = _player()
+        items = []
+        for q in (Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR):
+            w = Inventory.load_item(name="wand")
+            w.quality = q
+            p.inventory.add(w)
+            items.append(w)
+        return p, items
+
+    def test_equip_best_picks_superior_when_none_equipped(self):
+        p, (_, _, superior) = self._three_quality_wands()
+        res = p.resolve_item_query("wand.best", "equip")
+        assert res.items == [superior]
+
+    def test_equip_best_picks_next_best_when_superior_worn(self):
+        p, (_, fine, superior) = self._three_quality_wands()
+        p.part_equipment["arm.left"]["held"] = superior
+        res = p.resolve_item_query("wand.best", "equip")
+        assert res.items == [fine]
+
+    def test_equip_best_falls_to_junk_when_two_worn(self):
+        p, (junk, fine, superior) = self._three_quality_wands()
+        p.part_equipment["arm.left"]["held"] = superior
+        p.part_equipment["arm.right"]["held"] = fine
+        res = p.resolve_item_query("wand.best", "equip")
+        assert res.items == [junk]
+
+
+class TestQualityPrefixExpansion:
+    """Single (or multi) character prefixes of quality suffixes
+    expand to the full form. Each quality starts with a unique
+    letter today (``.b``=best, ``.j``=junk, ``.o``=ordinary,
+    ``.f``=fine, ``.q``=quality, ``.s``=superior, ``.m``=masterwork)
+    so one-char prefixes are unambiguous."""
+
+    def _make_with_qualities(self, *qualities):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p = _player()
+        items = []
+        for q in qualities:
+            w = Inventory.load_item(name="wand")
+            w.quality = q
+            p.inventory.add(w)
+            items.append(w)
+        return p, items
+
+    def test_dot_b_expands_to_best(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p, (_, fine, superior) = self._make_with_qualities(
+            Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR,
+        )
+        res = p.resolve_item_query("wand.b", "equip")
+        assert res.items == [superior]
+
+    def test_dot_s_expands_to_superior(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p, (_, _, superior) = self._make_with_qualities(
+            Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR,
+        )
+        res = p.resolve_item_query("wand.s", "equip")
+        assert res.items == [superior]
+
+    def test_dot_j_expands_to_junk(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p, (junk, _, _) = self._make_with_qualities(
+            Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR,
+        )
+        res = p.resolve_item_query("wand.j", "equip")
+        assert res.items == [junk]
+
+    def test_multi_char_prefix_narrows(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p, (_, _, _, masterwork) = self._make_with_qualities(
+            Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR, Qualities.MASTERWORK,
+        )
+        res = p.resolve_item_query("wand.mas", "equip")
+        assert res.items == [masterwork]
+
+    def test_full_name_still_works(self):
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        p, (_, fine, _) = self._make_with_qualities(
+            Qualities.JUNK, Qualities.FINE, Qualities.SUPERIOR,
+        )
+        res = p.resolve_item_query("wand.fine", "equip")
+        assert res.items == [fine]
+
+    def test_unknown_prefix_falls_through(self):
+        """A prefix that doesn't uniquely match any quality
+        should NOT be expanded — leave as-is and let normal
+        handling fail naturally. ``wand.xyz`` has no match."""
+        p, _ = self._make_with_qualities()
+        res = p.resolve_item_query("wand.xyz", "equip")
+        # Empty result — not a crash, just no match.
+        assert res.items == []
+
+
 class TestUnknownMode:
     def test_unknown_mode_raises(self):
         p = _player()

@@ -73,6 +73,38 @@ class ItemResolution:
     ambiguity_candidates: List[str] = field(default_factory=list)
 
 
+def _expand_quality_suffix(query: str) -> str:
+    """Expand a trailing ``.<partial>`` to the full quality suffix
+    when the partial is an unambiguous prefix of one known
+    quality-ish name (``best`` plus every :class:`Qualities`
+    name).
+
+    ``wand.b`` → ``wand.best``, ``wand.s`` → ``wand.superior``,
+    ``wand.mas`` → ``wand.masterwork``. Numeric suffixes
+    (``wand.2``) pass through unchanged — they resolve via
+    ``Inventory.filter``'s index path. Ambiguous partials or
+    unknown suffixes also pass through unchanged so the normal
+    handlers can try the query as-is (or fail naturally).
+    """
+    from caldanai.lib.rpg.helpers.enums import Qualities
+
+    if "." not in query:
+        return query
+    base, _, suffix = query.rpartition(".")
+    if not suffix or suffix.isdigit():
+        return query
+    # Already a full quality name → nothing to expand.
+    if suffix.upper() in Qualities.__members__:
+        return query
+    if suffix == "best":
+        return query
+    candidates = ["best"] + [q.name.lower() for q in Qualities]
+    matches = [c for c in candidates if c.startswith(suffix)]
+    if len(matches) == 1:
+        return f"{base}.{matches[0]}"
+    return query
+
+
 def _candidate_labels(items: List[Item]) -> List[str]:
     """Build operator-facing disambiguation strings — ``"sword.1
     (fine)"``, ``"sword.2 (superior)"`` — so the hint we surface
@@ -845,10 +877,20 @@ class Player(Creature):
         candidates = self._filter_matching_items(str(q))
 
         if mode == "equip":
-            # Equip only sees inventory items; skip the equipped set
-            # so ``Item already equipped`` surfaces from ``equip()``
-            # later rather than from the resolver.
-            candidates = [c for c in candidates if isinstance(c, Equipment)]
+            # Equip works off the inventory pool minus items already
+            # equipped — ``.best`` means "best UNEQUIPPED" so
+            # ``$equip wand.best`` with the superior wand already on
+            # fills a free slot with the next-best wand rather than
+            # bouncing off "Item already equipped." A player who
+            # specifically wants to re-equip an already-worn item
+            # uses the full quality form (``$equip wand.superior``)
+            # or the index form (``$equip wand.1``).
+            candidates = self._filter_matching_items(
+                str(q),
+                predicate=lambda i: (
+                    isinstance(i, Equipment) and not self.is_equipped(i)
+                ),
+            )
             if len(candidates) == 1:
                 return ItemResolution(items=candidates)
             if len(candidates) > 1:
@@ -879,30 +921,52 @@ class Player(Creature):
             return ItemResolution()
 
         if mode == "sell":
-            # Sell always returns the full filtered set (minus
-            # equipped items — you can't sell what you're wearing).
-            # No ambiguity surfacing; caller expects a list.
-            unequipped = [c for c in candidates if not self.is_equipped(c)]
+            # Sell excludes equipped items — you can't sell what
+            # you're wearing. Re-filter via the predicate path so
+            # ``.best`` picks the best UNEQUIPPED match rather
+            # than globally-best-then-check (which would fail when
+            # the global best happens to be worn).
+            unequipped = self._filter_matching_items(
+                str(q), predicate=lambda i: not self.is_equipped(i),
+            )
             return ItemResolution(items=unequipped)
 
         raise ValueError(f"Unknown resolve_item_query mode: {mode!r}")
 
-    def _filter_matching_items(self, query: str) -> List[Item]:
-        """Item-name filter with ``.best`` support layered on top of
-        ``Inventory.filter``. Centralizes the logic so every mode
-        sees the same match set."""
+    def _filter_matching_items(
+        self, query: str, predicate=None,
+    ) -> List[Item]:
+        """Item-name filter with ``.best`` support and quality-
+        suffix prefix matching layered on top of ``Inventory.filter``.
+
+        ``predicate``: optional callable ``(Item) -> bool``. When
+        set, candidates are filtered BEFORE ``.best`` ranking so
+        ``.best`` means "best within the mode-specific pool"
+        rather than "global best, then check mode filter." This is
+        what makes ``$sell wand.best`` do the intuitive thing even
+        when the globally-best wand is equipped — it falls back to
+        the best unequipped wand instead of failing with no match.
+
+        Quality-suffix shortcuts: single-character (or longer)
+        prefixes of quality names expand to the full form.
+        ``wand.b`` → ``wand.best``, ``wand.s`` → ``wand.superior``,
+        ``wand.m`` → ``wand.masterwork``. Each quality name
+        currently starts with a unique letter, so one-char prefixes
+        are unambiguous. Multi-char prefixes narrow further.
+        """
         q = query.lower().strip()
         if not q:
             return []
-        # ``.best`` is a resolver-level selector (highest-quality
-        # variant of the matching base name). ``Inventory.filter``
-        # doesn't know about it — apply the selector here first.
+        q = _expand_quality_suffix(q)
+
         if q.endswith(".best") and len(q) > 5:
             base = q[:-5]
             base_matches = [
                 i for i in self.inventory.filter(base)
                 if i is not None
             ]
+            if predicate is not None:
+                base_matches = [i for i in base_matches if predicate(i)]
             if not base_matches:
                 return []
             base_matches.sort(
@@ -910,8 +974,12 @@ class Player(Creature):
                 reverse=True,
             )
             return [base_matches[0]]
+
         results = self.inventory.filter(q)
-        return [i for i in results if i is not None]
+        filtered = [i for i in results if i is not None]
+        if predicate is not None:
+            filtered = [i for i in filtered if predicate(i)]
+        return filtered
 
     def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
         """Equip ``item`` — either at a specific ``slot`` or
