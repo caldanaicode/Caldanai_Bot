@@ -448,17 +448,39 @@ class Player(Creature):
 
         lh: Weapon = self.part_equipment.get("arm.left", {}).get("held")
         rh: Weapon = self.part_equipment.get("arm.right", {}).get("held")
-        two_handed = bool(lh and EquipmentSlots.MULTI_SLOT & lh.slots)
+
+        # Detect a two-handed weapon on EITHER arm — pre-2026-04-22
+        # this only checked ``lh``, which meant a right-arm-only
+        # phantom (bow at arm.right.held with a one-hander at
+        # arm.left.held) fell through to the dual-firing path and
+        # let a player swing both as single-hand attacks, bypassing
+        # the "two-handed requires both arms" restriction. The
+        # replace_equipment fix makes that state unreachable via
+        # normal equip flow, but defense-in-depth matters for a
+        # combat-affecting invariant — any future hook that could
+        # orphan a multi-slot item (admin spawn tools, save-load
+        # corruption, etc.) gets caught here too.
+        two_handed_weapon: "Optional[Weapon]" = None
+        if lh and EquipmentSlots.MULTI_SLOT & lh.slots:
+            two_handed_weapon = lh
+        elif rh and EquipmentSlots.MULTI_SLOT & rh.slots:
+            two_handed_weapon = rh
 
         left_ok = self._is_arm_usable("arm.left")
         right_ok = self._is_arm_usable("arm.right")
 
         sources: List[AttackSource] = []
-        if two_handed:
+        if two_handed_weapon is not None:
             # Two-handed weapons require both arms. If either arm is
             # useless, no source is emitted.
             if left_ok and right_ok:
-                sources.append(WeaponAttackSource(lh, label="Two-Handed", reach=lh.reach))
+                sources.append(
+                    WeaponAttackSource(
+                        two_handed_weapon,
+                        label="Two-Handed",
+                        reach=two_handed_weapon.reach,
+                    )
+                )
             return sources
 
         if left_ok:
@@ -491,7 +513,16 @@ class Player(Creature):
 
         # Two-handed weapon with any arm disabled: call out that the
         # weapon can't be wielded even if one arm is still good.
+        # Check BOTH arms for the multi-slot flag — mirror of the
+        # same defense-in-depth addition in ``get_attack_sources``.
         lh = self.part_equipment.get("arm.left", {}).get("held")
+        rh = self.part_equipment.get("arm.right", {}).get("held")
+        two_h = None
+        if lh and EquipmentSlots.MULTI_SLOT & lh.slots:
+            two_h = lh
+        elif rh and EquipmentSlots.MULTI_SLOT & rh.slots:
+            two_h = rh
+        lh = two_h if two_h is not None else lh
         if lh and EquipmentSlots.MULTI_SLOT & lh.slots:
             if ((left_arm and left_arm.get_injury_level() == InjuryLevels.USELESS)
                     or (right_arm and right_arm.get_injury_level() == InjuryLevels.USELESS)):

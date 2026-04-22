@@ -4,6 +4,27 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Combat guard: two-hander detection on either arm
+
+Defense-in-depth fix caught during playtest of the equipment-on-
+parts migration. ``Player.get_attack_sources`` and
+``get_disabled_attack_notes`` only checked ``arm.left.held`` for
+the ``MULTI_SLOT`` flag. In a phantom state where a two-handed
+weapon lived at ``arm.right.held`` only (with a one-hander at
+``arm.left.held``), the two-handed-requires-both-arms
+short-circuit was skipped — both weapons fired as separate
+single-hand attacks, bypassing the balance restriction. Each
+could even target a different body part independently.
+
+``replace_equipment`` orphan-clear (2026-04-21) already makes
+the phantom unreachable via the normal equip flow, but the
+combat-level guard is worth hardening because a multi-slot item
+could theoretically land at one arm only via any future path
+(admin spawn tools, save-load edge cases). Now both arms are
+checked; a multi-slot weapon on either is treated as
+two-handed, and the stray one-hander at the other arm is
+silently ignored.
+
 ### 2026-04-21 — Inventory-parity playtest follow-ups
 
 Three fixes from the first playtest of the parity shipment:

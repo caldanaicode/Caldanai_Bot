@@ -368,6 +368,50 @@ class TestGetAttackSources:
         assert isinstance(sources[1], UnarmedAttackSource)
         assert sources[1].label == "Right"
 
+    def test_two_handed_weapon_at_right_only_still_guarded(self):
+        """Playtest 2026-04-22 found that when a player reached a
+        phantom state with a one-handed weapon at arm.left.held and
+        a two-hander at arm.right.held only, both fired as separate
+        one-handed attacks — bypassing the "two-handed requires both
+        arms" rule. The ``get_attack_sources`` guard now checks BOTH
+        hands for MULTI_SLOT so a right-arm-only two-hander is still
+        recognized as two-handed (and the stray one-hander at the
+        left arm is ignored). Defense-in-depth — the
+        ``replace_equipment`` fix makes the phantom state unreachable
+        via normal equip flow, but this guard catches any future
+        path that could orphan a multi-slot item."""
+        from caldanai.lib.rpg.combat.attack_source import WeaponAttackSource
+        p = _make_player()
+        one_hander = MagicMock(spec=Weapon)
+        one_hander.slots = EquipmentSlots.EITHER_HELD
+        one_hander.damage_type = None
+        one_hander.skill = "one-handed slashing"
+        one_hander.attack = "1d6"
+        one_hander.bonus = 0
+
+        two_hander = MagicMock(spec=Weapon)
+        two_hander.slots = (
+            EquipmentSlots.LEFT_HELD
+            | EquipmentSlots.RIGHT_HELD
+            | EquipmentSlots.MULTI_SLOT
+        )
+        two_hander.damage_type = None
+        two_hander.skill = "two-handed swords"
+        two_hander.attack = "2d6"
+        two_hander.bonus = 0
+
+        # Phantom shape: one-hander left, two-hander right only
+        # (should not occur via equip path after the fix).
+        p.part_equipment["arm.left"]["held"] = one_hander
+        p.part_equipment["arm.right"]["held"] = two_hander
+
+        sources = p.get_attack_sources()
+        # Must recognize the two-hander and emit ONE source, not
+        # two separate one-handed attacks.
+        assert len(sources) == 1
+        assert isinstance(sources[0], WeaponAttackSource)
+        assert sources[0].label == "Two-Handed"
+
     def test_two_handed_yields_single_source(self):
         from caldanai.lib.rpg.combat.attack_source import WeaponAttackSource
         p = _make_player()
