@@ -4,6 +4,22 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-22 — $roll honors NdN±C signed-constant modifier
+
+Playtest follow-up to the 2026-04-21 dice-spec rework. The
+``$roll`` command's ``check_dice`` helper was still doing a
+naive ``dice.split("d")`` and reading ``"6-5"`` as the sides
+count — any signed-modifier spec (``$roll 3d6+2``, ``$roll
+2d8-1``) failed with "sides must be > 1" while other callers
+(combat, ``Dice.quick_roll``) honored the signed form just fine.
+
+Fix: ``check_dice`` now delegates to ``Dice.from_ndn`` for
+parsing and returns ``(count, sides, modifier)``. ``$roll``
+applies the modifier to the total, surfaces it in both verbose
+(``rolls_sum + mod = total`` breakdown) and compact output
+(``3d6-5 = 10`` form), and preserves the original error
+messages for the common constraint-violation cases.
+
 ### 2026-04-22 — Equipment slots: sided split for left/right anatomy
 
 Pre-rework, pair-slots (``ARMS``, ``FOREARMS``, ``GLOVES``,

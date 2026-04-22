@@ -83,35 +83,74 @@ class GeneralCommands(Cog):
             _log.error(e)
             return 0
 
-    async def check_dice(self, ctx: Context, dice: str) -> Tuple[Union[int, None], Union[int, None]]:
-        count, sides = map(self.__int__, dice.split("d"))
-        if count < 1:
-            embed = Embed(
-                title=f"Dice Roll for {ctx.author.nick or ctx.author.name}",
-                description="Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.",
-                color=0xFF0000,
-            )
-            Dispatcher.add(ctx, embed=embed)
-            return None, None
+    async def check_dice(
+        self, ctx: Context, dice: str,
+    ) -> Tuple[Union[int, None], Union[int, None], Union[int, None]]:
+        """Parse a ``NdN`` or ``NdN±C`` dice spec, validating the
+        constraints $roll has always applied (count >= 1, sides >= 2,
+        count <= 1,000,000) and returning ``(count, sides, modifier)``.
+        Delegates the actual parsing to :meth:`Dice.from_ndn` so
+        signed-constant modifiers (``3d6+2`` / ``2d8-1``) are
+        honored consistently with the rest of the codebase —
+        pre-2026-04-22 the split-on-``d`` parser here read
+        ``"6-5"`` as the sides count and rejected it as "sides
+        must be > 1", silently losing the modifier support for
+        the ``$roll`` command.
+        """
+        from caldanai.lib.rpg.helpers.dice import Dice
 
-        if sides < 2:
-            embed = Embed(
-                title=f"Dice Roll for {ctx.author.nick or ctx.author.name}",
-                description="The number of sides must be greater than 1.",
-                color=0xFF0000,
-            )
-            Dispatcher.add(ctx, embed=embed)
-            return None, None
+        d = Dice.from_ndn(dice.strip())
+        if d is None:
+            # ``from_ndn`` returns None on unparseable input OR on
+            # constraint violation (count < 1, sides < 2). The
+            # existing UX surfaces distinct error messages for the
+            # common cases — try to preserve them by re-checking the
+            # simple patterns ourselves before the generic fallback.
+            naive = dice.strip().split("d")
+            if len(naive) == 2 and naive[1].rstrip("+-0123456789").isdigit() is False:
+                # shape like "d6" or "3d" — invalid
+                pass
+            try:
+                count_guess = int(naive[0]) if naive[0] else 1
+                sides_guess = int(naive[1].split("+")[0].split("-")[0])
+            except (ValueError, IndexError):
+                count_guess = sides_guess = None
 
-        if count > 1000000:
+            if sides_guess is not None and sides_guess < 2:
+                embed = Embed(
+                    title=f"Dice Roll for {ctx.author.nick or ctx.author.name}",
+                    description="The number of sides must be greater than 1.",
+                    color=0xFF0000,
+                )
+                Dispatcher.add(ctx, embed=embed)
+                return None, None, None
+
+            if count_guess is not None and count_guess < 1:
+                embed = Embed(
+                    title=f"Dice Roll for {ctx.author.nick or ctx.author.name}",
+                    description="Use the NdN format. Example: ` 3d6 ` rolls 3 dice with 6 sides each.",
+                    color=0xFF0000,
+                )
+                Dispatcher.add(ctx, embed=embed)
+                return None, None, None
+
             embed = Embed(
                 title=f"Dice Roll for {ctx.author.nick or ctx.author.name}",
-                description=f"Don't be absurd, <@!{ctx.author.id}>! Go roll your own {count:,} dice!",
+                description="Use the NdN format (optionally `NdN+C` / `NdN-C`). Example: ` 3d6+2 `.",
                 color=0xFF0000,
             )
             Dispatcher.add(ctx, embed=embed)
-            return None, None
-        return count, sides
+            return None, None, None
+
+        if d.count > 1000000:
+            embed = Embed(
+                title=f"Dice Roll for {ctx.author.nick or ctx.author.name}",
+                description=f"Don't be absurd, <@!{ctx.author.id}>! Go roll your own {d.count:,} dice!",
+                color=0xFF0000,
+            )
+            Dispatcher.add(ctx, embed=embed)
+            return None, None, None
+        return d.count, d.sides, d.modifier
 
     @command(name="reminder", aliases=["remind"], brief="Tells the bot to send you a DM as a reminder for something.")
     @cooldown(1, 5, BucketType.user)
@@ -182,14 +221,14 @@ class GeneralCommands(Cog):
     @cooldown(1, 5, BucketType.member)
     async def roll(self, ctx: Context, dice: str, *options: str):
         """
-        Rolls dice given in the NdN format.
+        Rolls dice given in the NdN or NdN±C format.
 
-        :param dice: Use the NdN format. Example: `3d6` rolls 3 dice with 6 sides each.
+        :param dice: Use the NdN format, optionally with a signed constant modifier. Example: `3d6` rolls 3 dice with 6 sides each; `3d6+2` adds a flat +2 to the total; `2d8-1` subtracts a flat 1.
         :param options: Specify `hi` or `lo` to keep a number of highest or lowest rolls. Example: `4d6 hi 3` rolls 4 dice with 6 sides each, and keeps the 3 highest.
             The number of rolls to keep must be greater than 0 and less than the number of dice being rolled.
             Specify `verbose` to show all die rolls. Example: `3d8 verbose`
         """
-        count, sides = await self.check_dice(ctx, dice)
+        count, sides, modifier = await self.check_dice(ctx, dice)
         if count is None or sides is None:
             return
 
@@ -218,7 +257,16 @@ class GeneralCommands(Cog):
             dropped = rolls[:-hilo]
             rolls = rolls[-hilo:]
 
-        total = sum(rolls)
+        rolls_sum = sum(rolls)
+        total = rolls_sum + modifier
+
+        # Pretty suffix for displaying the signed-constant modifier
+        # (e.g. ``+2`` / ``-1``). Empty string when modifier == 0.
+        mod_suffix = (
+            f"+{modifier}" if modifier > 0
+            else (str(modifier) if modifier < 0 else "")
+        )
+
         msg = ""
         shorten = False
 
@@ -232,7 +280,16 @@ class GeneralCommands(Cog):
                 drops[d] = 1 + (drops[d] if d in drops else 0)
 
             msg = str("\n").join([f"{n:3d} * {c}" for n, c in counts.items()])
-            msg = f"```\n{msg}\n = {total:,}"
+            # Show the modifier line breaking out rolls vs. constant
+            # so the total arithmetic is readable.
+            if modifier != 0:
+                msg = (
+                    f"```\n{msg}\n = {rolls_sum:,}\n"
+                    f"{'+' if modifier > 0 else '-'} {abs(modifier):,} (mod)\n"
+                    f" = {total:,}"
+                )
+            else:
+                msg = f"```\n{msg}\n = {total:,}"
             if dropped is not None and len(dropped) > 0:
                 msg += "\n\nDropped: [ "
                 msg += ", ".join([f"{n} * {c}" for n, c in drops.items()]) + " ]"
@@ -243,7 +300,8 @@ class GeneralCommands(Cog):
 
         if shorten or not verbose:
             msg = (
-                f"```\n{count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else '' } ="
+                f"```\n{count}d{sides}{mod_suffix}"
+                f"{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else ''} ="
                 f" {total:,}```"
             )
 
@@ -256,7 +314,8 @@ class GeneralCommands(Cog):
         footer = ""
         if verbose and not shorten:
             footer = (
-                f"[ TL;DR ] {count}d{sides}{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else ''}"
+                f"[ TL;DR ] {count}d{sides}{mod_suffix}"
+                f"{(' hi ' if hilo > 0 else ' lo ') + str(abs(hilo)) if hilo != 0 else ''}"
                 f" = {total:,}"
             )
 
