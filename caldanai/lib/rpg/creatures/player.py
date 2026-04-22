@@ -529,9 +529,11 @@ class Player(Creature):
         return (label or "").strip().casefold()
 
     def get_loadout(self, label: str) -> "Optional[Dict[str, Dict[str, str]]]":
-        """Case-insensitive lookup of a saved loadout by label.
-        Returns the raw ``{part: {key: item_id}}`` dict or ``None``
-        when no slot matches."""
+        """Case-insensitive EXACT lookup of a saved loadout by
+        label. Returns the raw ``{part: {key: item_id}}`` dict or
+        ``None`` when no slot matches. For fuzzy prefix lookups
+        (``$loadout load comb`` → ``combat``), see
+        :meth:`resolve_loadout_label`."""
         target = self._normalize_label(label)
         if not target:
             return None
@@ -539,6 +541,49 @@ class Player(Creature):
             if self._normalize_label(stored_label) == target:
                 return payload
         return None
+
+    def resolve_loadout_label(
+        self, query: str,
+    ) -> "Tuple[Optional[str], List[str]]":
+        """Resolve ``query`` to a stored loadout label, supporting
+        case-insensitive prefix matching for ``$loadout load`` and
+        ``$loadout clear``. Returns ``(stored_label, candidates)``:
+
+        - ``(exact_label, [])`` — the query casefolds to a saved
+          label exactly. Takes priority so a player with both
+          ``"a"`` and ``"abc"`` saved can still load just ``"a"``
+          without triggering ambiguity.
+        - ``(prefix_label, [])`` — exactly one saved label starts
+          with the casefolded query. Fuzzy match succeeds.
+        - ``(None, [lbl1, lbl2, …])`` — multiple saved labels
+          start with the casefolded query; caller should surface
+          the candidates and let the player pick.
+        - ``(None, [])`` — no match at all.
+
+        ``save`` intentionally does NOT route through this; it
+        uses the label as-typed so a player saving ``"comb"``
+        doesn't accidentally overwrite ``"combat"``.
+        """
+        target = self._normalize_label(query)
+        if not target:
+            return None, []
+
+        # Exact casefold match wins unconditionally — avoids
+        # ambiguity blocking ``$loadout load a`` when both
+        # ``"a"`` and ``"abc"`` are saved.
+        for stored_label in self.loadouts:
+            if self._normalize_label(stored_label) == target:
+                return stored_label, []
+
+        prefix_matches = [
+            stored_label for stored_label in self.loadouts
+            if self._normalize_label(stored_label).startswith(target)
+        ]
+        if len(prefix_matches) == 1:
+            return prefix_matches[0], []
+        if len(prefix_matches) > 1:
+            return None, prefix_matches
+        return None, []
 
     def save_loadout(self, label: str) -> "Tuple[bool, str]":
         """Snapshot current ``part_equipment`` under ``label``.
@@ -592,7 +637,9 @@ class Player(Creature):
         self.is_dirty = True
         return True, clean
 
-    def load_loadout(self, label: str) -> "Tuple[bool, str, List[str], List[str]]":
+    def load_loadout(
+        self, label: str,
+    ) -> "Tuple[bool, str, List[Equipment], List[str]]":
         """Apply a saved loadout: stow everything currently
         equipped, then re-equip every item referenced in the saved
         snapshot that's still in inventory.
@@ -645,7 +692,7 @@ class Player(Creature):
         for item in currently_equipped:
             self.remove(item)
 
-        restored: List[str] = []
+        restored: List[Equipment] = []
         skipped: List[str] = []
 
         # Dedupe item ids — a multi-placed item appears under
@@ -668,7 +715,7 @@ class Player(Creature):
                 continue
             ok, msg = self.equip(item)
             if ok:
-                restored.append(item.get_full_name())
+                restored.append(item)
             else:
                 skipped.append(f"{item.get_full_name()} — {msg or 'could not equip'}")
 

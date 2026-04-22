@@ -760,7 +760,30 @@ class RpgInventoryCommands(Cog):
             )
             return
 
-        ok, stored_label, restored, skipped = player.load_loadout(label)
+        # Fuzzy prefix resolution before the actual load.
+        # ``$loadout load dual`` finds ``dual-wand`` when that's
+        # the only prefix match. Multiple prefix matches surface
+        # as a "did you mean" list instead of silently picking.
+        resolved, candidates = player.resolve_loadout_label(label)
+        if resolved is None:
+            if candidates:
+                cand = ", ".join(f"`{c}`" for c in candidates)
+                Dispatcher.add(
+                    channel,
+                    f"`{label}` matches multiple loadouts: {cand}. "
+                    f"Specify the full label.",
+                )
+            else:
+                Dispatcher.add(
+                    channel,
+                    f"No loadout matching `{label}`. "
+                    f"Check `$loadout` for your saved labels.",
+                )
+            return
+
+        ok, stored_label, restored, skipped = player.load_loadout(resolved)
+        # ``ok`` should always be True here — we just resolved
+        # the label against live loadouts — but guard defensively.
         if not ok:
             Dispatcher.add(
                 channel,
@@ -791,17 +814,34 @@ class RpgInventoryCommands(Cog):
             )
             return
 
-        ok, stored_label = player.clear_loadout(label)
+        # Same fuzzy-prefix resolution as ``load``. Ambiguity
+        # surfaces candidates instead of silently clearing the
+        # wrong slot — deletion should be unambiguous.
+        resolved, candidates = player.resolve_loadout_label(label)
+        if resolved is None:
+            if candidates:
+                cand = ", ".join(f"`{c}`" for c in candidates)
+                Dispatcher.add(
+                    channel,
+                    f"`{label}` matches multiple loadouts: {cand}. "
+                    f"Specify the full label.",
+                )
+            else:
+                Dispatcher.add(
+                    channel,
+                    f"No loadout matching `{label}`.",
+                )
+            return
+
+        ok, stored_label = player.clear_loadout(resolved)
         if ok:
             Dispatcher.add(
                 channel,
                 f"{player.name} cleared the `{stored_label}` loadout.",
             )
         else:
-            Dispatcher.add(
-                channel,
-                f"No loadout matching `{label}`.",
-            )
+            # Defensive; ``resolved`` was just looked up.
+            Dispatcher.add(channel, f"No loadout matching `{label}`.")
 
     @Cog.listener()
     async def on_ready(self):

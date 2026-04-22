@@ -139,6 +139,15 @@ class TestLoadLoadout:
         assert skipped == []
         assert p.part_equipment["head"]["helm"] is hat
         assert p.part_equipment["arm.left"]["held"] is wand
+        # ``restored`` is a list of Item instances — pinned here
+        # because the cog passes it to ``item_list_to_string``,
+        # which calls ``.get_full_name()`` on each element. Before
+        # the 2026-04-22 post-playtest fix, this was a list of
+        # strings and blew up with "'str' object has no attribute
+        # 'get_full_name'" on the first successful load.
+        assert set(restored) == {hat, wand}
+        for item in restored:
+            assert hasattr(item, "get_full_name")
 
     def test_load_is_case_insensitive(self):
         p, (hat,) = _player_with("mushroom_hat")
@@ -199,6 +208,60 @@ class TestLoadLoadout:
         assert ok
         assert len(restored) == 1  # hat
         assert len(skipped) == 1  # phantom wand id
+
+
+class TestFuzzyLabelResolution:
+    """``resolve_loadout_label`` powers ``$loadout load`` /
+    ``$loadout clear`` — prefix-match a partial query to a saved
+    label, exact case-insensitive match wins, multiple prefix
+    matches surface as ambiguity candidates."""
+
+    def test_exact_case_insensitive_match_wins(self):
+        p, _ = _player_with()
+        p.save_loadout("Combat")
+        resolved, candidates = p.resolve_loadout_label("combat")
+        assert resolved == "Combat"
+        assert candidates == []
+
+    def test_single_prefix_match_resolves(self):
+        p, _ = _player_with()
+        p.save_loadout("dual-wand")
+        resolved, candidates = p.resolve_loadout_label("dual")
+        assert resolved == "dual-wand"
+        assert candidates == []
+
+    def test_multiple_prefix_matches_surface_ambiguity(self):
+        p, _ = _player_with()
+        p.save_loadout("dual-wand")
+        p.save_loadout("dual-axe")
+        resolved, candidates = p.resolve_loadout_label("dual")
+        assert resolved is None
+        assert set(candidates) == {"dual-wand", "dual-axe"}
+
+    def test_exact_match_beats_prefix_ambiguity(self):
+        """If the player saved both ``"a"`` and ``"abc"``, typing
+        ``$loadout load a`` must still resolve the short label —
+        the exact match wins over prefix-ambiguity blocking."""
+        p, _ = _player_with()
+        p.save_loadout("a")
+        p.save_loadout("abc")
+        resolved, candidates = p.resolve_loadout_label("a")
+        assert resolved == "a"
+        assert candidates == []
+
+    def test_no_match_returns_none_empty(self):
+        p, _ = _player_with()
+        p.save_loadout("combat")
+        resolved, candidates = p.resolve_loadout_label("travel")
+        assert resolved is None
+        assert candidates == []
+
+    def test_empty_query_returns_none(self):
+        p, _ = _player_with()
+        p.save_loadout("combat")
+        resolved, candidates = p.resolve_loadout_label("")
+        assert resolved is None
+        assert candidates == []
 
 
 class TestClearLoadout:
