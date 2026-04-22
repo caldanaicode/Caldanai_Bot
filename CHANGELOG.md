@@ -4,6 +4,21 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Per-game log context: fix for loaded games
+
+Follow-up to the 2026-04-21 per-game log-context shipment.
+``Game.from_dict`` constructs the game with ``channel=None``
+(load-path pattern — channel is resolved afterward from the
+bot's cache), which left ``GameClock._channel_id`` pinned to
+``None``. Every tick then stamped ``channel_log_context(None)``
+and the channel id never appeared on log lines for any game
+loaded from the DB — which is every game, every restart.
+
+Fresh games (``$game create``) worked because their constructor
+receives a real ``channel``. Patched by updating the clock's
+``_channel_id`` once ``game.channel`` resolves in
+``Game.from_dict``.
+
 ### 2026-04-21 — Equipment on body parts (stage 1)
 
 Collapses the parallel ``Player.equip_slots`` dict onto body-part

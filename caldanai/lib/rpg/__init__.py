@@ -1017,6 +1017,14 @@ class Game:
         # until now — update it before any routine (e.g. health
         # regen) has a chance to fire and silently skip dispatch.
         game.player_manager.channel = game.channel
+        # GameClock was constructed with channel=None (same load-
+        # path reason above), leaving its ``_channel_id`` as
+        # ``None``. Every tick then stamped ``channel_log_context(None)``
+        # and the per-game log prefix never appeared for loaded
+        # games — even though freshly-created games worked fine.
+        # Patch it now that the channel resolved.
+        if game.channel is not None:
+            game.game_clock._channel_id = game.channel.id
 
         if game.guild is None:
             _log.error(f"Failed to load game {d['_id']}: guild {d['guild_id']} not found.")
