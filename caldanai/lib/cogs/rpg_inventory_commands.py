@@ -37,70 +37,108 @@ class RpgInventoryCommands(Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @command(name='equip', aliases=['wield', 'ready'], brief='Equips a weapon to a given hand.')
+    # Slot-hint shortcuts that can appear as a standalone trailing
+    # arg in the legacy 2-arg form ``$equip <item> <hint>``. Kept
+    # for back-compat; new callers should prefer the per-item
+    # ``<item>@<hint>`` binding form which works for any arg count.
+    _LEGACY_TRAILING_SLOT_HINTS = {"l", "left", "r", "right", "_"}
+
+    @command(name='equip', aliases=['wield', 'ready'], brief='Equips one or more items.')
     @cooldown(1, 2, BucketType.member)
-    async def equip(self, ctx: Context, item: Union[str, int], slot: str = None, gid: int = None):
+    async def equip(self, ctx: Context, *queries: str):
         """
-        Equips an item.
+        Equip one or more items. Accepts the same query grammar
+        as ``$stow`` / ``$item`` / ``$sell``::
 
-        (5-second cool-down)
+            $equip <item>                     # auto-slot
+            $equip <item>@<hint>              # item to placement
+            $equip <item1> <item2> ...        # multi-equip, each auto-slots
+            $equip <item1>@l <item2>@r ...    # multi-equip, per-item placement
+            $equip <item> l|r|left|right|_    # legacy 2-arg form
 
-        :param item: An item name, item.n, item.quality, item.quality.n, item.best, or index to equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory. 'rock.best' picks the highest-quality rock — but won't swap out an equipped one that's already equal or better.
+        Item queries support ``item.n`` (nth of item),
+        ``item.quality``, ``item.quality.n``, and ``item.best``
+        (highest-quality variant).
 
-        :param slot: If not provided, the item will be auto-equipped to the best slot, if possible. For weapons or other one-hand-equipped items like rings, the slot will be 'left' or 'right'. Most armor can auto-equip, but you may specify the slot such as 'head', 'torso', or 'waist'. For a full list of slots, see your `gear`.
+        Placement hints (the part after ``@``):
+        ``l``/``left``/``r``/``right``/``_`` (wildcard), or any
+        placement key — ``helm`` / ``cape`` / ``arm.left.held``.
 
-        :param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
+        Ambiguous queries surface the candidate list so you can
+        retry with a narrower selector.
+
+        (2-second cool-down)
         """
-        game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+        game, player = await RpgUtilities.get_game_and_player(ctx)
         if game is None or player is None:
             return
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
-        _item: Union[Weapon, Armor, None] = None
 
         if RpgUtilities.dead_invoker_guard(
             channel, player, _DEAD_INVOKER_INVENTORY_FLAVOR,
         ):
             return
 
-        _slot = None
+        if not queries:
+            Dispatcher.add(channel, "You must specify at least one item to equip.")
+            return
 
-        if isinstance(item, str) and item.lower().endswith(".best") and len(item) > 5:
-            _item = self._resolve_best(item[:-5], player, channel)
-            if _item is None:
-                return
-        else:
-            _item, *_ = player.inventory.filter(item)
-            if not _item:
-                Dispatcher.add(channel, "You don't seem to have such an item.")
-                return
+        query_list = list(queries)
+
+        # Legacy 2-arg shortcut: ``$equip <item> <l|r|left|right|_>``
+        # preserves the old trailing-hint UX by treating the last
+        # arg as a whole-invocation slot hint when it's exactly a
+        # recognized short-form. Multi-arg invocations lose the
+        # special case — every arg is a full ``<item>[@<hint>]``
+        # query. This drops the ambiguity the trailing-hint rule
+        # would otherwise introduce (``$equip wand dagger r`` —
+        # does ``r`` bind to dagger only, both, or is it an item?).
+        if (
+            len(query_list) == 2
+            and query_list[1].lower() in self._LEGACY_TRAILING_SLOT_HINTS
+            and "@" not in query_list[0]
+        ):
+            # Rewrite to the explicit form so the resolver path is
+            # uniform. ``$equip sword left`` → ``$equip sword@left``.
+            query_list = [f"{query_list[0]}@{query_list[1]}"]
+
+        resolved = RpgUtilities.resolve_items_or_notify(
+            channel, player, query_list, mode="equip",
+        )
+        if not resolved:
+            return
+
+        for _item, hint_slot in resolved:
             if not isinstance(_item, Equipment):
-                Dispatcher.add(channel, f"That item cannot be equipped.")
-                return
+                Dispatcher.add(
+                    channel, f"{_item.get_full_name()} cannot be equipped.",
+                )
+                continue
 
-        if slot:
-            if slot.lower() in ('l', 'left'):
-                _slot = EquipmentSlots.LEFT_SIDE & _item.slots
-
-            elif slot.lower() in ('r', 'right'):
-                _slot = EquipmentSlots.RIGHT_SIDE & _item.slots
-
-            elif slot == '_':
-                _slot = _item.slots
-
+            # ``hint_slot`` from the helper is a ``LEFT_SIDE`` /
+            # ``RIGHT_SIDE`` aggregate or a specific placement slot.
+            # Narrow to the item's compatible mask before passing
+            # down — the old behavior did this intersection inline.
+            final_slot = (
+                EquipmentSlots(hint_slot & _item.slots)
+                if hint_slot is not None
+                else None
+            )
+            success, replaced_msg = player.equip(_item, final_slot)
+            if success:
+                if replaced_msg:
+                    Dispatcher.add(
+                        channel,
+                        f"{player.name} equipped {_item.get_full_name()}, replacing {replaced_msg}.",
+                    )
+                else:
+                    Dispatcher.add(
+                        channel,
+                        f"{player.name} equipped {_item.get_full_name()}.",
+                    )
             else:
-                return Dispatcher.add(channel, f"I don't know how to turn *{slot}* into a **left** or **right**...")
-
-        result = player.equip(_item, EquipmentSlots(_slot) if _slot else None)
-
-        if result[0]:
-            if result[1]:
-                Dispatcher.add(channel, f"{player.name} equipped {_item.get_full_name()}, replacing {result[1]}.")
-            else:
-                Dispatcher.add(channel, f"{player.name} equipped {_item.get_full_name()}.")
-
-        else:
-            Dispatcher.add(channel, result[1])
+                Dispatcher.add(channel, replaced_msg)
 
     @staticmethod
     def _resolve_best(base, player, channel):
@@ -161,20 +199,30 @@ class RpgInventoryCommands(Cog):
         embed.set_thumbnail(url=game.guild.icon.url)
         Dispatcher.add(channel, embed=embed)
 
-    @command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by placement.')
+    @command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip one or more items.')
     @cooldown(1, 2, BucketType.member)
-    async def stow(self, ctx: Context, item_or_placement: Union[str, int], gid: int = None):
+    async def stow(self, ctx: Context, *queries: str):
         """
-        Un-equip an item by name, name.n, index, or placement.
+        Un-equip one or more items.
 
-        (5-second cool-down)
+        (2-second cool-down)
 
-        :param item_or_placement: An item name, item.n, item.quality, item.quality.n, index, or a ``part.key`` placement to un-equip. ``.n`` indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory. Placement indicates the body-part key on which the item is equipped, such as ``arm.left.held``, ``head.helm``, ``torso.chest``. To see every placement you're currently using, check ``$gear``.
+        Each query can be:
 
-        :param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
+        - An item name (``$stow wand``), with the usual
+          ``.n`` / ``.quality`` / ``.best`` selectors.
+        - A placement key (``$stow helm``, ``$stow cape``) —
+          short form picks first anatomy-order occupied match.
+        - A full ``part.key`` placement (``$stow head.helm``,
+          ``$stow arm.left.held``) — unambiguous.
+        - The literal ``all`` — unequip every placement at once.
+
+        Placement form binds with ``@`` too: ``$stow helm@head``
+        (redundant; head is already the only ``helm`` holder) or
+        ``$stow held@l`` to pick the left arm's held item
+        specifically when dual-wielding.
         """
-
-        game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+        game, player = await RpgUtilities.get_game_and_player(ctx)
         if game is None or player is None:
             return
 
@@ -185,31 +233,53 @@ class RpgInventoryCommands(Cog):
         ):
             return
 
-        if not item_or_placement:
-            Dispatcher.add(channel, "You must specify the item or placement which you would like to un-equip.")
+        if not queries:
+            Dispatcher.add(
+                channel,
+                "You must specify the item(s) or placement(s) which "
+                "you would like to un-equip.",
+            )
             return
 
-        msg = "I'm unable to determine which item you meant."
-        _item: Optional[Equipment] = None
-        if isinstance(item_or_placement, int):
-            _item, *_ = player.inventory.filter(item_or_placement)
+        # Special keyword ``all`` — unequip every occupied
+        # placement. Collect unique items first (two-handed
+        # weapons share an Item across both arms; dedupe by
+        # identity so ``remove()`` isn't called twice).
+        normalized = [q.lower().strip() for q in queries]
+        if any(q == "all" for q in normalized):
+            seen_ids = set()
+            unique_items = []
+            for item in player._iter_equipped_items():
+                if id(item) in seen_ids:
+                    continue
+                seen_ids.add(id(item))
+                unique_items.append(item)
+            if not unique_items:
+                Dispatcher.add(channel, f"{player.name} has nothing equipped.")
+                return
+            for item in unique_items:
+                msg = player.remove(item)
+                if msg:
+                    Dispatcher.add(channel, msg)
+            return
 
-        elif isinstance(item_or_placement, str):
-            # Resolve the input as a placement query first —
-            # ``head.helm`` / ``arm.left.held`` for explicit form, or
-            # a bare key like ``helm`` / ``cape`` / ``held`` that
-            # picks the first anatomy-order occupied match. Falls
-            # through to an inventory-name filter only when the
-            # placement lookup finds nothing.
-            _item = player.find_equipped_by_placement(item_or_placement)
+        resolved = RpgUtilities.resolve_items_or_notify(
+            channel, player, list(queries), mode="stow",
+        )
+        if not resolved:
+            return
 
-            if not _item:
-                _item, *_ = player.inventory.filter(item_or_placement)
-
-        if _item:
-            msg = player.remove(_item)
-
-        Dispatcher.add(channel, msg or f'You had nothing equipped, {player.name}!')
+        # Dedupe across queries — stowing the same two-handed
+        # weapon at both arm.left.held and arm.right.held from a
+        # single invocation should still only call remove() once.
+        seen_ids = set()
+        for item, _slot in resolved:
+            if id(item) in seen_ids:
+                continue
+            seen_ids.add(id(item))
+            msg = player.remove(item)
+            if msg:
+                Dispatcher.add(channel, msg)
 
     @command(
         name='inventory',
@@ -241,36 +311,39 @@ class RpgInventoryCommands(Cog):
         for msg in inv:
             Dispatcher.add(player.member, f'```js\n{msg.strip()}```')
 
-    @command(name='item', brief='Displays details about an item.')
+    @command(name='item', brief='Displays details about an item or placement.')
     @cooldown(1, 2, BucketType.member)
-    async def item(self, ctx: Context, name: Union[str, int], gid: int = None):
+    async def item(self, ctx: Context, *, name: str = None):
         """
-        Displays details about an item.
+        Displays details about an inventory item OR the item
+        currently equipped at a placement.
+
+        Shares the query grammar with ``$equip`` / ``$stow`` /
+        ``$sell``: ``<item-query>[@<placement-hint>]``. When the
+        query doesn't match an inventory item, falls back to the
+        placement lookup so ``$item head.helm`` or ``$item helm``
+        shows the currently-worn helm's details.
 
         (2-second cool-down)
-
-        :param name: An item name, item.n, item.quality, item.quality.n, or index to display. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.masterwork' or 'spear.masterwork.1' would grab the first masterwork spear in your inventory.
-
-        :param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
         """
-
-        game, player = await RpgUtilities.get_game_and_player(ctx, gid)
+        game, player = await RpgUtilities.get_game_and_player(ctx)
         if game is None or player is None:
             return
 
         if not name:
-            Dispatcher.add(ctx, "Please specify an item.")
+            Dispatcher.add(ctx, "Please specify an item or placement.")
             return
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
-        item, *_ = player.inventory.filter(name)
-
-        if item:
-            embed, file = item.get_embed()
-            Dispatcher.add(channel, embed=embed, file=file)
+        resolved = RpgUtilities.resolve_items_or_notify(
+            channel, player, [name], mode="item",
+        )
+        if not resolved:
             return
 
-        Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+        for item, _placement in resolved:
+            embed, file = item.get_embed()
+            Dispatcher.add(channel, embed=embed, file=file)
 
     @item.error
     async def item_err(self, ctx: Context, error):
@@ -456,7 +529,17 @@ class RpgInventoryCommands(Cog):
                     except ValueError:
                         msg += f"\nUnable to determine lower and upper indices from {_item}."
                 else:
-                    sell += [i for i in player.inventory.filter(_item) if i and i.id not in equipped]
+                    # Fuzzy name / ``.best`` / ``.quality`` /
+                    # placement key — delegate to the shared
+                    # resolver. Sell mode returns every matching
+                    # unequipped item; ambiguity is NOT surfaced
+                    # (sell takes the list as-is, the whole point
+                    # of a broad query is to grab every match).
+                    resolved = RpgUtilities.resolve_items_or_notify(
+                        channel, player, [_item], mode="sell",
+                    )
+                    for item, _slot in resolved:
+                        sell.append(item)
 
             else:
                 msg += f"\nI'm afraid you don't have any {_item}."

@@ -385,6 +385,158 @@ class RpgUtilities:
         return game.channel if getattr(ctx, "guild", None) is not None else ctx
 
     @staticmethod
+    def resolve_items_or_notify(
+        channel,
+        player,
+        raw_queries: List[str],
+        mode: str,
+    ) -> "List[Tuple[Item, Optional['EquipmentSlots']]]":
+        """Resolve a list of raw item queries into
+        ``(item, placement_override)`` pairs, dispatching any
+        needed user-facing messages (no-match, ambiguity, bad
+        slot hint) along the way.
+
+        Query grammar::
+
+            <raw-query> ::= <item-query>[@<placement-hint>]
+            <placement-hint> ::= l|left|r|right|_|<part.key>|<key>
+
+        For each query:
+
+        1. Split on ``@`` to separate the item portion from the
+           optional placement hint.
+        2. Run the item portion through
+           :meth:`Player.resolve_item_query` in the supplied
+           ``mode``.
+        3. Resolve the placement hint (if any) to an
+           :class:`EquipmentSlots` mask via the short-form
+           vocabulary (``l`` / ``left`` → ``LEFT_SIDE`` mask,
+           ``r`` / ``right`` → ``RIGHT_SIDE``) or the
+           ``(part, key)`` routing table (``head.helm`` →
+           ``HEAD``, ``cape`` → ``CAPE``, etc.).
+        4. Append ``(item, placement)`` pairs to the result for
+           successful resolutions. Skip silently (after
+           dispatching a user message) when a query can't be
+           resolved or is ambiguous.
+
+        Returns the list of ``(item, placement)`` pairs. Empty
+        list means either nothing resolved or every query
+        produced a user-facing message — caller should short-
+        circuit either way.
+
+        Single-select modes (``equip`` / ``stow`` / ``item``)
+        produce at most one pair per query; ``sell`` produces
+        zero-or-more per query (the resolver returns every
+        matching unequipped item).
+        """
+        from caldanai.lib.rpg.creatures.equipment_routing import SLOT_TO_PART_KEY, SLOT_PAIR
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+
+        results: List[Tuple[Item, Optional[EquipmentSlots]]] = []
+
+        for raw in raw_queries:
+            if not isinstance(raw, str):
+                continue
+            stripped = raw.strip()
+            if not stripped:
+                continue
+
+            # Split on '@' — before is the item query, after is
+            # the optional placement hint.
+            if "@" in stripped:
+                item_q, _, hint_raw = stripped.partition("@")
+                item_q = item_q.strip()
+                hint_raw = hint_raw.strip()
+            else:
+                item_q, hint_raw = stripped, ""
+
+            resolution = player.resolve_item_query(item_q, mode)
+
+            if not resolution.items:
+                if resolution.ambiguity_candidates:
+                    cand_list = ", ".join(
+                        f"`{c}`" for c in resolution.ambiguity_candidates
+                    )
+                    Dispatcher.add(
+                        channel,
+                        f"I see multiple matches for `{item_q}` — "
+                        f"did you mean one of: {cand_list}?",
+                    )
+                else:
+                    Dispatcher.add(
+                        channel,
+                        f"You don't seem to have anything matching `{item_q}`.",
+                    )
+                continue
+
+            # Resolve the placement hint, if any.
+            placement: "Optional[EquipmentSlots]" = None
+            if hint_raw:
+                hint_lower = hint_raw.lower()
+                if hint_lower in ("l", "left"):
+                    placement = EquipmentSlots.LEFT_SIDE
+                elif hint_lower in ("r", "right"):
+                    placement = EquipmentSlots.RIGHT_SIDE
+                elif hint_lower == "_":
+                    # Whole-mask equip (what ``_`` meant historically
+                    # in the old $equip slot arg). Leave placement
+                    # None so the equip handler treats it as
+                    # "auto-route to anything compatible".
+                    placement = None
+                else:
+                    # Try as a (part, key) placement or bare key:
+                    # reverse-lookup every SLOT_TO_PART_KEY entry
+                    # and every SLOT_PAIR entry to find a slot
+                    # mask that matches.
+                    tokens = hint_lower.split(".")
+                    matched_slot: "Optional[EquipmentSlots]" = None
+
+                    # Full ``part.key`` match.
+                    if len(tokens) >= 2:
+                        for split in range(len(tokens) - 1, 0, -1):
+                            p = ".".join(tokens[:split])
+                            k = ".".join(tokens[split:])
+                            for slot, (sp, sk) in SLOT_TO_PART_KEY.items():
+                                if sp == p and sk == k:
+                                    matched_slot = slot
+                                    break
+                            if matched_slot is not None:
+                                break
+                            for slot, pair in SLOT_PAIR.items():
+                                if any(sp == p and sk == k for (sp, sk) in pair):
+                                    matched_slot = slot
+                                    break
+                            if matched_slot is not None:
+                                break
+
+                    # Bare-key match.
+                    if matched_slot is None:
+                        for slot, (_, k) in SLOT_TO_PART_KEY.items():
+                            if k == hint_lower:
+                                matched_slot = slot
+                                break
+                        if matched_slot is None:
+                            for slot, pair in SLOT_PAIR.items():
+                                if any(k == hint_lower for (_, k) in pair):
+                                    matched_slot = slot
+                                    break
+
+                    if matched_slot is None:
+                        Dispatcher.add(
+                            channel,
+                            f"I don't know the slot `{hint_raw}`. "
+                            f"Try `l`/`left`/`r`/`right`/`_`, or a "
+                            f"placement key like `head.helm` or `cape`.",
+                        )
+                        continue
+                    placement = matched_slot
+
+            for item in resolution.items:
+                results.append((item, placement))
+
+        return results
+
+    @staticmethod
     async def init(bot: Bot):
         try:
             RpgUtilities.bot = bot

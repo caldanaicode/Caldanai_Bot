@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from math import floor
 from typing import Dict, Tuple, Optional, List, Union
 
@@ -47,6 +48,60 @@ from datetime import datetime
 #   eye 1d6 (avg 3.5)    → 4
 # Per-part armor scaling lands in a follow-up pass; for now the
 # body-pool ``health_max`` bonus behavior is unchanged.
+@dataclass
+class ItemResolution:
+    """Outcome of :meth:`Player.resolve_item_query`.
+
+    Three observable shapes:
+
+    - ``items`` populated, ``ambiguity_candidates`` empty — clean
+      match. In single-select modes there will be exactly one
+      item; ``"sell"`` returns any number.
+    - ``items`` empty, ``ambiguity_candidates`` populated —
+      multiple plausible matches; the caller should surface the
+      candidate list and let the user retry with a narrower
+      query. Only single-select modes (``equip`` / ``stow`` /
+      ``item``) produce this shape.
+    - Both empty — no match at all.
+
+    This tri-state is why the resolver returns a dataclass rather
+    than a bare ``List[Item]``: empty vs. ambiguous vs. success
+    need distinct operator-facing messages.
+    """
+
+    items: List[Item] = field(default_factory=list)
+    ambiguity_candidates: List[str] = field(default_factory=list)
+
+
+def _candidate_labels(items: List[Item]) -> List[str]:
+    """Build operator-facing disambiguation strings — ``"sword.1
+    (fine)"``, ``"sword.2 (superior)"`` — so the hint we surface
+    names each candidate in a way the player can retype to
+    uniquely select one. Falls back to plain item names when
+    quality / index info is unavailable."""
+    labels: List[str] = []
+    by_name: Dict[str, int] = {}
+    for item in items:
+        by_name[item.name] = by_name.get(item.name, 0) + 1
+    seen: Dict[str, int] = {}
+    for item in items:
+        seen[item.name] = seen.get(item.name, 0) + 1
+        if by_name[item.name] > 1:
+            # Multiple items share this name — disambiguate with
+            # the quality-suffix form the filter already
+            # understands (``sword.fine``), falling back to
+            # position (``sword.1``).
+            quality = getattr(item, "quality", None)
+            quality_name = getattr(quality, "name", "").lower() if quality else ""
+            if quality_name:
+                labels.append(f"{item.name}.{quality_name}")
+            else:
+                labels.append(f"{item.name}.{seen[item.name]}")
+        else:
+            labels.append(item.name)
+    return labels
+
+
 _DEFAULT_PARTS: Dict[str, Tuple[str, int]] = {
     "head":      ("head",  15),
     # ``neck`` is vestigial at migration time (2026-04-21): a
@@ -624,6 +679,130 @@ class Player(Creature):
                     return equipped
 
         return None
+
+    def resolve_item_query(
+        self, query: str, mode: str,
+    ) -> "ItemResolution":
+        """Resolve a single item-query token into matching ``Item``
+        instances, honoring per-mode priority and ambiguity rules.
+
+        ``mode`` values:
+
+        - ``"equip"`` — item-first (inventory only, not equipped);
+          single-match enforced. ``.best`` / ``.quality`` / ``.N``
+          selectors honored.
+        - ``"stow"`` — placement-first. Placement keys
+          (``head.helm``, ``cape``, ``held``) resolve to the
+          currently-equipped item at that placement. Items not
+          equipped at all are NOT returned — stow's purpose is
+          un-equipping, so an inventory-only match is a no-op.
+          Single-match enforced.
+        - ``"item"`` — item-first with a placement fallback. If
+          the query isn't an inventory item name, try it as a
+          placement and return the currently-equipped item there.
+          Single-match.
+        - ``"sell"`` — item-first, excludes currently-equipped
+          items. Multiple matches allowed (the point of sell-by-
+          name is to catch every instance). No ambiguity
+          surfacing.
+
+        Returns an :class:`ItemResolution`. Empty ``items`` +
+        populated ``ambiguity_candidates`` means "multiple
+        plausible matches — surface them and let the user retry."
+        Empty ``items`` + empty ``ambiguity_candidates`` means "no
+        match at all." Populated ``items`` means success; for
+        single-select modes there will be exactly one entry.
+        """
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        q = query.strip() if isinstance(query, str) else query
+        if not q:
+            return ItemResolution()
+
+        # ---- ``stow`` mode: placement-first.
+        if mode == "stow":
+            equipped = self.find_equipped_by_placement(str(q))
+            if equipped is not None:
+                return ItemResolution(items=[equipped])
+            # Fallback: item-name that happens to match something
+            # currently equipped.
+            candidates = self._filter_matching_items(str(q))
+            equipped_candidates = [
+                item for item in candidates if self.is_equipped(item)
+            ]
+            if len(equipped_candidates) == 1:
+                return ItemResolution(items=equipped_candidates)
+            if len(equipped_candidates) > 1:
+                return ItemResolution(
+                    ambiguity_candidates=_candidate_labels(equipped_candidates),
+                )
+            return ItemResolution()
+
+        # ---- ``equip`` / ``item`` / ``sell`` — item-first.
+        candidates = self._filter_matching_items(str(q))
+
+        if mode == "equip":
+            # Equip only sees inventory items; skip the equipped set
+            # so ``Item already equipped`` surfaces from ``equip()``
+            # later rather than from the resolver.
+            candidates = [c for c in candidates if isinstance(c, Equipment)]
+            if len(candidates) == 1:
+                return ItemResolution(items=candidates)
+            if len(candidates) > 1:
+                return ItemResolution(
+                    ambiguity_candidates=_candidate_labels(candidates),
+                )
+            return ItemResolution()
+
+        if mode == "item":
+            if len(candidates) == 1:
+                return ItemResolution(items=candidates)
+            if len(candidates) > 1:
+                return ItemResolution(
+                    ambiguity_candidates=_candidate_labels(candidates),
+                )
+            # No inventory match — try placement fallback so e.g.
+            # ``$item head.helm`` shows the currently-worn helm.
+            equipped = self.find_equipped_by_placement(str(q))
+            if equipped is not None:
+                return ItemResolution(items=[equipped])
+            return ItemResolution()
+
+        if mode == "sell":
+            # Sell always returns the full filtered set (minus
+            # equipped items — you can't sell what you're wearing).
+            # No ambiguity surfacing; caller expects a list.
+            unequipped = [c for c in candidates if not self.is_equipped(c)]
+            return ItemResolution(items=unequipped)
+
+        raise ValueError(f"Unknown resolve_item_query mode: {mode!r}")
+
+    def _filter_matching_items(self, query: str) -> List[Item]:
+        """Item-name filter with ``.best`` support layered on top of
+        ``Inventory.filter``. Centralizes the logic so every mode
+        sees the same match set."""
+        q = query.lower().strip()
+        if not q:
+            return []
+        # ``.best`` is a resolver-level selector (highest-quality
+        # variant of the matching base name). ``Inventory.filter``
+        # doesn't know about it — apply the selector here first.
+        if q.endswith(".best") and len(q) > 5:
+            base = q[:-5]
+            base_matches = [
+                i for i in self.inventory.filter(base)
+                if i is not None
+            ]
+            if not base_matches:
+                return []
+            base_matches.sort(
+                key=lambda i: i.quality.value["multiplier"],
+                reverse=True,
+            )
+            return [base_matches[0]]
+        results = self.inventory.filter(q)
+        return [i for i in results if i is not None]
 
     def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
         """Equip ``item`` — either at a specific ``slot`` or

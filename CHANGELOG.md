@@ -4,6 +4,49 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Inventory-command parity (variadic + @-bind)
+
+Uniform query grammar across ``$equip`` / ``$stow`` / ``$item``
+/ ``$sell``. All four now accept the same ``<item>[@<hint>]``
+shape; ``$equip`` and ``$stow`` go variadic for multi-item
+invocations.
+
+**Shared grammar:**
+```
+<raw>  ::= <item-query>[@<placement-hint>]
+<hint> ::= l | left | r | right | _ | <part.key> | <key>
+```
+
+Examples::
+
+    $equip wand.1 dagger                  # wand.1 auto → left, dagger auto → right
+    $equip cape bandanna bow              # multi-equip across parts
+    $equip dagger.best@r wand@l           # per-item placement
+    $equip sword left                     # legacy 2-arg still works
+    $stow helm wand                       # multi-stow
+    $stow all                             # unequip everything
+    $stow held@l                          # only the left hand
+    $item head.helm                       # shows currently-worn helm
+    $sell wand.junk rock 4-10             # multi-sell, per-query resolution
+
+**Ambiguity surfaces to the player.** ``$equip wand`` with
+multiple wands in inventory now returns a candidate list
+(``Did you mean: wand.fine, wand.superior?``) instead of silently
+grabbing the first match.
+
+**Shared resolver layer.** New
+:meth:`Player.resolve_item_query(query, mode)` returns an
+:class:`ItemResolution` (items + ambiguity hints). Four modes:
+``equip`` (item-first, single-select), ``stow`` (placement-first,
+equipped-items-only, single-select), ``item`` (item-first with
+placement fallback, single-select), ``sell`` (item-first,
+excludes equipped, multi-select).
+:meth:`RpgUtilities.resolve_items_or_notify` parses ``@`` bindings,
+dispatches messages for no-match / ambiguity / bad-hint, and
+returns ``(Item, placement)`` pairs.
+
+31 new tests (20 resolver data layer, 11 messaging helper).
+
 ### 2026-04-21 — Equipment-on-parts UX polish
 
 Three small follow-ups to the stage-1 equipment-on-parts
