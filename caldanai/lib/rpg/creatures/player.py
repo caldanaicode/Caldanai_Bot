@@ -570,6 +570,61 @@ class Player(Creature):
                 return True
         return False
 
+    def find_equipped_by_placement(self, query: str) -> "Optional[Equipment]":
+        """Resolve a placement-shaped query to the currently-
+        equipped ``Item`` at that placement, or ``None``.
+
+        Accepts three forms, in priority order:
+
+        1. **Full** ``part.key`` — ``arm.left.held``, ``head.helm``,
+           ``torso.cape``. Walks every split point between dots so
+           a multi-segment key (``head.ear.left``) resolves
+           correctly even though its key contains a dot.
+        2. **Bare key** — ``helm``, ``held``, ``cape``. Scans
+           anatomy in :data:`PLACEMENT_DISPLAY_ORDER` (head-to-toe)
+           and returns the first occupied placement whose key
+           matches. Ambiguous keys (``held`` with both hands
+           occupied by different weapons) resolve to the left side
+           by the display-order tie-break; a follow-up call picks
+           up the right. For two-handed weapons the same ``Item``
+           sits at both arms, so ``remove()`` on the returned
+           instance clears both anyway — no need to repeat.
+        3. **Full key-with-dots** — ``ear.left`` (matches
+           ``head.ear.left``). Falls out of the bare-key scan
+           automatically since that path matches on ``key``
+           equality.
+
+        Lookup cost is O(placements) — 24 entries currently, two
+        dict lookups each. Cheap enough to run on every ``$stow`` /
+        ``$unequip`` invocation without caching.
+        """
+        q = query.lower().strip()
+        if not q:
+            return None
+
+        tokens = q.split(".")
+        if len(tokens) >= 2:
+            # Try every (part, key) split of the dotted query. Longer
+            # part names win by iterating from the rightmost split
+            # backward — ``arm.left.held`` resolves ``part=arm.left``
+            # rather than ``part=arm``.
+            for split in range(len(tokens) - 1, 0, -1):
+                part_name = ".".join(tokens[:split])
+                key = ".".join(tokens[split:])
+                equipped = self.part_equipment.get(part_name, {}).get(key)
+                if equipped is not None:
+                    return equipped
+
+        # Bare-key / key-with-dots scan — first occupied placement
+        # whose key matches.
+        for (part_name, key) in PLACEMENT_DISPLAY_ORDER:
+            if key == q:
+                equipped = self.part_equipment.get(part_name, {}).get(key)
+                if equipped is not None:
+                    return equipped
+
+        return None
+
     def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
         """Equip ``item`` — either at a specific ``slot`` or
         auto-routed to the first available placement its mask

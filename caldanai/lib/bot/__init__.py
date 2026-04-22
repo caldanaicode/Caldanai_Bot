@@ -128,6 +128,12 @@ class Bot(BotBase, Subject):
         # stored here; see the ``games`` property.
         self.command_usage = []
         self.last_command: Dict[str, Any] = {}
+        # Per-user cooldown on command-error hint responses so a
+        # fast typo session (``$equip foo``, ``$equip bar``, ...)
+        # doesn't spam the channel with "I didn't catch that" hints.
+        # Keyed by (user_id, exception-class-name); value is the
+        # datetime of the last hint we sent. See ``on_command_error``.
+        self._error_hint_cooldowns: Dict[tuple, datetime] = {}
         _log.info("Bot init complete.")
 
     @property
@@ -263,6 +269,38 @@ class Bot(BotBase, Subject):
         if exc is not None:
             raise exc
 
+    def _maybe_hint(self, ctx: Context, exc, cmd: str) -> None:
+        """Send a one-liner hint to the invoker, suppressing
+        repeats within :attr:`_ERROR_HINT_COOLDOWN_SECONDS` so fast
+        typo sessions don't spam the channel.
+
+        Keyed by ``(user_id, exception-class-name)`` — a user
+        triggering the same error class repeatedly gets one hint
+        per window; a genuinely distinct error (``BadArgument``
+        after ``MissingRequiredArgument``, say) gets its own hint.
+        Unknown user (no ``ctx.author``) skips the cooldown table
+        entirely and is allowed through each time, since we can't
+        dedupe anyway.
+        """
+        user_id = getattr(ctx.author, "id", None)
+        exc_key = type(exc).__name__
+        now = datetime.now()
+        if user_id is not None:
+            cooldown_key = (user_id, exc_key)
+            last = self._error_hint_cooldowns.get(cooldown_key)
+            if last is not None:
+                elapsed = (now - last).total_seconds()
+                if elapsed < self._ERROR_HINT_COOLDOWN_SECONDS:
+                    return
+            self._error_hint_cooldowns[cooldown_key] = now
+        hint = (
+            f"I didn't quite catch that, <@!{user_id}>. "
+            f"Try `{ctx.prefix}help {cmd}`."
+            if user_id is not None
+            else f"I didn't quite catch that. Try `{ctx.prefix}help {cmd}`."
+        )
+        Dispatcher.add(ctx, hint)
+
     @staticmethod
     async def get_forbidden_response(ctx: Context) -> str:
         return choice(
@@ -277,8 +315,32 @@ class Bot(BotBase, Subject):
             ]
         )
 
+    # How long (seconds) a per-user hint is suppressed after one
+    # lands, keyed by (user_id, exception class). Long enough that a
+    # fast typo session doesn't spam; short enough that a later
+    # genuine mistake still gets the hint.
+    _ERROR_HINT_COOLDOWN_SECONDS = 10
+
     async def on_command_error(self, ctx: Context, exc):
-        if isinstance(exc, (BadArgument, CommandOnCooldown, MissingRequiredArgument)):
+        if isinstance(exc, (BadArgument, MissingRequiredArgument)):
+            # These are user-input errors — historically silently
+            # dropped, which meant a typo like
+            # ``$equip wand.1 left wand.2 right`` (``wand.2`` fails
+            # to parse as ``gid: int``) produced no feedback and no
+            # log. Surface at DEBUG for the dev trail and, once per
+            # user per error-class per cooldown, nudge the user at
+            # ``$help <command>``.
+            cmd = ctx.command.qualified_name if ctx.command else "?"
+            _log.debug(
+                f"{cmd}: {type(exc).__name__} from "
+                f"user {getattr(ctx.author, 'id', '?')}: {exc}"
+            )
+            self._maybe_hint(ctx, exc, cmd)
+
+        elif isinstance(exc, CommandOnCooldown):
+            # Cooldowns stay silent — echoing to the channel on
+            # every cooldown-blocked attempt would be noisier than
+            # the silence the user was already annoyed by.
             pass
 
         elif isinstance(exc, CommandNotFound):

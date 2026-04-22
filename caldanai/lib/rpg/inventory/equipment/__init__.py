@@ -2,6 +2,7 @@ from typing import Tuple
 from bson import ObjectId
 from discord import Embed, File
 
+from caldanai.lib.rpg.creatures.equipment_routing import resolve_placements
 from caldanai.lib.rpg.inventory import Item
 from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 
@@ -27,11 +28,32 @@ class Equipment(Item):
         self.slots: EquipmentSlots = slots
 
     def get_embed(self) -> Tuple[Embed, File]:
-        embed, file = super().get_embed()
-        slots = []
-        for slot in EquipmentSlots:
-            if slot and slot in self.slots and not EquipmentSlots.exclude_from_output(slot.name):
-                slots.append(slot.name)
+        """Item embed — renders equipment placements in the
+        ``part.key`` form players see in ``$gear`` / ``$unequip``
+        rather than the legacy ``HEAD`` / ``LEFT_HELD`` enum names
+        that pre-date the equipment-on-parts migration.
 
-        embed.insert_field_at(0, name="Slots", value=" | ".join(slots), inline=True)
+        Two-handed / multi-slot items expand to every placement
+        they occupy (e.g. a two-hander shows ``arm.left.held | arm.right.held``),
+        matching how ``$gear`` renders the same item.
+        """
+        embed, file = super().get_embed()
+        placements = resolve_placements(self.slots) if self.slots else []
+        labels = [f"{part}.{key}" for (part, key) in placements]
+        # Multi-slot items (two-handed weapons, paired gear) occupy
+        # every placement simultaneously — ``a + b``. Single-slot
+        # items with multiple compatible placements (a one-hander
+        # that can go in either arm, a ring that fits either finger)
+        # occupy exactly one — ``a | b``. The two read very
+        # differently and the old ``| ``-only rendering conflated them.
+        if self.slots and self.slots & EquipmentSlots.MULTI_SLOT:
+            separator = " + "
+        else:
+            separator = " | "
+        embed.insert_field_at(
+            0,
+            name="Slots",
+            value=separator.join(labels) if labels else "—",
+            inline=True,
+        )
         return embed, file

@@ -195,21 +195,13 @@ class RpgInventoryCommands(Cog):
             _item, *_ = player.inventory.filter(item_or_placement)
 
         elif isinstance(item_or_placement, str):
-            # Try placement lookup first — ``part.key`` is the
-            # canonical form. Placements all have at least one dot
-            # (``arm.left.held`` has two), so try progressively
-            # shorter split points until one lands on a populated
-            # (part, key) pair. ``head.helm`` → part=head, key=helm;
-            # ``arm.left.held`` → part=arm.left, key=held.
-            tokens = item_or_placement.lower().strip().split(".")
-            if len(tokens) >= 2:
-                for split in range(len(tokens) - 1, 0, -1):
-                    part_name = ".".join(tokens[:split])
-                    key = ".".join(tokens[split:])
-                    equipped = player.part_equipment.get(part_name, {}).get(key)
-                    if equipped is not None:
-                        _item = equipped
-                        break
+            # Resolve the input as a placement query first —
+            # ``head.helm`` / ``arm.left.held`` for explicit form, or
+            # a bare key like ``helm`` / ``cape`` / ``held`` that
+            # picks the first anatomy-order occupied match. Falls
+            # through to an inventory-name filter only when the
+            # placement lookup finds nothing.
+            _item = player.find_equipped_by_placement(item_or_placement)
 
             if not _item:
                 _item, *_ = player.inventory.filter(item_or_placement)

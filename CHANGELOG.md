@@ -4,6 +4,43 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Equipment-on-parts UX polish
+
+Three small follow-ups to the stage-1 equipment-on-parts
+migration:
+
+**Command-error hints.** ``Bot.on_command_error`` previously
+passed silently on ``BadArgument`` and ``MissingRequiredArgument``
+— a typo like ``$equip wand.1 left garbage`` produced nothing:
+no channel response, no log. Now emits a ``DEBUG`` line for the
+dev trail and sends a one-line hint to the invoker
+(``I didn't quite catch that, <@!user>. Try $help <command>``).
+Per-user-per-error-class cooldown of 10s suppresses channel
+spam during a fast typo session. ``CommandOnCooldown`` and
+``CommandNotFound`` stay silent by design.
+
+**Item embed slot labels.** ``$item <name>`` embed's ``Slots``
+field now shows the ``part.key`` placement form (``torso.cape``,
+``arm.left.held``) matching ``$gear`` / ``$unequip`` rather than
+the pre-migration enum names (``CAPE``, ``LEFT_HELD``). Multi-slot
+items (two-handed weapons, paired gear) use ``+`` to signal
+simultaneous occupation (``arm.left.held + arm.right.held``);
+single-slot items with multiple compatible placements (a one-
+hander that can go in either arm) use ``|`` (EITHER).
+
+**``$stow`` / ``$unequip`` bare-key shortcuts.** New
+``Player.find_equipped_by_placement`` resolves three input
+shapes: full ``part.key`` (``head.helm``), bare key
+(``helm`` / ``cape`` / ``held``), and key-with-dots
+(``ear.left`` matches ``head.ear.left``). Bare-key lookup walks
+anatomy in ``PLACEMENT_DISPLAY_ORDER`` so ambiguous cases
+(``held`` with both arms occupied by different weapons) resolve
+left-first. Two-handed weapons share their ``Item`` reference
+across both arms, so ``$stow held`` on a two-hander naturally
+clears both sides via the existing ``remove()`` walk.
+
+33 new tests (9 error-hint, 8 embed-slots, 16 placement-resolver).
+
 ### 2026-04-21 — Per-game log context: fix for loaded games
 
 Follow-up to the 2026-04-21 per-game log-context shipment.
