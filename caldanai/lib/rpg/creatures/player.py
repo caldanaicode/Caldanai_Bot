@@ -218,6 +218,13 @@ def _apply_body_parts_health(
 #: continuous. See ``Part HP and Bleed Refactor.md``.
 SKILLS_SCHEMA_VERSION: int = 2
 
+#: Upper bound on the number of saved gear loadouts per player.
+#: Referenced by both ``Player.save_loadout`` (guards against the
+#: player creating a fourth label) and the ``$loadout`` command
+#: (surfaces the cap in help text and error messages). Bump here
+#: when we want to widen the cap — nothing else needs updating.
+MAX_LOADOUTS: int = 3
+
 #: Rate ratio between new (Q.6) and old XP formulas at the canonical
 #: calibration point: skill level 10, torso hit for 15 damage
 #: (torso ``bleed_rate=0.7``). See the Q.6 design doc for the full
@@ -294,6 +301,7 @@ class Player(Creature):
         body_parts_health: Optional[Dict[str, int]] = None,
         social: Optional[Dict[str, object]] = None,
         skills_schema_version: Optional[int] = None,
+        loadouts: Optional[Dict[str, Dict[str, Dict[str, str]]]] = None,
     ):
         super().__init__(
             name=None,
@@ -395,6 +403,14 @@ class Player(Creature):
         elif not self.skills:
             self.is_dirty = False
 
+        # Saved gear loadouts (2026-04-22 QoL follow-up to stage
+        # 2a). Each entry is ``{label: part_equipment_shape}``
+        # where the shape mirrors the DB form of
+        # ``part_equipment`` — ``{part_name: {key: item_id_str}}``
+        # with empty placements omitted. Capped at
+        # :data:`MAX_LOADOUTS` (see ``save_loadout``).
+        self.loadouts: Dict[str, Dict[str, Dict[str, str]]] = dict(loadouts or {})
+
     def __eq__(self, o):
         return isinstance(o, Player) and self.user_id == o.user_id and self.guild_id == o.guild_id
 
@@ -488,6 +504,223 @@ class Player(Creature):
             items.append(item)
         for item in items:
             self.remove(item)
+
+    # ------------------------------------------------------------------
+    # Gear loadouts — save / load / clear / list
+    # ------------------------------------------------------------------
+    #
+    # Players can snapshot the current ``part_equipment`` under a
+    # label ("combat", "travel", "town", etc.) and restore it
+    # later with a single command — useful because stage 2a
+    # (destroyed-part drops gear) significantly increased the
+    # frequency of having to re-equip everything. Capacity capped
+    # at :data:`MAX_LOADOUTS`.
+    #
+    # Save stores ITEM IDs, not copies — so selling or trading an
+    # item naturally invalidates the saved reference, which is
+    # pruned by :meth:`_purge_item_refs` (hooked into the
+    # inventory-removal path via :meth:`take_item`).
+
+    def _normalize_label(self, label: str) -> str:
+        """Canonical form for case-insensitive lookup. ``"Combat"``
+        and ``"combat"`` and ``"COMBAT"`` all hit the same slot.
+        Storage preserves the player's original casing — we only
+        normalize at comparison time."""
+        return (label or "").strip().casefold()
+
+    def get_loadout(self, label: str) -> "Optional[Dict[str, Dict[str, str]]]":
+        """Case-insensitive lookup of a saved loadout by label.
+        Returns the raw ``{part: {key: item_id}}`` dict or ``None``
+        when no slot matches."""
+        target = self._normalize_label(label)
+        if not target:
+            return None
+        for stored_label, payload in self.loadouts.items():
+            if self._normalize_label(stored_label) == target:
+                return payload
+        return None
+
+    def save_loadout(self, label: str) -> "Tuple[bool, str]":
+        """Snapshot current ``part_equipment`` under ``label``.
+
+        Rules:
+        - Label must be non-empty (post-strip).
+        - Case-insensitive: saving ``"Combat"`` after ``"combat"``
+          OVERWRITES the existing slot and adopts the new casing.
+        - Capacity capped at :data:`MAX_LOADOUTS`. Attempting to
+          create a *new* label (not an overwrite) when every slot
+          is full returns a failure tuple naming the full set.
+
+        Returns ``(success, message)``. ``message`` names the
+        resulting label on success or explains the failure.
+        """
+        clean = (label or "").strip()
+        if not clean:
+            return False, "Loadout label can't be empty."
+        target = self._normalize_label(clean)
+
+        # Find a pre-existing slot with the same casefolded label
+        # so we can overwrite rather than add a second entry.
+        existing_key: Optional[str] = None
+        for stored_label in list(self.loadouts.keys()):
+            if self._normalize_label(stored_label) == target:
+                existing_key = stored_label
+                break
+
+        if existing_key is None and len(self.loadouts) >= MAX_LOADOUTS:
+            labels = ", ".join(f"`{lbl}`" for lbl in self.loadouts.keys())
+            return False, (
+                f"You already have {MAX_LOADOUTS} loadouts saved "
+                f"({labels}). Clear one before saving a new label."
+            )
+
+        # Serialize the current equipment shape the same way
+        # ``to_dict`` does — non-None placements only, item ids as
+        # strings. This matches the save-on-disk format, so a
+        # reload hydrates without any intermediate translation.
+        snapshot: Dict[str, Dict[str, str]] = {}
+        for part_name, keys in self.part_equipment.items():
+            for key, item in keys.items():
+                if item is not None:
+                    snapshot.setdefault(part_name, {})[key] = str(item.id)
+
+        # Overwrite by dropping the old key and using the new
+        # casing — last-write-wins on label formatting.
+        if existing_key is not None and existing_key != clean:
+            del self.loadouts[existing_key]
+        self.loadouts[clean] = snapshot
+        self.is_dirty = True
+        return True, clean
+
+    def load_loadout(self, label: str) -> "Tuple[bool, str, List[str], List[str]]":
+        """Apply a saved loadout: stow everything currently
+        equipped, then re-equip every item referenced in the saved
+        snapshot that's still in inventory.
+
+        Items land on USELESS body parts too — ``equip`` itself
+        doesn't gate on injury state; only combat does (see
+        ``get_attack_sources``). The phantom weapon on a dead
+        limb waits for healing to become usable, matching how
+        manual ``$equip`` already behaves. That's a feature, not
+        a bug: the player's saved loadout is fulfilled where
+        possible, not arbitrarily dropped when some parts are
+        injured.
+
+        Returns ``(success, stored_label, restored, skipped)``:
+
+        - ``success`` — ``False`` if no matching label exists.
+        - ``stored_label`` — the label as originally saved
+          (preserves casing so the confirmation message can echo
+          the player's own form).
+        - ``restored`` — display names of items actually equipped.
+        - ``skipped`` — human-readable notes for items that
+          couldn't land (no longer in inventory, destroyed arm,
+          etc.).
+        """
+        payload = self.get_loadout(label)
+        if payload is None:
+            return False, label, [], []
+
+        # Resolve the stored label with its original casing for
+        # the return tuple.
+        target = self._normalize_label(label)
+        stored_label = next(
+            (
+                lbl for lbl in self.loadouts
+                if self._normalize_label(lbl) == target
+            ),
+            label,
+        )
+
+        # Stow everything first so placements are free to fill.
+        # Dedupe by identity — a two-hander on both arms is one
+        # ``remove`` call, same as ``$stow all``.
+        currently_equipped: List[Equipment] = []
+        seen: set = set()
+        for item in self._iter_equipped_items():
+            if id(item) in seen:
+                continue
+            seen.add(id(item))
+            currently_equipped.append(item)
+        for item in currently_equipped:
+            self.remove(item)
+
+        restored: List[str] = []
+        skipped: List[str] = []
+
+        # Dedupe item ids — a multi-placed item appears under
+        # several (part, key) entries but should only be equipped
+        # once via the normal equip path.
+        unique_item_ids: List[str] = []
+        seen_ids: set = set()
+        for part_name, keys in payload.items():
+            for key, item_id in keys.items():
+                if item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    unique_item_ids.append(item_id)
+
+        for item_id in unique_item_ids:
+            item = self.inventory[item_id]
+            if item is None or not isinstance(item, Equipment):
+                skipped.append(
+                    f"*(gone from inventory)* — id `{item_id[:8]}…`"
+                )
+                continue
+            ok, msg = self.equip(item)
+            if ok:
+                restored.append(item.get_full_name())
+            else:
+                skipped.append(f"{item.get_full_name()} — {msg or 'could not equip'}")
+
+        self.is_dirty = True
+        return True, stored_label, restored, skipped
+
+    def clear_loadout(self, label: str) -> "Tuple[bool, str]":
+        """Delete the saved loadout matching ``label``
+        case-insensitively. Returns ``(True, stored_label)`` on
+        success (echoing the original casing) or ``(False, "")``
+        when no slot matched."""
+        target = self._normalize_label(label)
+        if not target:
+            return False, ""
+        for stored_label in list(self.loadouts.keys()):
+            if self._normalize_label(stored_label) == target:
+                del self.loadouts[stored_label]
+                self.is_dirty = True
+                return True, stored_label
+        return False, ""
+
+    def _purge_item_refs(self, item: "Item") -> None:
+        """Remove every saved-loadout reference to ``item`` so
+        ``$loadout load`` doesn't try to equip something the
+        player no longer owns.
+
+        Invoked from :meth:`take_item` (the centralized
+        "no longer owns this" path covering sell, future trade,
+        admin removal, etc.). Empty part-entries are pruned after
+        the purge; labels themselves stay as empty-payload
+        entries so the player's saved slots aren't silently
+        collapsed (a re-save into the same label is still
+        possible).
+
+        Sets ``is_dirty`` when an actual purge happens so future
+        callsites that bypass ``take_item``'s own dirty-flag set
+        (trade / admin-remove paths) still get the next save
+        tick to persist the cleaned-up state.
+        """
+        target_id = str(item.id)
+        purged = False
+        for stored_label, payload in self.loadouts.items():
+            for part_name in list(payload.keys()):
+                keys = payload[part_name]
+                for key in list(keys.keys()):
+                    if keys[key] == target_id:
+                        del keys[key]
+                        purged = True
+                if not keys:
+                    del payload[part_name]
+        if purged:
+            self.is_dirty = True
 
     def is_injured(self) -> bool:
         """Returns True if the player's body HP is below max or any
@@ -1172,6 +1405,7 @@ class Player(Creature):
             body_parts_health=p.get("body_parts_health"),
             social=p.get("social"),
             skills_schema_version=p.get("skills_schema_version"),
+            loadouts=p.get("loadouts"),
         )
 
         # 2026-04-21 migration: legacy ``equip_slots`` docs are
@@ -1550,9 +1784,16 @@ class Player(Creature):
         Removes an item from the player's inventory, if present.
 
         Returns the item that was found and removed, or None if the item was not found or was equipped.
+
+        Centralized "player no longer owns this item" choke
+        point — called by ``sell`` today, future trade and admin
+        removal paths. Every call also prunes any saved-loadout
+        references so ``$loadout load`` doesn't try to equip an
+        item that's been sold, traded away, or otherwise removed.
         """
 
         if item == self.inventory[item.id] and not self.is_equipped(item):
+            self._purge_item_refs(item)
             self.inventory.remove(item, count)
             self.is_dirty = True
             return item
@@ -1621,6 +1862,20 @@ class Player(Creature):
             for key, item in keys.items():
                 if item is not None:
                     d["part_equipment"].setdefault(part_name, {})[key] = str(item.id)
+
+        # Saved gear loadouts. Mirror the ``part_equipment``
+        # pattern — keep the field out of the saved doc entirely
+        # when no loadouts exist so never-saved players don't
+        # gain a noisy empty ``loadouts: {}`` field on first save.
+        if self.loadouts:
+            d["loadouts"] = {
+                label: {
+                    part_name: dict(keys)
+                    for part_name, keys in payload.items()
+                    if keys
+                }
+                for label, payload in self.loadouts.items()
+            }
 
         if self.id is None:
             del d["_id"]

@@ -4,6 +4,40 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-22 — Gear loadouts: ``$loadout save / load / clear``
+
+QoL follow-up to stage 2a. Players can snapshot their current
+equipment under a named label (up to 3 per player) and restore
+it with one command — dramatically less friction when gear
+keeps dropping on limb-destroy hits.
+
+- ``$loadout save <label>`` — snapshot current ``part_equipment``
+  under ``<label>``. Labels store the player's original casing
+  but look up case-insensitively (saving ``Combat`` after
+  ``combat`` overwrites the same slot).
+- ``$loadout load <label>`` — ``$stow all`` first, then
+  re-equip every item in the saved set that's still in
+  inventory. Missing items (sold, traded, lost) skip with a
+  note; other items land.
+- ``$loadout clear <label>`` — delete a slot.
+- Bare ``$loadout`` lists every saved slot with item-count.
+
+Capped at ``Player.MAX_LOADOUTS = 3`` — bump the constant if
+we want more later, nothing else needs updating.
+
+References stored are item IDs, not copies. The centralized
+``Player._purge_item_refs`` is wired into ``take_item`` so any
+"player no longer owns this" path (sell today, future trade /
+admin-remove) automatically prunes the saved-loadout ref —
+``$loadout load`` never tries to equip a ghost.
+
+Aliases: ``$kit``, ``$gearset``, ``$outfit``.
+
+20 new tests (19 base + 1 two-handed-purge) covering save,
+overwrite, cap, load, skip-missing, clear, case-insensitivity,
+purge-on-sell (single-slot + two-handed), and persistence
+round-trip.
+
 ### 2026-04-22 — Equipment on parts, stage 2a: destroyed-part drop
 
 Delivers the "limb-loss consequence" capstone promised when

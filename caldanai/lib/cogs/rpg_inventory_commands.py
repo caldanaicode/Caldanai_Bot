@@ -1,4 +1,4 @@
-from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, Context
+from discord.ext.commands import Cog, command, cooldown, group, BucketType, guild_only, Context
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed
 from typing import Union, List, Optional
@@ -644,6 +644,164 @@ class RpgInventoryCommands(Cog):
                 color=0xff0000
             )
             Dispatcher.add(ctx, embed=embed)
+
+    # -----------------------------------------------------------------
+    # $loadout — save / load / clear named gear sets
+    # -----------------------------------------------------------------
+    #
+    # QoL follow-up to stage 2a (destroyed-part drops gear). Players
+    # can snapshot their current ``part_equipment`` under a label
+    # ("combat", "travel", ...) and restore it with a single
+    # ``$loadout load combat`` — no more re-equipping piece by piece
+    # after a limb-destroy drop. Capped per player via
+    # :data:`Player.MAX_LOADOUTS`; the cap is referenced via the
+    # constant so a future bump only needs one edit.
+
+    @group(
+        name="loadout",
+        aliases=["kit", "gearset", "outfit"],
+        brief="Save / load named gear sets.",
+        invoke_without_command=True,
+        case_insensitive=True,
+    )
+    @cooldown(1, 2, BucketType.member)
+    async def loadout(self, ctx: Context):
+        """
+        Save and restore named gear sets. Bare ``$loadout`` shows
+        every slot you've saved. Subcommands:
+
+        ``$loadout save <label>`` — snapshot your current gear
+        under ``<label>`` (case-insensitive lookup, stored as
+        entered). Overwrites an existing label with the same
+        casefolded form.
+
+        ``$loadout load <label>`` — stow current gear, then
+        re-equip every piece in the saved set that's still in
+        your inventory and lands on a usable body part.
+
+        ``$loadout clear <label>`` — delete a saved slot.
+
+        Capacity capped at 3 slots per player.
+        """
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
+        await self._render_loadout_list(channel, player)
+
+    async def _render_loadout_list(self, channel, player):
+        """Bare ``$loadout`` display: list the slots the player
+        has saved, or a "no loadouts yet" prompt."""
+        from caldanai.lib.rpg.creatures.player import MAX_LOADOUTS
+
+        if not player.loadouts:
+            Dispatcher.add(
+                channel,
+                f"{player.name} has no saved loadouts "
+                f"(cap: {MAX_LOADOUTS}). "
+                f"Try `$loadout save <label>` to snapshot current gear.",
+            )
+            return
+
+        lines = [f"**Saved loadouts for {player.name}** "
+                 f"({len(player.loadouts)}/{MAX_LOADOUTS})"]
+        for label, payload in player.loadouts.items():
+            # Count unique item ids referenced to give the player
+            # a quick "how much is in this slot" sense without
+            # dumping the full placement tree.
+            unique_ids = set()
+            for keys in payload.values():
+                unique_ids.update(keys.values())
+            lines.append(
+                f"  `{label}` — {len(unique_ids)} item"
+                f"{'s' if len(unique_ids) != 1 else ''}"
+            )
+        Dispatcher.add(channel, "\n".join(lines))
+
+    @loadout.command(name="save", brief="Save current gear under a label.")
+    async def loadout_save(self, ctx: Context, *, label: str = None):
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
+
+        if not label or not label.strip():
+            Dispatcher.add(
+                channel,
+                "Specify a label: `$loadout save <label>`.",
+            )
+            return
+
+        ok, msg = player.save_loadout(label)
+        if ok:
+            Dispatcher.add(
+                channel,
+                f"{player.name} saved the `{msg}` loadout.",
+            )
+        else:
+            Dispatcher.add(channel, msg)
+
+    @loadout.command(name="load", brief="Restore a saved gear set.")
+    async def loadout_load(self, ctx: Context, *, label: str = None):
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
+
+        if RpgUtilities.dead_invoker_guard(
+            channel, player, _DEAD_INVOKER_INVENTORY_FLAVOR,
+        ):
+            return
+
+        if not label or not label.strip():
+            Dispatcher.add(
+                channel,
+                "Specify a label: `$loadout load <label>`.",
+            )
+            return
+
+        ok, stored_label, restored, skipped = player.load_loadout(label)
+        if not ok:
+            Dispatcher.add(
+                channel,
+                f"No loadout matching `{label}`. "
+                f"Check `$loadout` for your saved labels.",
+            )
+            return
+
+        parts = [f"{player.name} equipped the `{stored_label}` loadout."]
+        if restored:
+            parts.append(f"Restored: {item_list_to_string(restored)}.")
+        if skipped:
+            bullets = "\n".join(f"  • {s}" for s in skipped)
+            parts.append(f"Skipped:\n{bullets}")
+        Dispatcher.add(channel, "\n".join(parts))
+
+    @loadout.command(name="clear", aliases=["delete", "remove"], brief="Delete a saved gear set.")
+    async def loadout_clear(self, ctx: Context, *, label: str = None):
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+        channel = RpgUtilities.resolve_reply_channel(ctx, game)
+
+        if not label or not label.strip():
+            Dispatcher.add(
+                channel,
+                "Specify a label: `$loadout clear <label>`.",
+            )
+            return
+
+        ok, stored_label = player.clear_loadout(label)
+        if ok:
+            Dispatcher.add(
+                channel,
+                f"{player.name} cleared the `{stored_label}` loadout.",
+            )
+        else:
+            Dispatcher.add(
+                channel,
+                f"No loadout matching `{label}`.",
+            )
 
     @Cog.listener()
     async def on_ready(self):
