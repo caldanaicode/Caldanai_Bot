@@ -564,6 +564,15 @@ class RpgInventoryCommands(Cog):
                 msg += f"\n{m}"
                 total += v
 
+        # Nothing to sell AND no pre-sell context (favorited skips,
+        # no-match / bad-range / equipped-guard messages) to report
+        # back to the player. Short-circuit so we don't dispatch an
+        # empty "sold the following items for a total of 0 clarks"
+        # receipt that follows a resolver-emitted "no match"
+        # message — that was the 2026-04-22 playtest bug.
+        if not sell and not msg.strip():
+            return
+
         msg = f'{player.name} sold the following items for a total of {total:,} clarks: ```\n{msg}```'
         msgs = Dispatcher.split_message(msg, 'clarks.', True)
         count = 0
