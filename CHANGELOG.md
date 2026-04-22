@@ -4,6 +4,47 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-22 — Equipment on parts, stage 2a: destroyed-part drop
+
+Delivers the "limb-loss consequence" capstone promised when
+stage 1 shipped. When a player body part transitions to
+``InjuryLevels.USELESS``, every item at that part's placements
+returns to the inventory pool — items stay in ``self.inventory``,
+only the placement references clear, so the player hasn't LOST
+anything, just lost the USE of it until the part heals.
+
+``Player.apply_damage`` snapshots the set of already-useless
+part names before dispatching to ``super().apply_damage()``, then
+diffs post-damage state to identify newly-useless parts and
+calls a new helper ``_drop_gear_on_destroyed_part`` on each.
+
+Multi-placement handling is deliberate: ``_drop_gear_on_destroyed_part``
+routes through ``Player.remove(item)`` which walks every
+placement holding a given ``Item`` instance. So a two-handed
+weapon occupying ``arm.left.held + arm.right.held`` comes off
+BOTH arms when one arm is destroyed — a two-hander can't be
+wielded with one good arm, and leaving the intact arm holding
+a phantom reference would be a stuck state. Same shape covers
+future multi-part items (cape-and-neck, manacles, magical sets).
+
+Idempotent across repeated damage ticks: an already-USELESS part
+does not re-drop its gear.
+
+The drop is silent by design (no dispatched message) — the
+existing combat narrative (``The left arm hangs limp and
+useless.`` + injury lines) already surfaces the limb state to
+the player. Adding a second "your bow slips from your grip"
+line would pile onto already-busy combat tables.
+
+Armor bonuses stop contributing naturally: ``get_armor_bonuses``
+walks live placements, so a cleared placement means the item's
+bonus no longer counts toward the player's aggregate stats.
+
+13 new tests cover single-slot drop, two-handed dual-arm drop,
+idempotency on already-useless parts, death-ordering, revive
+stickiness, persistence round-trip, and multi-part items
+spanning different body parts.
+
 ### 2026-04-22 — $roll honors NdN±C signed-constant modifier
 
 Playtest follow-up to the 2026-04-21 dice-spec rework. The

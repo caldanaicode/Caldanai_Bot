@@ -407,6 +407,16 @@ class Player(Creature):
         dmg_type: "Optional[DamageTypes]" = None,
         target_part: "Optional[BodyPart]" = None,
     ) -> Optional[str]:
+        # Capture injury state BEFORE damage so we can detect
+        # parts that newly transition to USELESS from this call.
+        # Only NEWLY-useless parts drop gear — a part that was
+        # already useless before this hit doesn't re-drop (its
+        # gear went back to inventory on the first transition).
+        already_useless = {
+            p.name for p in (self.body_parts or [])
+            if p.get_injury_level() == InjuryLevels.USELESS
+        }
+
         was_alive = self.health > 0
         super().apply_damage(
             amount,
@@ -414,6 +424,21 @@ class Player(Creature):
             target_part=target_part,
         )
         self.is_dirty = True
+
+        # Stage 2a (2026-04-22): items on destroyed parts return
+        # to the inventory pool. Items stay in inventory — the
+        # placements are the only thing that cleared — so the
+        # player hasn't LOST anything, they've just lost the USE
+        # of it until the part heals. Matches the project memo
+        # rationale ("NOT lost or broken, temporary loss of
+        # access").
+        for part in list(self.body_parts or []):
+            if (
+                part.get_injury_level() == InjuryLevels.USELESS
+                and part.name not in already_useless
+            ):
+                self._drop_gear_on_destroyed_part(part.name)
+
         if was_alive and self.is_dead():
             return parse("@1 crumples to the ground lifelessly!", self)
 
@@ -422,6 +447,47 @@ class Player(Creature):
             return parse(f"{mention} suddenly gasps raggedly as life returns to @1o!", self)
 
         return ""
+
+    def _drop_gear_on_destroyed_part(self, part_name: str) -> None:
+        """Return every item at ``part_name``'s placements to the
+        inventory pool. Items already live in ``self.inventory`` —
+        ``part_equipment`` holds *references* to inventory items —
+        so the drop is accomplished by clearing the placements via
+        :meth:`remove`. ``remove`` walks every placement holding a
+        given ``Item`` instance, so multi-placed items (two-handed
+        weapons, paired gear) come off fully even when only one
+        of their placements is at the destroyed part: the weapon
+        "can no longer be wielded with one good arm," so the
+        other arm stops holding it too.
+
+        Called from :meth:`apply_damage` on the frame a part
+        transitions to USELESS.
+
+        **Load-bearing invariant**: this is the ONLY path that
+        drops player gear on part destruction. Any future code
+        that sets ``part.health = 0`` directly (admin command,
+        cheat, test hack) bypasses the drop. Today
+        ``$spawn destroy`` only targets monsters (which have no
+        ``part_equipment``), so this hole is theoretical; if the
+        admin surface ever grows a player-side part-destroy
+        command, wire it through this method too.
+        """
+        if part_name not in self.part_equipment:
+            return
+        # Collect unique Item instances from this part's
+        # placements — a single multi-slot item could appear at
+        # more than one key, and ``remove`` deduplicates naturally.
+        items: List[Equipment] = []
+        seen: set = set()
+        for key, item in self.part_equipment[part_name].items():
+            if item is None:
+                continue
+            if id(item) in seen:
+                continue
+            seen.add(id(item))
+            items.append(item)
+        for item in items:
+            self.remove(item)
 
     def is_injured(self) -> bool:
         """Returns True if the player's body HP is below max or any
