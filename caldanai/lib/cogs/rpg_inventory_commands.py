@@ -103,42 +103,50 @@ class RpgInventoryCommands(Cog):
             # uniform. ``$equip sword left`` → ``$equip sword@left``.
             query_list = [f"{query_list[0]}@{query_list[1]}"]
 
-        resolved = RpgUtilities.resolve_items_or_notify(
-            channel, player, query_list, mode="equip",
-        )
-        if not resolved:
-            return
-
-        for _item, hint_slot in resolved:
-            if not isinstance(_item, Equipment):
-                Dispatcher.add(
-                    channel, f"{_item.get_full_name()} cannot be equipped.",
-                )
+        # Resolve + equip per-query so each subsequent query sees
+        # the updated equipped state. Batch-resolving all queries
+        # up front made ``$equip wand.b wand.b`` pick the SAME
+        # superior wand twice — the second resolution didn't know
+        # the first query was about to claim it. Interleaving the
+        # equip means the second ``wand.b`` now sees the superior
+        # as already-equipped and falls back to the next-best.
+        for raw in query_list:
+            resolved = RpgUtilities.resolve_items_or_notify(
+                channel, player, [raw], mode="equip",
+            )
+            if not resolved:
                 continue
 
-            # ``hint_slot`` from the helper is a ``LEFT_SIDE`` /
-            # ``RIGHT_SIDE`` aggregate or a specific placement slot.
-            # Narrow to the item's compatible mask before passing
-            # down — the old behavior did this intersection inline.
-            final_slot = (
-                EquipmentSlots(hint_slot & _item.slots)
-                if hint_slot is not None
-                else None
-            )
-            success, replaced_msg = player.equip(_item, final_slot)
-            if success:
-                if replaced_msg:
+            for _item, hint_slot in resolved:
+                if not isinstance(_item, Equipment):
                     Dispatcher.add(
-                        channel,
-                        f"{player.name} equipped {_item.get_full_name()}, replacing {replaced_msg}.",
+                        channel, f"{_item.get_full_name()} cannot be equipped.",
                     )
+                    continue
+
+                # ``hint_slot`` from the helper is a ``LEFT_SIDE`` /
+                # ``RIGHT_SIDE`` aggregate or a specific placement slot.
+                # Narrow to the item's compatible mask before passing
+                # down — the old behavior did this intersection inline.
+                final_slot = (
+                    EquipmentSlots(hint_slot & _item.slots)
+                    if hint_slot is not None
+                    else None
+                )
+                success, replaced_msg = player.equip(_item, final_slot)
+                if success:
+                    if replaced_msg:
+                        Dispatcher.add(
+                            channel,
+                            f"{player.name} equipped {_item.get_full_name()}, replacing {replaced_msg}.",
+                        )
+                    else:
+                        Dispatcher.add(
+                            channel,
+                            f"{player.name} equipped {_item.get_full_name()}.",
+                        )
                 else:
-                    Dispatcher.add(
-                        channel,
-                        f"{player.name} equipped {_item.get_full_name()}.",
-                    )
-            else:
-                Dispatcher.add(channel, replaced_msg)
+                    Dispatcher.add(channel, replaced_msg)
 
     @staticmethod
     def _resolve_best(base, player, channel):
@@ -263,23 +271,28 @@ class RpgInventoryCommands(Cog):
                     Dispatcher.add(channel, msg)
             return
 
-        resolved = RpgUtilities.resolve_items_or_notify(
-            channel, player, list(queries), mode="stow",
-        )
-        if not resolved:
-            return
-
-        # Dedupe across queries — stowing the same two-handed
-        # weapon at both arm.left.held and arm.right.held from a
-        # single invocation should still only call remove() once.
-        seen_ids = set()
-        for item, _slot in resolved:
-            if id(item) in seen_ids:
+        # Resolve + remove per-query so each subsequent query sees
+        # the updated equipped state. ``$stow wand.b wand.b`` on a
+        # dual-wield of wands now removes BOTH wands (best first,
+        # then next-best) rather than removing the same wand twice
+        # via dedup. Inner dedupe still applies per-resolve so a
+        # single bare-key match like ``$stow held`` (returns both
+        # arms' items in one resolution) doesn't double-call
+        # ``remove()`` on a two-handed weapon's shared Item ref.
+        for raw in queries:
+            resolved = RpgUtilities.resolve_items_or_notify(
+                channel, player, [raw], mode="stow",
+            )
+            if not resolved:
                 continue
-            seen_ids.add(id(item))
-            msg = player.remove(item)
-            if msg:
-                Dispatcher.add(channel, msg)
+            seen_ids = set()
+            for item, _slot in resolved:
+                if id(item) in seen_ids:
+                    continue
+                seen_ids.add(id(item))
+                msg = player.remove(item)
+                if msg:
+                    Dispatcher.add(channel, msg)
 
     @command(
         name='inventory',
@@ -490,19 +503,29 @@ class RpgInventoryCommands(Cog):
             return
 
         msg = ''
-        # Set of equipped item ids — each unique Item instance appears
-        # once even when multi-placed (two-handed weapons share a
-        # single Item reference across both arms).
-        equipped = {i.id for i in player._iter_equipped_items()}
         sell: List[Item] = []
         total = 0
+        favorited_skipped = 0
 
+        # Per-query resolve-then-sell so repeat queries see the
+        # updated inventory. ``$sell wand.b wand.b`` now sells the
+        # BEST and then the NEXT-BEST wand: the first sell removes
+        # the superior wand from inventory, so the second
+        # ``wand.b`` resolver call picks the fine wand instead of
+        # the same superior again. Pre-fix, both queries resolved
+        # to the same instance and the second sell hit "Item not
+        # found" in the receipt.
         for _item in items:
+            # Track equipped set fresh each iteration so an already-
+            # sold item in a preceding iteration doesn't linger as
+            # a stale reference.
+            equipped = {i.id for i in player._iter_equipped_items()}
+            candidates: List[Item] = []
+
             if (isinstance(_item, int) or _item.isnumeric()) and 1 <= int(_item) <= len(player.inventory):
                 item, *_ = player.inventory.filter(_item)
-
                 if item and item.id not in equipped:
-                    sell.append(item)
+                    candidates.append(item)
                 elif item is not None:
                     msg += f'\nYou must un-equip {item.get_full_name()} before selling them.'
                 else:
@@ -510,59 +533,56 @@ class RpgInventoryCommands(Cog):
 
             elif isinstance(_item, str):
                 if _item.lower() == 'all':
-                    sell += [i for i in list(player.inventory.all()) if i.id not in equipped]
+                    candidates = [
+                        i for i in list(player.inventory.all())
+                        if i.id not in equipped
+                    ]
                 elif '-' in _item:
                     try:
                         low, high = map(int, _item.split('-'))
                         if low > high:
-                            tmp = low
-                            low = high
-                            high = tmp
-
+                            low, high = high, low
                         low -= 1
                         if 0 <= low <= high <= len(player.inventory):
-                            sell += list(filter(lambda i: i.id not in equipped, player.inventory.all()[low:high]))
-
+                            candidates = [
+                                i for i in player.inventory.all()[low:high]
+                                if i.id not in equipped
+                            ]
                         else:
                             msg += f"\nIndex range invalid."
-
                     except ValueError:
                         msg += f"\nUnable to determine lower and upper indices from {_item}."
                 else:
-                    # Fuzzy name / ``.best`` / ``.quality`` /
-                    # placement key — delegate to the shared
-                    # resolver. Sell mode returns every matching
-                    # unequipped item; ambiguity is NOT surfaced
-                    # (sell takes the list as-is, the whole point
-                    # of a broad query is to grab every match).
+                    # Fuzzy name / ``.best`` / quality-prefix —
+                    # shared resolver. Sell mode returns every
+                    # matching unequipped item.
                     resolved = RpgUtilities.resolve_items_or_notify(
                         channel, player, [_item], mode="sell",
                     )
-                    for item, _slot in resolved:
-                        sell.append(item)
+                    candidates = [item for item, _slot in resolved]
 
             else:
                 msg += f"\nI'm afraid you don't have any {_item}."
 
-        # Favorited items are protected from bulk-sell. Strip them
-        # from whatever paths above put them into the sell list and
-        # tell the player how many were saved — as a count, not a
-        # full list, so heavy-inventory players don't see the
-        # "protected" message dwarf the actual sell receipt. A
-        # player who wants to sell a specific protected item
-        # un-favorites it first.
-        favorited = [i for i in sell if i.favorited]
-        if favorited:
-            sell = [i for i in sell if not i.favorited]
-            count = len(favorited)
-            noun = "item" if count == 1 else "items"
-            msg += f"\n{count} {noun} skipped (★ favorited)."
-
-        if len(sell) > 0:
-            for item in sell:
+            # Apply favorites guard + equipped re-check per
+            # candidate, then actually sell. Each successful sale
+            # removes the item from inventory, which is what makes
+            # the next query's resolver pick a different instance.
+            for item in candidates:
+                if item.favorited:
+                    favorited_skipped += 1
+                    continue
+                if item.id in equipped:
+                    continue
                 m, v = player.sell(item, 1, True)
-                msg += f"\n{m}"
-                total += v
+                if v or m.startswith("You sold"):
+                    sell.append(item)
+                    total += v
+                    msg += f"\n{m}"
+
+        if favorited_skipped:
+            noun = "item" if favorited_skipped == 1 else "items"
+            msg += f"\n{favorited_skipped} {noun} skipped (★ favorited)."
 
         # Nothing to sell AND no pre-sell context (favorited skips,
         # no-match / bad-range / equipped-guard messages) to report
