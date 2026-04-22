@@ -111,7 +111,7 @@ class TestSerialization:
         d = p.to_dict()
         for key in ("user_id", "guild_id", "defense", "dodge", "health",
                      "health_max", "clarks", "rolls", "skills", "gender",
-                     "pronouns", "items", "equip_slots", "health_regen"):
+                     "pronouns", "items", "part_equipment", "health_regen"):
             assert key in d, f"Missing key: {key}"
 
     def test_to_dict_omits_id_when_none(self):
@@ -144,8 +144,7 @@ class TestSerialization:
             "skills": {"unarmed bludgeoning": 100},
             "gender": "female",
             "pronouns": "she,her,hers,her",
-            "equip_slots": {s.name: None for s in EquipmentSlots
-                            if not EquipmentSlots.exclude_from_output(s.name)},
+            "part_equipment": {},
             "last_active": None,
             "health_regen": 3,
             # Doc is already on the current skills schema, so
@@ -173,7 +172,7 @@ class TestEquipment:
         item = _make_equipment(name="cap", slots=EquipmentSlots.HEAD)
         success, msg = p.equip(item)
         assert success is True
-        assert p.equip_slots[EquipmentSlots.HEAD.name] == item
+        assert p.part_equipment["head"]["helm"] == item
         assert p.is_dirty is True
 
     def test_equip_already_equipped(self):
@@ -189,10 +188,10 @@ class TestEquipment:
         item1 = _make_equipment(name="old cap", slots=EquipmentSlots.HEAD)
         item2 = _make_equipment(name="new cap", slots=EquipmentSlots.HEAD)
         p.equip(item1)
-        success, replaced = p.replace_equipment(item2, EquipmentSlots.HEAD.name)
+        success, replaced = p.replace_equipment(item2, "head", "helm")
         assert success is True
         assert replaced == item1
-        assert p.equip_slots[EquipmentSlots.HEAD.name] == item2
+        assert p.part_equipment["head"]["helm"] == item2
 
     def test_remove_equipped_item(self):
         p = _make_player()
@@ -200,7 +199,7 @@ class TestEquipment:
         p.equip(item)
         msg = p.remove(item)
         assert "removed" in msg.lower()
-        assert p.equip_slots[EquipmentSlots.HEAD.name] is None
+        assert p.part_equipment["head"]["helm"] is None
 
     def test_remove_none_returns_message(self):
         p = _make_player()
@@ -328,7 +327,7 @@ class TestGetAttackSources:
         weapon.skill = "one-handed slashing"
         weapon.attack = "1d6"
         weapon.bonus = 2
-        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        p.part_equipment["arm.left"]["held"] = weapon
 
         sources = p.get_attack_sources()
         assert len(sources) == 2
@@ -346,8 +345,10 @@ class TestGetAttackSources:
         weapon.skill = "two-handed swords"
         weapon.attack = "2d6"
         weapon.bonus = 2
-        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
-        p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+        # Two-handed: same weapon at both arms, matching the runtime
+        # shape produced by ``Player.equip`` for MULTI_SLOT items.
+        p.part_equipment["arm.left"]["held"] = weapon
+        p.part_equipment["arm.right"]["held"] = weapon
 
         sources = p.get_attack_sources()
         assert len(sources) == 1
@@ -392,8 +393,9 @@ class TestDoAttack:
         weapon.skill = "two-handed swords"
         weapon.attack = "2d6"
         weapon.bonus = 2
-        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
-        p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+        # Two-handed: same weapon at both arms.
+        p.part_equipment["arm.left"]["held"] = weapon
+        p.part_equipment["arm.right"]["held"] = weapon
 
         target = MagicMock()
         target.resolve_attack.return_value = _make_attack_result(damage=8)
@@ -490,13 +492,13 @@ class TestPlayerBodyParts:
     keyed by instance name so schema drift is cheap."""
 
     _EXPECTED_PART_NAMES = {
-        "head", "torso",
+        "head", "neck", "torso",
         "arm.left", "arm.right",
         "leg.left", "leg.right",
         "eye.left", "eye.right",
     }
 
-    def test_default_anatomy_has_eight_parts_at_full_health(self):
+    def test_default_anatomy_has_nine_parts_at_full_health(self):
         p = _make_player()
         names = {part.name for part in p.body_parts}
         assert names == self._EXPECTED_PART_NAMES
@@ -518,7 +520,7 @@ class TestPlayerBodyParts:
         was rolled per-construction (inherited from the monster path),
         giving every player a slightly different constitution."""
         expected = {
-            "head": 15, "torso": 30,
+            "head": 15, "neck": 8, "torso": 30,
             "arm.left": 10, "arm.right": 10,
             "leg.left": 12, "leg.right": 12,
             "eye.left": 4, "eye.right": 4,
@@ -561,7 +563,7 @@ class TestPlayerBodyPartPersistence:
         d = p.to_dict()
         assert "body_parts_health" in d
         assert set(d["body_parts_health"].keys()) == {
-            "head", "torso",
+            "head", "neck", "torso",
             "arm.left", "arm.right",
             "leg.left", "leg.right",
             "eye.left", "eye.right",
@@ -618,7 +620,7 @@ class TestPlayerBodyPartPersistence:
                       "d10": [0]*10, "d12": [0]*12, "d20": [0]*20},
             "skills": {},
             "gender": "female", "pronouns": "she,her,hers,her",
-            "equip_slots": {},
+            "part_equipment": {},
             "last_active": None, "health_regen": 0,
             # Legacy int-form overrides.
             "body_parts_health": {"leg.left": 2, "head": 5},
@@ -662,12 +664,12 @@ class TestPlayerBodyPartPersistence:
                       "d10": [0]*10, "d12": [0]*12, "d20": [0]*20},
             "skills": {},
             "gender": "female", "pronouns": "she,her,hers,her",
-            "equip_slots": {},
+            "part_equipment": {},
             "last_active": None, "health_regen": 0,
         }
         p = Player.from_dict(d)
         assert p is not None
-        assert len(p.body_parts) == 8
+        assert len(p.body_parts) == 9
         for part in p.body_parts:
             assert part.health == part.health_max
 
@@ -824,8 +826,9 @@ class TestDisabledArmDisablesAttackSlot:
         weapon.skill = "two-handed swords"
         weapon.attack = "2d6"
         weapon.bonus = 2
-        p.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
-        p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+        # Two-handed: same weapon at both arms.
+        p.part_equipment["arm.left"]["held"] = weapon
+        p.part_equipment["arm.right"]["held"] = weapon
 
         # Baseline: both arms OK → one two-handed source.
         assert len(p.get_attack_sources()) == 1

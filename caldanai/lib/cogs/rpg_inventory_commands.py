@@ -120,12 +120,16 @@ class RpgInventoryCommands(Cog):
         )
         best = candidates[0]
 
-        for s, eq in player.equip_slots.items():
+        # Walk every ``(part, key)`` placement. Multi-placement
+        # items (two-handed weapons, paired gear) share references
+        # so checking identity against the "best" candidate would
+        # false-positive; identity here is fine because a freshly-
+        # picked inventory candidate is distinct from anything
+        # already equipped.
+        for equipped in player._iter_equipped_items():
             if (
-                eq
-                and eq.plugin == best.plugin
-                and not EquipmentSlots.exclude_from_output(s)
-                and eq.quality.value["multiplier"] >= best.quality.value["multiplier"]
+                equipped.plugin == best.plugin
+                and equipped.quality.value["multiplier"] >= best.quality.value["multiplier"]
             ):
                 Dispatcher.add(
                     channel,
@@ -157,15 +161,15 @@ class RpgInventoryCommands(Cog):
         embed.set_thumbnail(url=game.guild.icon.url)
         Dispatcher.add(channel, embed=embed)
 
-    @command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by slot.')
+    @command(name='stow', aliases=['disarm', 'unequip'], brief='Un-equip an item by placement.')
     @cooldown(1, 2, BucketType.member)
-    async def stow(self, ctx: Context, item_or_slot: Union[str, int], gid: int = None):
+    async def stow(self, ctx: Context, item_or_placement: Union[str, int], gid: int = None):
         """
-        Un-equip an item by name, name.n, index, or slot.
+        Un-equip an item by name, name.n, index, or placement.
 
         (5-second cool-down)
 
-        :param item_or_slot: An item name, item.n, item.quality, item.quality.n, index, or slot to un-equip. .n indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory. Slot indicates the body part on which the item is equipped, such as 'left_held', 'head', or 'feet'. To see a full list of the slots you are currently using, see the `gear` command.
+        :param item_or_placement: An item name, item.n, item.quality, item.quality.n, index, or a ``part.key`` placement to un-equip. ``.n`` indicates to use the nth of item, for example 'rock.2' would grab the second rock in your inventory. 'spear.quality' or 'spear.quality.1' would grab the first quality spear in your inventory. Placement indicates the body-part key on which the item is equipped, such as ``arm.left.held``, ``head.helm``, ``torso.chest``. To see every placement you're currently using, check ``$gear``.
 
         :param gid: For use in DMs when playing on more than one server. Specify the game's index for which information is to be displayed. The game indices can be determined by using the `games` command.
         """
@@ -181,23 +185,34 @@ class RpgInventoryCommands(Cog):
         ):
             return
 
-        if not item_or_slot:
-            Dispatcher.add(channel, "You must specify the item or slot which you would like to un-equip.")
+        if not item_or_placement:
+            Dispatcher.add(channel, "You must specify the item or placement which you would like to un-equip.")
             return
 
         msg = "I'm unable to determine which item you meant."
         _item: Optional[Equipment] = None
-        if isinstance(item_or_slot, int):
-            _item, *_ = player.inventory.filter(item_or_slot)
+        if isinstance(item_or_placement, int):
+            _item, *_ = player.inventory.filter(item_or_placement)
 
-        elif isinstance(item_or_slot, str):
-            for s in EquipmentSlots:
-                if s.name == item_or_slot.replace(' ', '_').upper():
-                    _item = player.equip_slots[s.name]
-                    break
+        elif isinstance(item_or_placement, str):
+            # Try placement lookup first — ``part.key`` is the
+            # canonical form. Placements all have at least one dot
+            # (``arm.left.held`` has two), so try progressively
+            # shorter split points until one lands on a populated
+            # (part, key) pair. ``head.helm`` → part=head, key=helm;
+            # ``arm.left.held`` → part=arm.left, key=held.
+            tokens = item_or_placement.lower().strip().split(".")
+            if len(tokens) >= 2:
+                for split in range(len(tokens) - 1, 0, -1):
+                    part_name = ".".join(tokens[:split])
+                    key = ".".join(tokens[split:])
+                    equipped = player.part_equipment.get(part_name, {}).get(key)
+                    if equipped is not None:
+                        _item = equipped
+                        break
 
             if not _item:
-                _item, *_ = player.inventory.filter(item_or_slot)
+                _item, *_ = player.inventory.filter(item_or_placement)
 
         if _item:
             msg = player.remove(_item)
@@ -410,7 +425,10 @@ class RpgInventoryCommands(Cog):
             return
 
         msg = ''
-        equipped = ([i.id for s, i in player.equip_slots.items() if i and not EquipmentSlots.exclude_from_output(s)])
+        # Set of equipped item ids — each unique Item instance appears
+        # once even when multi-placed (two-handed weapons share a
+        # single Item reference across both arms).
+        equipped = {i.id for i in player._iter_equipped_items()}
         sell: List[Item] = []
         total = 0
 

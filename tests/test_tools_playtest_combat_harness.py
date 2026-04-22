@@ -37,8 +37,8 @@ class TestBuildPlayer:
             weapon=None, offhand=None,
             quality=Qualities.ORDINARY, skill_level=10,
         )
-        assert p.equip_slots.get(EquipmentSlots.LEFT_HELD.name) is None
-        assert p.equip_slots.get(EquipmentSlots.RIGHT_HELD.name) is None
+        assert p.part_equipment["arm.left"]["held"] is None
+        assert p.part_equipment["arm.right"]["held"] is None
 
     def test_single_weapon_equipped_to_left(self):
         p = _build_player(
@@ -46,9 +46,9 @@ class TestBuildPlayer:
             weapon="shortsword", offhand=None,
             quality=Qualities.ORDINARY, skill_level=10,
         )
-        assert p.equip_slots[EquipmentSlots.LEFT_HELD.name] is not None
-        assert p.equip_slots[EquipmentSlots.LEFT_HELD.name].name == "shortsword"
-        assert p.equip_slots.get(EquipmentSlots.RIGHT_HELD.name) is None
+        assert p.part_equipment["arm.left"]["held"] is not None
+        assert p.part_equipment["arm.left"]["held"].name == "shortsword"
+        assert p.part_equipment["arm.right"]["held"] is None
 
     def test_dual_wield_fills_both_slots(self):
         p = _build_player(
@@ -56,8 +56,8 @@ class TestBuildPlayer:
             weapon="mace", offhand="shortsword",
             quality=Qualities.ORDINARY, skill_level=10,
         )
-        assert p.equip_slots[EquipmentSlots.LEFT_HELD.name].name == "mace"
-        assert p.equip_slots[EquipmentSlots.RIGHT_HELD.name].name == "shortsword"
+        assert p.part_equipment["arm.left"]["held"].name == "mace"
+        assert p.part_equipment["arm.right"]["held"].name == "shortsword"
 
     def test_two_handed_weapon_fills_both_slots_with_same_weapon(self):
         p = _build_player(
@@ -65,8 +65,8 @@ class TestBuildPlayer:
             weapon="bow", offhand=None,
             quality=Qualities.ORDINARY, skill_level=10,
         )
-        left = p.equip_slots[EquipmentSlots.LEFT_HELD.name]
-        right = p.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+        left = p.part_equipment["arm.left"]["held"]
+        right = p.part_equipment["arm.right"]["held"]
         assert left is not None
         assert left is right  # same weapon instance, two-handed
         assert left.name == "bow"

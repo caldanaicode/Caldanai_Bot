@@ -14,6 +14,6 @@ class ArmorPlugin(Armor):
             unit_value=1,
             image=None,
             quality=quality,
-            slots=EquipmentSlots(EquipmentSlots.MULTI_SLOT | EquipmentSlots.NECK | EquipmentSlots.CAPE),
+            slots=EquipmentSlots.CAPE,
             bonuses={"dodge": -1, "defense": -1, "health_max": 5},
         )

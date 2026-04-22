@@ -321,15 +321,20 @@ class Directions(IntFlag):
 
 
 class EquipmentSlots(IntFlag):
+    # Flag for items that occupy multiple slots simultaneously
+    # (two-handed weapons, paired gloves/boots, etc.). Equip logic
+    # expands the item into every slot its mask OR's in.
     MULTI_SLOT = 1
     """Indicates that an item equips to multiple slots simultaneously."""
     FEET = 1 << 1
     SHINS = 1 << 2
     LEGS = 1 << 3
     WAIST = 1 << 4
-    ABDOMEN = 1 << 5
+    # Gap left by 2026-04-21 cleanup: ABDOMEN (1 << 5) removed — no
+    # items used it. Bit left unassigned rather than renumbering the
+    # rest so persisted IntFlag values in Mongo keep their meaning.
     TORSO = 1 << 6
-    SHOULDERS = 1 << 7
+    # Gap: SHOULDERS (1 << 7) removed same sweep, same reason.
     ARMS = 1 << 8
     FOREARMS = 1 << 9
     GLOVES = 1 << 10

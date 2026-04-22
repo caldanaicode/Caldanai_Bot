@@ -571,7 +571,7 @@ class TestPlayerPipelinePort:
         weapon.reach = __import__(
             "caldanai.lib.rpg.helpers.enums", fromlist=["Reach"]
         ).Reach.MELEE
-        alice.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        alice.part_equipment["arm.left"]["held"] = weapon
         actions = alice.pick_actions()
         assert len(actions) == 2
         kinds = {type(s).__name__ for s in actions}
@@ -596,8 +596,9 @@ class TestPlayerPipelinePort:
         weapon.reach = __import__(
             "caldanai.lib.rpg.helpers.enums", fromlist=["Reach"]
         ).Reach.MELEE
-        alice.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
-        alice.equip_slots[EquipmentSlots.RIGHT_HELD.name] = None
+        # Two-handed: same weapon at both arms.
+        alice.part_equipment["arm.left"]["held"] = weapon
+        alice.part_equipment["arm.right"]["held"] = weapon
 
         actions = alice.pick_actions()
         assert len(actions) == 1
@@ -740,7 +741,9 @@ class TestPlayerPipelinePort:
             "caldanai.lib.rpg.helpers.enums", fromlist=["Reach"]
         ).Reach.MELEE
         weapon.get_full_name = MagicMock(return_value="greatsword")
-        alice.equip_slots[EquipmentSlots.LEFT_HELD.name] = weapon
+        # Two-handed: same weapon at both arms.
+        alice.part_equipment["arm.left"]["held"] = weapon
+        alice.part_equipment["arm.right"]["held"] = weapon
         self._cripple(alice, "arm.right")
         game.combatants = [alice]
 

@@ -136,14 +136,15 @@ def _build_player(
             if w.skill not in p.skills:
                 p.skills[w.skill] = _xp_for_level(skill_level)
 
-    # Equip slots.
+    # Equip into the part-equipment shape. Two-handed weapons
+    # share the same instance across both arm.*.held keys.
     if weapon:
         w_main = _instantiate_weapon(weapon, quality)
         if EquipmentSlots.MULTI_SLOT & w_main.slots:
-            p.equip_slots[EquipmentSlots.LEFT_HELD.name] = w_main
-            p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = w_main
+            p.part_equipment["arm.left"]["held"] = w_main
+            p.part_equipment["arm.right"]["held"] = w_main
         else:
-            p.equip_slots[EquipmentSlots.LEFT_HELD.name] = w_main
+            p.part_equipment["arm.left"]["held"] = w_main
             if offhand:
                 w_off = _instantiate_weapon(offhand, quality)
                 if EquipmentSlots.MULTI_SLOT & w_off.slots:
@@ -151,7 +152,7 @@ def _build_player(
                         f"Offhand weapon '{offhand}' is two-handed; "
                         "pick a one-handed offhand or omit --offhand."
                     )
-                p.equip_slots[EquipmentSlots.RIGHT_HELD.name] = w_off
+                p.part_equipment["arm.right"]["held"] = w_off
     return p
 
 

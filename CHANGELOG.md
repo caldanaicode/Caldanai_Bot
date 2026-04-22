@@ -4,6 +4,53 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Equipment on body parts (stage 1)
+
+Collapses the parallel ``Player.equip_slots`` dict onto body-part
+ownership. Items now live at
+``part_equipment[part_name][key] = Item`` — a shield on the left
+arm is a field on ``arm.left``, a hat on ``head``, a cape on the
+``torso``. One addressing system replacing two.
+
+**Migration is required before the new bot boots.** A one-shot
+tool ``tools/migrate_equipment_to_parts.py`` translates existing
+player documents. ``Player.from_dict`` raises a guided error on
+any doc still carrying the legacy ``equip_slots`` field.
+
+Deploy flow:
+1. Shut down the bot.
+2. ``python -m tools.migrate_equipment_to_parts`` (dry-run) —
+   inspect the per-player diff.
+3. Re-run with ``--write`` to apply.
+4. Start the new bot; ``from_dict`` will confirm every doc is
+   migrated.
+
+**New body part: ``neck``.** Vestigial at landing — HP 8, non-
+critical, no debuffs — to host amulet / jewelry items once they
+ship and to anchor future werewolf throat-bite mechanics.
+
+**Enum changes.** ``SHOULDERS`` and ``ABDOMEN`` deleted (no
+items ever used them). Remaining slots map to ``(part, key)``
+placements via ``equipment_routing.SLOT_TO_PART_KEY`` /
+``SLOT_PAIR``. ``high-collared_cape`` dropped its dual
+``NECK | CAPE | MULTI_SLOT`` declaration — now just ``CAPE``.
+
+**$unequip accepts placement form.** ``$unequip arm.left.held``,
+``$unequip head.helm``, ``$unequip torso.cape`` all work.
+Falling back to item-name matching when the input isn't a
+placement.
+
+**$gear rendering.** Now walks ``PLACEMENT_DISPLAY_ORDER`` —
+head-to-toe anatomy order. Two-handed weapons show at both
+``arm.left.held`` and ``arm.right.held`` so the occupation is
+visible.
+
+Stage 2 (not in this commit): items on destroyed parts return
+to inventory (temporary loss of access, not destruction) and
+per-part armor-bonus routing.
+
+30 new tests (15 routing, 15 migration tool) pin the contract.
+
 ### 2026-04-21 — Group subcommand dispatch: case-insensitive
 
 Top-level ``Bot`` has ``case_insensitive=True`` but

@@ -1282,10 +1282,7 @@ class TestPlayerSocialPersistence:
         shell = dict(d)
         shell["_id"] = ObjectId()
         shell["pronouns"] = "she,her,hers,her"
-        shell["equip_slots"] = {
-            s.name: None for s in EquipmentSlots
-            if not EquipmentSlots.exclude_from_output(s.name)
-        }
+        shell["part_equipment"] = {}
         with patch(
             "caldanai.lib.rpg.creatures.player.Inventory.from_list",
             return_value=Inventory(),
@@ -1319,10 +1316,7 @@ class TestPlayerSocialPersistence:
             "skills": {},
             "gender": "female",
             "pronouns": "she,her,hers,her",
-            "equip_slots": {
-                s.name: None for s in EquipmentSlots
-                if not EquipmentSlots.exclude_from_output(s.name)
-            },
+            "part_equipment": {},
             "last_active": None,
             "health_regen": 0,
         }

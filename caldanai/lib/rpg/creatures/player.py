@@ -9,6 +9,13 @@ from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.equipment_routing import (
+    ALL_PLACEMENTS,
+    PLACEMENT_DISPLAY_ORDER,
+    SLOT_TO_PART_KEY,
+    keys_on_part,
+    resolve_placements,
+)
 from caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes, InjuryLevels
 from caldanai.lib.rpg.helpers.parser import item_list_to_string
 from caldanai.lib.rpg.helpers.plotting import CYAN_ACCENT, fig_to_file, style_axes_dark
@@ -42,6 +49,12 @@ from datetime import datetime
 # body-pool ``health_max`` bonus behavior is unchanged.
 _DEFAULT_PARTS: Dict[str, Tuple[str, int]] = {
     "head":      ("head",  15),
+    # ``neck`` is vestigial at migration time (2026-04-21): a
+    # mounting point for amulet / jewelry equipment. Low default
+    # HP (8) since the part is small and soft; see
+    # ``body_parts/neck.py`` for the rationale and the future
+    # werewolf-throat-bite hook noted in ``project_more_body_parts``.
+    "neck":      ("neck",   8),
     "torso":     ("torso", 30),
     "arm.left":  ("arm",   10),
     "arm.right": ("arm",   10),
@@ -188,7 +201,7 @@ class Player(Creature):
         skills: Optional[Dict[str, int]] = None,
         gender: Optional[str] = None,
         pronouns: Optional[str] = None,
-        equip_slots: Optional[Dict[str, Item]] = None,
+        part_equipment: Optional[Dict[str, Dict[str, str]]] = None,
         last_active: Optional[datetime] = None,
         health_regen: Optional[int] = 0,
         body_parts_health: Optional[Dict[str, int]] = None,
@@ -240,12 +253,39 @@ class Player(Creature):
         # are the only thing that gets written to the DB, so
         # never-tuned players don't grow a noisy field.
         self.social: Dict[str, object] = social if isinstance(social, dict) else {}
-        self.equip_slots: Dict[str, Optional[Equipment]] = {}
+        # Equipment-on-parts (2026-04-21): items are keyed by their
+        # body-part home and a per-part slot key — ``head.helm``,
+        # ``torso.chest``, ``arm.left.held``, etc. See
+        # ``equipment_routing`` for the slot→(part, key) mapping.
+        # Pre-seed every valid placement as None so callers can
+        # ``.get(part, {}).get(key)`` without KeyError and the
+        # serializer has a stable shape to compress.
+        self.part_equipment: Dict[str, Dict[str, Optional[Equipment]]] = {}
+        _part_names = {p.name for p in self.body_parts}
+        for (part_name, key) in ALL_PLACEMENTS:
+            if part_name in _part_names:
+                self.part_equipment.setdefault(part_name, {})[key] = None
 
-        for slot in EquipmentSlots:
-            if not EquipmentSlots.exclude_from_output(slot.name):
-                exists = equip_slots and slot.name in equip_slots.keys()
-                self.equip_slots[slot.name] = self.inventory[str(equip_slots[slot.name])] if exists else None
+        # Rehydrate persisted placements. ``part_equipment`` from the
+        # DB is ``{part: {key: item_id_str}}`` (None entries stripped);
+        # look each item up in this player's inventory so the shape
+        # holds ``Equipment`` instances at runtime.
+        if part_equipment:
+            for part_name, keys in part_equipment.items():
+                if part_name not in self.part_equipment:
+                    # Skip parts this player doesn't have (e.g. a
+                    # legacy doc with a part since removed from the
+                    # anatomy). The migration tool is responsible for
+                    # dropping those entries, so hitting this in
+                    # production means the migration didn't run.
+                    continue
+                for key, item_id in keys.items():
+                    if key not in self.part_equipment[part_name]:
+                        continue
+                    if item_id:
+                        item = self.inventory[str(item_id)]
+                        if item is not None:
+                            self.part_equipment[part_name][key] = item
 
         # Q.6 skills-schema versioning. Absent in legacy documents;
         # defaults to v1 when skills exist (triggers one-time migration)
@@ -351,8 +391,8 @@ class Player(Creature):
             WeaponAttackSource,
         )
 
-        lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
-        rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+        lh: Weapon = self.part_equipment.get("arm.left", {}).get("held")
+        rh: Weapon = self.part_equipment.get("arm.right", {}).get("held")
         two_handed = bool(lh and EquipmentSlots.MULTI_SLOT & lh.slots)
 
         left_ok = self._is_arm_usable("arm.left")
@@ -396,7 +436,7 @@ class Player(Creature):
 
         # Two-handed weapon with any arm disabled: call out that the
         # weapon can't be wielded even if one arm is still good.
-        lh = self.equip_slots.get(EquipmentSlots.LEFT_HELD.name)
+        lh = self.part_equipment.get("arm.left", {}).get("held")
         if lh and EquipmentSlots.MULTI_SLOT & lh.slots:
             if ((left_arm and left_arm.get_injury_level() == InjuryLevels.USELESS)
                     or (right_arm and right_arm.get_injury_level() == InjuryLevels.USELESS)):
@@ -490,81 +530,137 @@ class Player(Creature):
             self.gain_skill_experience(source.skill, hit=False)
         self.update_roll_counts(result.combined)
 
-    def replace_equipment(self, item: Equipment, slot_name: str) -> Tuple[bool, Equipment]:
-        """
-        Replaces the item in the given slot with the provided item.
+    def replace_equipment(
+        self, item: Equipment, part_name: str, key: str,
+    ) -> Tuple[bool, Optional[Equipment]]:
+        """Place ``item`` at ``(part_name, key)``, returning the
+        previous occupant if any.
 
-        :param item: The item to equip.
-        :param slot_name: The slot name to which it should equip.
-        :return: A tuple containing a boolean for success/fail and the item replaced, if any.
-        """
-        replaced = None
-        if self.equip_slots[slot_name]:
-            replaced = self.equip_slots[slot_name]
-            self.remove(self.equip_slots[slot_name])
-        self.equip_slots[slot_name] = item
+        Returns ``(True, replaced)`` when the placement is valid
+        and ``replaced`` is whatever was there before (possibly
+        ``None``). Returns ``(False, None)`` when the part or key
+        is unknown for this player — callers should handle this
+        as an equip-failure. The replaced item is left in the
+        player's inventory; the caller gets it back so display
+        messages can name what got swapped out."""
+        if part_name not in self.part_equipment:
+            return False, None
+        if key not in self.part_equipment[part_name]:
+            return False, None
+        replaced = self.part_equipment[part_name][key]
+        self.part_equipment[part_name][key] = item
         return True, replaced
 
-    def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
-        """
-        Attempts to auto-equip an item to a slot if no slot is provided, otherwise attempts to equip to the
-        provided slot.
+    def _iter_equipped_items(self):
+        """Yield every currently-equipped ``Item`` instance across
+        every ``(part, key)``. Two-handed weapons appear twice
+        (once per arm) because their references are shared."""
+        for _, keys in self.part_equipment.items():
+            for _, item in keys.items():
+                if item is not None:
+                    yield item
 
-        :param item: The item to equip.
-        :param slot: The slot(s) to which it should equip.
-        :return: A tuple containing a boolean for success/fail and a string indicating items replaced or error message.
+    def is_equipped(self, item: Equipment) -> bool:
+        """True if this specific ``Item`` instance is currently
+        placed anywhere in ``part_equipment``. Identity compare
+        (not ``__eq__``) so two distinct items of the same plugin
+        don't conflate."""
+        for equipped in self._iter_equipped_items():
+            if equipped is item:
+                return True
+        return False
+
+    def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
+        """Equip ``item`` — either at a specific ``slot`` or
+        auto-routed to the first available placement its mask
+        supports.
+
+        Returns ``(success, message)``. ``message`` describes any
+        replaced item's full name on success (for "You equipped
+        X, replacing Y" callsites), or the failure reason on
+        failure.
+
+        Three cases:
+
+        1. **Multi-slot** (``item.slots & MULTI_SLOT``) — item
+           fills every placement its mask resolves to. Two-handed
+           weapons land at both ``arm.left.held`` and
+           ``arm.right.held`` against the *same* ``Item``
+           instance, so each arm's view sees it.
+        2. **Specific slot** — caller passed a single-slot
+           ``EquipmentSlots`` value (``LEFT_HELD``, ``HEAD``, etc.).
+           Slot must be both in the item's compatible mask and
+           map to a real placement on this player's anatomy.
+        3. **Auto-equip** (``slot is None`` or "either held" /
+           other aggregate) — scan the item's compatible
+           placements in declaration order and drop it into the
+           first empty one. If nothing is empty, refuse so the
+           caller isn't silently thrashing equipped gear.
         """
+        # Identity guard — reject re-equip of an item that's
+        # already placed somewhere. Prevents a user from accidentally
+        # stomping the same item on top of itself.
+        if self.is_equipped(item):
+            return False, "Item already equipped."
 
         dirty = False
         msg = ""
 
-        # First ensure the item is not already equipped.
-        for i in self.equip_slots.values():
-            if i == item:
-                return False, "Item already equipped."
-
-        # Equip to all possible slots if multi-slot is flagged.
+        # Case 1: multi-slot items (two-handed weapons, future
+        # paired gear). Expand through the item's FULL mask and
+        # fill every placement it resolves to. Same Item instance
+        # reference shared across placements.
         if item.slots & EquipmentSlots.MULTI_SLOT:
-            removed = []
-            for s in EquipmentSlots:
-                if s & item.slots and s.name in self.equip_slots:
-                    d, replaced = self.replace_equipment(item, s.name)
-                    if d:
-                        dirty = True
-
-                    if replaced:
+            placements = resolve_placements(item.slots)
+            if not placements:
+                return False, "Unable to auto-equip: Multi-slot item matched no equipment slots."
+            removed: List[Equipment] = []
+            for (part_name, key) in placements:
+                ok, replaced = self.replace_equipment(item, part_name, key)
+                if ok:
+                    dirty = True
+                    if replaced is not None and replaced is not item:
                         removed.append(replaced)
-
             if dirty and removed:
                 msg = item_list_to_string(removed)
-
-            else:
+            elif not dirty:
                 msg = "Unable to auto-equip: Multi-slot item matched no equipment slots."
 
-        # Equip to the first possible slot, if no slot was specified.
+        # Case 3 (handled before case 2 because auto-equip also
+        # triggers when ``slot`` is an aggregate like ``EITHER_HELD``
+        # — ``exclude_from_output`` names the aggregates). Find the
+        # first empty placement compatible with the item.
         elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
-            for key, value in self.equip_slots.items():
-                if item.slots & EquipmentSlots[key]:
-                    dirty, replaced = self.replace_equipment(item, key)
-                    if replaced:
-                        msg = replaced.get_full_name()
-                    break
-
+            compatible = resolve_placements(item.slots)
+            for (part_name, key) in compatible:
+                if self.part_equipment.get(part_name, {}).get(key) is None:
+                    ok, replaced = self.replace_equipment(item, part_name, key)
+                    if ok:
+                        dirty = True
+                        if replaced is not None:
+                            msg = replaced.get_full_name()
+                        break
             if not dirty:
                 msg = (
                     "Unable to auto-equip: None of the slots that the item could fill are empty. Either specify "
                     "the slot, or unequip the item occupying the desired slot."
                 )
 
-        # Equip to the specified slot.
+        # Case 2: specific slot. Must be in the item's compatible
+        # mask AND resolve to a placement this player has.
         else:
-            if slot & item.slots and slot.name:
-                dirty, replaced = self.replace_equipment(item, slot.name)
-                if replaced:
-                    msg = replaced.get_full_name()
-
+            if slot & item.slots:
+                target = SLOT_TO_PART_KEY.get(slot)
+                if target is not None:
+                    part_name, key = target
+                    ok, replaced = self.replace_equipment(item, part_name, key)
+                    if ok:
+                        dirty = True
+                        if replaced is not None:
+                            msg = replaced.get_full_name()
             if not dirty:
                 msg = "Unable to equip: The item does not fit that slot."
+
         if dirty:
             self.is_dirty = True
             self.health = min(self.health, self.get_health_max())
@@ -593,7 +689,7 @@ class Player(Creature):
             skills=p["skills"],
             gender=p["gender"] if "gender" in p.keys() else None,
             pronouns=p["pronouns"] if "pronouns" in p.keys() else None,
-            equip_slots=p["equip_slots"] if "equip_slots" in p.keys() else None,
+            part_equipment=p.get("part_equipment"),
             last_active=p["last_active"] if "last_active" in p.keys() else None,
             health_regen=p.get("health_regen", 0),
             body_parts_health=p.get("body_parts_health"),
@@ -601,17 +697,18 @@ class Player(Creature):
             skills_schema_version=p.get("skills_schema_version"),
         )
 
-        eq = p.get("equip_slots") or {}
-        left_id = eq.get(EquipmentSlots.LEFT_HELD.name)
-        right_id = eq.get(EquipmentSlots.RIGHT_HELD.name)
-        left = player.inventory[str(left_id)] if left_id else None
-        right = player.inventory[str(right_id)] if right_id else None
-
-        if left and isinstance(left, Weapon):
-            player.equip(left, EquipmentSlots.LEFT_HELD)
-
-        if right and isinstance(right, Weapon):
-            player.equip(right, EquipmentSlots.RIGHT_HELD)
+        # 2026-04-21 migration: legacy ``equip_slots`` docs are
+        # not supported by the loader — the one-shot migration
+        # tool (``tools/migrate_equipment_to_parts.py``) must
+        # run before this code is deployed. Hitting this check
+        # means a doc slipped through unmigrated.
+        if "equip_slots" in p and "part_equipment" not in p:
+            raise RuntimeError(
+                f"Player {p.get('_id')!r} still has legacy "
+                "``equip_slots`` field — run "
+                "``python -m tools.migrate_equipment_to_parts`` "
+                "before starting the bot."
+            )
 
         return player
 
@@ -666,8 +763,15 @@ class Player(Creature):
 
         result: Dict[str, int] = {}
         items_checked = []
-        for slot, item in self.equip_slots.items():
-            if isinstance(item, Armor) and item not in items_checked:
+        # Walk every ``(part, key)`` placement. Multi-placement
+        # items (two-handed weapons, pair items) appear multiple
+        # times because their references are shared — the
+        # ``items_checked`` identity-list dedupes so bonuses aren't
+        # double-counted.
+        for item in self._iter_equipped_items():
+            if isinstance(item, Armor) and not any(
+                checked is item for checked in items_checked
+            ):
                 items_checked.append(item)
                 for bonus, value in item.bonuses.items():
                     if names and bonus not in names:
@@ -738,20 +842,32 @@ class Player(Creature):
         return self.health_max
 
     def get_equipment(self, guild_name: str, show_all: bool = False) -> Embed:
-        """Returns a discord embed for the player's equipment slots."""
+        """Returns a discord embed for the player's equipment slots.
+
+        Display order follows :data:`PLACEMENT_DISPLAY_ORDER` —
+        head down to feet — so the rendering reads anatomically.
+        A multi-placement item (two-handed weapon, paired gear)
+        appears once per placement so the player can see e.g. a
+        longsword is tying up both hands.
+        """
         embed = Embed(title=f"Player Equipment", description=f"for {self.name} on {guild_name}", color=0x00FFFF)
 
         fields = [
             ("Equipped", "---------------------------------------------------", False),
         ]
 
-        for slot, item in self.equip_slots.items():
-            if not EquipmentSlots.exclude_from_output(slot):
-                if item is None:
-                    if show_all:
-                        fields.append((slot, "None", True))
-                else:
-                    fields.append((slot, item.get_full_name(), True))
+        for (part_name, key) in PLACEMENT_DISPLAY_ORDER:
+            if part_name not in self.part_equipment:
+                continue
+            if key not in self.part_equipment[part_name]:
+                continue
+            item = self.part_equipment[part_name][key]
+            label = f"{part_name}.{key}"
+            if item is None:
+                if show_all:
+                    fields.append((label, "None", True))
+            else:
+                fields.append((label, item.get_full_name(), True))
 
         for f, v, i in fields:
             embed.add_field(name=f, value=v, inline=i)
@@ -773,8 +889,17 @@ class Player(Creature):
             except ValueError:
                 continue
             msg += f"\n{absolute_idx + 1}: {item.get_full_name()}"
-            for s, i in self.equip_slots.items():
-                msg += f"{' [' + s + ']' if i == item and not EquipmentSlots.exclude_from_output(s) else ''}"
+            # Mark equipped items with their placement(s). Multi-
+            # placement items (two-handed, paired) get one tag per
+            # placement so the player sees everywhere the item is
+            # occupying — avoids the "why can't I sell this?"
+            # confusion when one of the placements is off-screen.
+            seen_placements = set()
+            for part_name in self.part_equipment:
+                for key, equipped in self.part_equipment[part_name].items():
+                    if equipped is item and (part_name, key) not in seen_placements:
+                        msg += f" [{part_name}.{key}]"
+                        seen_placements.add((part_name, key))
             if item.favorited:
                 msg += " ★"
 
@@ -790,8 +915,8 @@ class Player(Creature):
 
         embed = Embed(title=f"Player Profile", description=f"for {self.name} on {guild_name}", color=0x00FFFF)
 
-        lh: Weapon = self.equip_slots[EquipmentSlots.LEFT_HELD.name]
-        rh: Weapon = self.equip_slots[EquipmentSlots.RIGHT_HELD.name]
+        lh: Weapon = self.part_equipment.get("arm.left", {}).get("held")
+        rh: Weapon = self.part_equipment.get("arm.right", {}).get("held")
 
         fields = [
             ("\u200b", "\u200b", False),
@@ -881,25 +1006,24 @@ class Player(Creature):
         return True
 
     def remove(self, item: Equipment) -> str:
-        """
-        Removes an item from all slots that it occupies.
+        """Unequip ``item`` from every placement it currently occupies.
 
-        :param item: The item to remove.
-        :return: A string representing the result of the removal.
+        Multi-placement items (two-handed weapons, paired gear) get
+        cleared from every ``(part, key)`` at once — no partial
+        un-equip state where half a pair is still on.
         """
 
         dirty = False
         msg = ""
-        removed = []
 
         if item is None:
             return "Nothing to remove."
 
-        for s in EquipmentSlots:
-            if not EquipmentSlots.exclude_from_output(s.name) and s & item.slots and self.equip_slots[s.name] == item:
-                self.equip_slots[s.name] = None
-                removed.append(s.name)
-                dirty = True
+        for part_name in self.part_equipment:
+            for key in list(self.part_equipment[part_name].keys()):
+                if self.part_equipment[part_name][key] is item:
+                    self.part_equipment[part_name][key] = None
+                    dirty = True
 
         if dirty:
             msg = f"Removed {item.get_full_name()}."
@@ -951,7 +1075,7 @@ class Player(Creature):
         Returns the item that was found and removed, or None if the item was not found or was equipped.
         """
 
-        if item == self.inventory[item.id] and item not in self.equip_slots.values():
+        if item == self.inventory[item.id] and not self.is_equipped(item):
             self.inventory.remove(item, count)
             self.is_dirty = True
             return item
@@ -990,7 +1114,12 @@ class Player(Creature):
             "gender": self.gender,
             "pronouns": ",".join(list(self.pronouns.values())[:-1]),
             "items": self.inventory.to_list(),
-            "equip_slots": {},
+            # ``part_equipment`` stores item ids per (part, key),
+            # omitting empty placements so never-equipped players
+            # don't bloat their doc with every anatomy key set to
+            # null. ``from_dict`` and the constructor default-fill
+            # the rest on load.
+            "part_equipment": {},
             "last_active": self.last_active,
             "health_regen": self.health_regen,
             # Persist per-part anatomy (``health_max``) and current
@@ -1011,9 +1140,10 @@ class Player(Creature):
         if not self.social:
             del d["social"]
 
-        for slot, item in self.equip_slots.items():
-            if not EquipmentSlots.exclude_from_output(slot):
-                d["equip_slots"][slot] = item.id if item else None
+        for part_name, keys in self.part_equipment.items():
+            for key, item in keys.items():
+                if item is not None:
+                    d["part_equipment"].setdefault(part_name, {})[key] = str(item.id)
 
         if self.id is None:
             del d["_id"]
