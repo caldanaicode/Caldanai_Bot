@@ -321,23 +321,39 @@ class Directions(IntFlag):
 
 
 class EquipmentSlots(IntFlag):
-    # Flag for items that occupy multiple slots simultaneously
-    # (two-handed weapons, paired gloves/boots, etc.). Equip logic
-    # expands the item into every slot its mask OR's in.
+    # Flag for items that occupy multiple slots simultaneously.
+    # Today that's two-handed weapons; historically it also
+    # covered multi-part armor (high-collared cape's old
+    # NECK+CAPE coverage). Kept available for future items that
+    # span multiple placements — manacles, magical sets that
+    # refuse to function alone, etc. Equip logic expands the item
+    # into every slot its mask OR's in.
     MULTI_SLOT = 1
     """Indicates that an item equips to multiple slots simultaneously."""
-    FEET = 1 << 1
-    SHINS = 1 << 2
-    LEGS = 1 << 3
+    # 2026-04-22 rework: every left/right anatomical pair now has
+    # its own bit. Old unsplit pair-slots (``ARMS``, ``FOREARMS``,
+    # ``GLOVES``, ``LEGS``, ``SHINS``, ``FEET``) are preserved as
+    # COMPOUND aliases — same bit math as ``EITHER_HELD``, so an
+    # item declaring ``slots = ARMS`` still fits "either bracer
+    # slot" without occupying both. A pair item that must span
+    # both sides (e.g. a pair of gloves sold together) adds the
+    # ``MULTI_SLOT`` flag to force multi-placement.
+    #
+    # Rationale: sided ownership composes with limb-loss better —
+    # destroying the right arm sends only the right-side gear back
+    # to inventory, not the left.
+    LEFT_FOOT = 1 << 1
+    LEFT_SHIN = 1 << 2
+    LEFT_LEG = 1 << 3
     WAIST = 1 << 4
     # Gap left by 2026-04-21 cleanup: ABDOMEN (1 << 5) removed — no
     # items used it. Bit left unassigned rather than renumbering the
     # rest so persisted IntFlag values in Mongo keep their meaning.
     TORSO = 1 << 6
     # Gap: SHOULDERS (1 << 7) removed same sweep, same reason.
-    ARMS = 1 << 8
-    FOREARMS = 1 << 9
-    GLOVES = 1 << 10
+    LEFT_ARM = 1 << 8
+    LEFT_FOREARM = 1 << 9
+    LEFT_GLOVE = 1 << 10
     LEFT_HELD = 1 << 11
     RIGHT_HELD = 1 << 12
     LEFT_RING = 1 << 13
@@ -349,10 +365,34 @@ class EquipmentSlots(IntFlag):
     LEFT_EAR = 1 << 19
     RIGHT_EAR = 1 << 20
     HEAD = 1 << 21
+    # 2026-04-22: new right-side bits to mirror their left
+    # counterparts. Contiguous block so the enum's layout reads
+    # "old single-side and neutral slots | new right-side pairs."
+    RIGHT_ARM = 1 << 22
+    RIGHT_FOREARM = 1 << 23
+    RIGHT_GLOVE = 1 << 24
+    RIGHT_LEG = 1 << 25
+    RIGHT_SHIN = 1 << 26
+    RIGHT_FOOT = 1 << 27
+    # Compound aliases — "either side" shapes. Items declaring
+    # these fit in one side at a time, just like ``EITHER_HELD``.
+    # Add ``| MULTI_SLOT`` to the declaration to force both sides.
+    ARMS = LEFT_ARM | RIGHT_ARM
+    FOREARMS = LEFT_FOREARM | RIGHT_FOREARM
+    GLOVES = LEFT_GLOVE | RIGHT_GLOVE
+    LEGS = LEFT_LEG | RIGHT_LEG
+    SHINS = LEFT_SHIN | RIGHT_SHIN
+    FEET = LEFT_FOOT | RIGHT_FOOT
     TWO_HANDED = MULTI_SLOT | LEFT_HELD | RIGHT_HELD
     EITHER_HELD = LEFT_HELD | RIGHT_HELD
-    LEFT_SIDE = LEFT_EAR | LEFT_RING | LEFT_HELD
-    RIGHT_SIDE = RIGHT_EAR | RIGHT_RING | RIGHT_HELD
+    LEFT_SIDE = (
+        LEFT_EAR | LEFT_RING | LEFT_HELD | LEFT_ARM | LEFT_FOREARM
+        | LEFT_GLOVE | LEFT_LEG | LEFT_SHIN | LEFT_FOOT
+    )
+    RIGHT_SIDE = (
+        RIGHT_EAR | RIGHT_RING | RIGHT_HELD | RIGHT_ARM | RIGHT_FOREARM
+        | RIGHT_GLOVE | RIGHT_LEG | RIGHT_SHIN | RIGHT_FOOT
+    )
     EITHER_SIDE = LEFT_SIDE | RIGHT_SIDE
 
     @classmethod
@@ -364,6 +404,15 @@ class EquipmentSlots(IntFlag):
             EquipmentSlots.LEFT_SIDE.name,
             EquipmentSlots.EITHER_SIDE.name,
             EquipmentSlots.EITHER_HELD.name,
+            # Compound "either-side" aliases — not distinct
+            # placements, don't render as their own slot label
+            # in item embeds.
+            EquipmentSlots.ARMS.name,
+            EquipmentSlots.FOREARMS.name,
+            EquipmentSlots.GLOVES.name,
+            EquipmentSlots.LEGS.name,
+            EquipmentSlots.SHINS.name,
+            EquipmentSlots.FEET.name,
         )
 
 

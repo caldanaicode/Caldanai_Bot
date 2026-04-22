@@ -42,43 +42,57 @@ from caldanai.lib.rpg.helpers.enums import EquipmentSlots
 
 
 # One-to-one placements. Each slot maps to exactly one
-# ``(part_name, key)`` pair. Two-handed weapons expand through
-# ``LEFT_HELD`` + ``RIGHT_HELD`` (both present in the item's mask
-# via ``EquipmentSlots.TWO_HANDED``) so they don't need a pair
-# entry of their own.
+# ``(part_name, key)`` pair. Compound aliases (``ARMS`` =
+# ``LEFT_ARM | RIGHT_ARM``, etc.) don't appear here — their bits
+# resolve through the sided entries below, so a compound mask
+# naturally expands to both entries via the bit-test loop in
+# :func:`resolve_placements`.
 SLOT_TO_PART_KEY: Dict[EquipmentSlots, Tuple[str, str]] = {
     # Head
-    EquipmentSlots.HEAD:       ("head",      "helm"),
-    EquipmentSlots.FACE:       ("head",      "face"),
-    EquipmentSlots.LEFT_EAR:   ("head",      "ear.left"),
-    EquipmentSlots.RIGHT_EAR:  ("head",      "ear.right"),
+    EquipmentSlots.HEAD:          ("head",      "helm"),
+    EquipmentSlots.FACE:          ("head",      "face"),
+    EquipmentSlots.LEFT_EAR:      ("head",      "ear.left"),
+    EquipmentSlots.RIGHT_EAR:     ("head",      "ear.right"),
     # Torso
-    EquipmentSlots.TORSO:      ("torso",     "chest"),
-    EquipmentSlots.CAPE:       ("torso",     "cape"),
-    EquipmentSlots.WAIST:      ("torso",     "belt"),
+    EquipmentSlots.TORSO:         ("torso",     "chest"),
+    EquipmentSlots.CAPE:          ("torso",     "cape"),
+    EquipmentSlots.WAIST:         ("torso",     "belt"),
     # Neck (vestigial body part, amulet/jewelry key)
-    EquipmentSlots.NECK:       ("neck",      "amulet"),
-    EquipmentSlots.AMULET:     ("neck",      "amulet"),
-    # Arms
-    EquipmentSlots.LEFT_HELD:  ("arm.left",  "held"),
-    EquipmentSlots.RIGHT_HELD: ("arm.right", "held"),
-    EquipmentSlots.LEFT_RING:  ("arm.left",  "ring"),
-    EquipmentSlots.RIGHT_RING: ("arm.right", "ring"),
+    EquipmentSlots.NECK:          ("neck",      "amulet"),
+    EquipmentSlots.AMULET:        ("neck",      "amulet"),
+    # Arms — per-side sided slots (2026-04-22 rework). Compound
+    # aliases (``ARMS`` / ``FOREARMS`` / ``GLOVES``) expand to
+    # both sides automatically via the bit-test loop.
+    EquipmentSlots.LEFT_HELD:     ("arm.left",  "held"),
+    EquipmentSlots.RIGHT_HELD:    ("arm.right", "held"),
+    EquipmentSlots.LEFT_ARM:      ("arm.left",  "bracer"),
+    EquipmentSlots.RIGHT_ARM:     ("arm.right", "bracer"),
+    EquipmentSlots.LEFT_FOREARM:  ("arm.left",  "vambrace"),
+    EquipmentSlots.RIGHT_FOREARM: ("arm.right", "vambrace"),
+    EquipmentSlots.LEFT_GLOVE:    ("arm.left",  "glove"),
+    EquipmentSlots.RIGHT_GLOVE:   ("arm.right", "glove"),
+    EquipmentSlots.LEFT_RING:     ("arm.left",  "ring"),
+    EquipmentSlots.RIGHT_RING:    ("arm.right", "ring"),
+    # Legs — same sided pattern
+    EquipmentSlots.LEFT_LEG:      ("leg.left",  "greave"),
+    EquipmentSlots.RIGHT_LEG:     ("leg.right", "greave"),
+    EquipmentSlots.LEFT_SHIN:     ("leg.left",  "shin"),
+    EquipmentSlots.RIGHT_SHIN:    ("leg.right", "shin"),
+    EquipmentSlots.LEFT_FOOT:     ("leg.left",  "boot"),
+    EquipmentSlots.RIGHT_FOOT:    ("leg.right", "boot"),
 }
 
 
-# One-to-many placements. A single slot flag expands into both
-# sides of a natural pair. A "pair of gloves" item declares
-# ``slots = EquipmentSlots.GLOVES`` (no MULTI_SLOT needed — the
-# pair expansion lives in routing, not in the item's mask).
-SLOT_PAIR: Dict[EquipmentSlots, List[Tuple[str, str]]] = {
-    EquipmentSlots.ARMS:     [("arm.left",  "bracer"),   ("arm.right", "bracer")],
-    EquipmentSlots.FOREARMS: [("arm.left",  "vambrace"), ("arm.right", "vambrace")],
-    EquipmentSlots.GLOVES:   [("arm.left",  "glove"),    ("arm.right", "glove")],
-    EquipmentSlots.LEGS:     [("leg.left",  "greave"),   ("leg.right", "greave")],
-    EquipmentSlots.SHINS:    [("leg.left",  "shin"),     ("leg.right", "shin")],
-    EquipmentSlots.FEET:     [("leg.left",  "boot"),     ("leg.right", "boot")],
-}
+# One-to-many placements. A single slot flag expands into multiple
+# ``(part, key)`` pairs — for items that MUST span that shape and
+# have no single-side equivalent. Currently empty; the 2026-04-22
+# enum rework replaced the old pair-slot entries (ARMS, GLOVES,
+# FEET, etc.) with sided bits + compound aliases, which compose
+# cleanly with limb-loss (each side drops independently when its
+# arm/leg is destroyed). The table is kept for future content:
+# manacles (force-pair wrist items), magical sets that refuse to
+# function alone, or any other "no lone-side variant" gear.
+SLOT_PAIR: Dict[EquipmentSlots, List[Tuple[str, str]]] = {}
 
 
 # Flattened: every ``(part, key)`` placement an item CAN land at,

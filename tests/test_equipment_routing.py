@@ -69,9 +69,49 @@ class TestResolvePlacements:
         assert ("arm.right", "held") in placements
         assert len(placements) == 2
 
-    def test_gloves_expands_to_both_arms_glove_key(self):
+    def test_gloves_compound_expands_to_both_sides(self):
+        """``GLOVES`` is a compound alias (``LEFT_GLOVE | RIGHT_GLOVE``).
+        The bit-test loop in ``resolve_placements`` expands it to
+        both sided placements automatically. Equip treats this as
+        "either side" unless ``MULTI_SLOT`` is also set (forcing
+        both)."""
         placements = resolve_placements(EquipmentSlots.GLOVES)
         assert set(placements) == {("arm.left", "glove"), ("arm.right", "glove")}
+
+    def test_single_sided_glove_resolves_only_one_side(self):
+        """An item declaring just ``LEFT_GLOVE`` must NOT drag in
+        the right side. The sided split is how limb-loss composes
+        cleanly — a destroyed right arm drops only the right-side
+        gear."""
+        placements = resolve_placements(EquipmentSlots.LEFT_GLOVE)
+        assert placements == [("arm.left", "glove")]
+
+    def test_multi_slot_pair_of_gloves(self):
+        """A pair of gloves that must span both sides declares
+        ``GLOVES | MULTI_SLOT``. Routing resolution is the same as
+        the compound alone; ``MULTI_SLOT`` changes the equip
+        behavior (fill all placements vs. pick the first empty)."""
+        placements = resolve_placements(
+            EquipmentSlots.GLOVES | EquipmentSlots.MULTI_SLOT
+        )
+        assert set(placements) == {("arm.left", "glove"), ("arm.right", "glove")}
+
+    def test_arms_compound_expands_to_both_bracer_slots(self):
+        """Bracers are sided now — the ``ARMS`` compound fits
+        either bracer slot, same shape as ``EITHER_HELD`` for
+        weapons. One-handed "either side" semantics."""
+        placements = resolve_placements(EquipmentSlots.ARMS)
+        assert set(placements) == {("arm.left", "bracer"), ("arm.right", "bracer")}
+
+    def test_multi_part_item_spans_distinct_parts(self):
+        """An item declaring ``CAPE | NECK | MULTI_SLOT`` (the old
+        high-collared-cape shape) occupies torso.cape AND
+        neck.amulet — ``MULTI_SLOT`` stays available for this
+        multi-anatomy pattern."""
+        placements = resolve_placements(
+            EquipmentSlots.CAPE | EquipmentSlots.NECK | EquipmentSlots.MULTI_SLOT
+        )
+        assert set(placements) == {("torso", "cape"), ("neck", "amulet")}
 
     def test_amulet_and_neck_collapse_to_same_placement(self):
         """Both AMULET and NECK route to ``(neck, amulet)``. An
@@ -88,14 +128,33 @@ class TestResolvePlacements:
         assert resolve_placements(EquipmentSlots.MULTI_SLOT) == []
 
 
+class TestSlotPairTableKeptButEmpty:
+    """``SLOT_PAIR`` started as the routing shortcut for unsplit
+    pair-slots (the old ``GLOVES`` / ``ARMS`` / ``FEET`` entries).
+    The 2026-04-22 sided split removed those entries — compound
+    aliases handle the same cases now. The table is kept as a
+    mechanism for future content that truly needs a single-slot
+    flag spanning multiple placements (manacles, magical sets
+    that refuse to function alone). Currently empty."""
+
+    def test_slot_pair_is_currently_empty(self):
+        assert SLOT_PAIR == {}
+
+
 class TestKeysOnPart:
     def test_head_part_keys(self):
         keys = set(keys_on_part("head"))
         assert keys == {"helm", "face", "ear.left", "ear.right"}
 
     def test_arm_left_part_keys(self):
+        """Arm keys: held (weapon), bracer, vambrace, glove, ring."""
         keys = set(keys_on_part("arm.left"))
         assert keys == {"held", "bracer", "glove", "vambrace", "ring"}
+
+    def test_leg_left_part_keys(self):
+        """Leg keys: greave, shin, boot. Matches the sided split."""
+        keys = set(keys_on_part("leg.left"))
+        assert keys == {"greave", "shin", "boot"}
 
     def test_nonexistent_part_returns_empty(self):
         assert keys_on_part("tail") == []

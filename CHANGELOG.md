@@ -4,6 +4,53 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-22 — Equipment slots: sided split for left/right anatomy
+
+Pre-rework, pair-slots (``ARMS``, ``FOREARMS``, ``GLOVES``,
+``LEGS``, ``SHINS``, ``FEET``) were single enum bits that auto-
+expanded to both sides via ``SLOT_PAIR``. That conflates "pair
+item that spans both sides" with "sided item that fits either
+side," which loses information for the upcoming limb-loss
+consequences (a destroyed right arm should drop only right-side
+gear, keeping the left glove on).
+
+New shape: every left/right anatomical slot has its own bit,
+with the old name preserved as a compound alias:
+```
+LEFT_ARM      RIGHT_ARM       ARMS      = LEFT_ARM      | RIGHT_ARM
+LEFT_FOREARM  RIGHT_FOREARM   FOREARMS  = LEFT_FOREARM  | RIGHT_FOREARM
+LEFT_GLOVE    RIGHT_GLOVE     GLOVES    = LEFT_GLOVE    | RIGHT_GLOVE
+LEFT_LEG      RIGHT_LEG       LEGS      = LEFT_LEG      | RIGHT_LEG
+LEFT_SHIN     RIGHT_SHIN      SHINS     = LEFT_SHIN     | RIGHT_SHIN
+LEFT_FOOT     RIGHT_FOOT      FEET      = LEFT_FOOT     | RIGHT_FOOT
+```
+
+Single-sided items (``slots = LEFT_GLOVE``) occupy just that
+side — players can mix-and-match a magic left glove with a
+piercing right glove. Compound-alias items (``slots = GLOVES``)
+fit either side, auto-equipping to the first empty placement.
+Force-paired items declare ``GLOVES | MULTI_SLOT`` to fill
+both.
+
+``MULTI_SLOT`` stays available for items that must span
+multiple placements but don't have a single-side equivalent
+(old high-collared-cape's ``CAPE | NECK | MULTI_SLOT`` shape,
+future manacles, magical sets that refuse to function alone).
+
+``SLOT_PAIR`` kept as a mechanism but currently empty — every
+previous entry has an equivalent via sided bits + compound
+aliases. Table reserved for future content that truly needs a
+single flag to force multi-placement without a sided variant.
+
+Routing table (``SLOT_TO_PART_KEY``) gains per-side entries for
+every new sided slot. ``LEFT_SIDE`` / ``RIGHT_SIDE`` aggregates
+extended to include the new left/right bits so
+``$equip bracer left`` narrows correctly to the left arm.
+
+No items currently declare any of the reshuffled slots, so
+zero content migration. 5 new routing tests cover the sided-
+vs-compound-vs-MULTI_SLOT shapes.
+
 ### 2026-04-21 — Combat guard: two-hander detection on either arm
 
 Defense-in-depth fix caught during playtest of the equipment-on-
