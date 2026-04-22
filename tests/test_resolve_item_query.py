@@ -200,6 +200,94 @@ class TestSellMode:
         assert len(res.items) == 1
 
 
+class TestStowBareKeyBroadening:
+    """Bare placement keys in stow mode broaden to every occupied
+    placement with that key. ``$stow held`` clears both hands;
+    ``$stow ring`` clears both rings. Full ``part.key`` form stays
+    specific."""
+
+    def test_held_clears_both_hands_when_dual_wielding(self):
+        p = _player()
+        left = Inventory.load_item(name="shortsword")
+        right = Inventory.load_item(name="mace")
+        p.inventory.add(left)
+        p.inventory.add(right)
+        p.part_equipment["arm.left"]["held"] = left
+        p.part_equipment["arm.right"]["held"] = right
+
+        res = p.resolve_item_query("held", "stow")
+        assert len(res.items) == 2
+        assert left in res.items
+        assert right in res.items
+
+    def test_held_returns_one_item_when_two_handed(self):
+        """Two-handed weapons share their Item ref across both
+        arms — the broadening dedupes by identity so callers don't
+        call ``remove()`` twice on the same weapon."""
+        p = _player()
+        spear = _give_and_equip(p, "spear")
+        res = p.resolve_item_query("held", "stow")
+        assert len(res.items) == 1
+        assert res.items[0] is spear
+
+    def test_full_part_key_stays_specific(self):
+        """``arm.left.held`` must NOT broaden to both arms — the
+        explicit form is the escape hatch when the player wants
+        exactly one side."""
+        p = _player()
+        left = Inventory.load_item(name="shortsword")
+        right = Inventory.load_item(name="mace")
+        p.inventory.add(left)
+        p.inventory.add(right)
+        p.part_equipment["arm.left"]["held"] = left
+        p.part_equipment["arm.right"]["held"] = right
+
+        res = p.resolve_item_query("arm.left.held", "stow")
+        assert res.items == [left]
+
+
+class TestItemBareKeyAmbiguates:
+    """Bare placement keys in item mode ambiguate when they match
+    multiple occupied placements — ``$item held`` can't pick a
+    side. Specific ``part.key`` or item-name queries resolve
+    cleanly."""
+
+    def test_held_ambiguates_when_dual_wielding(self):
+        p = _player()
+        left = Inventory.load_item(name="shortsword")
+        right = Inventory.load_item(name="mace")
+        p.inventory.add(left)
+        p.inventory.add(right)
+        p.part_equipment["arm.left"]["held"] = left
+        p.part_equipment["arm.right"]["held"] = right
+
+        res = p.resolve_item_query("held", "item")
+        assert res.items == []
+        # Candidate labels are the specific placement strings so
+        # the user can retype e.g. ``arm.left.held`` unambiguously.
+        assert "arm.left.held" in res.ambiguity_candidates
+        assert "arm.right.held" in res.ambiguity_candidates
+
+    def test_held_resolves_cleanly_when_single_hand(self):
+        """Only one hand occupied → no ambiguity, return that item."""
+        p = _player()
+        sword = _give_and_equip(p, "shortsword")
+        res = p.resolve_item_query("held", "item")
+        assert res.items == [sword]
+
+    def test_full_part_key_resolves_cleanly(self):
+        p = _player()
+        left = Inventory.load_item(name="shortsword")
+        right = Inventory.load_item(name="mace")
+        p.inventory.add(left)
+        p.inventory.add(right)
+        p.part_equipment["arm.left"]["held"] = left
+        p.part_equipment["arm.right"]["held"] = right
+
+        res = p.resolve_item_query("arm.right.held", "item")
+        assert res.items == [right]
+
+
 class TestUnknownMode:
     def test_unknown_mode_raises(self):
         p = _player()

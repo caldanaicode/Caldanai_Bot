@@ -4,6 +4,35 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-21 — Inventory-parity playtest follow-ups
+
+Three fixes from the first playtest of the parity shipment:
+
+**``$stow held`` broadens to every held item.** Previously a bare
+key resolved to the first anatomy-order match, so ``$stow held``
+only cleared one arm when dual-wielding. The expected read is
+"stow everything in held" — broaden bare keys in stow mode,
+leaving full ``arm.left.held`` form as the escape hatch when the
+user wants exactly one side. ``$stow ring`` and other paired
+keys follow the same rule. Two-handed weapons dedupe by
+identity so ``remove()`` runs once.
+
+**``$item held`` ambiguates when dual-wielding.** Same bare-key
+matcher, opposite handling: ``$item`` can't meaningfully render
+multiple embeds in one response, so a multi-placement match
+surfaces the candidate list (``arm.left.held``,
+``arm.right.held``) and the user picks one. Single-hand and
+two-hander cases resolve cleanly (two-hander is one
+``Item`` ref → single result).
+
+**Two-handed replacement no longer leaves a phantom.** Bug from
+playtest: equip a bow (two-handed → both arms) then ``$equip
+rock@r`` — the rock landed at ``arm.right.held`` but the bow
+stayed orphaned at ``arm.left.held``. ``replace_equipment`` now
+walks every placement and clears any other reference to the
+displaced item. Same fix covers future paired gear (gloves,
+bracers) when swapped one-at-a-time.
+
 ### 2026-04-21 — Inventory-command parity (variadic + @-bind)
 
 Uniform query grammar across ``$equip`` / ``$stow`` / ``$item``

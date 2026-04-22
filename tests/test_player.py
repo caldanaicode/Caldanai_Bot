@@ -193,6 +193,38 @@ class TestEquipment:
         assert replaced == item1
         assert p.part_equipment["head"]["helm"] == item2
 
+    def test_replace_two_handed_with_one_handed_clears_both_arms(self):
+        """Playtest bug 2026-04-22: equipping a one-handed weapon to
+        one arm while a two-handed weapon was already equipped left
+        the two-handed phantom at the OTHER arm. ``replace_equipment``
+        must walk every placement of the displaced item and clear
+        the orphan references."""
+        from caldanai.lib.rpg.inventory import Inventory
+        from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+
+        BodyPartPlugin.load_plugins()
+        Inventory.discover_items()
+
+        p = Player(uid=1, gid=2, cid=3)
+        bow = Inventory.load_item(name="bow")  # two-handed
+        rock = Inventory.load_item(name="rock")  # one-handed
+        p.inventory.add(bow)
+        p.inventory.add(rock)
+        p.equip(bow)
+
+        # Sanity: both arms hold the same bow instance.
+        assert p.part_equipment["arm.left"]["held"] is bow
+        assert p.part_equipment["arm.right"]["held"] is bow
+
+        # Equip the rock to the right arm specifically (the cog
+        # narrows RIGHT_SIDE & rock.slots → RIGHT_HELD before calling).
+        p.equip(rock, EquipmentSlots.RIGHT_HELD)
+
+        assert p.part_equipment["arm.right"]["held"] is rock
+        assert p.part_equipment["arm.left"]["held"] is None, (
+            "Left arm still holds the displaced two-hander (phantom)"
+        )
+
     def test_remove_equipped_item(self):
         p = _make_player()
         item = _make_equipment(name="cap", slots=EquipmentSlots.HEAD)

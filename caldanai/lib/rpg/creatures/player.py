@@ -597,13 +597,31 @@ class Player(Creature):
         is unknown for this player — callers should handle this
         as an equip-failure. The replaced item is left in the
         player's inventory; the caller gets it back so display
-        messages can name what got swapped out."""
+        messages can name what got swapped out.
+
+        Multi-placed displacement: if the outgoing item was
+        spread across multiple placements (two-handed weapon,
+        paired gear sharing a single ``Item`` reference), every
+        OTHER placement referencing it is cleared too. Otherwise
+        a one-handed replacement at one arm leaves a phantom of
+        the old two-hander lingering at the other arm — observed
+        during playtest when swapping a bow for a one-handed
+        rock, where ``arm.left.held`` kept showing the bow until
+        the next restart.
+        """
         if part_name not in self.part_equipment:
             return False, None
         if key not in self.part_equipment[part_name]:
             return False, None
         replaced = self.part_equipment[part_name][key]
         self.part_equipment[part_name][key] = item
+        if replaced is not None and replaced is not item:
+            for pn in self.part_equipment:
+                for k in list(self.part_equipment[pn].keys()):
+                    if (pn, k) == (part_name, key):
+                        continue
+                    if self.part_equipment[pn][k] is replaced:
+                        self.part_equipment[pn][k] = None
         return True, replaced
 
     def _iter_equipped_items(self):
@@ -680,6 +698,54 @@ class Player(Creature):
 
         return None
 
+    def find_all_equipped_matching_placement(
+        self, query: str,
+    ) -> "List[Tuple[Equipment, Tuple[str, str]]]":
+        """Return every ``(item, (part, key))`` where the placement
+        query matches — full ``part.key`` resolves to a single
+        specific placement; a bare key (``held``, ``ring``) broadens
+        to every occupied placement with that key.
+
+        Uses :data:`PLACEMENT_DISPLAY_ORDER` so head-before-torso
+        and left-before-right is the stable iteration order. Two-
+        handed weapons share their ``Item`` reference across both
+        arms — the return deduplicates by identity so the same
+        weapon only appears once even though it occupies two
+        placements.
+
+        Empty result = nothing equipped matches. Callers use the
+        return length to decide between "act on the only match",
+        "act on all matches" (stow mode), or "surface ambiguity"
+        (item mode).
+        """
+        q = query.lower().strip()
+        if not q:
+            return []
+
+        tokens = q.split(".")
+        if len(tokens) >= 2:
+            # Full ``part.key`` wins when it lands. Specific form
+            # bypasses the broadening behavior — ``arm.left.held``
+            # selects exactly that placement, never both arms.
+            for split in range(len(tokens) - 1, 0, -1):
+                part_name = ".".join(tokens[:split])
+                key = ".".join(tokens[split:])
+                equipped = self.part_equipment.get(part_name, {}).get(key)
+                if equipped is not None:
+                    return [(equipped, (part_name, key))]
+
+        # Bare key / key-with-dots — scan anatomy in display order
+        # and collect every occupied placement with that key.
+        matches: "List[Tuple[Equipment, Tuple[str, str]]]" = []
+        seen_ids: set = set()
+        for (part_name, key) in PLACEMENT_DISPLAY_ORDER:
+            if key == q:
+                equipped = self.part_equipment.get(part_name, {}).get(key)
+                if equipped is not None and id(equipped) not in seen_ids:
+                    matches.append((equipped, (part_name, key)))
+                    seen_ids.add(id(equipped))
+        return matches
+
     def resolve_item_query(
         self, query: str, mode: str,
     ) -> "ItemResolution":
@@ -720,11 +786,16 @@ class Player(Creature):
         if not q:
             return ItemResolution()
 
-        # ---- ``stow`` mode: placement-first.
+        # ---- ``stow`` mode: placement-first with bare-key broadening.
+        # A full ``part.key`` query selects exactly that placement;
+        # a bare key (``held`` / ``ring`` / ``glove``) stows EVERY
+        # occupied placement with that key. This matches how players
+        # think about it — "stow helm" clears the helm, "stow held"
+        # clears everything you're holding.
         if mode == "stow":
-            equipped = self.find_equipped_by_placement(str(q))
-            if equipped is not None:
-                return ItemResolution(items=[equipped])
+            placements = self.find_all_equipped_matching_placement(str(q))
+            if placements:
+                return ItemResolution(items=[p[0] for p in placements])
             # Fallback: item-name that happens to match something
             # currently equipped.
             candidates = self._filter_matching_items(str(q))
@@ -762,11 +833,18 @@ class Player(Creature):
                 return ItemResolution(
                     ambiguity_candidates=_candidate_labels(candidates),
                 )
-            # No inventory match — try placement fallback so e.g.
-            # ``$item head.helm`` shows the currently-worn helm.
-            equipped = self.find_equipped_by_placement(str(q))
-            if equipped is not None:
-                return ItemResolution(items=[equipped])
+            # No inventory match — fall back to placement lookup so
+            # e.g. ``$item head.helm`` shows the currently-worn helm.
+            # Bare-key queries (``held``) that match multiple occupied
+            # placements surface ambiguity — unlike ``$stow held``,
+            # we can't meaningfully show multiple item embeds in one
+            # response, so the user needs to pick one.
+            placements = self.find_all_equipped_matching_placement(str(q))
+            if len(placements) == 1:
+                return ItemResolution(items=[placements[0][0]])
+            if len(placements) > 1:
+                labels = [f"{p[1][0]}.{p[1][1]}" for p in placements]
+                return ItemResolution(ambiguity_candidates=labels)
             return ItemResolution()
 
         if mode == "sell":
