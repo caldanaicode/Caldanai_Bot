@@ -355,10 +355,34 @@ class TestPersistence:
         assert "combat" in restored.loadouts
         assert restored.loadouts["combat"]["head"]["helm"] == str(hat.id)
 
-    def test_empty_loadouts_omitted_from_saved_doc(self):
-        """A player who has never used ``$loadout save`` shouldn't
-        gain a noisy ``loadouts: {}`` field in Mongo — keeps
-        legacy-player diffs quiet."""
+    def test_empty_loadouts_written_to_saved_doc(self):
+        """Loadouts field is ALWAYS written, including when empty.
+        Pre-2026-04-22 we omitted on empty, which caused a real
+        bug: clearing the last loadout left stale data in Mongo
+        because ``$set`` doesn't remove missing fields. Writing
+        ``loadouts: {}`` overwrites cleanly."""
         p, _ = _player_with()
         doc = p.to_dict()
-        assert "loadouts" not in doc
+        assert doc.get("loadouts") == {}
+
+    def test_clearing_last_loadout_persists_empty_dict(self):
+        """After clearing every loadout the player had saved, the
+        next ``to_dict`` must write ``loadouts: {}`` so the
+        ``$set`` DB update clobbers the previously-saved labels.
+        Regression test for the 2026-04-22 TEST playtest bug
+        where restart resurrected cleared loadouts."""
+        p, _ = _player_with()
+        p.save_loadout("one")
+        p.save_loadout("two")
+        assert len(p.loadouts) == 2
+
+        p.clear_loadout("one")
+        p.clear_loadout("two")
+        assert p.loadouts == {}
+
+        doc = p.to_dict()
+        # Field must be present with the empty value — NOT absent.
+        # $set with an empty dict overwrites the DB field; an
+        # absent key leaves the prior value untouched.
+        assert "loadouts" in doc
+        assert doc["loadouts"] == {}

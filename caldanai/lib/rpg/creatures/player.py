@@ -1910,19 +1910,23 @@ class Player(Creature):
                 if item is not None:
                     d["part_equipment"].setdefault(part_name, {})[key] = str(item.id)
 
-        # Saved gear loadouts. Mirror the ``part_equipment``
-        # pattern — keep the field out of the saved doc entirely
-        # when no loadouts exist so never-saved players don't
-        # gain a noisy empty ``loadouts: {}`` field on first save.
-        if self.loadouts:
-            d["loadouts"] = {
-                label: {
-                    part_name: dict(keys)
-                    for part_name, keys in payload.items()
-                    if keys
-                }
-                for label, payload in self.loadouts.items()
+        # Saved gear loadouts. ALWAYS written (including when
+        # empty) because ``DB.update_player`` uses ``$set`` —
+        # omitting the key on empty wouldn't remove the field
+        # from an existing doc, so clearing the last loadout
+        # would leave the stale data behind (observed 2026-04-22
+        # TEST playtest: bot restart resurrected "cleared"
+        # loadouts because the DB still held the pre-clear value).
+        # The one-time "noisy ``loadouts: {}`` on first save" cost
+        # for legacy docs is worth paying for correct state sync.
+        d["loadouts"] = {
+            label: {
+                part_name: dict(keys)
+                for part_name, keys in payload.items()
+                if keys
             }
+            for label, payload in self.loadouts.items()
+        }
 
         if self.id is None:
             del d["_id"]
