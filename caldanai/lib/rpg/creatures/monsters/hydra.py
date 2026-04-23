@@ -39,9 +39,11 @@ from random import choice, choices
 from typing import Dict, List, Optional, Tuple
 
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+from caldanai.lib.rpg.creatures.body_builder import node, paired
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
 from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
@@ -455,19 +457,23 @@ class Hydra(MonsterPlugin):
         self._breath_cooldown: Dict[str, int] = {}
 
         # --- Body part composition ---
-        # Quadruped body minus the generic head (we add variant heads).
-        self.body_parts = [p for p in BodyPart.quadruped() if p.name != "head"]
-        for p in self.body_parts:
-            if p.name == "torso":
-                p.is_critical = True
-                break
+        # The tree's variant-specific heads are materialized via the
+        # ``_materialize_body_tree`` override below. Base ``Creature.__init__``
+        # already ran on ``super().__init__(...)`` above WITHOUT our
+        # variant state in place, so the default materialization used
+        # ``BODY_TREE = None`` and left us body-less. Rebuild here now
+        # that ``self._variant`` + ``self.size`` are set.
+        self.body_root = self._materialize_body_tree()
+        self.body_parts = list(self.body_root.walk()) if self.body_root else []
 
-        # Add variant-specific heads with per-head damage types.
-        starting_heads = variant["starting_heads"]
+        # Per-head damage types get attached after materialization so
+        # the existing ``_make_head``-style decoration keeps working.
         head_types = variant["head_dmg_types"]
-        for i in range(starting_heads):
-            dmg_type = head_types[i % len(head_types)]
-            self.body_parts.append(self._make_head(f"head.{i + 1}", dmg_type))
+        starting_heads = variant["starting_heads"]
+        for i, head in enumerate(
+            [p for p in self.body_parts if isinstance(p, HeadPlugin) and not p.is_critical]
+        ):
+            head.dmg_type = head_types[i % len(head_types)]
         self._next_head_number = starting_heads + 1
 
         self._scale_part_hp()
@@ -476,6 +482,36 @@ class Hydra(MonsterPlugin):
         # part as instance-level DEFAULT_ACTIONS — the base pipeline
         # reads these through ``_collect_part_action_pools``.
         self._wire_part_actions()
+
+    # ------------------------------------------------------------------
+    # Body tree (variant-driven anatomy)
+    # ------------------------------------------------------------------
+
+    def _materialize_body_tree(self):
+        """Build the hydra's body tree from the already-picked variant.
+
+        Instance-state pattern from the Phase B1 plan: anatomy
+        depends on ``self._variant["starting_heads"]``, so the tree
+        can't live at class level. The method is called twice during
+        ``__init__`` — once by base ``Creature.__init__`` (before
+        we've set ``self._variant``, returning ``None``) and again
+        after we set up variant state (building the real tree).
+        """
+        variant = getattr(self, "_variant", None)
+        if variant is None:
+            return None
+
+        starting_heads = variant["starting_heads"]
+        return node(TorsoPlugin, name="torso", children=[
+            *[
+                node(HeadPlugin, name=f"head.{i + 1}",
+                     is_critical=False, exposure=dict(_HEAD_EXPOSURE))
+                for i in range(starting_heads)
+            ],
+            *paired(LegPlugin, "foreleg"),
+            *paired(LegPlugin, "hindleg"),
+            node(TailPlugin, name="tail"),
+        ]).build()
 
     # ------------------------------------------------------------------
     # Head factory
@@ -866,15 +902,29 @@ class Hydra(MonsterPlugin):
             new_head = self._make_head(
                 f"head.{self._next_head_number}", dmg_type, scale=True,
             )
-            self.body_parts.append(new_head)
+            # Anchor the new head under the torso so reachability
+            # and tree-walks see it. Without this the regrown head
+            # would have parent=None and drift into a detached root,
+            # breaking "destroy the torso cascades to every head"
+            # once B4 starts using the tree for emergence.
+            self.add_body_part(new_head, parent=self.body_root)
             self._wire_head_actions(new_head)
             self._next_head_number += 1
 
-        # Remove destroyed heads from body_parts.
-        self.body_parts = [
+        # Remove destroyed heads from both the flat view AND the tree.
+        # Detaching from the parent's ``children`` list keeps the tree
+        # structure honest — destroyed-head stumps don't linger as
+        # children of the torso.
+        destroyed_non_critical_heads = [
             p for p in self.body_parts
-            if not (isinstance(p, HeadPlugin) and not p.is_critical
-                    and p.is_destroyed())
+            if isinstance(p, HeadPlugin) and not p.is_critical
+            and p.is_destroyed()
+        ]
+        for dead in destroyed_non_critical_heads:
+            if dead.parent is not None and dead in dead.parent.children:
+                dead.parent.children.remove(dead)
+        self.body_parts = [
+            p for p in self.body_parts if p not in destroyed_non_critical_heads
         ]
 
         if to_spawn == 0:

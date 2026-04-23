@@ -4,7 +4,12 @@ from typing import Optional
 from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
@@ -27,6 +32,24 @@ class Dragon(MonsterPlugin):
     narrow low-melee, high-ranged profile — a dragon's head is far
     above the melee fray but a prime target for archers.
     """
+
+    # Winged quadruped anatomy with a narrow-exposure head profile:
+    # a dragon's head rides far above the melee fray, so MELEE/REACH
+    # exposure collapses to almost nothing while RANGED stays at 1.0
+    # (archers have a clear shot). Torso's ``is_critical=True``
+    # inherits from ``TorsoPlugin`` — no override needed.
+    BODY_TREE = node(TorsoPlugin, name="torso", children=[
+        node(HeadPlugin, name="head", exposure={
+            Reach.MELEE: 0.05,
+            Reach.REACH: 0.10,
+            Reach.THROWN: 0.50,
+            Reach.RANGED: 1.0,
+        }),
+        *paired(LegPlugin, "foreleg"),
+        *paired(LegPlugin, "hindleg"),
+        node(TailPlugin, name="tail"),
+        *paired(WingPlugin, "wing"),
+    ])
 
     VARIANTS = [
         {
@@ -84,16 +107,6 @@ class Dragon(MonsterPlugin):
         self.loot["wand"] = 0.1
 
         self.flags = {"flying"}
-        self.body_parts = BodyPart.quadruped_winged()
-        # Swap the generic head for dragon-specific low-melee-exposure head
-        self.body_parts = [p for p in self.body_parts if p.name != "head"]
-        self.body_parts.append(BodyPart.make("head", name="head",
-            exposure={Reach.MELEE: 0.05, Reach.REACH: 0.10, Reach.THROWN: 0.50, Reach.RANGED: 1.0}))
-        # Mark the torso as critical (dragon dies when torso is destroyed)
-        for p in self.body_parts:
-            if p.name == "torso":
-                p.is_critical = True
-                break
 
         self.size = Size.HUGE
         self._scale_part_hp()

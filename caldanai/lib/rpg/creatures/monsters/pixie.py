@@ -26,7 +26,12 @@ from random import choice
 
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
+from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions, WeatherPatterns,
@@ -34,6 +39,18 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Pixie(MonsterPlugin):
+    # Humanoid template plus wings. No eye parts (matches pre-B1
+    # anatomy — pixie perception is fae-sensing, HIT emergence
+    # falls back to the head). The ``"flying"`` flag (set in
+    # __init__) makes dodge emerge from wings while airborne —
+    # mirrors dragon / bearowl.
+    BODY_TREE = node(TorsoPlugin, name="torso", children=[
+        node(HeadPlugin, name="head"),
+        *paired(ArmPlugin, "arm"),
+        *paired(LegPlugin, "leg"),
+        *paired(WingPlugin, "wing"),
+    ])
+
     # Mischief bias: ~30% chance to poke at an eye. With the post-Q.5
     # dodge math (EXPOSURE_FLOOR 0.3, TINY-vs-MEDIUM size ratio 0.5),
     # the pixie's effective eye-shot dodge against a MEDIUM player is
@@ -110,14 +127,9 @@ class Pixie(MonsterPlugin):
         self.loot["candy"] = 0.4
         self.loot["wallet"] = 0.2  # almost certainly someone else's
 
-        # Humanoid template plus wings. ``"flying"`` flag makes dodge
-        # emerge from wings while airborne (mirrors dragon / bearowl).
-        parts = BodyPart.humanoid()
-        parts.extend([
-            BodyPart.make("wing", name="wing.left"),
-            BodyPart.make("wing", name="wing.right"),
-        ])
-        self.body_parts = parts
+        # Anatomy declared at class level via ``BODY_TREE``; the
+        # ``"flying"`` flag makes dodge emerge from wings while
+        # airborne (mirrors dragon / bearowl).
         self.flags.add("flying")
 
         self.size = Size.TINY

@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from caldanai.lib.rpg.combat.attack_result import AttackResult
 from caldanai.lib.rpg.combat.attack_source import AttackSource, NaturalAttackSource
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Size)
@@ -12,6 +12,8 @@ from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
 
 
 class MathTeacher(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     # In-fiction display name ("flying math teacher") diverges from
     # the filename stem ("math_teacher"); register both so players
     # who type either in ``$spawn monster`` can resolve the plugin.
@@ -64,8 +66,6 @@ class MathTeacher(MonsterPlugin):
 
         self.traits[DamageTypes.BLUDGEONING] = 1.25
         self.traits[DamageTypes.ANY - DamageTypes.BLUDGEONING] = 1
-
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.MEDIUM
         self.core_agility = 5

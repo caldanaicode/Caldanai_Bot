@@ -20,9 +20,9 @@ which is fine — damaging the skull still blinds it.
 
 from random import choice
 
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.creatures.classifications import Undead
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions,
@@ -30,6 +30,8 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Skeleton(Undead, MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     # Skeleton-specific narration. ``Undead`` mixin already provides
     # LIGHT and DARK entries; we override LIGHT here for a more
     # bone-themed flavor (and inherit DARK as-is). The MRO-walking
@@ -107,7 +109,6 @@ class Skeleton(Undead, MonsterPlugin):
         self.loot["bone_dust"] = 0.6  # always at least *some* dust left behind
 
         # Standard humanoid anatomy — no eyes (empty sockets).
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.MEDIUM
         self._scale_part_hp()

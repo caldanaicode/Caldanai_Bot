@@ -23,7 +23,14 @@ from caldanai.lib.rpg.creatures.equipment_routing import (
     keys_on_part,
     resolve_placements,
 )
-from caldanai.lib.rpg.creatures.player import Player, _DEFAULT_PARTS
+from caldanai.lib.rpg.creatures.player import PLAYER_BODY_TREE, Player
+
+# Set of part names in the default player anatomy, derived by walking
+# the declarative body tree. Replaces the removed ``_DEFAULT_PARTS``
+# dict keys that pinned this set pre-B1.
+_DEFAULT_PART_NAMES = {
+    n.name for n in PLAYER_BODY_TREE.build().walk()
+}
 from caldanai.lib.rpg.helpers.enums import EquipmentSlots
 
 
@@ -42,7 +49,7 @@ class TestSlotTables:
         """Every ``(part, key)`` placement in the mapping tables
         must name a body part the default player actually has —
         otherwise the placement can never be filled."""
-        valid_parts = set(_DEFAULT_PARTS.keys())
+        valid_parts = _DEFAULT_PART_NAMES
         for (part, key) in ALL_PLACEMENTS:
             assert part in valid_parts, (
                 f"Placement ({part!r}, {key!r}) references "

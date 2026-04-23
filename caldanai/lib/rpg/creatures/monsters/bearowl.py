@@ -5,10 +5,12 @@ from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Size)
 from caldanai.lib.rpg.creatures import Creature
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import quadruped_winged_tree
 
 
 class Bearowl(MonsterPlugin):
+    BODY_TREE = quadruped_winged_tree()
+
     # Apex-predator bias: ~40% of attacks go for the head (killing
     # bite). Otherwise falls back to exposure-weighted random — even
     # a predator misreads prey sometimes.
@@ -52,8 +54,6 @@ class Bearowl(MonsterPlugin):
         self.traits[DamageTypes.RANGED] = 1.50
         self.traits[DamageTypes.PIERCING | DamageTypes.SLASHING] = 1.25
         self.traits[DamageTypes.BLUDGEONING] = 0.5
-
-        self.body_parts = BodyPart.quadruped_winged()
 
         # Bearowls fly (owl half). The ``WingPlugin.on_injury_change``
         # hook from item 2.5 discards this flag when a wing is driven

@@ -37,7 +37,12 @@ from caldanai.lib.rpg.combat.attack_source import (
     AttackSource, NaturalAttackSource,
 )
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions,
@@ -46,6 +51,18 @@ from caldanai.lib.rpg.helpers.parser import parse
 
 
 class Cyclops(MonsterPlugin):
+    # Humanoid plus a single eye (no .left/.right suffix — there
+    # is no pair). Naming matters: the symmetrization pass only
+    # syncs ``.left`` / ``.right`` names, and rendering shows
+    # ``"eye"`` rather than ``"left eye"``.
+    BODY_TREE = node(TorsoPlugin, name="torso", children=[
+        node(HeadPlugin, name="head", children=[
+            node(EyePlugin, name="eye"),
+        ]),
+        *paired(ArmPlugin, "arm"),
+        *paired(LegPlugin, "leg"),
+    ])
+
     def __init__(self):
         super().__init__(
             name="cyclops",
@@ -99,15 +116,6 @@ class Cyclops(MonsterPlugin):
         self.loot["rock"] = 0.9
         self.loot["wallet"] = 0.5
         self.loot["small_gem"] = 0.3
-
-        # Standard humanoid torso/limbs, plus a single eye.
-        # The eye is named without .left/.right because there is no
-        # pair — this matters for the symmetrization pass (which only
-        # syncs ``.left``/``.right`` names), and for how rendering
-        # displays the part ("eye" rather than "left eye").
-        parts = BodyPart.humanoid()
-        parts.append(BodyPart.make("eye", name="eye"))
-        self.body_parts = parts
 
         self.size = Size.HUGE
         self._scale_part_hp()

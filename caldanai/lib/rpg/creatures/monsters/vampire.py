@@ -2,7 +2,7 @@ from random import choice, randint
 
 from caldanai.lib.rpg import MonsterPlugin, parse
 from caldanai.lib.rpg.combat.attack_result import AttackSequence
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions)
 from caldanai.lib.rpg.creatures import Creature
@@ -10,6 +10,8 @@ from caldanai.lib.rpg.helpers.dice import Dice
 
 
 class Vampire(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     # Vampires fixate on the throat: ~40% of non-feeding attacks go
     # for the head (neck-bite targeting). This is a targeting bias
     # only — no status effect. Feeding is a separate path handled by
@@ -79,8 +81,6 @@ class Vampire(MonsterPlugin):
         self.loot["cape"] = 0.2
         self.loot["high-collared_cape"] = 0.1
         self.loot["wand"] = 0.1
-
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.MEDIUM
         self._scale_part_hp()

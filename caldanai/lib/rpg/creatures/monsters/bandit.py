@@ -3,11 +3,13 @@ from random import choice, randint
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.helpers.dice import Dice
 
 
 class Bandit(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     # Bandit instinct: ~30% of attacks go for a leg — cripple the
     # mark so they can't run off with the loot. Otherwise falls back
     # to exposure-weighted random.
@@ -52,8 +54,6 @@ class Bandit(MonsterPlugin):
         self.loot["bow"] = 0.15
         self.loot["cheese_sandwich"] = 0.2
         self.loot["wallet"] = 0.25
-
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.MEDIUM
         self._scale_part_hp()

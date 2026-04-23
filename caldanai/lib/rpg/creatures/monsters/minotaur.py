@@ -21,7 +21,7 @@ between slabs of muscle.
 from random import choice
 
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions,
@@ -29,6 +29,8 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Minotaur(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     # Gore bias: ~50% of attacks aim for the head. The preference pays
     # the dodge exposure tax (heads are ~0.7 MELEE exposure → effective
     # dodge ~1.43×), so horn strikes are distinctive but not free
@@ -92,7 +94,6 @@ class Minotaur(MonsterPlugin):
 
         # Standard humanoid shape; the bull head is still just a "head"
         # part from the body-parts system's perspective.
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.LARGE
         self._scale_part_hp()

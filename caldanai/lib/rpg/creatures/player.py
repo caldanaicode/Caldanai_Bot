@@ -9,7 +9,14 @@ from discord import Member, Embed, File
 from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures.body_builder import node, paired
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures.equipment_routing import (
     ALL_PLACEMENTS,
     PLACEMENT_DISPLAY_ORDER,
@@ -134,40 +141,36 @@ def _candidate_labels(items: List[Item]) -> List[str]:
     return labels
 
 
-_DEFAULT_PARTS: Dict[str, Tuple[str, int]] = {
-    "head":      ("head",  15),
-    # ``neck`` is vestigial at migration time (2026-04-21): a
-    # mounting point for amulet / jewelry equipment. Low default
-    # HP (8) since the part is small and soft; see
-    # ``body_parts/neck.py`` for the rationale and the future
-    # werewolf-throat-bite hook noted in ``project_more_body_parts``.
-    "neck":      ("neck",   8),
-    "torso":     ("torso", 30),
-    "arm.left":  ("arm",   10),
-    "arm.right": ("arm",   10),
-    "leg.left":  ("leg",   12),
-    "leg.right": ("leg",   12),
-    "eye.left":  ("eye",    4),
-    "eye.right": ("eye",    4),
-}
-
-
-def _build_default_body_parts() -> List[BodyPart]:
-    """Construct a fresh humanoid body-part list at full health, with
-    fixed ``health_max`` per part type. Every player gets identical
-    starting anatomy so character build is deterministic across
-    sessions and consistent across the playerbase.
-
-    DB-persisted ``health_max`` still wins via
-    ``_apply_body_parts_health`` (dict-of-dict shape) — players who
-    had rolled maxes before this change keep whatever's in their save
-    until the next save cycle, after which the deterministic values
-    are written back.
-    """
-    return [
-        BodyPart.make(plugin_name, name=instance_name, health_max=default_max)
-        for instance_name, (plugin_name, default_max) in _DEFAULT_PARTS.items()
-    ]
+# Player anatomy as a body-tree. Fixed ``health_max`` per part
+# overrides each plugin's default dice roll so every player starts
+# with the same deterministic HP pool — character build stays
+# consistent across sessions and across the playerbase.
+#
+# Values chosen to roughly match prior rolled averages while
+# landing on cleaner round numbers:
+#   head  3d10 (avg 16.5) → 15
+#   torso 6d10 (avg 33)   → 30
+#   arm   2d8  (avg 9)    → 10
+#   leg   2d10 (avg 11)   → 12
+#   eye   1d6  (avg 3.5)  → 4
+#   neck  1d8  (avg 4.5)  → 8 (vestigial — mounting point for
+#                              amulet / jewelry equipment; see
+#                              ``body_parts/neck.py``)
+#
+# DB-persisted ``health_max`` still wins via
+# ``_apply_body_parts_health`` (dict-of-dict shape) — players who
+# had rolled maxes before this change keep whatever's in their save
+# until the next save cycle, after which the deterministic values
+# are written back.
+PLAYER_BODY_TREE = node(TorsoPlugin, name="torso", health_max=30, children=[
+    node(NeckPlugin, name="neck", health_max=8, children=[
+        node(HeadPlugin, name="head", health_max=15, children=[
+            *paired(EyePlugin, "eye", health_max=4),
+        ]),
+    ]),
+    *paired(ArmPlugin, "arm", health_max=10),
+    *paired(LegPlugin, "leg", health_max=12),
+])
 
 
 def _apply_body_parts_health(
@@ -276,6 +279,8 @@ def _migrate_skills_if_needed(player: "Player") -> None:
 class Player(Creature):
     """A simple Player object for tracking player data"""
 
+    BODY_TREE = PLAYER_BODY_TREE
+
     def __init__(
         self,
         *,
@@ -314,11 +319,11 @@ class Player(Creature):
             pronouns=pronouns,
         )
         # Humanoid anatomy. Every player gets the same deterministic
-        # starting anatomy (see ``_DEFAULT_PARTS``), so there's no
-        # symmetrization step — left/right pairs are identical by
-        # construction. Persisted per-part health / health_max from
-        # the DB still wins via ``_apply_body_parts_health``.
-        self.body_parts = _build_default_body_parts()
+        # starting anatomy, materialized from ``PLAYER_BODY_TREE``
+        # by ``Creature.__init__``. Left/right pairs are identical
+        # by construction — no symmetrization step. Persisted per-
+        # part health / health_max from the DB still wins via
+        # ``_apply_body_parts_health`` applied over the flat view.
         _apply_body_parts_health(self.body_parts, body_parts_health)
         self.uses_article = False  # "Caels", not "the Caels"
         self.id = pid

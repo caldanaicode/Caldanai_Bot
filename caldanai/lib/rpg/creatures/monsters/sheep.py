@@ -5,10 +5,12 @@ from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Size)
 from caldanai.lib.rpg.creatures import Creature
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import quadruped_tree
 
 
 class Sheep(MonsterPlugin):
+    BODY_TREE = quadruped_tree()
+
     def __init__(self):
         super().__init__(
             name="sheep",
@@ -50,8 +52,6 @@ class Sheep(MonsterPlugin):
         self.loot["stick"] = 0.5
         self.loot["wool"] = 0.5
         self.loot["leather"] = 0.25
-
-        self.body_parts = BodyPart.quadruped()
 
         self.size = Size.SMALL
         self._scale_part_hp()

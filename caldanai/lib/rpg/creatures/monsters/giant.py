@@ -1,11 +1,13 @@
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.helpers.dice import Dice
 
 
 class Giant(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     def __init__(self):
         super().__init__(
             name="giant",
@@ -38,8 +40,6 @@ class Giant(MonsterPlugin):
         self.loot["spear"] = 0.2
         self.loot["ice_axe"] = 0.1
         self.loot["giant_toe"] = 0.25
-
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.HUGE
         self._scale_part_hp()

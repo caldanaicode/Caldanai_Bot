@@ -1,6 +1,7 @@
 from abc import ABC
 from typing import TYPE_CHECKING, Dict, Optional, Union
 
+from caldanai.lib.rpg.creatures.node import Node
 from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
     DamageTypes,
@@ -13,7 +14,18 @@ if TYPE_CHECKING:
     from caldanai.lib.rpg.creatures import Creature
 
 
-class BodyPart(ABC):
+class BodyPart(Node, ABC):
+    """Combat-relevant subclass of :class:`Node`.
+
+    The tree primitive (identity, parent/children, reachability)
+    lives on ``Node``. ``BodyPart`` layers the combat machinery:
+    health, injury levels, traits, exposure, debuffs, and the
+    hooks that per-kind plugins override. Every existing plugin
+    (``HeadPlugin``, ``ArmPlugin``, ...) inherits through
+    ``BodyPartPlugin → BodyPart → Node`` — the tree fields come
+    along for free, the combat surface stays unchanged.
+    """
+
     def __init__(
         self,
         name: str,
@@ -23,7 +35,12 @@ class BodyPart(ABC):
         exposure: Optional[Dict[Reach, float]] = None,
         debuffs: Optional[Dict[InjuryLevels, Dict[Stat, int]]] = None,
     ):
-        self.name = name
+        # Node.__init__ seeds name / parent / children. BodyPart
+        # then layers its own fields on top. Keeping the super()
+        # call first means any future Node changes (e.g. extra
+        # structural metadata) flow through to every plugin
+        # without a constructor diff at each subclass.
+        super().__init__(name=name)
         # Accept ndn dice-notation strings (e.g. "1d10") and resolve them
         # at construction time, matching the Creature base class. Plugins
         # declare ``health_max = "1d8"`` at class level; the factory/

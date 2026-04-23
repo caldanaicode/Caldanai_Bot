@@ -41,7 +41,7 @@ flow, so the flavor text is effectively reserved.
 from random import choice
 
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions,
@@ -49,6 +49,8 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Golem(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     def __init__(self):
         super().__init__(
             name="golem",
@@ -112,7 +114,6 @@ class Golem(MonsterPlugin):
 
         # No eyes — carved stone face, but still a "head" for HIT
         # emergence purposes (per ``Creature.get_hit_modifier``).
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.LARGE
         self._scale_part_hp()

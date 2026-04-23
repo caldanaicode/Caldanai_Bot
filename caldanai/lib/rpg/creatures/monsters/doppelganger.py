@@ -2,6 +2,7 @@ import copy
 from random import choice
 
 from caldanai.lib.rpg import get_random_direction, Player
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, Size, TimePartitions, Qualities
@@ -132,6 +133,11 @@ _PAIN_CRIES = {
 
 
 class Doppelganger(MonsterPlugin):
+    # Natural form is a plain humanoid. When ``imitate`` runs, the
+    # tree is rebuilt from a deep copy of the target's ``body_root``
+    # — see that method for the instance-state override pattern.
+    BODY_TREE = humanoid_tree()
+
     """Shapeshifting imitator that inherits its target's form and injuries.
 
     **Body part design note:** when the doppelganger imitates a target
@@ -197,8 +203,6 @@ class Doppelganger(MonsterPlugin):
         self.loot["bow"] = 0.15
         self.loot["cheese_sandwich"] = 0.2
         self.loot["wallet"] = 0.25
-
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.MEDIUM
         self._scale_part_hp()
@@ -273,12 +277,30 @@ class Doppelganger(MonsterPlugin):
             base_freq = quality.value["multiplier"] * 0.1
             self.loot[item.plugin] = self.loot.get(item.plugin, 0) + base_freq
 
-        # Deep-copy the target's body parts including injury state.
-        if hasattr(target, 'body_parts') and target.body_parts:
+        # Deep-copy the target's body tree including injury state.
+        # Copying ``body_root`` (instead of each part individually)
+        # preserves the parent / children wiring inside the copy so
+        # reachability semantics survive the imitation — e.g. if the
+        # target has a destroyed arm, the doppelganger's copy of the
+        # hand under that arm stays correctly unreachable.
+        if getattr(target, "body_root", None) is not None:
+            self.body_root = copy.deepcopy(target.body_root)
+            self.body_parts = [
+                n for n in self.body_root.walk() if isinstance(n, BodyPart)
+            ]
+        elif hasattr(target, 'body_parts') and target.body_parts:
+            # Target has a flat list but no tree (legacy shape).
+            # Fall back to the flat deep-copy and clear ``body_root``
+            # so the tree and flat view don't diverge — consumers
+            # that consult ``body_root`` get ``None`` rather than
+            # the stale natural-form humanoid tree built at init.
+            self.body_root = None
             self.body_parts = [copy.deepcopy(p) for p in target.body_parts]
         else:
-            # Fallback: target has no parts (pre-migration creature or a slime).
-            self.body_parts = BodyPart.humanoid()
+            # Target has no anatomy (pre-migration creature or a slime).
+            # Fall back to the natural humanoid form.
+            self.body_root = humanoid_tree().build()
+            self.body_parts = list(self.body_root.walk())
 
         # Copy target's flags (e.g. "flying") as an independent set.
         self.flags = set(target.flags) if hasattr(target, 'flags') else set()

@@ -152,7 +152,9 @@ class Spirit(Undead, MonsterPlugin):
         self.loot["wallet"] = 0.10
 
         # Intentionally NO body parts — see module docstring.
-        self.body_parts = []
+        # ``BODY_TREE`` defaults to ``None`` (inherited from
+        # :class:`Creature`), so ``body_parts`` stays empty with
+        # no further setup.
 
         self.size = Size.MEDIUM
         # Don't call _scale_part_hp — nothing to scale, and the

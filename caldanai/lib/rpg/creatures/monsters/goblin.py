@@ -2,11 +2,13 @@ from random import choice
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.helpers.dice import Dice
 
 
 class Goblin(MonsterPlugin):
+    BODY_TREE = humanoid_tree()
+
     def __init__(self):
         super().__init__(
             name="goblin",
@@ -42,8 +44,6 @@ class Goblin(MonsterPlugin):
         self.loot["rock"] = 0.5
         self.loot["torch"] = 0.3
         self.loot["spear"] = 0.1
-
-        self.body_parts = BodyPart.humanoid()
 
         self.size = Size.SMALL
         self._scale_part_hp()

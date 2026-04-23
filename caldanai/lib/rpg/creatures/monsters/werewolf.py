@@ -53,7 +53,7 @@ from caldanai.lib.rpg.combat.attack_source import (
     AttackSource, NaturalAttackSource,
 )
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import quadruped_tree
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, DamageTypes, Size, TimePartitions, TimesOfDay,
@@ -63,6 +63,8 @@ from caldanai.lib.rpg.time import get_time_components, get_next_time
 
 
 class Werewolf(MonsterPlugin):
+    BODY_TREE = quadruped_tree()
+
     # Throat-bite bias: ~30% of attacks target the head. Less
     # obsessive than the bearowl (40%) because the werewolf is a
     # cursed human, not a pure predator — still instinctual but a
@@ -157,7 +159,6 @@ class Werewolf(MonsterPlugin):
         self.flee_loot["leather"] = 0.5
 
         # Quadruped shape for the wolf form (head, torso, 4 legs, tail).
-        self.body_parts = BodyPart.quadruped()
 
         self.size = Size.LARGE
         self._scale_part_hp()

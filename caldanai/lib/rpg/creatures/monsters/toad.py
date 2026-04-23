@@ -2,12 +2,25 @@ from random import choice
 
 from caldanai.lib.rpg import get_random_direction
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
+from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Size)
 
 
 class Toad(MonsterPlugin):
+    # Tailless quadruped — head, torso, 4 legs. Toads have
+    # vestigial tails at best; declaring a quadruped-minus-tail
+    # anatomy here keeps the per-part HP pool honest (no phantom
+    # tail to scale).
+    BODY_TREE = node(TorsoPlugin, name="torso", children=[
+        node(HeadPlugin, name="head"),
+        *paired(LegPlugin, "foreleg"),
+        *paired(LegPlugin, "hindleg"),
+    ])
+
     def __init__(self):
         super().__init__(
             name="toad",
@@ -48,7 +61,5 @@ class Toad(MonsterPlugin):
 
         self.loot["toad_slime"] = 0.9
         self.loot["mushroom_hat"] = 0.3
-
-        self.body_parts = [p for p in BodyPart.quadruped() if p.name != "tail"]
 
         self._scale_part_hp()

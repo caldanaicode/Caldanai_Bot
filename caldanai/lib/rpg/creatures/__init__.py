@@ -6,6 +6,7 @@ from discord import Embed, File
 
 from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.node import Node
 from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.attack_source import (
     AttackSource,
@@ -48,6 +49,15 @@ class Creature:
     """
     An instance of a creature object.
     """
+
+    # Phase B1: Subclasses declare anatomy as a ``BODY_TREE``
+    # spec — a ``body_builder.node(...)`` expression. When set,
+    # ``Creature.__init__`` materializes it into a live tree and
+    # populates ``body_root`` + the flat ``body_parts`` view.
+    # Subclasses with dynamic anatomy (Hydra variants,
+    # Doppelganger) override ``_materialize_body_tree`` instead
+    # and return a pre-built :class:`Node` tree directly.
+    BODY_TREE = None
 
     def __init__(
         self,
@@ -95,9 +105,12 @@ class Creature:
         # Per-instance composition: body parts and state flags must be
         # fresh mutable containers on every instance so that injuring one
         # goblin's leg doesn't injure every goblin's leg. Subclasses
-        # populate ``body_parts`` in their own ``__init__`` after calling
-        # ``super().__init__(...)``; ``flags`` is used for discrete state
-        # like ``"flying"`` (see the dragon-toes design).
+        # declare anatomy via the class-level ``BODY_TREE`` spec
+        # (materialized below); legacy subclasses may still overwrite
+        # ``body_parts`` in their own ``__init__`` during the phased
+        # migration. ``flags`` is used for discrete state like
+        # ``"flying"`` (see the dragon-toes design).
+        self.body_root: Optional[Node] = None
         self.body_parts: List[BodyPart] = []
         self.flags: Set[str] = set()
         self.uses_article: bool = True  # "the dragon"; players override to False
@@ -125,6 +138,22 @@ class Creature:
             }
         else:
             self.update_pronouns()
+
+        # Phase B1: materialize the class-declared BODY_TREE (if
+        # any) into a live tree of Node instances. Subclasses
+        # with static anatomy just set ``BODY_TREE = node(...)``
+        # at class level; dynamic-anatomy subclasses (Hydra
+        # variants, Doppelganger) override
+        # ``_materialize_body_tree`` and return a pre-built tree
+        # that consults instance state. Legacy subclasses that
+        # still build ``body_parts`` imperatively leave
+        # ``BODY_TREE`` as ``None`` and overwrite ``body_parts``
+        # after ``super().__init__(...)`` — supported for
+        # staged migration, removed once every creature declares
+        # a ``BODY_TREE``.
+        self.body_root = self._materialize_body_tree()
+        if self.body_root is not None:
+            self.body_parts = [n for n in self.body_root.walk() if isinstance(n, BodyPart)]
 
         # if stats:
         #     for name, value in stats.items():
@@ -1408,14 +1437,65 @@ class Creature:
                 return part
         return None
 
-    def get_targetable_parts(self) -> List[BodyPart]:
-        """Return the list of non-destroyed body parts.
+    def _materialize_body_tree(self) -> Optional[Node]:
+        """Return the live :class:`Node` tree for this creature.
 
-        Destroyed parts drop out of the targeting pool entirely (see the
-        Phase 1 design doc). Stat aggregation and random-target routing
-        both consume this list.
+        Default implementation builds from the class-level
+        ``BODY_TREE`` spec (a ``body_builder.node(...)``
+        expression). Subclasses with dynamic anatomy override
+        this to return a tree built from instance state — e.g.
+        Hydra variants that read ``type(self).HEAD_COUNT``, or
+        Doppelganger reading ``self._imitating``.
+
+        Returning ``None`` leaves ``body_root`` / ``body_parts``
+        empty — the escape hatch for creatures that have no
+        anatomy (disembodied spirits) or legacy subclasses that
+        still build ``body_parts`` imperatively.
         """
-        return [p for p in self.body_parts if not p.is_destroyed()]
+        spec = type(self).BODY_TREE
+        if spec is None:
+            return None
+        return spec.build()
+
+    def add_body_part(self, part: BodyPart, parent: Optional[Node] = None) -> BodyPart:
+        """Attach a body part to this creature at runtime.
+
+        Used for legitimate structural mutations during combat —
+        today only hydra head regrowth, but the same API covers
+        any future "node sprouts after spawn" case. Wires the
+        new part into the tree under ``parent`` (defaults to
+        ``self.body_root``) AND appends to the flat
+        ``body_parts`` view so iteration stays in sync.
+
+        No-ops the tree side when the creature has no root
+        (legacy body-less subclasses) — the part still lands in
+        the flat list, matching today's raw ``.append`` behavior.
+        """
+        if self.body_root is not None:
+            attach_to = parent if parent is not None else self.body_root
+            attach_to.add_child(part)
+        self.body_parts.append(part)
+        return part
+
+    def get_targetable_parts(self) -> List[BodyPart]:
+        """Return the list of reachable, non-destroyed body parts.
+
+        Phase B1 tightens this to a full reachability check: a part
+        is targetable iff it is not destroyed AND no ancestor is
+        destroyed. A destroyed arm therefore takes its hand (and
+        anything attached further down the limb) out of the pool
+        even while the hand's own health is full — you can't aim
+        at what's dangling off a ruined limb.
+
+        Stat aggregation and random-target routing both consume
+        this list. Note that the stat-aggregation path in
+        :meth:`get_stat_modifier_total` deliberately walks
+        ``self.body_parts`` (not this filtered view) because
+        debuffs from destroyed parts must still count — a
+        useless arm's attack-penalty doesn't vanish just because
+        the arm is no longer aimable at.
+        """
+        return [p for p in self.body_parts if p.is_reachable()]
 
     def find_parts(self, name: str) -> List[BodyPart]:
         """Fuzzy, case-insensitive lookup over non-destroyed body parts.
