@@ -133,3 +133,67 @@ class InspectTopLevelTests(TestCase):
         out = inspect("spirit")
         self.assertIn("body_root=none", out)
         self.assertIn("(no body tree)", out)
+
+
+class StatsSweepTests(TestCase):
+    """``--stats`` mode runs an injury sweep reporting defense /
+    dodge / hit_mod at full health and with each non-critical
+    part zeroed. Used for Phase B4 baseline capture — the
+    rewrite is expected to shift numbers and we want the delta
+    measurable. Pin the sweep's shape here."""
+
+    def test_stats_mode_emits_header_and_full_row(self):
+        out = inspect("goblin", include_stats=True)
+        self.assertIn("stats:", out)
+        # Header row with the three metric labels.
+        self.assertIn("state", out)
+        self.assertIn("defense", out)
+        self.assertIn("dodge", out)
+        self.assertIn("hit_mod", out)
+        # Baseline row always present.
+        self.assertIn("@full", out)
+
+    def test_stats_mode_iterates_non_critical_parts(self):
+        """Sweep visits every non-critical part by name. Goblin
+        has 4 non-critical: two arms + two legs. Head and torso
+        are skipped (both critical)."""
+        out = inspect("goblin", include_stats=True)
+        self.assertIn("@arm.left=0", out)
+        self.assertIn("@arm.right=0", out)
+        self.assertIn("@leg.left=0", out)
+        self.assertIn("@leg.right=0", out)
+        # Criticals NOT in the sweep.
+        self.assertNotIn("@head=0", out)
+        self.assertNotIn("@torso=0", out)
+
+    def test_stats_mode_restores_health_between_rows(self):
+        """Sweep must be non-cumulative — each row reads stats
+        with only ONE part zeroed, not compounded across rows.
+        Verify by checking the @full row at end-of-sweep is the
+        same as the baseline reading."""
+        from tools.inspect_body_tree import _build_creature, _emergent_stats_sweep
+
+        c = _build_creature("goblin")
+        baseline_defense = c.get_defense()
+        baseline_dodge = c.get_dodge()
+
+        _emergent_stats_sweep(c)  # run sweep
+
+        # After sweep, stats should match baseline (everything
+        # restored).
+        self.assertEqual(c.get_defense(), baseline_defense)
+        self.assertEqual(c.get_dodge(), baseline_dodge)
+        # And every part should be at full health.
+        for part in c.body_parts:
+            self.assertEqual(
+                part.health, part.health_max,
+                f"part {part.name} not restored after sweep"
+            )
+
+    def test_stats_off_by_default(self):
+        """Omitting --stats / include_stats keeps the existing
+        tree-only output shape. Back-compat for any script that
+        grep's ``inspect_body_tree`` output."""
+        out = inspect("goblin")  # default include_stats=False
+        self.assertNotIn("stats:", out)
+        self.assertNotIn("@full", out)
