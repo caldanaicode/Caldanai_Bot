@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 from random import choice, choices, random, sample
 from typing import List, Tuple, Union, Optional, Dict, Set
@@ -43,6 +44,25 @@ EXPOSURE_FLOOR = 0.3
 # defense), while still letting cross-size mismatches matter.
 SIZE_RATIO_MIN = 0.5
 SIZE_RATIO_MAX = 2.0
+
+# Size-aware target selection (see "Size-Aware Targeting" design doc).
+# ``pick_random_part`` multiplies each part's exposure weight by a
+# size-ratio attractor: small-exposure parts (eye, ear) get
+# de-prioritized when the attacker is much bigger than the target,
+# and boosted when it's much smaller. Exponent multiplier 2.0 is the
+# middle-ground pick from the v2 review — punchy enough that a HUGE
+# attacker eye-hits at ~0.4× its torso-hit rate without zeroing out
+# the "lucky poke" flavor tail.
+_SIZE_SENSITIVITY: float = 2.0
+
+# Region-collapse kicks in above this ratio: a COLOSSAL attacker
+# aiming at a TINY target's eye still NARRATES the aim point but
+# the attack CONNECTS on an ancestor in the body tree (eye → head,
+# head → torso, etc., depending on how far log2(ratio) walks). Only
+# fires big-vs-small; the inverse direction is handled by the
+# selection-bias formula alone (pixies stab eyes precisely — their
+# precision IS the flavor, no collapse on the large creature's end).
+_REGION_COLLAPSE_THRESHOLD: float = 2.0
 
 
 class Creature:
@@ -460,9 +480,15 @@ class Creature:
             target_part = coupled_part
             target_dodge = None
             if target_part is None and getattr(victim, "body_parts", None):
+                attacker_scale = _attack_scale_of(self)
+                target_scale = _attack_scale_of(victim)
                 target_part = pick_random_part(
                     victim.get_targetable_parts(), source.reach,
+                    attacker_scale, target_scale,
                 )
+                if target_part is not None:
+                    ratio = attacker_scale / max(0.01, target_scale)
+                    target_part = _collapse_to_region(target_part, ratio)
             if target_part is not None:
                 target_dodge = victim.get_targeted_dodge(self, target_part, source)
 
@@ -777,13 +803,26 @@ class Creature:
             # preference > exposure-weighted random. All three paths
             # land at a concrete ``target_part`` (or ``None`` if the
             # target has no body parts).
+            # Size-aware targeting only matters on the RANDOM fallback
+            # paths — explicit player targets and monster preferences
+            # are deliberate aim-points and should not get reweighted
+            # or region-collapsed. The player who typed "$attack eye"
+            # wants the eye, even if a dragon is swinging.
+            attacker_scale = _attack_scale_of(self)
+            target_scale = _attack_scale_of(target)
+            ratio = attacker_scale / max(0.01, target_scale)
             if explicit_parts:
                 idx = i % len(explicit_parts)
                 resolved = explicit_parts[idx]
                 if resolved and not resolved.is_destroyed():
                     target_part = resolved
                 else:
-                    target_part = pick_random_part(target.get_targetable_parts(), source.reach)
+                    target_part = pick_random_part(
+                        target.get_targetable_parts(), source.reach,
+                        attacker_scale, target_scale,
+                    )
+                    if target_part is not None:
+                        target_part = _collapse_to_region(target_part, ratio)
             elif target.body_parts:
                 target_part = None
                 preference_name = self.get_target_part_preference(target, source)
@@ -792,7 +831,12 @@ class Creature:
                     if resolved:
                         target_part = resolved
                 if target_part is None:
-                    target_part = pick_random_part(target.get_targetable_parts(), source.reach)
+                    target_part = pick_random_part(
+                        target.get_targetable_parts(), source.reach,
+                        attacker_scale, target_scale,
+                    )
+                    if target_part is not None:
+                        target_part = _collapse_to_region(target_part, ratio)
             else:
                 target_part = None
 
@@ -1829,8 +1873,92 @@ def _functionality_ratio(parts: list) -> float:
     return total / len(parts)
 
 
-def pick_random_part(parts: List[BodyPart], reach: Reach) -> Optional[BodyPart]:
-    """Pick a random body part weighted by exposure to the given reach.
+def _attack_scale_of(creature) -> float:
+    """Look up a creature's silhouette scale (``attack_scale``).
+
+    Falls back to ``1.0`` (MEDIUM-equivalent) when the creature
+    lacks a ``size`` attribute or the enum entry is missing the
+    key — defensive for test scaffolding that constructs bare
+    ``Creature`` instances without setting size.
+    """
+    size = getattr(creature, "size", None)
+    if size is None:
+        return 1.0
+    try:
+        return float(size.value.get("attack_scale", 1.0))
+    except AttributeError:
+        return 1.0
+
+
+def _size_attractor(part: BodyPart, reach: Reach, ratio: float) -> float:
+    """Relative-size attractor for part selection.
+
+    Multiplies into the base exposure weight. ``ratio`` is the
+    attacker's silhouette scale divided by the target's
+    (``attacker.size.value["attack_scale"] / target_scale``).
+
+    - ``ratio > 1`` (big vs small): shrinks the weight of
+      small-exposure parts (eye, ear). Exponent ramps with how
+      *narrow* the part is — torso (exp 1.0) is unchanged, eye
+      (exp 0.1) is shrunk hard.
+    - ``ratio < 1`` (small vs big): mirrored — boosts the weight
+      of small-exposure parts (pixies stab eyes).
+    - ``ratio ≈ 1``: returns ≈ 1.0, no meaningful change; this
+      is the same-size baseline.
+
+    See the design doc for the sample curve at ratio=1.5 / 0.5.
+    """
+    exp = part.exposure.get(reach, 1.0)
+    # Small-exposure parts amplify the effect; large-exposure
+    # (torso 1.0) is held at 1.0 (attractor = ratio**0 = 1.0).
+    sensitivity = _SIZE_SENSITIVITY * (1.0 - exp)
+    return ratio ** (-sensitivity)
+
+
+def _collapse_to_region(
+    part: BodyPart,
+    ratio: float,
+) -> BodyPart:
+    """When an attacker's silhouette dwarfs the target's, the aim
+    point "bleeds" into the containing region — a hydra fangs for
+    the eye but connects with the head; the head, in turn, bleeds
+    into the torso at even more extreme gaps.
+
+    Post-B1 implementation: walks up the body tree via
+    ``BodyPart.parent`` by ``int(log2(ratio))`` levels. Each
+    doubling of the size gap adds one step toward the torso.
+
+    Returns the original part when:
+    - ``ratio <= _REGION_COLLAPSE_THRESHOLD`` — gap too small,
+      selection-bias alone handles it.
+    - ``part`` has no parent — already at the tree root, or
+      the part isn't wired into a tree (legacy / test scaffolding).
+
+    Symmetric flavor: this function only fires on big-vs-small
+    (``ratio > 1``). Small-vs-big gets its own dynamic from
+    :func:`_size_attractor` (which triples eye pick rate) combined
+    with :meth:`Creature.get_targeted_dodge`'s inverse-ratio dodge
+    reduction — no mirrored collapse needed.
+    """
+    if ratio <= _REGION_COLLAPSE_THRESHOLD:
+        return part
+    # int(log2(2.0)) == 1, int(log2(4.0)) == 2, etc. A ratio just
+    # above the threshold walks one level; doubling walks two.
+    levels = int(math.log2(ratio))
+    current = part
+    while levels > 0 and current.parent is not None:
+        current = current.parent
+        levels -= 1
+    return current
+
+
+def pick_random_part(
+    parts: List[BodyPart],
+    reach: Reach,
+    attacker_scale: float = 1.0,
+    target_scale: float = 1.0,
+) -> Optional[BodyPart]:
+    """Pick a random body part weighted by exposure × size-attractor.
 
     This is a module-level free function (not a ``Creature`` method)
     because damage routing and combat UX call it with an arbitrary
@@ -1839,16 +1967,29 @@ def pick_random_part(parts: List[BodyPart], reach: Reach) -> Optional[BodyPart]:
     Parts that don't declare an exposure for ``reach`` default to weight
     ``1.0`` (fully exposed by default) via ``exposure.get(reach, 1.0)``.
 
+    Size-aware selection: when ``attacker_scale != target_scale``,
+    :func:`_size_attractor` reweights small-exposure parts. Defaults
+    of ``1.0`` preserve the pre-size-aware behavior for tests and
+    legacy call sites that haven't been updated.
+
     :param parts: The candidate parts to pick from (typically the output
         of ``Creature.get_targetable_parts()``).
     :param reach: The reach class of the incoming attack.
+    :param attacker_scale: Attacker's ``Size.attack_scale``. 1.0
+        default (no size bias).
+    :param target_scale: Target's ``Size.attack_scale``. 1.0
+        default (no size bias).
     :return: A randomly-chosen part weighted by exposure, or ``None`` if
-        ``parts`` is empty or every part has zero exposure for this
+        ``parts`` is empty or every part has zero weight for this
         reach (nothing is reachable — caller should fall back to body).
     """
     if not parts:
         return None
-    weights = [p.exposure.get(reach, 1.0) for p in parts]
+    ratio = attacker_scale / max(0.01, target_scale)
+    weights = [
+        p.exposure.get(reach, 1.0) * _size_attractor(p, reach, ratio)
+        for p in parts
+    ]
     if sum(weights) == 0:
         return None
     return choices(parts, weights=weights, k=1)[0]
