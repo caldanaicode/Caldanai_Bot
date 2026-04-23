@@ -69,6 +69,7 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Equippable, Mobility
 from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 
 
@@ -91,7 +92,7 @@ _STOMP_TEMPLATES = [
 ]
 
 
-class LegPlugin(BodyPartPlugin):
+class LegPlugin(BodyPartPlugin, Mobility, Equippable):
     """Generic leg. Non-critical. Primary DODGE contributor, secondary ATTACK.
 
     Legs drive both mobility (DODGE -- footwork, repositioning) and

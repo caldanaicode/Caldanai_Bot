@@ -7,6 +7,9 @@ from discord import Embed, File
 
 from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.mixins import (
+    Defensive, Equippable, Mobility, Offensive, Sensory,
+)
 from caldanai.lib.rpg.creatures.node import Node
 from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.attack_source import (
@@ -965,10 +968,14 @@ class Creature:
 
     def can_fly(self) -> bool:
         """Does this creature have a functional flight capability right
-        now? Default: at least one non-destroyed wing part. Override
-        for magical flight that doesn't need wings (a djinn, say), or
-        for conditional flight (only when a specific flag is set)."""
-        wings = [p for p in self.body_parts if _part_base_name(p) == "wing"]
+        now? Default: at least one non-destroyed airborne-mobility part
+        (wing). Override for magical flight that doesn't need wings (a
+        djinn, say), or for conditional flight (only when a specific
+        flag is set)."""
+        wings = [
+            p for p in self.find_all(Mobility)
+            if p.MOBILITY_MODE == "airborne"
+        ]
         if not wings:
             return False
         return any(not p.is_destroyed() for p in wings)
@@ -981,12 +988,13 @@ class Creature:
         return "flying" in self.flags
 
     def has_eyes(self) -> bool:
-        """Does this creature have any eye parts? Distinguishes
-        classical humanoids (eyeless by convention via
-        ``BodyPart.humanoid``) from players / cyclopes / pixies who
+        """Does this creature have any primary-sense parts (eyes)?
+        Distinguishes classical humanoids (eyeless by convention via
+        ``humanoid_tree``) from players / cyclopes / pixies who
         declare eye parts explicitly. Drives HIT emergence: if there
-        are eyes, they're the HIT source; otherwise heads are."""
-        return any(_part_base_name(p) == "eye" for p in self.body_parts)
+        are primary senses, they're the HIT source; otherwise the
+        fallback-sense parts (heads) are."""
+        return any(p.IS_PRIMARY_SENSE for p in self.find_all(Sensory))
 
     def has_body_parts(self) -> bool:
         """``True`` for any creature with a non-empty anatomy. The
@@ -1310,7 +1318,7 @@ class Creature:
         if not self.body_parts:
             return max(0, self.defense)
 
-        torsos = [p for p in self.body_parts if _part_base_name(p) == "torso"]
+        torsos = self.find_all(Defensive)
         if not torsos:
             return max(0, self.core_toughness)
 
@@ -1334,11 +1342,13 @@ class Creature:
             # Legacy path: no body parts, use flat stat
             return max(0, self.dodge)
 
-        # Determine mobility sources: wings if flying, else legs
-        if self.is_flying():
-            sources = [p for p in self.body_parts if _part_base_name(p) == "wing"]
-        else:
-            sources = [p for p in self.body_parts if _part_base_name(p) == "leg"]
+        # Determine mobility sources: airborne (wings) if flying,
+        # else grounded (legs).
+        mode = "airborne" if self.is_flying() else "grounded"
+        sources = [
+            p for p in self.find_all(Mobility)
+            if p.MOBILITY_MODE == mode
+        ]
 
         if not sources:
             # No relevant mobility parts (e.g., a snake or magical creature)
@@ -1400,11 +1410,14 @@ class Creature:
         if not self.body_parts:
             return 0
 
-        eyes = [p for p in self.body_parts if _part_base_name(p) == "eye"]
-        heads = [p for p in self.body_parts if _part_base_name(p) == "head"]
+        senses = self.find_all(Sensory)
+        primary = [p for p in senses if p.IS_PRIMARY_SENSE]
+        fallback = [p for p in senses if not p.IS_PRIMARY_SENSE]
 
-        # Eyes are primary HIT source; heads are fallback
-        sources = eyes if eyes else heads
+        # Primary senses (eyes) are the HIT source when present;
+        # fallback senses (heads) step in only for eye-less
+        # creatures like classical humanoid monsters.
+        sources = primary if primary else fallback
         if not sources:
             return 0
 
@@ -1480,6 +1493,19 @@ class Creature:
             if part.name == name:
                 return part
         return None
+
+    def find_all(self, mixin_cls: type) -> List[BodyPart]:
+        """Return every body part that mixes in ``mixin_cls``.
+
+        Phase B2 classification helper. Replaces implicit
+        name-matching (``_part_base_name(p) == "eye"``) with
+        explicit capability lookup (``find_all(Sensory)``).
+
+        The result is in :attr:`body_parts` order, which is the
+        depth-first order of the body tree — stable for
+        aggregation math (``_functionality_ratio`` and friends).
+        """
+        return [p for p in self.body_parts if isinstance(p, mixin_cls)]
 
     def _materialize_body_tree(self) -> Optional[Node]:
         """Return the live :class:`Node` tree for this creature.

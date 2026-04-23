@@ -43,6 +43,7 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Equippable, Offensive, Sensory
 from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 
 
@@ -66,12 +67,22 @@ _HEADBUTT_TEMPLATES = [
 ]
 
 
-class HeadPlugin(BodyPartPlugin):
+class HeadPlugin(BodyPartPlugin, Offensive, Sensory, Equippable):
     """Generic head. Critical — losing it kills the creature.
 
     Monsters override exposure via factory kwargs for narrower
     targeting profiles (see individual monster classes).
+
+    Mixins: ``Offensive`` (bite / headbutt actions), ``Sensory``
+    (fallback HIT source when no eyes — ``IS_PRIMARY_SENSE=False``),
+    ``Equippable`` (helm / face placements).
     """
+
+    # Sensory: head is the FALLBACK perception source. When a
+    # creature has eye parts, those are primary and heads
+    # contribute nothing to HIT. Only eye-less humanoids (goblin,
+    # skeleton, vampire, etc.) use the head for HIT emergence.
+    IS_PRIMARY_SENSE = False
 
     name = "head"
     health_max = "3d10"

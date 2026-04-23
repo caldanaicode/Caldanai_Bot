@@ -47,10 +47,11 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Equippable
 from caldanai.lib.rpg.helpers.enums import Reach
 
 
-class NeckPlugin(BodyPartPlugin):
+class NeckPlugin(BodyPartPlugin, Equippable):
     """Minimal neck. Non-critical, low exposure, no debuffs yet.
 
     Exists primarily as a mounting point for amulet / jewelry

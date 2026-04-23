@@ -47,6 +47,7 @@ Debuffs touching ATTACK, DEFENSE, and DODGE
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Defensive, Equippable
 from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 
 
@@ -60,7 +61,7 @@ _CHESTBUTT_TEMPLATES = [
 ]
 
 
-class TorsoPlugin(BodyPartPlugin):
+class TorsoPlugin(BodyPartPlugin, Defensive, Equippable):
     """Generic torso. Critical — losing it kills the creature.
 
     The torso houses the vital organs; destroying it means the creature

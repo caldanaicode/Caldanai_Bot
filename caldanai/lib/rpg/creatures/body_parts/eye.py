@@ -98,10 +98,11 @@ Multi-eye composition
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Sensory
 from caldanai.lib.rpg.helpers.enums import InjuryLevels, Reach, Stat
 
 
-class EyePlugin(BodyPartPlugin):
+class EyePlugin(BodyPartPlugin, Sensory):
     """Generic eye. Non-critical. HIT-only debuffs (aim organ).
 
     Eyes are small, hard-to-hit targets with an outsized combat impact.
@@ -122,6 +123,10 @@ class EyePlugin(BodyPartPlugin):
     instance contributes its own debuff row to
     ``get_stat_modifier_total(Stat.HIT)``.
     """
+
+    # Sensory: eye is the PRIMARY perception source. Heads only
+    # contribute to HIT when a creature has no eyes at all.
+    IS_PRIMARY_SENSE = True
 
     name = "eye"
     health_max = "1d6"

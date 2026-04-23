@@ -67,6 +67,7 @@ Debuffs
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Mobility
 from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 from caldanai.lib.rpg.helpers.parser import parse
 
@@ -81,7 +82,7 @@ _WING_BUFFET_TEMPLATES = [
 ]
 
 
-class WingPlugin(BodyPartPlugin):
+class WingPlugin(BodyPartPlugin, Mobility):
     """Generic wing. Non-critical. DODGE + ATTACK (buffet) debuffs,
     plus an ``on_injury_change(USELESS)`` hook that grounds the
     creature by discarding the ``"flying"`` flag.
@@ -89,7 +90,14 @@ class WingPlugin(BodyPartPlugin):
     Exposure is low in melee/reach (wings tuck away, hard to land a
     sword on) and highest at range (archers love big spread-out
     wings).
+
+    Mixin: ``Mobility`` with ``MOBILITY_MODE="airborne"`` — wings
+    drive DODGE while the creature has the ``"flying"`` flag; once
+    grounded (wing destruction or explicit ground-lock), emergence
+    falls back to grounded Mobility sources (legs).
     """
+
+    MOBILITY_MODE = "airborne"
 
     name = "wing"
     health_max = "2d8"

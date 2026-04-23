@@ -87,6 +87,7 @@ The ``"disable_slot": True`` marker (forward-facing)
 """
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+from caldanai.lib.rpg.creatures.mixins import Equippable, Offensive
 from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 
 
@@ -110,7 +111,7 @@ _GRAB_TEMPLATES = [
 ]
 
 
-class ArmPlugin(BodyPartPlugin):
+class ArmPlugin(BodyPartPlugin, Offensive, Equippable):
     """Generic arm. Non-critical but load-bearing for combat.
 
     Arms are the primary attack-enabling limbs, so their debuff
