@@ -124,6 +124,11 @@ class ArmPlugin(BodyPartPlugin, Offensive, Equippable):
     its presence is forward-compatible but has no current effect).
     """
 
+    # Equippable placement keys (B3): weapon / shield held in
+    # this arm, bracer (upper arm), vambrace (forearm), glove
+    # (hand), ring (finger).
+    PLACEMENT_KEYS = ["held", "bracer", "vambrace", "glove", "ring"]
+
     name = "arm"
     health_max = "2d8"
     is_critical = False

@@ -61,6 +61,10 @@ class NeckPlugin(BodyPartPlugin, Equippable):
     don't collide with an opinionated default.
     """
 
+    # Equippable placement keys (B3): amulet / jewelry slot.
+    # Planned for future content; no current items land here.
+    PLACEMENT_KEYS = ["amulet"]
+
     name = "neck"
     health_max = "1d8"
     is_critical = False

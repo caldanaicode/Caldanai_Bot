@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Type
 
 from caldanai import PluginManager
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.mixins import Equippable
 from caldanai.lib.rpg.helpers.enums import DamageTypes, InjuryLevels, Reach, Stat
 
 if TYPE_CHECKING:
@@ -136,6 +137,17 @@ class BodyPartPlugin(BodyPart):
             exposure=resolved_exposure,
             debuffs=resolved_debuffs,
         )
+
+        # Phase B3: plugins that mix in :class:`Equippable` get a
+        # fresh per-instance ``placements`` dict keyed by the
+        # class-level ``PLACEMENT_KEYS`` declaration. This is the
+        # authoritative storage for equipped items — the
+        # :attr:`Player.part_equipment` nested-dict view rebuilds
+        # itself on access by walking these per-node dicts.
+        if isinstance(self, Equippable):
+            self.placements: Dict[str, Optional[object]] = {
+                key: None for key in type(self).PLACEMENT_KEYS
+            }
 
     # ------------------------------------------------------------------
     # Plugin discovery

@@ -84,6 +84,10 @@ class HeadPlugin(BodyPartPlugin, Offensive, Sensory, Equippable):
     # skeleton, vampire, etc.) use the head for HIT emergence.
     IS_PRIMARY_SENSE = False
 
+    # Equippable placement keys (B3): helmet, face mask / visor,
+    # and per-side ear mounts (earrings / earplugs).
+    PLACEMENT_KEYS = ["helm", "face", "ear.left", "ear.right"]
+
     name = "head"
     health_max = "3d10"
     is_critical = True

@@ -11,6 +11,7 @@ from caldanai.lib.rpg.combat.attack_source import AttackSource
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_builder import node, paired
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.mixins import Equippable as _Equippable
 from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
 from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
@@ -353,26 +354,26 @@ class Player(Creature):
         # are the only thing that gets written to the DB, so
         # never-tuned players don't grow a noisy field.
         self.social: Dict[str, object] = social if isinstance(social, dict) else {}
-        # Equipment-on-parts (2026-04-21): items are keyed by their
-        # body-part home and a per-part slot key — ``head.helm``,
-        # ``torso.chest``, ``arm.left.held``, etc. See
-        # ``equipment_routing`` for the slot→(part, key) mapping.
-        # Pre-seed every valid placement as None so callers can
-        # ``.get(part, {}).get(key)`` without KeyError and the
-        # serializer has a stable shape to compress.
-        self.part_equipment: Dict[str, Dict[str, Optional[Equipment]]] = {}
-        _part_names = {p.name for p in self.body_parts}
-        for (part_name, key) in ALL_PLACEMENTS:
-            if part_name in _part_names:
-                self.part_equipment.setdefault(part_name, {})[key] = None
 
-        # Rehydrate persisted placements. ``part_equipment`` from the
-        # DB is ``{part: {key: item_id_str}}`` (None entries stripped);
-        # look each item up in this player's inventory so the shape
-        # holds ``Equipment`` instances at runtime.
+        # Phase B3 (2026-04-22): equipment placements now live on
+        # each :class:`Equippable` body-part node directly — each
+        # node carries a ``placements`` dict keyed by its
+        # ``PLACEMENT_KEYS`` declaration and populated at
+        # materialization time by ``BodyPartPlugin.__init__``. The
+        # ``self.part_equipment`` name is preserved as a computed
+        # property (see below) returning a ``{part_name: node.placements}``
+        # view where the inner dicts are LIVE REFERENCES to each
+        # node's storage — so dict-style reads and writes continue
+        # to work for back-compat.
+        #
+        # Rehydrate persisted placements onto nodes. The DB shape
+        # is ``{part: {key: item_id_str}}`` (None entries stripped);
+        # look each item up in this player's inventory and write
+        # straight to the owning node's placements dict.
         if part_equipment:
             for part_name, keys in part_equipment.items():
-                if part_name not in self.part_equipment:
+                part = self.get_part(part_name)
+                if part is None or not isinstance(part, _Equippable):
                     # Skip parts this player doesn't have (e.g. a
                     # legacy doc with a part since removed from the
                     # anatomy). The migration tool is responsible for
@@ -380,12 +381,12 @@ class Player(Creature):
                     # production means the migration didn't run.
                     continue
                 for key, item_id in keys.items():
-                    if key not in self.part_equipment[part_name]:
+                    if key not in part.placements:
                         continue
                     if item_id:
                         item = self.inventory[str(item_id)]
                         if item is not None:
-                            self.part_equipment[part_name][key] = item
+                            part.placements[key] = item
 
         # Q.6 skills-schema versioning. Absent in legacy documents;
         # defaults to v1 when skills exist (triggers one-time migration)
@@ -468,6 +469,67 @@ class Player(Creature):
             return parse(f"{mention} suddenly gasps raggedly as life returns to @1o!", self)
 
         return ""
+
+    # ------------------------------------------------------------------
+    # Equipment access (Phase B3)
+    #
+    # Storage is per-node: each :class:`Equippable` body part owns
+    # a ``placements`` dict. :attr:`part_equipment` remains as the
+    # legacy-compatible nested-dict view, with inner dicts being
+    # LIVE REFERENCES to node storage — reads and writes continue
+    # to work. New code should prefer :meth:`place` /
+    # :meth:`clear_placement` for clarity.
+    # ------------------------------------------------------------------
+
+    @property
+    def part_equipment(self) -> Dict[str, Dict[str, Optional[Equipment]]]:
+        """Nested-dict view over each :class:`Equippable` body
+        part's current equipment placements.
+
+        Inner dicts are LIVE REFERENCES to each node's
+        ``placements`` dict, so mutations through this view
+        (``player.part_equipment["head"]["helm"] = item``) write
+        directly to the node. That's the back-compat contract for
+        the hundred-plus call sites predating B3; new code should
+        go through :meth:`place` / :meth:`clear_placement` instead.
+
+        Outer dict is rebuilt per access from the current tree
+        topology, so hydra-style runtime regrowth reflects in the
+        view on the next read.
+        """
+        return {
+            n.name: n.placements
+            for n in self.body_parts
+            if isinstance(n, _Equippable)
+        }
+
+    def place(self, part_name: str, key: str, item: Optional[Equipment]) -> None:
+        """Set the equipment at ``part_name.key`` to ``item``.
+
+        Preferred write API over the legacy
+        ``player.part_equipment[part][key] = item`` dict-access
+        pattern. Raises ``KeyError`` when the part doesn't exist
+        or the key isn't declared on the part's plugin — the
+        strict form is deliberate so typos surface at the call
+        site rather than silently corrupting placement state.
+        """
+        part = self.get_part(part_name)
+        if part is None or not isinstance(part, _Equippable):
+            raise KeyError(
+                f"No Equippable part named {part_name!r} on {self.name}"
+            )
+        if key not in part.placements:
+            raise KeyError(
+                f"Part {part_name!r} does not accept placement key {key!r}; "
+                f"valid keys: {sorted(part.placements)}"
+            )
+        part.placements[key] = item
+
+    def clear_placement(self, part_name: str, key: str) -> None:
+        """Clear the equipment at ``part_name.key`` (set to
+        ``None``). Thin wrapper over :meth:`place` for readability
+        at call sites that semantically mean "remove"."""
+        self.place(part_name, key, None)
 
     def _drop_gear_on_destroyed_part(self, part_name: str) -> None:
         """Return every item at ``part_name``'s placements to the
@@ -1116,9 +1178,19 @@ class Player(Creature):
         self, query: str,
     ) -> "List[Tuple[Equipment, Tuple[str, str]]]":
         """Return every ``(item, (part, key))`` where the placement
-        query matches — full ``part.key`` resolves to a single
-        specific placement; a bare key (``held``, ``ring``) broadens
-        to every occupied placement with that key.
+        query matches. Three patterns, tried in order:
+
+        1. **Full ``part.key``** — resolves to a single specific
+           placement. ``arm.left.held`` selects exactly that
+           placement and bypasses all broadening.
+        2. **Bare key** (``held``, ``ring``, ``cape``) — broadens
+           to every occupied placement with that key across every
+           part. ``$stow held`` clears both hands.
+        3. **Bare part name** (``torso``, ``arm``, ``head``) —
+           broadens to every occupied placement ON that part (or
+           parts, if the query is a fuzzy-prefix match like
+           ``arm`` covering ``arm.left`` and ``arm.right``).
+           ``$stow torso`` clears cape + chest + belt together.
 
         Uses :data:`PLACEMENT_DISPLAY_ORDER` so head-before-torso
         and left-before-right is the stable iteration order. Two-
@@ -1148,16 +1220,43 @@ class Player(Creature):
                 if equipped is not None:
                     return [(equipped, (part_name, key))]
 
-        # Bare key / key-with-dots — scan anatomy in display order
-        # and collect every occupied placement with that key.
         matches: "List[Tuple[Equipment, Tuple[str, str]]]" = []
         seen_ids: set = set()
+
+        # Bare key / key-with-dots — scan anatomy in display order
+        # and collect every occupied placement with that key.
         for (part_name, key) in PLACEMENT_DISPLAY_ORDER:
             if key == q:
                 equipped = self.part_equipment.get(part_name, {}).get(key)
                 if equipped is not None and id(equipped) not in seen_ids:
                     matches.append((equipped, (part_name, key)))
                     seen_ids.add(id(equipped))
+        if matches:
+            return matches
+
+        # Bare part name — broaden to every occupied placement on
+        # the matched part(s). Only tried when the bare-key pass
+        # found nothing, so a key like ``held`` doesn't accidentally
+        # trigger part-name lookup. ``self.find_parts`` handles
+        # fuzzy-prefix matching (``arm`` → ``arm.left`` +
+        # ``arm.right``), so a bare base-name naturally broadens
+        # across sides. Single-token queries only — ``arm.held``
+        # should go through the full part.key path or be a no-op,
+        # not silently reinterpreted as a part name.
+        if "." not in q:
+            for part in self.find_parts(q):
+                if not isinstance(part, _Equippable):
+                    continue
+                # Iterate placements in PLACEMENT_DISPLAY_ORDER so
+                # the return order stays stable across the three
+                # broadening branches.
+                for (display_part, display_key) in PLACEMENT_DISPLAY_ORDER:
+                    if display_part != part.name:
+                        continue
+                    equipped = part.placements.get(display_key)
+                    if equipped is not None and id(equipped) not in seen_ids:
+                        matches.append((equipped, (part.name, display_key)))
+                        seen_ids.add(id(equipped))
         return matches
 
     def resolve_item_query(

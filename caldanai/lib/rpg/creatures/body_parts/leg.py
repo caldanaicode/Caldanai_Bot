@@ -104,6 +104,10 @@ class LegPlugin(BodyPartPlugin, Mobility, Equippable):
     land higher on the body.
     """
 
+    # Equippable placement keys (B3): greave (thigh plating),
+    # shin armor, boot (foot).
+    PLACEMENT_KEYS = ["greave", "shin", "boot"]
+
     name = "leg"
     health_max = "2d10"
     is_critical = False

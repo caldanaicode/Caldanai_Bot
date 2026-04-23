@@ -107,13 +107,23 @@ class Equippable:
     """Node that owns equipment placement keys.
 
     Every visible body part today is equippable — head (helm,
-    face), torso (chest, cape), arm (held, forearm, glove),
-    leg (shin, foot), neck (amulet-in-future). Purely-internal
-    future parts (organs, arteries) would NOT be Equippable.
+    face, ears), torso (chest, cape, belt), arm (held, bracer,
+    vambrace, glove, ring), leg (greave, shin, boot), neck
+    (amulet). Purely-internal future parts (organs, arteries)
+    would NOT be Equippable.
 
-    Phase B2 declares the tag; Phase B3 moves the per-part
-    equipment placement off :class:`Player.part_equipment` onto
-    each Equippable node directly. Until then, the tag is
-    informational — no code reads it yet, but declaring it now
-    means B3 is a pure refactor against a stable contract.
+    Phase B3 (2026-04-22): each Equippable node owns a
+    ``placements: Dict[str, Optional[Equipment]]`` dict
+    populated at materialization time from the plugin's
+    :attr:`PLACEMENT_KEYS` declaration. :class:`Player`'s
+    ``part_equipment`` is now a computed property returning a
+    dict of live references to each node's ``placements``, so
+    the tree is authoritative storage and reads/writes through
+    the nested-dict shape still work for back-compat.
     """
+
+    #: Per-plugin placement-key list. Declares the slots this
+    #: node-kind can hold equipment in. Override on each
+    #: Equippable plugin class. Empty by default so the
+    #: initializer is a no-op for anything that hasn't opted in.
+    PLACEMENT_KEYS: "list[str]" = []

@@ -70,6 +70,10 @@ class TorsoPlugin(BodyPartPlugin, Defensive, Equippable):
     exposure across all reach types.
     """
 
+    # Equippable placement keys (B3): chest armor, cape / cloak,
+    # belt / waist.
+    PLACEMENT_KEYS = ["chest", "cape", "belt"]
+
     name = "torso"
     health_max = "6d10"
     is_critical = True
