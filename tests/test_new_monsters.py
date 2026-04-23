@@ -170,16 +170,28 @@ class TestCyclops:
         assert len(eye_parts) == 1
         assert eye_parts[0].name == "eye"
 
-    def test_destroying_eye_collapses_hit_modifier(self):
-        """When the sole eye goes to 0 HP, HIT emergence drops by
-        the full -5 (eyes drive HIT; no fallback to heads while any
-        eye still exists)."""
+    def test_destroying_eye_drops_hit_modifier_with_head_fallback(self):
+        """Phase B4: eye destruction no longer collapses HIT to -5.
+        The head's Sensory-fallback contribution keeps HIT at a
+        softer value (graceful degradation), so cyclops still
+        lands hits even with its sole eye ruined. Expected math:
+
+            eye (weight 2.0, destroyed):  active 0, total 2.0
+            head (weight 1.0, healthy):   active 1.0, total 1.0
+            ratio = 1.0 / 3.0 = 0.333
+            hit_mod = int((0.333 - 1.0) * 5) = -3
+
+        Pre-B4 value was -5 (eyes-if-eyes-else-heads group switch
+        failed to fall back because eye slot was present-but-
+        destroyed). This softer drop is the design intent — see
+        B4 design notes.
+        """
         c = Cyclops()
         baseline = c.get_hit_modifier()
         assert baseline == 0  # full health
         eye = next(p for p in c.body_parts if isinstance(p, EyePlugin))
         eye.health = 0
-        assert c.get_hit_modifier() == -5
+        assert c.get_hit_modifier() == -3
 
     def test_normal_state_returns_single_attack_source(self):
         c = Cyclops()

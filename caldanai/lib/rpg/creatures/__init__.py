@@ -283,6 +283,20 @@ class Creature:
         # Critical part destroyed → death (even before body HP is touched).
         if target_part.is_critical and target_part.is_destroyed():
             self.health = 0
+        elif target_part.is_destroyed():
+            # Phase B4: a destroyed non-critical part severs every
+            # critical descendant in its subtree from the rest of
+            # the creature. A broken neck leaves the head dangling
+            # but unreachable — by design contract, that's death
+            # just as surely as a destroyed head. Walk the
+            # subtree once; if any descendant is critical, the
+            # creature dies.
+            for descendant in target_part.walk():
+                if descendant is target_part:
+                    continue
+                if descendant.is_critical:
+                    self.health = 0
+                    break
 
         return ""
 
@@ -1307,54 +1321,63 @@ class Creature:
         return total
 
     def get_defense(self) -> int:
-        """Defense emerges from torso functionality scaled by size.
+        """Defense emerges from Defensive-mixin functionality scaled
+        by size. Phase B4 uses the weighted tree reduction helper so
+        reachability is honored (destroyed middle nodes zero out
+        their subtree) and per-plugin :attr:`WEIGHTS` can tune
+        multi-torso creatures.
 
-        Floored at 1 when any torso functionality remains — ``int()``
-        truncation on a low rolled ``defense`` × a small ``defense_mod``
-        (e.g. SMALL's 0.75) would otherwise collapse to 0 on a healthy
-        creature, which reads as a bug at the combat surface.
-        ``ratio == 0`` (all torsos destroyed) still yields 0.
+        Floored at 1 when any Defensive functionality remains —
+        ``int()`` truncation on a low rolled ``defense`` × a small
+        ``defense_mod`` (e.g. SMALL's 0.75) would otherwise collapse
+        to 0 on a healthy creature, which reads as a bug at the
+        combat surface. ``ratio == 0`` (all sources destroyed) still
+        yields 0.
         """
         if not self.body_parts:
             return max(0, self.defense)
 
-        torsos = self.find_all(Defensive)
-        if not torsos:
+        if not self.find_all(Defensive):
             return max(0, self.core_toughness)
 
-        ratio = _functionality_ratio(torsos)
+        ratio = _mixin_functionality(self, Defensive)
         size_mod = self.size.value["defense_mod"]
         emergent = int(self.defense * ratio * size_mod) + self.core_toughness
         floor = 1 if ratio > 0 else 0
         return max(floor, emergent)
 
     def get_dodge(self) -> int:
-        """Dodge emerges from mobility sources (legs or wings) scaled by size.
+        """Dodge emerges from Mobility-mixin functionality scaled by
+        size. Phase B4 weighted tree reduction, mode-gated: airborne
+        Mobility (wings) while flying, grounded Mobility (legs) while
+        on the ground.
 
-        Floored at 1 when any mobility functionality remains — ``int()``
-        truncation on a low rolled ``dodge`` × a small ``dodge_mod``
-        (HUGE's 0.5, COLOSSAL's 0.25) would otherwise collapse to 0 on
-        a healthy creature (a HUGE giant rolling 1 on ``1d4`` is the
-        canonical case). ``ratio == 0`` (all mobility parts destroyed)
-        still yields 0.
+        Floored at 1 when any mobility functionality remains —
+        ``int()`` truncation on a low rolled ``dodge`` × a small
+        ``dodge_mod`` (HUGE's 0.5, COLOSSAL's 0.25) would otherwise
+        collapse to 0 on a healthy creature (a HUGE giant rolling 1
+        on ``1d4`` is the canonical case). ``ratio == 0`` (all
+        mode-relevant mobility parts destroyed) still yields 0.
         """
         if not self.body_parts:
             # Legacy path: no body parts, use flat stat
             return max(0, self.dodge)
 
-        # Determine mobility sources: airborne (wings) if flying,
-        # else grounded (legs).
         mode = "airborne" if self.is_flying() else "grounded"
-        sources = [
+        mode_sources = [
             p for p in self.find_all(Mobility)
             if p.MOBILITY_MODE == mode
         ]
-
-        if not sources:
-            # No relevant mobility parts (e.g., a snake or magical creature)
+        if not mode_sources:
+            # No mobility sources in the current mode (snake with
+            # no legs, djinn with neither legs nor wings).
             return max(0, self.core_agility)
 
-        ratio = _functionality_ratio(sources)
+        ratio = _mixin_functionality(
+            self,
+            Mobility,
+            node_filter=lambda n: n.MOBILITY_MODE == mode,
+        )
         size_mod = self.size.value["dodge_mod"]
         emergent = int(self.dodge * ratio * size_mod) + self.core_agility
         floor = 1 if ratio > 0 else 0
@@ -1402,28 +1425,25 @@ class Creature:
         return self.health_max
 
     def get_hit_modifier(self) -> int:
-        """HIT modifier from eye/head functionality.
+        """HIT modifier from Sensory-mixin functionality.
 
-        0 at full health, negative when injured.  Eyes are the primary
-        HIT source; heads are the fallback when no eyes are present.
+        Phase B4: weighted blend across ALL Sensory sources rather
+        than a pre-B4 "eyes-if-eyes-else-heads" group switch. Eyes
+        (:attr:`WEIGHTS["sense"] = 2.0`) dominate when present;
+        heads (default 1.0) contribute a gentle floor. When both
+        eyes are destroyed on a creature that has heads, the head
+        keeps HIT from collapsing to -5 — graceful degradation.
+
+        0 at full health, negative when injured. Scale:
+        ``(ratio - 1.0) * 5`` → ranges from 0 to -5.
         """
         if not self.body_parts:
             return 0
 
-        senses = self.find_all(Sensory)
-        primary = [p for p in senses if p.IS_PRIMARY_SENSE]
-        fallback = [p for p in senses if not p.IS_PRIMARY_SENSE]
-
-        # Primary senses (eyes) are the HIT source when present;
-        # fallback senses (heads) step in only for eye-less
-        # creatures like classical humanoid monsters.
-        sources = primary if primary else fallback
-        if not sources:
+        if not self.find_all(Sensory):
             return 0
 
-        ratio = _functionality_ratio(sources)
-        # At full health: 0 penalty. At all destroyed: -5 penalty.
-        # Scale: (ratio - 1.0) * 5 -> ranges from 0 to -5
+        ratio = _mixin_functionality(self, Sensory)
         return int((ratio - 1.0) * 5)
 
     def _scale_part_hp(self) -> None:
@@ -1892,11 +1912,75 @@ def _functionality_ratio(parts: list) -> float:
     """Compute the average functionality of a group of body parts.
 
     Returns 0.0–1.0 based on injury-level-weighted average.
+
+    **Pre-B4 path**, kept for any code still walking a flat
+    mixin-filtered list. The B4 emergence helper
+    :func:`_mixin_functionality` supersedes it for the three
+    emergent stats (defense / dodge / hit_modifier).
     """
     if not parts:
         return 0.0
     total = sum(_FUNCTIONALITY_WEIGHTS.get(p.get_injury_level(), 1.0) for p in parts)
     return total / len(parts)
+
+
+def _mixin_functionality(
+    creature,
+    mixin_cls,
+    node_filter=None,
+) -> float:
+    """Phase B4 weighted-tree reduction over reachable mixin nodes.
+
+    Walks ``creature.find_all(mixin_cls)``, filters out any node
+    with a destroyed ancestor (cascading B1 reachability: a
+    destroyed arm zeros out the hand beneath it), then computes:
+
+        Σ (weight × functionality) / Σ weight
+
+    where each node's weight is
+    ``node.WEIGHTS.get(mixin_cls.WEIGHT_KEY, 1.0)`` and
+    functionality is the injury-level ratio from
+    :data:`_FUNCTIONALITY_WEIGHTS`. Returns a value in [0, 1].
+
+    A *destroyed* node stays in the reduction contributing 0 —
+    the USELESS functionality weight handles it — so partial
+    injury (one of two eyes gone) produces the intuitive half-
+    functionality ratio. Only *ancestor-destroyed* nodes drop
+    out entirely; their own contribution is already moot because
+    the destroyed ancestor is itself contributing 0.
+
+    Uniform weights reduce to the pre-B4 mean exactly (so non-
+    eye cases produce identical numbers). Non-uniform weights
+    shift the reduction — e.g. primary-sense eyes with weight
+    2.0 dominate the HIT emergence while heads at 1.0 still
+    contribute a gentle floor.
+
+    Empty source set returns 0.0 — callers decide whether that
+    means "no capability of this kind" (fall back to flat stat)
+    or "fully destroyed" (floor to zero emergence).
+    """
+    nodes = [
+        n for n in creature.find_all(mixin_cls)
+        if not any(a.is_destroyed() for a in n.ancestors())
+    ]
+    if node_filter is not None:
+        nodes = [n for n in nodes if node_filter(n)]
+    if not nodes:
+        return 0.0
+    weight_key = mixin_cls.WEIGHT_KEY
+    total_weight = 0.0
+    active_weight = 0.0
+    for node in nodes:
+        w = getattr(node, "WEIGHTS", {}).get(weight_key, 1.0)
+        if w <= 0:
+            continue
+        total_weight += w
+        active_weight += w * _FUNCTIONALITY_WEIGHTS.get(
+            node.get_injury_level(), 1.0,
+        )
+    if total_weight == 0:
+        return 0.0
+    return active_weight / total_weight
 
 
 def _attack_scale_of(creature) -> float:

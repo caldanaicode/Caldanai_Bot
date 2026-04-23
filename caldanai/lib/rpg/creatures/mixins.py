@@ -50,22 +50,40 @@ class Offensive:
 class Sensory:
     """Node that contributes to HIT (perception).
 
-    Eyes are the primary sense; heads are the fallback source
+    Eyes are the primary sense source; heads are the fallback
     when a creature has no eyes (classic humanoid monsters).
-    The distinction is carried on the per-plugin class attribute
-    :attr:`IS_PRIMARY_SENSE` (True on eye, False on head) so
-    :meth:`Creature.get_hit_modifier` can do:
 
-        primary = [n for n in find_all(Sensory) if n.IS_PRIMARY_SENSE]
-        sources = primary if primary else [non-primary Sensory nodes]
+    Phase B4 (2026-04-22): HIT emergence is a weighted tree
+    reduction — ALL Sensory nodes contribute simultaneously,
+    weighted by :attr:`SENSE_WEIGHT`. Eyes weight 2× heads,
+    so when both eyes are destroyed the head's fallback still
+    contributes a non-zero HIT value (graceful degradation).
+    The pre-B4 behavior switched groups abruptly at "any eye
+    present" — that cliff is gone.
+
+    :attr:`IS_PRIMARY_SENSE` is kept as a classifier hook (used
+    by :meth:`Creature.has_eyes` to distinguish "this creature
+    has eye parts" from "this creature has any perception") but
+    no longer drives emergence group-switching.
 
     Future perception types (hearing → ear, tremorsense → special
-    plugin) will land as new primary Sensory nodes.
+    plugin) can ship as new Sensory subclasses with their own
+    SENSE_WEIGHT.
     """
 
     #: Does this sense count as primary? Eye=True, head=False
-    #: (fallback only). Override per-plugin.
+    #: (fallback only). Classifier (not a weight): used by the
+    #: ``has_eyes`` test to distinguish "this creature has
+    #: dedicated sense organs" from "this creature senses at
+    #: all".
     IS_PRIMARY_SENSE: bool = False
+
+    #: Dict lookup key in a plugin's :attr:`WEIGHTS` dict for
+    #: Sensory emergence. ``_mixin_functionality`` walks reachable
+    #: Sensory nodes and reads ``node.WEIGHTS.get(WEIGHT_KEY, 1.0)``
+    #: per node, so plugins tune with e.g. ``WEIGHTS = {"sense": 2.0}``
+    #: (eyes) or leave ``WEIGHTS = {}`` for the uniform default.
+    WEIGHT_KEY: str = "sense"
 
 
 class Mobility:
@@ -75,22 +93,32 @@ class Mobility:
     airborne mobility (wings) drives dodge while flying. The
     mode is carried on the per-plugin class attribute
     :attr:`MOBILITY_MODE` so :meth:`Creature.get_dodge` can
-    pick the right source set based on ``"flying"`` flag state:
-
-        mode = "airborne" if self.is_flying() else "grounded"
-        sources = [n for n in find_all(Mobility) if n.MOBILITY_MODE == mode]
+    pick the right source set based on ``"flying"`` flag state.
 
     Tail / toe are NOT tagged Mobility for now — they contribute
     DODGE *debuffs* via the per-part debuffs table (destroyed
     tail → -DODGE), not DODGE *sources*. Marking them Mobility
-    would pull them into ``_functionality_ratio`` and change
+    would pull them into the emergence reduction and change
     balance; that's a design choice for a future phase, not a
     refactor side-effect.
+
+    Phase B4 (2026-04-22): DODGE emergence is a weighted tree
+    reduction over mode-filtered Mobility nodes. Per-plugin
+    :attr:`MOBILITY_WEIGHT` lets one kind of mobility weigh
+    more than another within the same mode (future tuning); all
+    current plugins use the default 1.0.
     """
 
     #: Which locomotion state does this source feed? ``"grounded"``
-    #: (legs) or ``"airborne"`` (wings). Override per-plugin.
+    #: (legs) or ``"airborne"`` (wings). Classifier (not a weight)
+    #: — used to filter the mode-relevant subset at dodge time.
     MOBILITY_MODE: str = "grounded"
+
+    #: Dict lookup key for Mobility emergence. See :class:`Sensory`
+    #: for the pattern. Plugins tune with e.g.
+    #: ``WEIGHTS = {"mobility": 1.2}`` to weigh one kind of
+    #: locomotion over another within the same mode.
+    WEIGHT_KEY: str = "mobility"
 
 
 class Defensive:
@@ -100,7 +128,17 @@ class Defensive:
     ``is_critical`` flags live on :class:`BodyPart` itself —
     the Defensive tag just means "this part is a defense source
     for :meth:`Creature.get_defense`'s emergence math."
+
+    Phase B4 (2026-04-22): DEFENSE emergence is a weighted tree
+    reduction over Defensive nodes. :attr:`DEFENSIVE_WEIGHT`
+    default is 1.0; creatures with multiple torso-like parts
+    (carapace plates, layered armor segments) could override.
     """
+
+    #: Dict lookup key for Defensive emergence. Plugins with
+    #: multiple torso-like parts (carapace plates, layered armor
+    #: segments) can tune via ``WEIGHTS = {"defense": ...}``.
+    WEIGHT_KEY: str = "defense"
 
 
 class Equippable:

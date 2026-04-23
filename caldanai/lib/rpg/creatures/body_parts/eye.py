@@ -124,9 +124,14 @@ class EyePlugin(BodyPartPlugin, Sensory):
     ``get_stat_modifier_total(Stat.HIT)``.
     """
 
-    # Sensory: eye is the PRIMARY perception source. Heads only
-    # contribute to HIT when a creature has no eyes at all.
+    # Sensory: eye is the PRIMARY perception source — dedicated
+    # sense organ with more visual bandwidth than head
+    # proprioception. Phase B4 weights primary senses 2× the
+    # fallback via the WEIGHTS dict so losing both eyes still
+    # leaves the head contributing to HIT (graceful degradation)
+    # while a healthy eye pair dominates the emergence.
     IS_PRIMARY_SENSE = True
+    WEIGHTS = {"sense": 2.0}
 
     name = "eye"
     health_max = "1d6"

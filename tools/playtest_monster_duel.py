@@ -58,6 +58,110 @@ from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 
 
+#: Default player loadout — shortsword (melee) + wand (ranged)
+#: as a dual-wield. Matches what a realistic test-bot player
+#: would be carrying at the time of the size-aware + B3/B4
+#: design work. Override via ``--player-weapon`` /
+#: ``--player-offhand``.
+_DEFAULT_PLAYER_MAIN: str = "shortsword"
+_DEFAULT_PLAYER_OFFHAND: str = "wand"
+_DEFAULT_PLAYER_QUALITY: str = "ORDINARY"
+_DEFAULT_PLAYER_SKILL: int = 10  # mid-level competence
+
+
+def _instantiate_weapon(stem: str, quality_name: str):
+    """Import a weapon plugin by stem and construct one instance
+    at the given quality. Mirrors the helper in
+    :mod:`tools.playtest_combat_harness` — duplicated here rather
+    than shared to keep the two tools independently importable
+    (avoids circular import chains through the harness when it
+    grows further)."""
+    import importlib
+    from caldanai.lib.rpg.helpers.enums import Qualities
+
+    module = importlib.import_module(
+        f"caldanai.lib.rpg.inventory.equipment.weapons.{stem}"
+    )
+    return module.WeaponPlugin(
+        iid=None, quality=Qualities[quality_name], bonus=None,
+    )
+
+
+def _build_player(
+    main_weapon: str = _DEFAULT_PLAYER_MAIN,
+    offhand_weapon: Optional[str] = _DEFAULT_PLAYER_OFFHAND,
+    quality_name: str = _DEFAULT_PLAYER_QUALITY,
+    skill_level: int = _DEFAULT_PLAYER_SKILL,
+) -> "Creature":
+    """Construct a fresh headless Player for duel participation.
+
+    Dual-wields by default (shortsword + wand) so both melee and
+    ranged attack-source paths are exercised. Skill-seeded at
+    level 10 so hit rates reflect a real combatant rather than
+    a fumbling rookie. Caller may swap weapons via the kwargs
+    but the defaults mirror the typical test-bot loadout.
+    """
+    from unittest.mock import MagicMock
+    from caldanai.lib.rpg.creatures.player import Player
+    from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+
+    p = Player(
+        pid=1, gid=1, uid=1,
+        health=20, health_max=20,
+        defense=3, dodge=5,
+        gender="female", pronouns="she,her,hers,her",
+        weight_limit=100, clarks=0,
+    )
+    p.name = "Duelist"
+    p.member = MagicMock()
+    p.member.id = 1
+    p.member.roles = []
+
+    if skill_level > 0:
+        main = _instantiate_weapon(main_weapon, quality_name)
+        p.skills[main.skill] = max(skill_level * 1000, 100)
+        if offhand_weapon:
+            off_preview = _instantiate_weapon(offhand_weapon, quality_name)
+            if off_preview.skill not in p.skills:
+                p.skills[off_preview.skill] = max(skill_level * 1000, 100)
+
+    main_w = _instantiate_weapon(main_weapon, quality_name)
+    if EquipmentSlots.MULTI_SLOT & main_w.slots:
+        # Two-handed weapon — shares the same instance across
+        # both arms. Ignore offhand in that case.
+        p.place("arm.left", "held", main_w)
+        p.place("arm.right", "held", main_w)
+    else:
+        p.place("arm.left", "held", main_w)
+        if offhand_weapon:
+            off_w = _instantiate_weapon(offhand_weapon, quality_name)
+            if not (EquipmentSlots.MULTI_SLOT & off_w.slots):
+                p.place("arm.right", "held", off_w)
+
+    return p
+
+
+def _is_player(creature) -> bool:
+    """Test if a combatant uses the Player attack pipeline
+    rather than ``attack_random``. Cheap type check; importing
+    Player at module scope bloats argparse --help."""
+    from caldanai.lib.rpg.creatures.player import Player
+    return isinstance(creature, Player)
+
+
+def _apply_body_damage_from_resolution(victim, resolution) -> None:
+    """Mirror of the ``Game.do_combat`` post-resolve body-HP
+    subtract for the Player-side attack path. ``Player.resolve``
+    routes per-part damage during the stage itself; the body-HP
+    floor needs a separate step (pre-B1 contract the harness
+    captured and kept)."""
+    if not resolution or resolution.num_hits == 0 or victim.is_dead():
+        return
+    defense = victim.get_defense()
+    final = max(resolution.num_hits, resolution.body_damage_total - defense)
+    victim.apply_damage(final)
+
+
 @dataclass
 class DuelOutcome:
     winner: str  # "attacker" | "defender" | "stalemate"
@@ -71,15 +175,42 @@ class DuelOutcome:
     destroyed_parts: Dict[str, List[str]] = field(default_factory=dict)
 
 
-def _spawn(stem: str) -> MonsterPlugin:
+def _spawn(stem: str, **player_kwargs):
+    """Build a combatant from a stem string. ``"player"`` yields
+    a minimally-equipped Player (dual-wield shortsword + wand by
+    default; kwargs override via ``_build_player``); any other
+    stem resolves through the MonsterPlugin registry."""
+    if stem == "player":
+        return _build_player(**player_kwargs)
     MonsterPlugin.load_plugins()
     cls = MonsterPlugin.get_plugin_class(stem)
     if cls is None:
         known = sorted(MonsterPlugin._PLUGIN_REGISTRY.keys())
         raise SystemExit(
-            f"Unknown monster '{stem}'. Known: {', '.join(known)}"
+            f"Unknown combatant '{stem}'. Pass 'player' or one of: "
+            f"{', '.join(known)}"
         )
     return cls()
+
+
+def _attack_turn(attacker, defender) -> None:
+    """Dispatch one attack turn using the right pipeline for
+    each side. Monsters attack via ``attack_random`` (which
+    internally applies body-HP damage); players go through
+    ``pick_actions`` / ``pick_targets`` / ``resolve`` and the
+    harness applies body-HP damage after."""
+    if _is_player(attacker):
+        actions = attacker.pick_actions()
+        if not actions:
+            return
+        assignments = attacker.pick_targets(actions, [defender])
+        if not assignments:
+            return
+        results = attacker.resolve(assignments)
+        for victim, res in (results.per_victim or {}).items():
+            _apply_body_damage_from_resolution(victim, res)
+    else:
+        attacker.attack_random([defender])
 
 
 class _AimRecorder:
@@ -150,9 +281,11 @@ def _run_one_duel(
     defender_stem: str,
     rounds_cap: int,
     recorder: _AimRecorder,
+    player_kwargs: Optional[Dict] = None,
 ) -> DuelOutcome:
-    attacker = _spawn(attacker_stem)
-    defender = _spawn(defender_stem)
+    pkw = player_kwargs or {}
+    attacker = _spawn(attacker_stem, **pkw) if attacker_stem == "player" else _spawn(attacker_stem)
+    defender = _spawn(defender_stem, **pkw) if defender_stem == "player" else _spawn(defender_stem)
 
     # Fresh per-duel aim buckets for these specific IDs.
     recorder.buckets.pop(id(attacker), None)
@@ -172,7 +305,7 @@ def _run_one_duel(
         # Attacker phase — defender is the victim.
         recorder.bind_defender(defender)
         try:
-            attacker.attack_random([defender])
+            _attack_turn(attacker, defender)
         finally:
             recorder.unbind()
         _snapshot_destroyed(defender, destroyed["defender"])
@@ -182,7 +315,7 @@ def _run_one_duel(
         # Defender phase — attacker is the victim (retaliation).
         recorder.bind_defender(attacker)
         try:
-            defender.attack_random([attacker])
+            _attack_turn(defender, attacker)
         finally:
             recorder.unbind()
         _snapshot_destroyed(attacker, destroyed["attacker"])
@@ -275,19 +408,51 @@ def _summarize_duels(
 
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
-        description="Monster-vs-monster duel harness.",
+        description="Monster-vs-monster (or monster-vs-player) duel harness.",
     )
     ap.add_argument(
         "--attacker", required=True,
-        help="Monster stem acting first each round (e.g. 'pixie').",
+        help=(
+            "Combatant acting first each round. Pass a monster stem "
+            "(e.g. 'pixie') OR 'player' for a headless Player with the "
+            "default loadout."
+        ),
     )
     ap.add_argument(
         "--defender", required=True,
-        help="Monster stem retaliating each round (e.g. 'dragon').",
+        help="Combatant retaliating each round. Same options as --attacker.",
     )
     ap.add_argument("--trials", type=int, default=50)
     ap.add_argument("--rounds", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--player-weapon", default=_DEFAULT_PLAYER_MAIN,
+        help=(
+            "Main-hand weapon stem for any 'player' combatant. "
+            f"Default '{_DEFAULT_PLAYER_MAIN}'."
+        ),
+    )
+    ap.add_argument(
+        "--player-offhand", default=_DEFAULT_PLAYER_OFFHAND,
+        help=(
+            "Offhand weapon stem for any 'player' combatant. "
+            f"Default '{_DEFAULT_PLAYER_OFFHAND}'. Pass empty string to "
+            "disable offhand and go one-handed."
+        ),
+    )
+    ap.add_argument(
+        "--player-quality", default=_DEFAULT_PLAYER_QUALITY,
+        help=(
+            "Weapon quality tier (JUNK / ORDINARY / FINE / QUALITY / "
+            f"SUPERIOR / MASTERWORK). Default '{_DEFAULT_PLAYER_QUALITY}'."
+        ),
+    )
+    ap.add_argument(
+        "--player-skill", type=int, default=_DEFAULT_PLAYER_SKILL,
+        help=(
+            f"Weapon skill level (0-20). Default {_DEFAULT_PLAYER_SKILL}."
+        ),
+    )
     return ap.parse_args()
 
 
@@ -295,11 +460,21 @@ def main() -> None:
     args = _parse_args()
     random.seed(args.seed)
 
+    player_kwargs = {
+        "main_weapon": args.player_weapon,
+        "offhand_weapon": args.player_offhand or None,
+        "quality_name": args.player_quality,
+        "skill_level": args.player_skill,
+    }
+
     recorder = _AimRecorder()
     recorder.install()
     try:
         outcomes = [
-            _run_one_duel(args.attacker, args.defender, args.rounds, recorder)
+            _run_one_duel(
+                args.attacker, args.defender, args.rounds,
+                recorder, player_kwargs,
+            )
             for _ in range(args.trials)
         ]
     finally:

@@ -72,6 +72,18 @@ class BodyPartPlugin(BodyPart):
     # default rather than silently dropping body damage.
     bleed_rate: float = 1.0
 
+    # Phase B4 (2026-04-22): per-plugin emergence weights. Each
+    # mixin (:class:`Sensory`, :class:`Mobility`, :class:`Defensive`)
+    # declares a ``WEIGHT_KEY`` string; ``_mixin_functionality``
+    # reads ``WEIGHTS.get(mixin.WEIGHT_KEY, 1.0)`` per node when
+    # reducing over that mixin. Missing keys default to 1.0 so
+    # the uniform-contribution case needs no per-plugin config —
+    # tunable plugins (eye = primary sense at weight 2.0) override
+    # just the keys they care about. One dict per plugin keeps
+    # the tuning surface in one place for future balance work
+    # (YAML dump, live-editing tool, etc.).
+    WEIGHTS: Dict[str, float] = {}
+
     # Q.6.3 additive defense adjustment applied when this part is the
     # hit target. Formula: ``defense_per_hit = max(0, base_def +
     # defense_bonus)``. **Default is ``SOFT_PART``** so unarmored
