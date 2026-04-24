@@ -579,13 +579,17 @@ class TestCriticalTorsoDualWinCondition:
 
         assert torso.is_destroyed()
         assert h.health == 0
-        # Live heads still present — the torso path is the only reason
-        # the hydra is dead.
-        live_heads = [
+        # Heads' own HP is untouched — the torso path is the only
+        # reason the hydra is dead. (``is_destroyed`` now cascades
+        # through ancestors, so the heads *do* report destroyed —
+        # but we're checking here that their own health didn't
+        # take any damage, which requires reading the raw value.)
+        undamaged_heads = [
             p for p in h.body_parts
-            if isinstance(p, HeadPlugin) and not p.is_critical and not p.is_destroyed()
+            if isinstance(p, HeadPlugin) and not p.is_critical
+            and p.health == p.health_max
         ]
-        assert len(live_heads) == _starting_heads()  # torso kill, heads untouched
+        assert len(undamaged_heads) == _starting_heads()  # torso kill, heads untouched
 
 
 # ---------------------------------------------------------------------------

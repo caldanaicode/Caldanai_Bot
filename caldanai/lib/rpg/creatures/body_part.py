@@ -78,6 +78,14 @@ class BodyPart(Node, ABC):
         )
 
     def get_injury_level(self):
+        # Ancestor destruction takes the subtree with it — a foot
+        # hanging off a severed leg is USELESS regardless of its
+        # own health. Reversible: healing the leg lets the foot
+        # report its own injury level again (we only look at health
+        # here, not cached state).
+        if any(a.health <= 0 for a in self.ancestors()):
+            return InjuryLevels.USELESS
+
         health_percent = self.health / self.health_max
         if 0.60 <= health_percent < 1.0:
             return InjuryLevels.MINOR
@@ -198,8 +206,17 @@ class BodyPart(Node, ABC):
         self.health = max(0, min(self.health_max, self.health - amount))
 
     def is_destroyed(self) -> bool:
-        """Returns True iff this part's health has been depleted."""
-        return self.health <= 0
+        """Returns True iff this part is functionally gone — either
+        its own health depleted OR a tree-ancestor is destroyed (a
+        severed leg takes its foot with it). Cascading through
+        ancestors keeps derived state coherent: ``$look`` shows the
+        foot as useless when the leg above it is severed, injury
+        narration fires per-level on the cascaded parts, and the
+        action pool correctly drops the dangling subtree. Reversible
+        — healing an ancestor above 0 HP re-lights the subtree."""
+        if self.health <= 0:
+            return True
+        return any(a.health <= 0 for a in self.ancestors())
 
     def get_stat_modifier(self, stat: Stat, owner: "Creature") -> int:
         """Canonical stat-modifier interface.

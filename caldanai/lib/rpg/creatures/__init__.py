@@ -274,6 +274,13 @@ class Creature:
             target_part.get_trait_multiplier(dmg_type)
         )
         final_dmg = int(amount * multiplier)
+        # Mirror the resolve_attack floor: a landed hit against a
+        # partially-resistant part (1 × 0.5 → int(0.5) = 0) should
+        # still register as 1 damage. Full immunity is signalled by
+        # multiplier == 0 and produces a genuine no-op; that's the
+        # only case we want 0 here.
+        if multiplier > 0:
+            final_dmg = max(1, final_dmg)
 
         # Part tracks damage for injury-level purposes.
         # Body HP is NOT reduced here — the caller (do_combat) applies
