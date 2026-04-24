@@ -5,8 +5,11 @@ from caldanai.lib.rpg import parse
 from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
 from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
 from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
@@ -38,15 +41,33 @@ class Dragon(MonsterPlugin):
     # exposure collapses to almost nothing while RANGED stays at 1.0
     # (archers have a clear shot). Torso's ``is_critical=True``
     # inherits from ``TorsoPlugin`` — no override needed.
+    #
+    # Phase D anatomy: head-with-eyes behind a neck; segmented
+    # legs end in paws. Narrow head exposure still lives on the
+    # head node via the ``exposure`` kwarg passed through.
     BODY_TREE = node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head", exposure={
-            Reach.MELEE: 0.05,
-            Reach.REACH: 0.10,
-            Reach.THROWN: 0.50,
-            Reach.RANGED: 1.0,
-        }),
-        *paired(LegPlugin, "foreleg"),
-        *paired(LegPlugin, "hindleg"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head", exposure={
+                Reach.MELEE: 0.05,
+                Reach.REACH: 0.10,
+                Reach.THROWN: 0.50,
+                Reach.RANGED: 1.0,
+            }, children=[
+                *paired(EyePlugin, "eye"),
+            ]),
+        ]),
+        *paired(
+            LegPlugin, "foreleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"forepaw.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "hindleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"hindpaw.{side}"),
+            ],
+        ),
         node(TailPlugin, name="tail"),
         *paired(WingPlugin, "wing"),
     ])

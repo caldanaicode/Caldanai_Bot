@@ -60,8 +60,8 @@ class TestSaveLoadout:
         ok, _ = p.save_loadout("combat")
         assert ok
         payload = p.loadouts["combat"]
-        assert payload["head"]["helm"] == str(hat.id)
-        assert payload["arm.left"]["held"] == str(wand.id)
+        assert payload["head"]["worn"] == str(hat.id)
+        assert payload["hand.left"]["held"] == str(wand.id)
 
     def test_save_preserves_original_casing(self):
         p, _ = _player_with()
@@ -130,15 +130,15 @@ class TestLoadLoadout:
         # Unequip everything manually.
         p.remove(hat)
         p.remove(wand)
-        assert p.part_equipment["head"]["helm"] is None
-        assert p.part_equipment["arm.left"]["held"] is None
+        assert p.part_equipment["head"]["worn"] is None
+        assert p.part_equipment["hand.left"]["held"] is None
 
         ok, label, restored, skipped = p.load_loadout("combat")
         assert ok
         assert label == "combat"
         assert skipped == []
-        assert p.part_equipment["head"]["helm"] is hat
-        assert p.part_equipment["arm.left"]["held"] is wand
+        assert p.part_equipment["head"]["worn"] is hat
+        assert p.part_equipment["hand.left"]["held"] is wand
         # ``restored`` is a list of Item instances — pinned here
         # because the cog passes it to ``item_list_to_string``,
         # which calls ``.get_full_name()`` on each element. Before
@@ -183,8 +183,8 @@ class TestLoadLoadout:
         # then re-equipped via the stow-all first step).
         ok, _, restored, skipped = p.load_loadout("combat")
         assert ok
-        assert p.part_equipment["head"]["helm"] is hat
-        assert p.part_equipment["arm.left"]["held"] is wand
+        assert p.part_equipment["head"]["worn"] is hat
+        assert p.part_equipment["hand.left"]["held"] is wand
         # Bow was stowed during load (not in saved set), not lost.
         assert p.inventory[bow.id] is bow
 
@@ -201,7 +201,7 @@ class TestLoadLoadout:
         # payload (simulates: item was sold after save, but the
         # _purge_item_refs hook somehow missed it — this pins
         # the runtime skip-and-note path).
-        p.loadouts["combat"]["arm.left"]["held"] = "nonexistent-id-string"
+        p.loadouts["combat"]["hand.left"]["held"] = "nonexistent-id-string"
         p.remove(hat)
 
         ok, _, restored, skipped = p.load_loadout("combat")
@@ -300,35 +300,35 @@ class TestPurgeOnTakeItem:
         p.equip(hat)
         p.equip(wand)
         p.save_loadout("combat")
-        assert p.loadouts["combat"]["arm.left"]["held"] == str(wand.id)
+        assert p.loadouts["combat"]["hand.left"]["held"] == str(wand.id)
 
         # Unequip wand, then sell it.
         p.remove(wand)
         p.sell(wand)
 
         # Saved payload should no longer reference the sold wand.
-        assert "arm.left" not in p.loadouts["combat"]
+        assert "hand.left" not in p.loadouts["combat"]
         # Hat ref stays.
-        assert p.loadouts["combat"]["head"]["helm"] == str(hat.id)
+        assert p.loadouts["combat"]["head"]["worn"] == str(hat.id)
 
-    def test_selling_two_handed_purges_both_arm_refs(self):
-        """A two-handed weapon is saved at BOTH ``arm.left.held``
-        and ``arm.right.held``. Selling it must purge BOTH refs
+    def test_selling_two_handed_purges_both_hand_refs(self):
+        """A two-handed weapon is saved at BOTH ``hand.left.held``
+        and ``hand.right.held``. Selling it must purge BOTH refs
         in one pass — otherwise ``$loadout load`` would fail half-
         way through when the second ref's lookup returns None."""
         p, (bow,) = _player_with("bow")
-        p.equip(bow)  # multi-placed: arm.left.held + arm.right.held
+        p.equip(bow)  # multi-placed: hand.left.held + hand.right.held
         p.save_loadout("archer")
-        assert p.loadouts["archer"]["arm.left"]["held"] == str(bow.id)
-        assert p.loadouts["archer"]["arm.right"]["held"] == str(bow.id)
+        assert p.loadouts["archer"]["hand.left"]["held"] == str(bow.id)
+        assert p.loadouts["archer"]["hand.right"]["held"] == str(bow.id)
 
         p.remove(bow)
         p.sell(bow)
 
         # Both part-entries should be pruned (bow was the only
-        # item on either arm).
-        assert "arm.left" not in p.loadouts["archer"]
-        assert "arm.right" not in p.loadouts["archer"]
+        # item on either hand).
+        assert "hand.left" not in p.loadouts["archer"]
+        assert "hand.right" not in p.loadouts["archer"]
 
 
 class TestPersistence:
@@ -353,7 +353,7 @@ class TestPersistence:
 
         assert restored is not None
         assert "combat" in restored.loadouts
-        assert restored.loadouts["combat"]["head"]["helm"] == str(hat.id)
+        assert restored.loadouts["combat"]["head"]["worn"] == str(hat.id)
 
     def test_empty_loadouts_written_to_saved_doc(self):
         """Loadouts field is ALWAYS written, including when empty.

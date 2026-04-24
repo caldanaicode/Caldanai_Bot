@@ -62,7 +62,7 @@ class RpgInventoryCommands(Cog):
 
         Placement hints (the part after ``@``):
         ``l``/``left``/``r``/``right``/``_`` (wildcard), or any
-        placement key — ``helm`` / ``cape`` / ``arm.left.held``.
+        placement key — ``worn`` / ``outer`` / ``hand.left.held``.
 
         Ambiguous queries surface the candidate list so you can
         retry with a narrower selector.
@@ -219,15 +219,15 @@ class RpgInventoryCommands(Cog):
 
         - An item name (``$stow wand``), with the usual
           ``.n`` / ``.quality`` / ``.best`` selectors.
-        - A placement key (``$stow helm``, ``$stow cape``) —
+        - A placement key (``$stow worn``, ``$stow outer``) —
           short form picks first anatomy-order occupied match.
-        - A full ``part.key`` placement (``$stow head.helm``,
-          ``$stow arm.left.held``) — unambiguous.
+        - A full ``part.key`` placement (``$stow head.worn``,
+          ``$stow hand.left.held``) — unambiguous.
         - The literal ``all`` — unequip every placement at once.
 
-        Placement form binds with ``@`` too: ``$stow helm@head``
-        (redundant; head is already the only ``helm`` holder) or
-        ``$stow held@l`` to pick the left arm's held item
+        Placement form binds with ``@`` too: ``$stow worn@head``
+        (pick just the helm when multiple worn layers are on) or
+        ``$stow held@l`` to pick the left hand's held item
         specifically when dual-wielding.
         """
         game, player = await RpgUtilities.get_game_and_player(ctx)
@@ -334,7 +334,7 @@ class RpgInventoryCommands(Cog):
         Shares the query grammar with ``$equip`` / ``$stow`` /
         ``$sell``: ``<item-query>[@<placement-hint>]``. When the
         query doesn't match an inventory item, falls back to the
-        placement lookup so ``$item head.helm`` or ``$item helm``
+        placement lookup so ``$item head.worn`` or ``$item worn``
         shows the currently-worn helm's details.
 
         (2-second cool-down)

@@ -72,7 +72,7 @@ class TestEquipMode:
         hat = _give(p, "mushroom_hat")
         channel = MagicMock()
         result = RpgUtilities.resolve_items_or_notify(
-            channel, p, ["mushroom@head.helm"], mode="equip",
+            channel, p, ["mushroom@head.worn"], mode="equip",
         )
         assert len(result) == 1
         item, placement = result[0]
@@ -81,11 +81,15 @@ class TestEquipMode:
 
     @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
     def test_at_hint_bare_key(self, mock_dispatch):
+        """Phase D: ``outer`` key is shared between torso (cape)
+        and head (bandanna/mask); bare-key hint ``@outer`` is
+        ambiguous. Use the full ``torso.outer`` path instead —
+        that's the unambiguous target for a cape."""
         p = _player()
         cape = _give(p, "cape")
         channel = MagicMock()
         result = RpgUtilities.resolve_items_or_notify(
-            channel, p, ["cape@cape"], mode="equip",
+            channel, p, ["cape@torso.outer"], mode="equip",
         )
         assert len(result) == 1
         item, placement = result[0]
@@ -144,12 +148,15 @@ class TestEquipMode:
 class TestStowMode:
     @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
     def test_placement_key_resolves_equipped(self, mock_dispatch):
+        """Phase D: bare key ``worn`` broadens to every worn
+        placement; with only a helm equipped, it resolves to
+        the helm."""
         p = _player()
         hat = _give(p, "mushroom_hat")
         p.equip(hat)
         channel = MagicMock()
         result = RpgUtilities.resolve_items_or_notify(
-            channel, p, ["helm"], mode="stow",
+            channel, p, ["worn"], mode="stow",
         )
         assert len(result) == 1
         item, _ = result[0]

@@ -104,15 +104,18 @@ class LegPlugin(BodyPartPlugin, Mobility, Equippable):
     land higher on the body.
     """
 
-    # Equippable placement keys (B3): greave (thigh plating),
-    # shin armor, boot (foot).
-    PLACEMENT_KEYS = ["greave", "shin", "boot"]
+    # Phase D placement keys: armor slots layered on the leg
+    # via dotted sub-keys (``worn.upper`` holds a greave,
+    # ``worn.lower`` a shin piece). Boot moved to the new
+    # :class:`FootPlugin` at the next depth.
+    PLACEMENT_KEYS = ["worn.upper", "worn.lower"]
 
     name = "leg"
     health_max = "2d10"
     is_critical = False
     bleed_rate = 0.3
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
+    # No defense_bonus override — inherits default (0). Greaves
+    # / shin-pieces contribute via local armor under ``worn.*``.
     exposure = {
         Reach.MELEE:  1.0,
         Reach.REACH:  1.0,

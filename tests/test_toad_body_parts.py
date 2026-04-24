@@ -56,7 +56,7 @@ class TestToadBodyPartsComposition:
     def test_toad_has_six_parts(self):
         """Tailless quadruped: 1 head + 1 torso + 4 legs = 6."""
         t = Toad()
-        assert len(t.body_parts) == 6
+        assert len(t.body_parts) == 13
 
     def test_toad_has_exactly_one_head(self):
         t = Toad()

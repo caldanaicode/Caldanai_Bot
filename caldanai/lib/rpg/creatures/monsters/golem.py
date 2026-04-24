@@ -49,7 +49,9 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Golem(MonsterPlugin):
-    BODY_TREE = humanoid_tree()
+    # Stone face — no eye parts. Head still contributes as a
+    # Sensory fallback, same pre-D behavior.
+    BODY_TREE = humanoid_tree(eyes=False)
 
     def __init__(self):
         super().__init__(

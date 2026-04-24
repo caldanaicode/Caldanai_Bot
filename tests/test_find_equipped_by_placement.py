@@ -43,33 +43,41 @@ class TestFullPartKey:
     def test_head_helm(self):
         p = _fresh_player()
         hat = _equip(p, "mushroom_hat")
-        assert p.find_equipped_by_placement("head.helm") is hat
+        assert p.find_equipped_by_placement("head.worn") is hat
 
     def test_arm_left_held(self):
         p = _fresh_player()
         sword = _equip(p, "shortsword")
-        assert p.find_equipped_by_placement("arm.left.held") is sword
+        assert p.find_equipped_by_placement("hand.left.held") is sword
 
     def test_torso_cape(self):
         p = _fresh_player()
         cape = _equip(p, "cape")
-        assert p.find_equipped_by_placement("torso.cape") is cape
+        assert p.find_equipped_by_placement("torso.outer") is cape
 
     def test_empty_placement_returns_none(self):
         p = _fresh_player()
-        assert p.find_equipped_by_placement("head.helm") is None
+        assert p.find_equipped_by_placement("head.worn") is None
 
 
 class TestBareKey:
-    def test_helm_finds_hat(self):
+    """Phase D uses generic-key vocabulary (worn/held/outer/accent)
+    so bare-key lookup broadens to every placement with the
+    matching key. Tests here pin the bare-key semantics under the
+    new vocabulary."""
+
+    def test_worn_finds_head_armor_when_only_helm_equipped(self):
+        """With only a helm equipped, bare ``worn`` broadens to
+        every ``worn``-keyed placement — only head.worn is
+        populated, so that's what we find."""
         p = _fresh_player()
         hat = _equip(p, "mushroom_hat")
-        assert p.find_equipped_by_placement("helm") is hat
+        assert p.find_equipped_by_placement("worn") is hat
 
-    def test_cape_finds_cape(self):
+    def test_outer_finds_cape_when_only_cape_equipped(self):
         p = _fresh_player()
         cape = _equip(p, "cape")
-        assert p.find_equipped_by_placement("cape") is cape
+        assert p.find_equipped_by_placement("outer") is cape
 
     def test_held_single_weapon_finds_it(self):
         p = _fresh_player()
@@ -78,7 +86,7 @@ class TestBareKey:
 
     def test_held_ambiguous_picks_left_first(self):
         """Both hands occupied: the display-order tie-break says
-        arm.left wins. Caller can make a second call (and the
+        hand.left wins. Caller can make a second call (and the
         first was presumably already un-equipped) to get right."""
         p = _fresh_player()
         left = _equip(p, "shortsword")
@@ -87,12 +95,12 @@ class TestBareKey:
         p.inventory.add(right_item)
         p.equip(right_item)
         found = p.find_equipped_by_placement("held")
-        # Left arm's item resolves first.
+        # Left hand's item resolves first.
         assert found is left
 
     def test_empty_bare_key_returns_none(self):
         p = _fresh_player()
-        assert p.find_equipped_by_placement("helm") is None
+        assert p.find_equipped_by_placement("worn") is None
 
 
 class TestTwoHandedWeapon:
@@ -104,8 +112,8 @@ class TestTwoHandedWeapon:
         p = _fresh_player()
         spear = _equip(p, "spear")
         assert p.find_equipped_by_placement("held") is spear
-        assert p.find_equipped_by_placement("arm.left.held") is spear
-        assert p.find_equipped_by_placement("arm.right.held") is spear
+        assert p.find_equipped_by_placement("hand.left.held") is spear
+        assert p.find_equipped_by_placement("hand.right.held") is spear
 
 
 class TestKeyWithDots:
@@ -138,10 +146,10 @@ class TestEdgeCases:
     def test_case_insensitive_bare_key(self):
         p = _fresh_player()
         hat = _equip(p, "mushroom_hat")
-        assert p.find_equipped_by_placement("HELM") is hat
-        assert p.find_equipped_by_placement("Helm") is hat
+        assert p.find_equipped_by_placement("WORN") is hat
+        assert p.find_equipped_by_placement("Worn") is hat
 
     def test_case_insensitive_full_placement(self):
         p = _fresh_player()
         sword = _equip(p, "shortsword")
-        assert p.find_equipped_by_placement("ARM.LEFT.HELD") is sword
+        assert p.find_equipped_by_placement("HAND.LEFT.HELD") is sword

@@ -40,8 +40,11 @@ from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_builder import node, paired
 from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
 from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
+from caldanai.lib.rpg.creatures.body_parts.hand import HandPlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
 from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers.enums import (
@@ -51,16 +54,28 @@ from caldanai.lib.rpg.helpers.parser import parse
 
 
 class Cyclops(MonsterPlugin):
-    # Humanoid plus a single eye (no .left/.right suffix — there
-    # is no pair). Naming matters: the symmetrization pass only
-    # syncs ``.left`` / ``.right`` names, and rendering shows
-    # ``"eye"`` rather than ``"left eye"``.
+    # Humanoid with Phase D segmented limbs, plus a SINGLE eye
+    # (no .left/.right suffix — no pair). The symmetrization
+    # pass only syncs ``.left``/``.right`` names, and rendering
+    # shows ``"eye"`` rather than ``"left eye"``.
     BODY_TREE = node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head", children=[
-            node(EyePlugin, name="eye"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head", children=[
+                node(EyePlugin, name="eye"),
+            ]),
         ]),
-        *paired(ArmPlugin, "arm"),
-        *paired(LegPlugin, "leg"),
+        *paired(
+            ArmPlugin, "arm",
+            children_builder=lambda side: [
+                node(HandPlugin, name=f"hand.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "leg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"foot.{side}"),
+            ],
+        ),
     ])
 
     def __init__(self):

@@ -54,7 +54,7 @@ class TestBanditBodyPartsComposition:
     def test_bandit_has_six_parts(self):
         """Standard humanoid: 1 head + 1 torso + 2 arms + 2 legs = 6."""
         b = Bandit()
-        assert len(b.body_parts) == 6
+        assert len(b.body_parts) == 13
 
     def test_bandit_has_exactly_one_head(self):
         b = Bandit()

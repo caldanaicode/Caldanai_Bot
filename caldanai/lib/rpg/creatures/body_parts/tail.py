@@ -119,7 +119,8 @@ class TailPlugin(BodyPartPlugin):
     health_max = "1d10"
     is_critical = False
     bleed_rate = 0.2
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
+    # No defense_bonus override — inherits default (0). Tail
+    # carries full base defense for non-specialized creatures.
     exposure = {
         Reach.MELEE:  0.5,
         Reach.REACH:  0.6,

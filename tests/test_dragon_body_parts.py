@@ -103,13 +103,13 @@ class TestDragonBodyPartsCompositionBase:
     def test_non_toe_variant_has_nine_parts(self):
         with _force_variant(False):
             d = Dragon()
-        assert len(d.body_parts) == 9
+        assert len(d.body_parts) == 16
 
     def test_toe_variant_has_nine_parts(self):
         """Toe variant also has 9 parts -- no toe body part instances."""
         with _force_variant(True):
             d = Dragon()
-        assert len(d.body_parts) == 9
+        assert len(d.body_parts) == 16
 
     def test_has_exactly_one_head(self):
         with _force_variant(False):

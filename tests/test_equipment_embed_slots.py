@@ -6,6 +6,9 @@ weapons, paired gear) occupy every placement simultaneously and
 are rendered with ``+`` so the reader knows it IS both; single-
 slot items with multiple compatible placements render with ``|``
 to signal EITHER.
+
+Phase D updated placements to generic-key vocabulary
+(worn/held/outer/accent) with segmented hand/foot anatomy.
 """
 
 from caldanai.lib.rpg.inventory import Inventory
@@ -24,42 +27,43 @@ def _slots_field(name: str) -> str:
 
 
 class TestSingleSlotItems:
-    def test_cape_shows_torso_cape(self):
-        assert _slots_field("cape") == "torso.cape"
+    def test_cape_shows_torso_outer(self):
+        assert _slots_field("cape") == "torso.outer"
 
-    def test_mushroom_hat_shows_head_helm(self):
-        assert _slots_field("mushroom_hat") == "head.helm"
+    def test_mushroom_hat_shows_head_worn(self):
+        assert _slots_field("mushroom_hat") == "head.worn"
 
-    def test_tee_shirt_shows_torso_chest(self):
-        assert _slots_field("tee_shirt") == "torso.chest"
+    def test_tee_shirt_shows_torso_worn(self):
+        assert _slots_field("tee_shirt") == "torso.worn"
 
-    def test_bandanna_shows_head_face(self):
-        assert _slots_field("bandanna") == "head.face"
+    def test_bandanna_shows_head_outer(self):
+        assert _slots_field("bandanna") == "head.outer"
 
-    def test_high_collared_cape_is_single_slot_torso_cape(self):
+    def test_high_collared_cape_is_single_slot_torso_outer(self):
         """Post-migration, high-collared cape lost its NECK flag —
         it's a single-slot CAPE item. Embed must reflect that."""
-        assert _slots_field("high-collared_cape") == "torso.cape"
+        assert _slots_field("high-collared_cape") == "torso.outer"
 
 
 class TestEitherSlotItems:
     def test_shortsword_uses_or_separator(self):
-        """A one-handed weapon goes in EITHER arm — the reader
-        should see the OR distinction, not the AND ``+``."""
+        """A one-handed weapon goes in EITHER hand — the reader
+        should see the OR distinction, not the AND ``+``.
+        Phase D: weapons live on hand.*.held, not arm.*.held."""
         value = _slots_field("shortsword")
-        assert "arm.left.held" in value
-        assert "arm.right.held" in value
+        assert "hand.left.held" in value
+        assert "hand.right.held" in value
         assert " | " in value
         assert "+" not in value
 
 
 class TestMultiSlotItems:
     def test_spear_uses_plus_separator(self):
-        """Two-handed weapons occupy BOTH arm.held placements — the
+        """Two-handed weapons occupy BOTH hand.held placements — the
         ``+`` separator signals simultaneous occupation."""
         value = _slots_field("spear")
-        assert value == "arm.left.held + arm.right.held"
+        assert value == "hand.left.held + hand.right.held"
 
     def test_bow_uses_plus_separator(self):
         value = _slots_field("bow")
-        assert value == "arm.left.held + arm.right.held"
+        assert value == "hand.left.held + hand.right.held"

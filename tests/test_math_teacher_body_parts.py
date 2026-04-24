@@ -95,7 +95,7 @@ class TestMathTeacherBodyPartsComposition:
     def test_math_teacher_has_six_parts(self):
         """Standard humanoid: 1 head + 1 torso + 2 arms + 2 legs = 6."""
         m = MathTeacher()
-        assert len(m.body_parts) == 6
+        assert len(m.body_parts) == 13
 
     def test_math_teacher_has_exactly_one_head(self):
         m = MathTeacher()
@@ -488,7 +488,7 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         to ``__init__`` hasn't accidentally shadowed or disabled the
         override."""
         teacher = MathTeacher()
-        assert len(teacher.body_parts) == 6  # migration ran
+        assert len(teacher.body_parts) == 13  # migration ran
 
         teacher.defense = 0
         teacher.dodge = 0

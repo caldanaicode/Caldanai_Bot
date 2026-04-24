@@ -42,7 +42,11 @@ import random
 import sys
 from typing import List, Optional
 
-from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures import (
+    Creature,
+    effective_defense_for_part,
+    effective_dodge_for_part,
+)
 from caldanai.lib.rpg.creatures.mixins import (
     Defensive, Equippable, Mobility, Offensive, Sensory,
 )
@@ -175,6 +179,32 @@ def _emergent_stats_sweep(creature: Creature) -> List[str]:
     return lines
 
 
+def _phase_c_per_part_stats(creature: Creature) -> List[str]:
+    """Report per-part effective dodge / defense from the Phase C
+    helpers. Shows what each part's targeting difficulty and
+    damage-absorption look like once the depth-walk resolver
+    consults them.
+
+    Reads the same functions the Phase C resolver uses
+    (``effective_dodge_for_part`` / ``effective_defense_for_part``),
+    so numbers here are what combat will actually see when the
+    flag is on."""
+    if not creature.body_parts:
+        return ["  phase-c per-part stats: (no body parts)"]
+    lines = ["  phase-c per-part stats:"]
+    lines.append(
+        f"    {'part':<20} {'depth':>6} {'dodge':>6} {'defense':>7}"
+    )
+    for part in creature.body_parts:
+        depth = part.depth
+        dodge = effective_dodge_for_part(creature, part)
+        defense = effective_defense_for_part(creature, part)
+        lines.append(
+            f"    {part.name:<20} {depth:>6} {dodge:>6} {defense:>7}"
+        )
+    return lines
+
+
 def inspect(target: str, include_stats: bool = False) -> str:
     creature = _build_creature(target)
     header = (
@@ -187,6 +217,8 @@ def inspect(target: str, include_stats: bool = False) -> str:
     sections = [header] + tree_lines
     if include_stats:
         sections.extend(_emergent_stats_sweep(creature))
+        sections.append("")  # blank line separator
+        sections.extend(_phase_c_per_part_stats(creature))
     return "\n".join(sections)
 
 

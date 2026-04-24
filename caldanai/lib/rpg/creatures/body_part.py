@@ -26,6 +26,18 @@ class BodyPart(Node, ABC):
     along for free, the combat surface stays unchanged.
     """
 
+    # Phase C tuning knobs (2026-04-23). Default 0 on the base;
+    # plugins override only when the depth-derived dodge/defense
+    # curve gets the fiction wrong. Examples:
+    #   - A cyclops eye is proportionally large vs a human eye
+    #     → CyclopsEyePlugin overrides ``dodge_offset = -2``.
+    #   - A beholder eye stalk is a tiny thing on a stalk →
+    #     BeholderEyePlugin overrides ``dodge_offset = +3``.
+    # Defense offsets work the same way for per-part armor
+    # sturdiness beyond what depth-from-core implies.
+    dodge_offset: int = 0
+    defense_offset: int = 0
+
     def __init__(
         self,
         name: str,

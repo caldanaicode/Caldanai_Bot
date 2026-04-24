@@ -70,16 +70,20 @@ class TorsoPlugin(BodyPartPlugin, Defensive, Equippable):
     exposure across all reach types.
     """
 
-    # Equippable placement keys (B3): chest armor, cape / cloak,
-    # belt / waist.
-    PLACEMENT_KEYS = ["chest", "cape", "belt"]
+    # Phase D placement keys: ``worn`` holds the main chest
+    # armor (plate, tee-shirt); ``outer`` is the overlay layer
+    # (cape / cloak / poncho) — both can coexist on the same
+    # torso; ``accent`` is for belts, sashes, and other waist-
+    # adjacent accessories.
+    PLACEMENT_KEYS = ["worn", "outer", "accent"]
 
     name = "torso"
     health_max = "6d10"
     is_critical = True
     bleed_rate = 0.7
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART. Tank
-    # monsters opt torso in with a positive bonus when needed.
+    # No defense_bonus override — inherits default (0) so the
+    # torso absorbs full base defense. Tank monsters opt in with
+    # a positive bonus (dragon +3, golem +5, etc.).
     exposure = {
         Reach.MELEE:  1.0,
         Reach.REACH:  1.0,

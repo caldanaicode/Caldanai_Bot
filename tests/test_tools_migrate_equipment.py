@@ -44,7 +44,7 @@ class TestSingleSlotItems:
             items_list=[hat],
         )
         assert warnings == []
-        assert new_shape == {"head": {"helm": str(hat["_id"])}}
+        assert new_shape == {"head": {"worn": str(hat["_id"])}}
 
     def test_torso_slot_maps_to_torso_chest(self):
         shirt = _item_dict("tee_shirt")
@@ -52,7 +52,7 @@ class TestSingleSlotItems:
             legacy={"TORSO": shirt["_id"]},
             items_list=[shirt],
         )
-        assert new_shape == {"torso": {"chest": str(shirt["_id"])}}
+        assert new_shape == {"torso": {"worn": str(shirt["_id"])}}
 
     def test_face_slot_maps_to_head_face(self):
         bandanna = _item_dict("bandanna")
@@ -60,7 +60,7 @@ class TestSingleSlotItems:
             legacy={"FACE": bandanna["_id"]},
             items_list=[bandanna],
         )
-        assert new_shape == {"head": {"face": str(bandanna["_id"])}}
+        assert new_shape == {"head": {"outer": str(bandanna["_id"])}}
 
     def test_cape_slot_maps_to_torso_cape(self):
         cape = _item_dict("cape")
@@ -68,7 +68,7 @@ class TestSingleSlotItems:
             legacy={"CAPE": cape["_id"]},
             items_list=[cape],
         )
-        assert new_shape == {"torso": {"cape": str(cape["_id"])}}
+        assert new_shape == {"torso": {"outer": str(cape["_id"])}}
 
     def test_left_held_weapon_lands_on_arm_left(self):
         weapon = _item_dict("shortsword")
@@ -76,7 +76,7 @@ class TestSingleSlotItems:
             legacy={"LEFT_HELD": weapon["_id"]},
             items_list=[weapon],
         )
-        assert new_shape == {"arm.left": {"held": str(weapon["_id"])}}
+        assert new_shape == {"hand.left": {"held": str(weapon["_id"])}}
 
     def test_right_held_weapon_lands_on_arm_right(self):
         weapon = _item_dict("shortsword")
@@ -84,7 +84,7 @@ class TestSingleSlotItems:
             legacy={"RIGHT_HELD": weapon["_id"]},
             items_list=[weapon],
         )
-        assert new_shape == {"arm.right": {"held": str(weapon["_id"])}}
+        assert new_shape == {"hand.right": {"held": str(weapon["_id"])}}
 
 
 class TestMultiSlot:
@@ -103,8 +103,8 @@ class TestMultiSlot:
         assert warnings == []
         iid = str(spear["_id"])
         assert new_shape == {
-            "arm.left": {"held": iid},
-            "arm.right": {"held": iid},
+            "hand.left": {"held": iid},
+            "hand.right": {"held": iid},
         }
 
     def test_two_handed_single_legacy_entry_still_covers_both_arms(self):
@@ -119,8 +119,8 @@ class TestMultiSlot:
         )
         iid = str(bow["_id"])
         assert new_shape == {
-            "arm.left": {"held": iid},
-            "arm.right": {"held": iid},
+            "hand.left": {"held": iid},
+            "hand.right": {"held": iid},
         }
 
 
@@ -141,8 +141,8 @@ class TestHighCollaredCapeReroute:
             items_list=[hc_cape],
         )
         # Item's CURRENT .slots is just CAPE, so placement is
-        # only ``torso.cape`` — no lingering ``neck.amulet``.
-        assert new_shape == {"torso": {"cape": str(hc_cape["_id"])}}
+        # only ``torso.outer`` — no lingering ``neck.accent``.
+        assert new_shape == {"torso": {"outer": str(hc_cape["_id"])}}
         assert warnings == []
 
 
@@ -240,13 +240,13 @@ class TestFullPlayerShape:
         assert warnings == []
         assert new_shape == {
             "head": {
-                "helm": str(helm["_id"]),
-                "face": str(face["_id"]),
+                "worn": str(helm["_id"]),
+                "outer": str(face["_id"]),
             },
             "torso": {
-                "chest": str(shirt["_id"]),
-                "cape": str(cape["_id"]),
+                "worn": str(shirt["_id"]),
+                "outer": str(cape["_id"]),
             },
-            "arm.left": {"held": str(spear["_id"])},
-            "arm.right": {"held": str(spear["_id"])},
+            "hand.left": {"held": str(spear["_id"])},
+            "hand.right": {"held": str(spear["_id"])},
         }

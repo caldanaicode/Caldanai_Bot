@@ -57,7 +57,7 @@ class TestSheepBodyPartsComposition:
     def test_sheep_has_seven_parts(self):
         """Plain quadruped: 1 head + 1 torso + 4 legs + 1 tail = 7."""
         s = Sheep()
-        assert len(s.body_parts) == 7
+        assert len(s.body_parts) == 14
 
     def test_sheep_has_exactly_one_head(self):
         s = Sheep()

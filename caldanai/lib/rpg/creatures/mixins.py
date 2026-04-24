@@ -144,11 +144,11 @@ class Defensive:
 class Equippable:
     """Node that owns equipment placement keys.
 
-    Every visible body part today is equippable — head (helm,
-    face, ears), torso (chest, cape, belt), arm (held, bracer,
-    vambrace, glove, ring), leg (greave, shin, boot), neck
-    (amulet). Purely-internal future parts (organs, arteries)
-    would NOT be Equippable.
+    Every visible body part today is equippable, under a generic
+    ``worn`` / ``held`` / ``outer`` / ``accent`` vocabulary (plus
+    dotted sub-keys like ``worn.upper``, ``ring.1``,
+    ``earring.left``). Purely-internal future parts (organs,
+    arteries) would NOT be Equippable.
 
     Phase B3 (2026-04-22): each Equippable node owns a
     ``placements: Dict[str, Optional[Equipment]]`` dict

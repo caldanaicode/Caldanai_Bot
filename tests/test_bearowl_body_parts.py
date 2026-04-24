@@ -65,7 +65,7 @@ class TestBearowlBodyPartsComposition:
         """Chimeric quadruped: 1 head + 1 torso + 4 legs + 2 wings +
         1 tail = 9."""
         b = Bearowl()
-        assert len(b.body_parts) == 9
+        assert len(b.body_parts) == 16
 
     def test_bearowl_has_exactly_one_head(self):
         b = Bearowl()

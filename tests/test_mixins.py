@@ -140,30 +140,44 @@ class FindAllTests(TestCase):
         names = sorted(n.name for n in found)
         self.assertEqual(names, ["eye.left", "eye.right", "head"])
 
-    def test_find_all_mobility_returns_legs_for_player(self):
+    def test_find_all_mobility_returns_legs_and_feet_for_player(self):
+        """Phase D: feet are grounded Mobility too — they're where
+        the actual ground contact happens. Both legs and feet
+        contribute."""
         p = self._new_player()
         found = p.find_all(Mobility)
         names = sorted(n.name for n in found)
-        self.assertEqual(names, ["leg.left", "leg.right"])
-        # Player has no wings — every mobility source is grounded.
+        self.assertEqual(
+            names,
+            ["foot.left", "foot.right", "leg.left", "leg.right"],
+        )
         for m in found:
             self.assertEqual(m.MOBILITY_MODE, "grounded")
 
-    def test_find_all_offensive_returns_head_and_arms(self):
+    def test_find_all_offensive_returns_head_arms_hands(self):
+        """Phase D: hands are Offensive (for punch / grapple
+        actions), joining head (bite/headbutt) and arms (punch)."""
         p = self._new_player()
         names = sorted(n.name for n in p.find_all(Offensive))
-        # Head (bite/headbutt actions), both arms (punch).
-        self.assertEqual(names, ["arm.left", "arm.right", "head"])
+        self.assertEqual(
+            names,
+            ["arm.left", "arm.right", "hand.left", "hand.right", "head"],
+        )
 
     def test_find_all_equippable_covers_visible_parts(self):
         """Every visible body part on a player is Equippable per
-        the B2 design (B3 moves per-part placements onto each
-        node)."""
+        the B2 design. Phase D adds hand / foot nodes to the
+        equippable set — gloves on hands, boots on feet."""
         p = self._new_player()
         names = sorted(n.name for n in p.find_all(Equippable))
         self.assertEqual(names, [
-            "arm.left", "arm.right", "head", "leg.left",
-            "leg.right", "neck", "torso",
+            "arm.left", "arm.right",
+            "foot.left", "foot.right",
+            "hand.left", "hand.right",
+            "head",
+            "leg.left", "leg.right",
+            "neck",
+            "torso",
         ])
 
     def test_find_all_preserves_body_parts_order(self):
@@ -188,8 +202,8 @@ class FindAllTests(TestCase):
         all_mob = d.find_all(Mobility)
         grounded = [p for p in all_mob if p.MOBILITY_MODE == "grounded"]
         airborne = [p for p in all_mob if p.MOBILITY_MODE == "airborne"]
-        # Dragon has 4 legs (grounded) + 2 wings (airborne).
-        self.assertEqual(len(grounded), 4)
+        # Phase D: dragon has 4 legs + 4 paws (grounded) + 2 wings (airborne).
+        self.assertEqual(len(grounded), 8)
         self.assertEqual(len(airborne), 2)
 
     def test_find_all_on_spirit_returns_empty(self):

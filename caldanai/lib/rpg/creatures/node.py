@@ -110,6 +110,22 @@ class Node:
             yield node
             node = node.parent
 
+    @property
+    def depth(self) -> int:
+        """Number of ancestors between this node and the tree root.
+
+        Root node returns 0. Immediate child returns 1. Standard
+        B1 humanoid tree: torso=0, neck=1, head=2, eye=3; arms
+        and legs at depth 1.
+
+        Phase C uses depth as the primary input to per-part
+        dodge / defense emergence — extremities (deep nodes)
+        contribute agility; the core (shallow nodes) contributes
+        armor. O(depth); realistic anatomies are <10 levels
+        deep so cost is negligible.
+        """
+        return sum(1 for _ in self.ancestors())
+
     # ------------------------------------------------------------------
     # Reachability
     # ------------------------------------------------------------------

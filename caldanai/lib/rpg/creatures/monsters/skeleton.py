@@ -30,7 +30,10 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Skeleton(Undead, MonsterPlugin):
-    BODY_TREE = humanoid_tree()
+    # Empty sockets — skeletons have no eye parts under Phase D.
+    # The head still contributes as a Sensory fallback, matching
+    # pre-D behavior where ``has_eyes`` returned False.
+    BODY_TREE = humanoid_tree(eyes=False)
 
     # Skeleton-specific narration. ``Undead`` mixin already provides
     # LIGHT and DARK entries; we override LIGHT here for a more

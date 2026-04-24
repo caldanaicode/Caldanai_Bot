@@ -95,13 +95,13 @@ class TestStowMode:
         that placement."""
         p = _player()
         hat = _give_and_equip(p, "mushroom_hat")
-        res = p.resolve_item_query("helm", "stow")
+        res = p.resolve_item_query("worn", "stow")
         assert res.items == [hat]
 
     def test_full_part_key_placement(self):
         p = _player()
         hat = _give_and_equip(p, "mushroom_hat")
-        res = p.resolve_item_query("head.helm", "stow")
+        res = p.resolve_item_query("head.worn", "stow")
         assert res.items == [hat]
 
     def test_inventory_only_item_does_not_resolve(self):
@@ -153,9 +153,9 @@ class TestItemMode:
         # leaves it in inventory, so for realistic test we need to
         # confirm placement fallback triggers only when inventory
         # filter misses). Let's test the full placement form
-        # specifically — inventory.filter("head.helm") won't match
+        # specifically — inventory.filter("head.worn") won't match
         # any item name, so placement fallback kicks in.
-        res = p.resolve_item_query("head.helm", "item")
+        res = p.resolve_item_query("head.worn", "item")
         assert res.items == [hat]
 
     def test_ambiguous_inventory_surfaces_candidates(self):
@@ -212,8 +212,8 @@ class TestStowBareKeyBroadening:
         right = Inventory.load_item(name="mace")
         p.inventory.add(left)
         p.inventory.add(right)
-        p.part_equipment["arm.left"]["held"] = left
-        p.part_equipment["arm.right"]["held"] = right
+        p.part_equipment["hand.left"]["held"] = left
+        p.part_equipment["hand.right"]["held"] = right
 
         res = p.resolve_item_query("held", "stow")
         assert len(res.items) == 2
@@ -239,10 +239,10 @@ class TestStowBareKeyBroadening:
         right = Inventory.load_item(name="mace")
         p.inventory.add(left)
         p.inventory.add(right)
-        p.part_equipment["arm.left"]["held"] = left
-        p.part_equipment["arm.right"]["held"] = right
+        p.part_equipment["hand.left"]["held"] = left
+        p.part_equipment["hand.right"]["held"] = right
 
-        res = p.resolve_item_query("arm.left.held", "stow")
+        res = p.resolve_item_query("hand.left.held", "stow")
         assert res.items == [left]
 
 
@@ -258,15 +258,15 @@ class TestItemBareKeyAmbiguates:
         right = Inventory.load_item(name="mace")
         p.inventory.add(left)
         p.inventory.add(right)
-        p.part_equipment["arm.left"]["held"] = left
-        p.part_equipment["arm.right"]["held"] = right
+        p.part_equipment["hand.left"]["held"] = left
+        p.part_equipment["hand.right"]["held"] = right
 
         res = p.resolve_item_query("held", "item")
         assert res.items == []
         # Candidate labels are the specific placement strings so
         # the user can retype e.g. ``arm.left.held`` unambiguously.
-        assert "arm.left.held" in res.ambiguity_candidates
-        assert "arm.right.held" in res.ambiguity_candidates
+        assert "hand.left.held" in res.ambiguity_candidates
+        assert "hand.right.held" in res.ambiguity_candidates
 
     def test_held_resolves_cleanly_when_single_hand(self):
         """Only one hand occupied → no ambiguity, return that item."""
@@ -281,10 +281,10 @@ class TestItemBareKeyAmbiguates:
         right = Inventory.load_item(name="mace")
         p.inventory.add(left)
         p.inventory.add(right)
-        p.part_equipment["arm.left"]["held"] = left
-        p.part_equipment["arm.right"]["held"] = right
+        p.part_equipment["hand.left"]["held"] = left
+        p.part_equipment["hand.right"]["held"] = right
 
-        res = p.resolve_item_query("arm.right.held", "item")
+        res = p.resolve_item_query("hand.right.held", "item")
         assert res.items == [right]
 
 
@@ -313,14 +313,14 @@ class TestBestSelectorInSellMode:
 
     def test_sell_best_falls_back_to_next_best_when_best_equipped(self):
         p, (junk, fine, superior) = self._three_quality_wands()
-        p.part_equipment["arm.left"]["held"] = superior
+        p.part_equipment["hand.left"]["held"] = superior
         res = p.resolve_item_query("wand.best", "sell")
         assert res.items == [fine]
 
     def test_sell_best_empty_when_all_equipped(self):
         p, (junk, fine, superior) = self._three_quality_wands()
-        p.part_equipment["arm.left"]["held"] = superior
-        p.part_equipment["arm.right"]["held"] = fine
+        p.part_equipment["hand.left"]["held"] = superior
+        p.part_equipment["hand.right"]["held"] = fine
         # junk stays unequipped — best of unequipped is junk.
         res = p.resolve_item_query("wand.best", "sell")
         assert res.items == [junk]
@@ -353,14 +353,14 @@ class TestBestSelectorInEquipMode:
 
     def test_equip_best_picks_next_best_when_superior_worn(self):
         p, (_, fine, superior) = self._three_quality_wands()
-        p.part_equipment["arm.left"]["held"] = superior
+        p.part_equipment["hand.left"]["held"] = superior
         res = p.resolve_item_query("wand.best", "equip")
         assert res.items == [fine]
 
     def test_equip_best_falls_to_junk_when_two_worn(self):
         p, (junk, fine, superior) = self._three_quality_wands()
-        p.part_equipment["arm.left"]["held"] = superior
-        p.part_equipment["arm.right"]["held"] = fine
+        p.part_equipment["hand.left"]["held"] = superior
+        p.part_equipment["hand.right"]["held"] = fine
         res = p.resolve_item_query("wand.best", "equip")
         assert res.items == [junk]
 

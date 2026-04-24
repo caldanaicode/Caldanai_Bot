@@ -9,3 +9,5 @@ __pycache__
 .sonnet-output-*.txt
 tools/.ideas_cursor.*.json
 tools/.last_posted.*.json
+# Harness playtest sweep outputs; tuning artifacts, not code.
+sweeps/

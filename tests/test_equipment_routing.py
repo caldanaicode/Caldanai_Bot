@@ -66,14 +66,14 @@ class TestSlotTables:
 
 class TestResolvePlacements:
     def test_head_resolves_to_head_helm(self):
-        assert resolve_placements(EquipmentSlots.HEAD) == [("head", "helm")]
+        assert resolve_placements(EquipmentSlots.HEAD) == [("head", "worn")]
 
     def test_two_handed_resolves_to_both_arms(self):
         """``TWO_HANDED`` is ``MULTI_SLOT | LEFT_HELD | RIGHT_HELD``.
         Expand must produce both arm placements."""
         placements = resolve_placements(EquipmentSlots.TWO_HANDED)
-        assert ("arm.left", "held") in placements
-        assert ("arm.right", "held") in placements
+        assert ("hand.left", "held") in placements
+        assert ("hand.right", "held") in placements
         assert len(placements) == 2
 
     def test_gloves_compound_expands_to_both_sides(self):
@@ -83,7 +83,7 @@ class TestResolvePlacements:
         "either side" unless ``MULTI_SLOT`` is also set (forcing
         both)."""
         placements = resolve_placements(EquipmentSlots.GLOVES)
-        assert set(placements) == {("arm.left", "glove"), ("arm.right", "glove")}
+        assert set(placements) == {("hand.left", "worn"), ("hand.right", "worn")}
 
     def test_single_sided_glove_resolves_only_one_side(self):
         """An item declaring just ``LEFT_GLOVE`` must NOT drag in
@@ -91,7 +91,7 @@ class TestResolvePlacements:
         cleanly — a destroyed right arm drops only the right-side
         gear."""
         placements = resolve_placements(EquipmentSlots.LEFT_GLOVE)
-        assert placements == [("arm.left", "glove")]
+        assert placements == [("hand.left", "worn")]
 
     def test_multi_slot_pair_of_gloves(self):
         """A pair of gloves that must span both sides declares
@@ -101,14 +101,14 @@ class TestResolvePlacements:
         placements = resolve_placements(
             EquipmentSlots.GLOVES | EquipmentSlots.MULTI_SLOT
         )
-        assert set(placements) == {("arm.left", "glove"), ("arm.right", "glove")}
+        assert set(placements) == {("hand.left", "worn"), ("hand.right", "worn")}
 
     def test_arms_compound_expands_to_both_bracer_slots(self):
         """Bracers are sided now — the ``ARMS`` compound fits
         either bracer slot, same shape as ``EITHER_HELD`` for
         weapons. One-handed "either side" semantics."""
         placements = resolve_placements(EquipmentSlots.ARMS)
-        assert set(placements) == {("arm.left", "bracer"), ("arm.right", "bracer")}
+        assert set(placements) == {("arm.left", "worn.upper"), ("arm.right", "worn.upper")}
 
     def test_multi_part_item_spans_distinct_parts(self):
         """An item declaring ``CAPE | NECK | MULTI_SLOT`` (the old
@@ -118,7 +118,7 @@ class TestResolvePlacements:
         placements = resolve_placements(
             EquipmentSlots.CAPE | EquipmentSlots.NECK | EquipmentSlots.MULTI_SLOT
         )
-        assert set(placements) == {("torso", "cape"), ("neck", "amulet")}
+        assert set(placements) == {("torso", "outer"), ("neck", "accent")}
 
     def test_amulet_and_neck_collapse_to_same_placement(self):
         """Both AMULET and NECK route to ``(neck, amulet)``. An
@@ -126,7 +126,7 @@ class TestResolvePlacements:
         placements = resolve_placements(
             EquipmentSlots.AMULET | EquipmentSlots.NECK
         )
-        assert placements == [("neck", "amulet")]
+        assert placements == [("neck", "accent")]
 
     def test_unknown_slot_returns_empty(self):
         """MULTI_SLOT alone (no real slot in the mask) resolves
@@ -150,18 +150,36 @@ class TestSlotPairTableKeptButEmpty:
 
 class TestKeysOnPart:
     def test_head_part_keys(self):
+        """Phase D generic vocabulary. ``keys_on_part`` reads the
+        routing table (ALL_PLACEMENTS). Head has no ``accent``
+        routing today — circlets don't ship yet; adding one
+        would introduce a ``HEAD_CIRCLET`` enum + route it to
+        ``(head, accent)``."""
         keys = set(keys_on_part("head"))
-        assert keys == {"helm", "face", "ear.left", "ear.right"}
+        assert keys == {"worn", "outer", "earring.left", "earring.right"}
 
     def test_arm_left_part_keys(self):
-        """Arm keys: held (weapon), bracer, vambrace, glove, ring."""
+        """Arm keys: worn.upper (bracer) + worn.lower (vambrace).
+        Hand-keys (held, glove, ring) moved to hand.left under
+        Phase D segmentation."""
         keys = set(keys_on_part("arm.left"))
-        assert keys == {"held", "bracer", "glove", "vambrace", "ring"}
+        assert keys == {"worn.upper", "worn.lower"}
+
+    def test_hand_left_part_keys(self):
+        """Hand keys: held (weapon), worn (glove), ring.1."""
+        keys = set(keys_on_part("hand.left"))
+        assert keys == {"held", "worn", "ring.1"}
 
     def test_leg_left_part_keys(self):
-        """Leg keys: greave, shin, boot. Matches the sided split."""
+        """Leg keys: worn.upper (greave), worn.lower (shin).
+        Boot moved to foot.left."""
         keys = set(keys_on_part("leg.left"))
-        assert keys == {"greave", "shin", "boot"}
+        assert keys == {"worn.upper", "worn.lower"}
+
+    def test_foot_left_part_keys(self):
+        """Foot keys: worn (boot)."""
+        keys = set(keys_on_part("foot.left"))
+        assert keys == {"worn"}
 
     def test_nonexistent_part_returns_empty(self):
         assert keys_on_part("tail") == []
@@ -207,11 +225,11 @@ class TestPlayerPartEquipmentInvariants:
             assert key in p.part_equipment[part_name]
             assert p.part_equipment[part_name][key] is None
 
-    def test_neck_part_only_has_amulet_key(self):
-        """The neck is vestigial — only ``amulet`` for future
-        jewelry. No other keys have been added yet."""
+    def test_neck_part_only_has_accent_key(self):
+        """Phase D: neck has a single ``accent`` slot for amulet
+        / jewelry. Generic-key vocabulary."""
         p = Player(uid=1, gid=2, cid=3)
-        assert set(p.part_equipment["neck"].keys()) == {"amulet"}
+        assert set(p.part_equipment["neck"].keys()) == {"accent"}
 
     def test_to_dict_omits_empty_placements(self):
         """Serialized shape must only contain non-None

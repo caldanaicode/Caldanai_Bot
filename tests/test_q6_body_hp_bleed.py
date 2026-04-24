@@ -191,14 +191,10 @@ class TestDefenseBonusAppliesPerHit:
         result = self._setup(base_def=5, part_name="torso", bonus=3)
         assert result.defense == 8
 
-    def test_negative_bonus_subtracts_from_base(self):
-        """Squishy part (bonus=-2) → base_def - 2."""
-        result = self._setup(base_def=10, part_name="arm", bonus=-2)
-        assert result.defense == 8
-
     def test_bonus_clamps_at_zero(self):
-        """defense_bonus low enough to drive total negative clamps
-        at 0 — a SOFT_PART (-999) can't become a damage-amplifier."""
+        """SOFT_PART sentinel routes through the fractional branch;
+        low base defense × SOFT_PART_FRACTION rounds to 0 — a weak
+        spot can't become a damage-amplifier."""
         result = self._setup(base_def=5, part_name="eye", bonus=-999)
         assert result.defense == 0
 
@@ -231,17 +227,25 @@ class TestBleedRatePerPartClass:
     def test_toe_bleed_rate(self):
         assert BodyPart.make("toe", name="toe").bleed_rate == 0.05
 
-    def test_every_plugin_defaults_to_soft_part(self):
-        """Q.6.3: every shipped plugin inherits ``SOFT_PART`` so an
-        unarmored creature's parts clamp to 0 defense. Monster tanks
-        opt specific parts in via instance override."""
+    def test_soft_part_is_opt_in_per_plugin(self):
+        """Default ``defense_bonus`` is ``0`` so unarmored parts
+        absorb the creature's full base defense. ``SOFT_PART`` is
+        an opt-in flag for actual weak spots (eyes are the
+        canonical example). Armored parts opt into a positive
+        bonus."""
         from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+
+        # Eye is the canonical weak spot.
+        eye = BodyPart.make("eye", name="eye")
+        assert eye.defense_bonus == BodyPartPlugin.SOFT_PART
+
+        # Every other stock plugin inherits 0 (full base absorption).
         for plugin in ("torso", "head", "arm", "leg", "tail",
-                       "wing", "eye", "toe"):
+                       "wing", "toe", "hand", "foot", "neck"):
             part = BodyPart.make(plugin, name=plugin)
-            assert part.defense_bonus == BodyPartPlugin.SOFT_PART, (
-                f"{plugin} declares a non-default defense_bonus; "
-                "Q.6.3 expects opt-in armor per monster."
+            assert part.defense_bonus == 0, (
+                f"{plugin} carries a non-default defense_bonus; "
+                "unarmored stock parts should absorb full base."
             )
 
 

@@ -75,7 +75,7 @@ class HeadPlugin(BodyPartPlugin, Offensive, Sensory, Equippable):
 
     Mixins: ``Offensive`` (bite / headbutt actions), ``Sensory``
     (fallback HIT source when no eyes — ``IS_PRIMARY_SENSE=False``),
-    ``Equippable`` (helm / face placements).
+    ``Equippable`` (worn / outer / earring placements).
     """
 
     # Sensory: head is the FALLBACK perception source. When a
@@ -84,15 +84,20 @@ class HeadPlugin(BodyPartPlugin, Offensive, Sensory, Equippable):
     # skeleton, vampire, etc.) use the head for HIT emergence.
     IS_PRIMARY_SENSE = False
 
-    # Equippable placement keys (B3): helmet, face mask / visor,
-    # and per-side ear mounts (earrings / earplugs).
-    PLACEMENT_KEYS = ["helm", "face", "ear.left", "ear.right"]
+    # Phase D placement keys. Under the generic-key scheme:
+    # ``worn`` is the main head armor (helm / cowl); ``outer``
+    # is an overlay (bandanna / mask / hood); per-side earrings
+    # land on ``earring.left`` / ``earring.right`` (dotted keys
+    # carry the side without needing ear parts in the tree);
+    # ``accent`` holds circlets / crowns / tiaras.
+    PLACEMENT_KEYS = ["worn", "outer", "earring.left", "earring.right", "accent"]
 
     name = "head"
     health_max = "3d10"
     is_critical = True
     bleed_rate = 0.6
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
+    # No defense_bonus override — inherits default (0). Helms go
+    # in the ``worn`` placement and contribute via local armor.
     exposure = {
         Reach.MELEE:  0.7,
         Reach.REACH:  0.8,

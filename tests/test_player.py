@@ -172,7 +172,7 @@ class TestEquipment:
         item = _make_equipment(name="cap", slots=EquipmentSlots.HEAD)
         success, msg = p.equip(item)
         assert success is True
-        assert p.part_equipment["head"]["helm"] == item
+        assert p.part_equipment["head"]["worn"] == item
         assert p.is_dirty is True
 
     def test_equip_already_equipped(self):
@@ -188,10 +188,10 @@ class TestEquipment:
         item1 = _make_equipment(name="old cap", slots=EquipmentSlots.HEAD)
         item2 = _make_equipment(name="new cap", slots=EquipmentSlots.HEAD)
         p.equip(item1)
-        success, replaced = p.replace_equipment(item2, "head", "helm")
+        success, replaced = p.replace_equipment(item2, "head", "worn")
         assert success is True
         assert replaced == item1
-        assert p.part_equipment["head"]["helm"] == item2
+        assert p.part_equipment["head"]["worn"] == item2
 
     def test_replace_two_handed_with_one_handed_clears_both_arms(self):
         """Playtest bug 2026-04-22: equipping a one-handed weapon to
@@ -213,15 +213,15 @@ class TestEquipment:
         p.equip(bow)
 
         # Sanity: both arms hold the same bow instance.
-        assert p.part_equipment["arm.left"]["held"] is bow
-        assert p.part_equipment["arm.right"]["held"] is bow
+        assert p.part_equipment["hand.left"]["held"] is bow
+        assert p.part_equipment["hand.right"]["held"] is bow
 
         # Equip the rock to the right arm specifically (the cog
         # narrows RIGHT_SIDE & rock.slots → RIGHT_HELD before calling).
         p.equip(rock, EquipmentSlots.RIGHT_HELD)
 
-        assert p.part_equipment["arm.right"]["held"] is rock
-        assert p.part_equipment["arm.left"]["held"] is None, (
+        assert p.part_equipment["hand.right"]["held"] is rock
+        assert p.part_equipment["hand.left"]["held"] is None, (
             "Left arm still holds the displaced two-hander (phantom)"
         )
 
@@ -231,7 +231,7 @@ class TestEquipment:
         p.equip(item)
         msg = p.remove(item)
         assert "removed" in msg.lower()
-        assert p.part_equipment["head"]["helm"] is None
+        assert p.part_equipment["head"]["worn"] is None
 
     def test_remove_none_returns_message(self):
         p = _make_player()
@@ -359,7 +359,7 @@ class TestGetAttackSources:
         weapon.skill = "one-handed slashing"
         weapon.attack = "1d6"
         weapon.bonus = 2
-        p.part_equipment["arm.left"]["held"] = weapon
+        p.part_equipment["hand.left"]["held"] = weapon
 
         sources = p.get_attack_sources()
         assert len(sources) == 2
@@ -402,8 +402,8 @@ class TestGetAttackSources:
 
         # Phantom shape: one-hander left, two-hander right only
         # (should not occur via equip path after the fix).
-        p.part_equipment["arm.left"]["held"] = one_hander
-        p.part_equipment["arm.right"]["held"] = two_hander
+        p.part_equipment["hand.left"]["held"] = one_hander
+        p.part_equipment["hand.right"]["held"] = two_hander
 
         sources = p.get_attack_sources()
         # Must recognize the two-hander and emit ONE source, not
@@ -423,8 +423,8 @@ class TestGetAttackSources:
         weapon.bonus = 2
         # Two-handed: same weapon at both arms, matching the runtime
         # shape produced by ``Player.equip`` for MULTI_SLOT items.
-        p.part_equipment["arm.left"]["held"] = weapon
-        p.part_equipment["arm.right"]["held"] = weapon
+        p.part_equipment["hand.left"]["held"] = weapon
+        p.part_equipment["hand.right"]["held"] = weapon
 
         sources = p.get_attack_sources()
         assert len(sources) == 1
@@ -470,8 +470,8 @@ class TestDoAttack:
         weapon.attack = "2d6"
         weapon.bonus = 2
         # Two-handed: same weapon at both arms.
-        p.part_equipment["arm.left"]["held"] = weapon
-        p.part_equipment["arm.right"]["held"] = weapon
+        p.part_equipment["hand.left"]["held"] = weapon
+        p.part_equipment["hand.right"]["held"] = weapon
 
         target = MagicMock()
         target.resolve_attack.return_value = _make_attack_result(damage=8)
@@ -570,7 +570,9 @@ class TestPlayerBodyParts:
     _EXPECTED_PART_NAMES = {
         "head", "neck", "torso",
         "arm.left", "arm.right",
+        "hand.left", "hand.right",
         "leg.left", "leg.right",
+        "foot.left", "foot.right",
         "eye.left", "eye.right",
     }
 
@@ -598,7 +600,9 @@ class TestPlayerBodyParts:
         expected = {
             "head": 15, "neck": 8, "torso": 30,
             "arm.left": 10, "arm.right": 10,
+            "hand.left": 6, "hand.right": 6,
             "leg.left": 12, "leg.right": 12,
+            "foot.left": 8, "foot.right": 8,
             "eye.left": 4, "eye.right": 4,
         }
         # Construct two players and assert anatomy is identical.
@@ -641,7 +645,9 @@ class TestPlayerBodyPartPersistence:
         assert set(d["body_parts_health"].keys()) == {
             "head", "neck", "torso",
             "arm.left", "arm.right",
+            "hand.left", "hand.right",
             "leg.left", "leg.right",
+            "foot.left", "foot.right",
             "eye.left", "eye.right",
         }
 
@@ -745,7 +751,10 @@ class TestPlayerBodyPartPersistence:
         }
         p = Player.from_dict(d)
         assert p is not None
-        assert len(p.body_parts) == 9
+        # Phase D anatomy: 3 spine (torso/neck/head) + 2 eyes +
+        # 4 arm pieces (arm + hand × sides) + 4 leg pieces
+        # (leg + foot × sides) = 13.
+        assert len(p.body_parts) == 13
         for part in p.body_parts:
             assert part.health == part.health_max
 
@@ -903,8 +912,8 @@ class TestDisabledArmDisablesAttackSlot:
         weapon.attack = "2d6"
         weapon.bonus = 2
         # Two-handed: same weapon at both arms.
-        p.part_equipment["arm.left"]["held"] = weapon
-        p.part_equipment["arm.right"]["held"] = weapon
+        p.part_equipment["hand.left"]["held"] = weapon
+        p.part_equipment["hand.right"]["held"] = weapon
 
         # Baseline: both arms OK → one two-handed source.
         assert len(p.get_attack_sources()) == 1

@@ -74,7 +74,7 @@ def _make_player_with_parts(name="ArmedPlayer", **kwargs):
 class TestDoppelgangerDefaultBodyParts:
     def test_fresh_doppelganger_has_six_parts(self):
         d = Doppelganger()
-        assert len(d.body_parts) == 6
+        assert len(d.body_parts) == 13
 
     def test_has_one_head(self):
         d = Doppelganger()
@@ -216,7 +216,7 @@ class TestDoppelgangerImitateNoPartsTarget:
 
         d.imitate(target)
 
-        assert len(d.body_parts) == 6
+        assert len(d.body_parts) == 13
         heads = [p for p in d.body_parts if isinstance(p, HeadPlugin)]
         assert len(heads) == 1
         torsos = [p for p in d.body_parts if isinstance(p, TorsoPlugin)]

@@ -231,7 +231,22 @@ class Doppelganger(MonsterPlugin):
         if not isinstance(target, Player):
             return ""
 
+        # Already wearing this player's face — no-op. Prevents the
+        # per-round re-imitation spam (and stat/HP reset) when the
+        # same player lands the hardest hit two rounds running. The
+        # name check is sufficient: two players can't share a name
+        # inside a guild.
+        if self.name == target.name:
+            return ""
+
         self.name = target.name
+        # Drop the "the" article the doppelganger carries in natural
+        # form. Post-imitation the doppy is posing as a named player
+        # — ``@1np`` templates should render "Serena's neck", not
+        # "The serena's neck" (combat/resolution.py:299 produces the
+        # owner prefix via ``parse("@1npc", target)`` and inherits
+        # whichever ``uses_article`` this creature carries).
+        self.uses_article = False
 
         # Copy gender + pronouns alongside the name so post-imitation
         # narration matches the imitated player. Without this, the
@@ -245,31 +260,32 @@ class Doppelganger(MonsterPlugin):
         if hasattr(target, "pronouns") and target.pronouns:
             self.pronouns = dict(target.pronouns)
 
-        # Adopt the target's stats freshly on every form switch.
-        # Pre-fix behavior took ``max(self.X, target.X)`` across
-        # switches, which meant a doppy that copied a tanky player
-        # once would keep that player's defense / dodge / HP even
-        # after shifting into a squishier target. That made the
-        # doppy accumulate best-of-all-copied-stats over a fight
-        # — unintended. The in-fiction contract is "become this
-        # creature," not "become an aggregate of every creature
-        # you've become."
+        # Adopt the target's RAW base defense / dodge, not the
+        # armor-boosted emergent value. The armor itself flows
+        # through the deep-copied body tree below (each cloned
+        # Equippable node keeps its ``placements`` dict, so
+        # Phase C's ``effective_defense_for_part`` picks up the
+        # worn armor as ``local_armor``). Using ``target.get_*()``
+        # here would double-count armor — once in the stored base
+        # and again via per-part local aggregation.
         #
-        # HP handling: adopt the target's ``health_max`` outright,
-        # but preserve the doppelganger's current wound state by
-        # capping current ``health`` at the new max. Shifting
-        # should not heal a damaged doppy.
-        defense = target.get_defense()
-        dodge = target.get_dodge()
-        health_max = target.get_health_max()
-        self.defense = defense
+        # Pre-fix behavior took ``max(self.X, target.X)`` which
+        # meant a doppy that copied a tanky player once kept those
+        # stats after shifting into a squishier target — unintended
+        # accumulation of best-of-all-copies. Fresh-copy-on-switch
+        # matches the "become this creature" contract.
+        #
+        # HP is NOT adopted: the doppy's body is its own (20d10 at
+        # spawn). Copying ``health_max`` would trivialize the fight
+        # because a 20HP player shift caps the creature at 20HP.
+        # "Becoming this creature" is a surface-form effect; the
+        # doppy's actual biology tanks damage at its native pool.
+        self.defense = getattr(target, "defense", target.get_defense())
         # TODO(Phase C): This stores a pre-computed dodge value that
         # emergence (get_dodge) will re-process through leg functionality
         # and size modifiers, effectively double-applying those factors.
         # Phase C (player integration) should address this.
-        self.dodge = dodge
-        self.health = min(self.health, health_max)
-        self.health_max = health_max
+        self.dodge = getattr(target, "dodge", target.get_dodge())
 
         # Add the player's inventory items to the loot table with re-rolled rarity
         for item in target.inventory.all():

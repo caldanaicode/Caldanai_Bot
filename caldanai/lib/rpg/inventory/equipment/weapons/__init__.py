@@ -58,9 +58,9 @@ class Weapon(Equipment):
         polearm that should declare ``Reach.REACH``).
 
         Consumed by ``Player.get_attack_sources`` when building a
-        ``WeaponAttackSource`` so ``get_targeted_dodge`` honors the
-        correct body-part exposure at the reach. Without this, every
-        weapon defaults to MELEE and ranged attacks see melee
+        ``WeaponAttackSource`` so ``effective_dodge_for_part`` honors
+        the correct body-part exposure at the reach. Without this,
+        every weapon defaults to MELEE and ranged attacks see melee
         exposure values — which was the live bug: bow vs. dragon wing
         produced the same targeted dodge as a sword, because wings
         have a melee exposure of 0.5 but a ranged exposure of 1.0.

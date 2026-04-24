@@ -129,14 +129,14 @@ def _build_player(
     if EquipmentSlots.MULTI_SLOT & main_w.slots:
         # Two-handed weapon — shares the same instance across
         # both arms. Ignore offhand in that case.
-        p.place("arm.left", "held", main_w)
-        p.place("arm.right", "held", main_w)
+        p.place("hand.left", "held", main_w)
+        p.place("hand.right", "held", main_w)
     else:
-        p.place("arm.left", "held", main_w)
+        p.place("hand.left", "held", main_w)
         if offhand_weapon:
             off_w = _instantiate_weapon(offhand_weapon, quality_name)
             if not (EquipmentSlots.MULTI_SLOT & off_w.slots):
-                p.place("arm.right", "held", off_w)
+                p.place("hand.right", "held", off_w)
 
     return p
 
@@ -453,12 +453,22 @@ def _parse_args() -> argparse.Namespace:
             f"Weapon skill level (0-20). Default {_DEFAULT_PLAYER_SKILL}."
         ),
     )
+    ap.add_argument(
+        "--depth-coef", type=int, default=None,
+        help=(
+            "Override DEPTH_COEFFICIENT for the depth-walk resolver. "
+            "Default reads module value (currently 1)."
+        ),
+    )
     return ap.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
     random.seed(args.seed)
+
+    if args.depth_coef is not None:
+        creatures_module.DEPTH_COEFFICIENT = args.depth_coef
 
     player_kwargs = {
         "main_weapon": args.player_weapon,

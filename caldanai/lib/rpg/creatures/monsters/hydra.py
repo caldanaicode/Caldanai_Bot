@@ -40,8 +40,11 @@ from typing import Dict, List, Optional, Tuple
 
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
 from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
 from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures.body_part import BodyPart
@@ -502,14 +505,38 @@ class Hydra(MonsterPlugin):
             return None
 
         starting_heads = variant["starting_heads"]
+        # Phase D: each hydra head sits on its own neck with a
+        # pair of eyes. The heads share the same exposure profile
+        # and non-critical flag regardless of index; eyes are
+        # shared across heads so aim targeting hydra.3 eye.left
+        # resolves naturally. Legs end in forepaws / hindpaws.
+        head_subtrees = []
+        for i in range(starting_heads):
+            idx = i + 1
+            head_subtrees.append(
+                node(NeckPlugin, name=f"neck.{idx}", children=[
+                    node(HeadPlugin, name=f"head.{idx}",
+                         is_critical=False, exposure=dict(_HEAD_EXPOSURE),
+                         children=[
+                             node(EyePlugin, name=f"eye.{idx}.left"),
+                             node(EyePlugin, name=f"eye.{idx}.right"),
+                         ]),
+                ])
+            )
         return node(TorsoPlugin, name="torso", children=[
-            *[
-                node(HeadPlugin, name=f"head.{i + 1}",
-                     is_critical=False, exposure=dict(_HEAD_EXPOSURE))
-                for i in range(starting_heads)
-            ],
-            *paired(LegPlugin, "foreleg"),
-            *paired(LegPlugin, "hindleg"),
+            *head_subtrees,
+            *paired(
+                LegPlugin, "foreleg",
+                children_builder=lambda side: [
+                    node(FootPlugin, name=f"forepaw.{side}"),
+                ],
+            ),
+            *paired(
+                LegPlugin, "hindleg",
+                children_builder=lambda side: [
+                    node(FootPlugin, name=f"hindpaw.{side}"),
+                ],
+            ),
             node(TailPlugin, name="tail"),
         ]).build()
 
@@ -543,6 +570,41 @@ class Hydra(MonsterPlugin):
     def _get_head_dmg_type(self) -> DamageTypes:
         """Pick a damage type for a regrown head from the variant's pool."""
         return choice(self._variant["head_dmg_types"])
+
+    def _grow_head_subtree(self, dmg_type: DamageTypes) -> HeadPlugin:
+        """Grow a fresh neck → head → eye.L / eye.R subtree under
+        torso. Returns the new head node so the caller can wire
+        its ``DEFAULT_ACTIONS`` pool via :meth:`_wire_head_actions`.
+
+        The "regeneration unit" is the full neck-through-eyes
+        chain — regrowing just a head on a pre-existing neck
+        would leave the creature with mismatched indices. This
+        helper bumps ``_next_head_number`` so regrowth labels
+        stay unique across both current and destroyed heads.
+        """
+        idx = self._next_head_number
+        new_head = self._make_head(
+            f"head.{idx}", dmg_type, scale=True,
+        )
+        new_neck = NeckPlugin(name=f"neck.{idx}")
+        new_eye_l = EyePlugin(name=f"eye.{idx}.left")
+        new_eye_r = EyePlugin(name=f"eye.{idx}.right")
+        # Wire the subtree internally first: head gets two eye
+        # children; neck gets the head as its sole child.
+        new_head.add_child(new_eye_l)
+        new_head.add_child(new_eye_r)
+        new_neck.add_child(new_head)
+        # Anchor the neck under torso via the creature-level
+        # helper (keeps body_parts flat view in sync for the
+        # neck node). Head and eyes still need manual append
+        # because add_body_part only handles the node it's
+        # given — not deeper descendants.
+        self.add_body_part(new_neck, parent=self.body_root)
+        self.body_parts.append(new_head)
+        self.body_parts.append(new_eye_l)
+        self.body_parts.append(new_eye_r)
+        self._next_head_number += 1
+        return new_head
 
     def _live_non_critical_heads(self) -> List[HeadPlugin]:
         """Return the hydra's live, non-critical heads.
@@ -899,32 +961,34 @@ class Hydra(MonsterPlugin):
 
         for _ in range(to_spawn):
             dmg_type = self._get_head_dmg_type()
-            new_head = self._make_head(
-                f"head.{self._next_head_number}", dmg_type, scale=True,
-            )
-            # Anchor the new head under the torso so reachability
-            # and tree-walks see it. Without this the regrown head
-            # would have parent=None and drift into a detached root,
-            # breaking "destroy the torso cascades to every head"
-            # once B4 starts using the tree for emergence.
-            self.add_body_part(new_head, parent=self.body_root)
+            new_head = self._grow_head_subtree(dmg_type)
             self._wire_head_actions(new_head)
-            self._next_head_number += 1
 
-        # Remove destroyed heads from both the flat view AND the tree.
-        # Detaching from the parent's ``children`` list keeps the tree
-        # structure honest — destroyed-head stumps don't linger as
-        # children of the torso.
+        # Remove destroyed heads — and their parent neck + child
+        # eyes, since the whole "neck → head → eyes" subtree is
+        # the regeneration unit. Detach from torso's children and
+        # prune from body_parts so neither reachability nor flat
+        # iteration see the stumps.
         destroyed_non_critical_heads = [
             p for p in self.body_parts
             if isinstance(p, HeadPlugin) and not p.is_critical
             and p.is_destroyed()
         ]
-        for dead in destroyed_non_critical_heads:
-            if dead.parent is not None and dead in dead.parent.children:
-                dead.parent.children.remove(dead)
+        prune_set = set()
+        for dead_head in destroyed_non_critical_heads:
+            prune_set.add(id(dead_head))
+            for eye in list(dead_head.children):
+                prune_set.add(id(eye))
+            parent_neck = dead_head.parent
+            if parent_neck is not None:
+                prune_set.add(id(parent_neck))
+                if (
+                    self.body_root is not None
+                    and parent_neck in self.body_root.children
+                ):
+                    self.body_root.children.remove(parent_neck)
         self.body_parts = [
-            p for p in self.body_parts if p not in destroyed_non_critical_heads
+            p for p in self.body_parts if id(p) not in prune_set
         ]
 
         if to_spawn == 0:

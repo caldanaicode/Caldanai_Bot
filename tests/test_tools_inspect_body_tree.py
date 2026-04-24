@@ -61,21 +61,23 @@ class PlacementsSummaryTests(TestCase):
         from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
         h = HeadPlugin(name="head")
         out = _placements_summary(h)
-        # All four placement keys present, all empty (·).
-        self.assertIn("helm=·", out)
-        self.assertIn("face=·", out)
-        self.assertIn("ear.left=·", out)
-        self.assertIn("ear.right=·", out)
+        # Phase D: head placements = worn / outer / earring.left /
+        # earring.right / accent. All empty (·) at init.
+        self.assertIn("worn=·", out)
+        self.assertIn("outer=·", out)
+        self.assertIn("earring.left=·", out)
+        self.assertIn("earring.right=·", out)
+        self.assertIn("accent=·", out)
 
     def test_equippable_with_populated_placement(self):
         from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
         t = TorsoPlugin(name="torso")
         fake_item = MagicMock()
         fake_item.name = "plate_armor"
-        t.placements["chest"] = fake_item
+        t.placements["worn"] = fake_item
         out = _placements_summary(t)
-        self.assertIn("chest=plate_armor", out)
-        self.assertIn("cape=·", out)
+        self.assertIn("worn=plate_armor", out)
+        self.assertIn("outer=·", out)
 
 
 class RenderTreeTests(TestCase):
@@ -103,9 +105,9 @@ class BuildCreatureTests(TestCase):
     def test_player_target_builds_default_player(self):
         c = _build_creature("player")
         self.assertIsNotNone(c.body_root)
-        # Default player has 9 body parts (torso/neck/head + 2
-        # eyes + 2 arms + 2 legs).
-        self.assertEqual(len(c.body_parts), 9)
+        # Phase D: 13 parts (torso/neck/head + 2 eyes + 2 arms +
+        # 2 hands + 2 legs + 2 feet).
+        self.assertEqual(len(c.body_parts), 13)
 
     def test_monster_target_builds_via_plugin_registry(self):
         c = _build_creature("goblin")
@@ -121,11 +123,11 @@ class InspectTopLevelTests(TestCase):
     def test_inspect_player_includes_placements_line(self):
         """Top-level smoke: a fresh player's inspect() output
         includes both the header and at least one placements
-        entry (torso has chest/cape/belt)."""
+        entry (torso has worn/outer/accent)."""
         out = inspect("player")
         self.assertIn("PLAYER", out)
         self.assertIn("torso", out)
-        self.assertIn("chest=·", out)
+        self.assertIn("worn=·", out)
 
     def test_inspect_spirit_reports_no_body_tree(self):
         """Spirit is the body-less monster. The inspect output
@@ -197,3 +199,53 @@ class StatsSweepTests(TestCase):
         out = inspect("goblin")  # default include_stats=False
         self.assertNotIn("stats:", out)
         self.assertNotIn("@full", out)
+
+
+class PhaseCPerPartStatsTests(TestCase):
+    """``--stats`` mode also emits a per-part Phase C table
+    (depth / effective dodge / effective defense). Used for B4
+    vs Phase C comparisons during coefficient tuning."""
+
+    def test_stats_mode_emits_phase_c_table(self):
+        out = inspect("goblin", include_stats=True)
+        self.assertIn("phase-c per-part stats:", out)
+        self.assertIn("depth", out)
+        self.assertIn("dodge", out)
+        self.assertIn("defense", out)
+
+    def test_phase_c_dodge_rises_with_depth(self):
+        """Dodge rises with depth (still true regardless of
+        armor state). Defense is uniform across SOFT_PART
+        defaults — all plugins default to SOFT_PART, so an
+        unarmored player has 0.2 × base defense on every part
+        (no depth falloff). Tests pin the dodge invariant and
+        confirm defense doesn't CLIMB with depth either (the
+        two would be incoherent)."""
+        out = inspect("player", include_stats=True)
+        # Parse the per-part stats rows.
+        start = out.index("phase-c per-part stats:")
+        section = out[start:]
+
+        def _row(name):
+            for line in section.splitlines():
+                stripped = line.strip()
+                if stripped.startswith(name + " "):
+                    parts = stripped.split()
+                    # name depth dodge defense
+                    return int(parts[1]), int(parts[2]), int(parts[3])
+            raise AssertionError(f"no row found for {name!r}")
+
+        torso_depth, torso_dodge, torso_def = _row("torso")
+        eye_depth, eye_dodge, eye_def = _row("eye.left")
+        self.assertEqual(torso_depth, 0)
+        self.assertEqual(eye_depth, 3)
+        self.assertLess(torso_dodge, eye_dodge)
+        # Defense non-increasing with depth. Equal is fine —
+        # all SOFT default plugins yield flat fractional base.
+        self.assertGreaterEqual(torso_def, eye_def)
+
+    def test_spirit_phase_c_table_noop(self):
+        """Spirit has no body tree. Tool should say so rather
+        than crash or emit empty rows."""
+        out = inspect("spirit", include_stats=True)
+        self.assertIn("phase-c per-part stats: (no body parts)", out)

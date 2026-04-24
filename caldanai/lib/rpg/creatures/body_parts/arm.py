@@ -124,16 +124,18 @@ class ArmPlugin(BodyPartPlugin, Offensive, Equippable):
     its presence is forward-compatible but has no current effect).
     """
 
-    # Equippable placement keys (B3): weapon / shield held in
-    # this arm, bracer (upper arm), vambrace (forearm), glove
-    # (hand), ring (finger).
-    PLACEMENT_KEYS = ["held", "bracer", "vambrace", "glove", "ring"]
+    # Phase D placement keys: armor slots are layered on the
+    # arm via dotted sub-keys (``worn.upper`` holds a bracer,
+    # ``worn.lower`` a vambrace). Weapon + glove + ring moved
+    # to the new :class:`HandPlugin` at the next depth.
+    PLACEMENT_KEYS = ["worn.upper", "worn.lower"]
 
     name = "arm"
     health_max = "2d8"
     is_critical = False
     bleed_rate = 0.3
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
+    # No defense_bonus override — inherits default (0). The arm
+    # absorbs full base defense unless armor is equipped.
     exposure = {
         Reach.MELEE:  0.8,
         Reach.REACH:  0.8,

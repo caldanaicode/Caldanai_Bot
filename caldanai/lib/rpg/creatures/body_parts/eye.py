@@ -137,8 +137,11 @@ class EyePlugin(BodyPartPlugin, Sensory):
     health_max = "1d6"
     is_critical = False
     bleed_rate = 0.1
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART from
-    # BodyPartPlugin. Eyes stay the canonical soft-part example.
+    # Eyes are the canonical soft-spot: no intrinsic protection,
+    # a glancing nick can blind. Opts into ``SOFT_PART`` so
+    # Phase C's fractional-defense path kicks in here specifically
+    # rather than inheriting the default-0 absorption.
+    defense_bonus = BodyPartPlugin.SOFT_PART
     exposure = {
         Reach.MELEE:  0.1,
         Reach.REACH:  0.1,

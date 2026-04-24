@@ -412,8 +412,8 @@ class RpgUtilities:
            :class:`EquipmentSlots` mask via the short-form
            vocabulary (``l`` / ``left`` → ``LEFT_SIDE`` mask,
            ``r`` / ``right`` → ``RIGHT_SIDE``) or the
-           ``(part, key)`` routing table (``head.helm`` →
-           ``HEAD``, ``cape`` → ``CAPE``, etc.).
+           ``(part, key)`` routing table (``head.worn`` →
+           ``HEAD``, ``outer`` → ``CAPE``, etc.).
         4. Append ``(item, placement)`` pairs to the result for
            successful resolutions. Skip silently (after
            dispatching a user message) when a query can't be
@@ -526,7 +526,7 @@ class RpgUtilities:
                             channel,
                             f"I don't know the slot `{hint_raw}`. "
                             f"Try `l`/`left`/`r`/`right`/`_`, or a "
-                            f"placement key like `head.helm` or `cape`.",
+                            f"placement key like `head.worn` or `outer`.",
                         )
                         continue
                     placement = matched_slot

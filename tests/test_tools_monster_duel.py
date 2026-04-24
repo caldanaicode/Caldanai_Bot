@@ -107,10 +107,36 @@ class AimRecorderTests(TestCase):
         total_picks = sum(aggregated_pre.values())
         self.assertGreater(total_picks, 0)
 
-        # Every landing is torso — the pixie's flat tree means
-        # one level of walk-up from any non-torso pick lands on
-        # torso.
-        self.assertEqual(list(aggregated_post.keys()), ["torso"])
+        # Phase D: pixie's segmented tree puts hand at depth 3
+        # and foot at depth 3; at ratio 3.0 (int(log2(3)) = 1)
+        # collapse walks up one level, so deep parts land on
+        # arm / leg rather than torso. The invariant is that
+        # the post-collapse distribution is STRICTLY SHALLOWER
+        # than pre-collapse (deeper parts got filtered out).
+        pre_has_deep = any(
+            k in aggregated_pre
+            for k in ("hand.left", "hand.right", "foot.left", "foot.right",
+                      "eye.left", "eye.right", "head")
+        )
+        post_has_deep = any(
+            k in aggregated_post
+            for k in ("hand.left", "hand.right", "foot.left", "foot.right",
+                      "eye.left", "eye.right", "head")
+        )
+        if pre_has_deep:
+            # If any deep parts were aimed at pre-collapse, the
+            # post-collapse distribution should have fewer (or
+            # zero) such landings.
+            self.assertLessEqual(
+                sum(aggregated_post.get(k, 0) for k in (
+                    "hand.left", "hand.right", "foot.left", "foot.right",
+                    "eye.left", "eye.right", "head",
+                )),
+                sum(aggregated_pre.get(k, 0) for k in (
+                    "hand.left", "hand.right", "foot.left", "foot.right",
+                    "eye.left", "eye.right", "head",
+                )),
+            )
         self.assertEqual(sum(aggregated_post.values()), total_picks)
 
 

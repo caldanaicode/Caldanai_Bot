@@ -119,6 +119,32 @@ class FindTests(TestCase):
         self.assertIs(torso.find("torso"), torso)
 
 
+class DepthTests(TestCase):
+    def test_root_depth_is_zero(self):
+        root = Node(name="torso")
+        self.assertEqual(root.depth, 0)
+
+    def test_depth_counts_ancestors(self):
+        torso = Node(name="torso")
+        neck = torso.add_child(Node(name="neck"))
+        head = neck.add_child(Node(name="head"))
+        eye = head.add_child(Node(name="eye.left"))
+        self.assertEqual(torso.depth, 0)
+        self.assertEqual(neck.depth, 1)
+        self.assertEqual(head.depth, 2)
+        self.assertEqual(eye.depth, 3)
+
+    def test_sibling_depths_equal(self):
+        """Two children of the same parent share depth — Phase C
+        uses this so left/right limbs get the same per-part
+        effective dodge/defense."""
+        torso = Node(name="torso")
+        left = torso.add_child(Node(name="arm.left"))
+        right = torso.add_child(Node(name="arm.right"))
+        self.assertEqual(left.depth, right.depth)
+        self.assertEqual(left.depth, 1)
+
+
 class AncestorTests(TestCase):
     def test_ancestors_walks_up_chain(self):
         torso = Node(name="torso")

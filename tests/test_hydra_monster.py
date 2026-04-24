@@ -162,9 +162,13 @@ class TestInitialComposition:
         assert len(tails) == 1
 
     def test_total_body_part_count_matches_composition(self):
-        """1 torso + 4 legs + 1 tail + starting_heads heads."""
+        """Phase D quadruped segmentation:
+        1 torso + 4 legs + 4 paws + 1 tail + N × (neck + head + 2 eyes)
+        where N = starting_heads."""
         h = _make_default_hydra()
-        assert len(h.body_parts) == 1 + 4 + 1 + _starting_heads()
+        head_count = _starting_heads()
+        expected = 1 + 4 + 4 + 1 + head_count * 4
+        assert len(h.body_parts) == expected
 
 
 # ---------------------------------------------------------------------------

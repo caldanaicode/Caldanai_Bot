@@ -53,7 +53,7 @@ class TestGiantBodyPartsComposition:
     def test_giant_has_six_parts(self):
         """Standard humanoid: 1 head + 1 torso + 2 arms + 2 legs = 6."""
         g = Giant()
-        assert len(g.body_parts) == 6
+        assert len(g.body_parts) == 13
 
     def test_giant_has_exactly_one_head(self):
         g = Giant()

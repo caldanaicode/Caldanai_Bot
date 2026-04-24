@@ -83,7 +83,7 @@ class TestVampireBodyPartsComposition:
     def test_vampire_has_six_parts(self):
         """Standard humanoid: 1 head + 1 torso + 2 arms + 2 legs = 6."""
         v = Vampire()
-        assert len(v.body_parts) == 6
+        assert len(v.body_parts) == 13
 
     def test_vampire_has_exactly_one_head(self):
         v = Vampire()

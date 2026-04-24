@@ -244,11 +244,15 @@ class TestMinotaur:
         assert m.size == Size.LARGE
 
     def test_humanoid_anatomy(self):
+        """Phase D segmented humanoid anatomy."""
         m = Minotaur()
         assert _part_names(m) == {
-            "head", "torso",
+            "torso", "neck", "head",
+            "eye.left", "eye.right",
             "arm.left", "arm.right",
+            "hand.left", "hand.right",
             "leg.left", "leg.right",
+            "foot.left", "foot.right",
         }
 
     def test_piercing_vulnerable_bludgeoning_resistant(self):

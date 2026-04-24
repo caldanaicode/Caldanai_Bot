@@ -14,8 +14,8 @@ Future work (noted in ``project_more_body_parts`` backlog):
   path that takes a player out in one hit. The neck becomes the
   anchor for that attack source.
 - Talismans / chokers / collars once jewelry items ship. They'll
-  use the ``amulet`` key on this part via the
-  ``EquipmentSlots.NECK`` → ``("neck", "amulet")`` routing in
+  use the ``accent`` key on this part via the
+  ``EquipmentSlots.NECK`` → ``("neck", "accent")`` routing in
   ``equipment_routing``.
 
 Design rationale
@@ -34,10 +34,15 @@ Design rationale
     moves without the base plugin presuming them.
 
 Exposure
-    Uniformly low (0.2 across every reach). The neck sits
-    between head and torso and is shielded by both; attacks
-    landing on it are rarer than on the head or arms. Roughly
-    the eye-tier exposure (0.1–0.3) is the right neighborhood.
+    Slightly-shielded-head profile (MELEE 0.6, REACH 0.7,
+    THROWN 0.8, RANGED 0.9). Exposure feeds both random-hit
+    weighting AND per-part dodge scaling (``base / exposure``)
+    — an "eye-tier" 0.1-0.3 would correctly flag the neck as
+    a rare accidental target but would also amplify neck dodge
+    to 3.3× base under Phase C, which reads as absurd at the
+    combat surface. Neck is a realistic melee target (throat
+    grabs, uppercuts, bow shots) so exposure sits one notch
+    under head rather than near the eye.
 
 Debuffs
     Empty for now. When the werewolf throat-bite / choking
@@ -56,23 +61,24 @@ class NeckPlugin(BodyPartPlugin, Equippable):
 
     Exists primarily as a mounting point for amulet / jewelry
     equipment once ``EquipmentSlots.NECK`` routes to
-    ``("neck", "amulet")``. Ships with no mechanical effects so
+    ``("neck", "accent")``. Ships with no mechanical effects so
     future overrides (werewolf throat-bite, choking, talismans)
     don't collide with an opinionated default.
     """
 
-    # Equippable placement keys (B3): amulet / jewelry slot.
-    # Planned for future content; no current items land here.
-    PLACEMENT_KEYS = ["amulet"]
+    # Phase D placement key: ``accent`` holds amulets, chokers,
+    # collars — any neck-worn jewelry/accessory. Generic-key
+    # vocabulary: the item's own name carries the flavor detail.
+    PLACEMENT_KEYS = ["accent"]
 
     name = "neck"
     health_max = "1d8"
     is_critical = False
     bleed_rate = 0.3
     exposure = {
-        Reach.MELEE:  0.2,
-        Reach.REACH:  0.2,
-        Reach.THROWN: 0.2,
-        Reach.RANGED: 0.2,
+        Reach.MELEE:  0.6,
+        Reach.REACH:  0.7,
+        Reach.THROWN: 0.8,
+        Reach.RANGED: 0.9,
     }
     debuffs = {}

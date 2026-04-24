@@ -3,22 +3,39 @@ from random import choice
 from caldanai.lib.rpg import get_random_direction
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_builder import node, paired
+from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
 from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Size)
 
 
 class Toad(MonsterPlugin):
-    # Tailless quadruped — head, torso, 4 legs. Toads have
-    # vestigial tails at best; declaring a quadruped-minus-tail
-    # anatomy here keeps the per-part HP pool honest (no phantom
-    # tail to scale).
+    # Tailless quadruped — Phase D segmented limbs ending in
+    # forepaws / hindpaws. Toads have vestigial tails at best;
+    # declaring a quadruped-minus-tail anatomy here keeps the
+    # per-part HP pool honest (no phantom tail to scale).
     BODY_TREE = node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head"),
-        *paired(LegPlugin, "foreleg"),
-        *paired(LegPlugin, "hindleg"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head", children=[
+                *paired(EyePlugin, "eye"),
+            ]),
+        ]),
+        *paired(
+            LegPlugin, "foreleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"forepaw.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "hindleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"hindpaw.{side}"),
+            ],
+        ),
     ])
 
     def __init__(self):

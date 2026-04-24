@@ -8,6 +8,10 @@ node (a ``placements`` dict populated by the plugin's
 references to each node's ``placements`` — so dict-style reads
 and writes continue to work for back-compat.
 
+Phase D updated the ``PLACEMENT_KEYS`` vocabulary to generic
+``worn``/``held``/``outer``/``accent`` with dotted sub-keys,
+and introduced hand/foot as dedicated body-part nodes.
+
 Pins here:
 - The property reports live state matching the nodes.
 - Writes through the property (dict-style) propagate to the
@@ -53,6 +57,8 @@ class NodeViewPropertyTests(TestCase):
         self.assertIn("neck", view)
         self.assertIn("arm.left", view)
         self.assertIn("leg.right", view)
+        self.assertIn("hand.left", view)
+        self.assertIn("foot.right", view)
         # Eyes are Sensory but not Equippable — absent from view.
         self.assertNotIn("eye.left", view)
         self.assertNotIn("eye.right", view)
@@ -70,23 +76,34 @@ class NodeViewPropertyTests(TestCase):
 
     def test_placement_keys_match_plugin_declaration(self):
         """Each node's placements dict has exactly the keys its
-        plugin declared — no cross-contamination."""
+        plugin declared — no cross-contamination.
+
+        Phase D generic-key vocabulary: ``worn`` is main armor,
+        ``outer`` is overlay, ``accent`` is jewelry/accessory,
+        ``held`` is hand only. Dotted sub-keys carry paired or
+        layered variants (``worn.upper`` vs ``worn.lower``;
+        ``ring.1`` vs ``ring.2``; ``earring.left`` vs ``.right``).
+        """
         p = _fresh_player()
         self.assertEqual(
             set(p.part_equipment["head"].keys()),
-            {"helm", "face", "ear.left", "ear.right"},
+            {"worn", "outer", "earring.left", "earring.right", "accent"},
         )
         self.assertEqual(
             set(p.part_equipment["torso"].keys()),
-            {"chest", "cape", "belt"},
+            {"worn", "outer", "accent"},
         )
         self.assertEqual(
             set(p.part_equipment["arm.left"].keys()),
-            {"held", "bracer", "vambrace", "glove", "ring"},
+            {"worn.upper", "worn.lower"},
+        )
+        self.assertEqual(
+            set(p.part_equipment["hand.left"].keys()),
+            {"held", "worn", "ring.1", "ring.2"},
         )
         self.assertEqual(
             set(p.part_equipment["neck"].keys()),
-            {"amulet"},
+            {"accent"},
         )
 
 
@@ -99,18 +116,18 @@ class LegacyWriteCompatTests(TestCase):
         p = _fresh_player()
         fake_item = MagicMock()
         fake_item.name = "shiny_helm"
-        p.part_equipment["head"]["helm"] = fake_item
+        p.part_equipment["head"]["worn"] = fake_item
 
         head_node = p.get_part("head")
-        self.assertIs(head_node.placements["helm"], fake_item)
+        self.assertIs(head_node.placements["worn"], fake_item)
 
     def test_dict_style_clear_propagates_to_node(self):
         p = _fresh_player()
         fake_item = MagicMock()
-        p.part_equipment["arm.left"]["held"] = fake_item
+        p.part_equipment["hand.left"]["held"] = fake_item
         # Clearing back to None through the view.
-        p.part_equipment["arm.left"]["held"] = None
-        self.assertIsNone(p.get_part("arm.left").placements["held"])
+        p.part_equipment["hand.left"]["held"] = None
+        self.assertIsNone(p.get_part("hand.left").placements["held"])
 
 
 class PlaceHelperTests(TestCase):
@@ -118,25 +135,25 @@ class PlaceHelperTests(TestCase):
         p = _fresh_player()
         fake_item = MagicMock()
         fake_item.name = "magic_belt"
-        p.place("torso", "belt", fake_item)
+        p.place("torso", "accent", fake_item)
 
         torso = p.get_part("torso")
-        self.assertIs(torso.placements["belt"], fake_item)
+        self.assertIs(torso.placements["accent"], fake_item)
 
     def test_place_view_read_after_helper_write(self):
         """Writing through the helper is visible via the legacy
         property read."""
         p = _fresh_player()
         fake_item = MagicMock()
-        p.place("arm.right", "held", fake_item)
-        self.assertIs(p.part_equipment["arm.right"]["held"], fake_item)
+        p.place("hand.right", "held", fake_item)
+        self.assertIs(p.part_equipment["hand.right"]["held"], fake_item)
 
     def test_clear_placement_sets_to_none(self):
         p = _fresh_player()
         fake_item = MagicMock()
-        p.place("head", "helm", fake_item)
-        p.clear_placement("head", "helm")
-        self.assertIsNone(p.part_equipment["head"]["helm"])
+        p.place("head", "worn", fake_item)
+        p.clear_placement("head", "worn")
+        self.assertIsNone(p.part_equipment["head"]["worn"])
 
     def test_place_raises_on_unknown_part(self):
         p = _fresh_player()

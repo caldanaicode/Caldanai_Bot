@@ -103,7 +103,10 @@ class WingPlugin(BodyPartPlugin, Mobility):
     health_max = "2d8"
     is_critical = False
     bleed_rate = 0.2
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
+    # No defense_bonus override — inherits default (0). A
+    # leather dragon wing is SOFT_PART material in fiction but
+    # currently uses base absorption; declare SOFT_PART here if
+    # the design later wants bare wings fractionally protected.
     exposure = {
         Reach.MELEE:  0.5,   # wings tuck away, hard to hit in melee
         Reach.REACH:  0.5,   # same; mirrors MELEE (doc sketch omitted)

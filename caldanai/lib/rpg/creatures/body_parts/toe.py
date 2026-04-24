@@ -14,7 +14,7 @@ class ToePlugin(BodyPartPlugin):
     health_max = 1
     is_critical = False
     bleed_rate = 0.05
-    # Q.6.3: no defense_bonus override — inherits SOFT_PART.
+    # No defense_bonus override — inherits default (0).
     exposure = {
         Reach.MELEE:  0.3,
         Reach.REACH:  0.2,

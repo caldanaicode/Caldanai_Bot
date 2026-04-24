@@ -173,73 +173,128 @@ def paired(
 # mutating one creature's tree never touches another's.
 
 
-def humanoid_tree() -> _NodeSpec:
-    """Standard six-part humanoid body tree.
+def humanoid_tree(eyes: bool = True) -> _NodeSpec:
+    """Standard humanoid body tree with segmented extremities.
 
-    Shape: torso → head + paired arms + paired legs. Matches the
-    part set the pre-B1 ``BodyPart.humanoid()`` factory produced.
-    Monsters with this baseline anatomy (goblin, bandit, skeleton,
-    vampire, math-teacher, etc.) declare
-    ``BODY_TREE = humanoid_tree()``.
+    Shape: torso → neck → head → paired eyes; paired arms → hands;
+    paired legs → feet. Phase D (2026-04-23): adds neck, eyes,
+    hands, feet relative to the pre-B1 flat-anatomy version.
 
-    Note the deliberate asymmetry with :data:`PLAYER_BODY_TREE`
-    over in ``player.py``: the player has ``neck`` + paired
-    ``eye`` nodes; this helper does not. That mirrors pre-B1
-    behavior — ``BodyPart.humanoid()`` never produced neck or
-    eyes, while the player's flat ``_DEFAULT_PARTS`` dict added
-    them. B1 is purely structural; adding anatomy to monsters
-    that didn't have it before would be a gameplay change.
-    Per-monster plugins that want richer anatomy (cyclops with
-    one eye, pixie with wings) declare their own tree.
+    ``eyes``: when False, paired eye nodes are omitted (used for
+    skeletons with empty sockets, golems with stone faces, etc.
+    — anywhere the head has no dedicated perception organs).
+
+    Quadruped / winged variants live in ``quadruped_tree`` /
+    ``quadruped_winged_tree``; per-creature plugins with unusual
+    anatomy (cyclops one-eye, hydra multi-head) declare their
+    own ``BODY_TREE`` directly.
     """
     from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+    from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+    from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
+    from caldanai.lib.rpg.creatures.body_parts.hand import HandPlugin
     from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
     from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+    from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
     from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 
+    head_children = list(paired(EyePlugin, "eye")) if eyes else []
+
     return node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head"),
-        *paired(ArmPlugin, "arm"),
-        *paired(LegPlugin, "leg"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head", children=head_children),
+        ]),
+        *paired(
+            ArmPlugin, "arm",
+            children_builder=lambda side: [
+                node(HandPlugin, name=f"hand.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "leg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"foot.{side}"),
+            ],
+        ),
     ])
 
 
-def quadruped_tree() -> _NodeSpec:
-    """Standard seven-part quadruped body tree.
+def quadruped_tree(eyes: bool = True) -> _NodeSpec:
+    """Standard quadruped body tree with segmented extremities.
 
-    Shape: torso → head + paired forelegs + paired hindlegs +
-    tail. Matches the pre-B1 ``BodyPart.quadruped()`` factory.
+    Shape: torso → neck → head → paired eyes; paired forelegs
+    → forepaws; paired hindlegs → hindpaws; tail. Phase D: adds
+    neck, eyes, paws relative to pre-B1 flat anatomy. Quadruped
+    "paws" use the :class:`FootPlugin` at this stage — per-
+    creature content can layer paw-specific narration (claws,
+    pads) via the creature's plugin overrides without needing a
+    separate PawPlugin.
     """
+    from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+    from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
     from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
     from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+    from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
     from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
     from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 
+    head_children = list(paired(EyePlugin, "eye")) if eyes else []
+
     return node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head"),
-        *paired(LegPlugin, "foreleg"),
-        *paired(LegPlugin, "hindleg"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head", children=head_children),
+        ]),
+        *paired(
+            LegPlugin, "foreleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"forepaw.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "hindleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"hindpaw.{side}"),
+            ],
+        ),
         node(TailPlugin, name="tail"),
     ])
 
 
-def quadruped_winged_tree() -> _NodeSpec:
-    """Standard nine-part winged quadruped body tree.
+def quadruped_winged_tree(eyes: bool = True) -> _NodeSpec:
+    """Quadruped body tree + paired wings.
 
-    Shape: quadruped + paired wings. Matches the pre-B1
-    ``BodyPart.quadruped_winged()`` factory. Dragon, bearowl, and
-    other winged quadrupeds start from this.
+    Segmented extremities via :func:`quadruped_tree` plus paired
+    wing nodes directly under torso. Dragons and bearowls start
+    from this (bearowl has flight; dragon has both flight and
+    the toed-variant stat hack).
     """
+    from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+    from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
     from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
     from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+    from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
     from caldanai.lib.rpg.creatures.body_parts.tail import TailPlugin
     from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
     from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
 
+    head_children = list(paired(EyePlugin, "eye")) if eyes else []
+
     return node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head"),
-        *paired(LegPlugin, "foreleg"),
-        *paired(LegPlugin, "hindleg"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head", children=head_children),
+        ]),
+        *paired(
+            LegPlugin, "foreleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"forepaw.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "hindleg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"hindpaw.{side}"),
+            ],
+        ),
         node(TailPlugin, name="tail"),
         *paired(WingPlugin, "wing"),
     ])

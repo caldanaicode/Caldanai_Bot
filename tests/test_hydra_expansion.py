@@ -77,11 +77,8 @@ def _mock_combatant(name="Hero"):
     m.get_dodge.return_value = 5
     m.get_defense.return_value = 3
     m.body_parts = []
-    # resolve_attack returns a minimal AttackResult. Accepts the
-    # ``target_dodge`` kwarg that matches the real
-    # ``Creature.resolve_attack`` signature — ``Hydra.attack_random``
-    # now passes targeted-dodge math through this kwarg.
-    m.resolve_attack.side_effect = lambda attacker, source, atk_roll, dmg_roll, target_dodge=None, target_part=None: AttackResult(
+    # resolve_attack returns a minimal AttackResult.
+    m.resolve_attack.side_effect = lambda attacker, source, atk_roll, dmg_roll, target_part=None: AttackResult(
         source=source,
         combined=MagicMock(isMiss=False, isCritical=False, isFumble=False,
                            result=4, attack=MagicMock(__str__=lambda s: "1d6"),
@@ -89,7 +86,7 @@ def _mock_combatant(name="Hero"):
         damage=4,
         multiplier=1.0,
         defense=3,
-        dodge=target_dodge if target_dodge is not None else 5,
+        dodge=5,
         dmg_type=source.damage_type,
     )
     m.apply_damage.return_value = ""

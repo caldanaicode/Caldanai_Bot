@@ -44,26 +44,26 @@ class TestSingleSlotDrop:
     def test_helm_returns_to_inventory_on_head_destroy(self):
         p, (hat,) = _player_with_inventory("mushroom_hat")
         p.equip(hat)
-        assert p.part_equipment["head"]["helm"] is hat
+        assert p.part_equipment["head"]["worn"] is hat
 
         head = p.get_part("head")
         p.apply_damage(head.health, target_part=head)
 
         assert head.get_injury_level() == InjuryLevels.USELESS
-        assert p.part_equipment["head"]["helm"] is None
+        assert p.part_equipment["head"]["worn"] is None
         # Item stays in inventory — the point of the whole design.
         assert p.inventory[hat.id] is hat
 
     def test_wand_returns_on_left_arm_destroy(self):
         p, (wand,) = _player_with_inventory("wand")
         p.equip(wand)
-        assert p.part_equipment["arm.left"]["held"] is wand
+        assert p.part_equipment["hand.left"]["held"] is wand
 
         left_arm = p.get_part("arm.left")
         p.apply_damage(left_arm.health, target_part=left_arm)
 
         assert left_arm.get_injury_level() == InjuryLevels.USELESS
-        assert p.part_equipment["arm.left"]["held"] is None
+        assert p.part_equipment["hand.left"]["held"] is None
         assert p.inventory[wand.id] is wand
 
     def test_other_parts_unaffected(self):
@@ -77,8 +77,8 @@ class TestSingleSlotDrop:
         p.apply_damage(head.health, target_part=head)
 
         # Head helm dropped, arm.left.held untouched.
-        assert p.part_equipment["head"]["helm"] is None
-        assert p.part_equipment["arm.left"]["held"] is wand
+        assert p.part_equipment["head"]["worn"] is None
+        assert p.part_equipment["hand.left"]["held"] is wand
 
 
 class TestMultiSlotDrop:
@@ -91,14 +91,14 @@ class TestMultiSlotDrop:
         phantom two-hander is already occupying it)."""
         p, (bow,) = _player_with_inventory("bow")
         p.equip(bow)
-        assert p.part_equipment["arm.left"]["held"] is bow
-        assert p.part_equipment["arm.right"]["held"] is bow
+        assert p.part_equipment["hand.left"]["held"] is bow
+        assert p.part_equipment["hand.right"]["held"] is bow
 
         left_arm = p.get_part("arm.left")
         p.apply_damage(left_arm.health, target_part=left_arm)
 
-        assert p.part_equipment["arm.left"]["held"] is None
-        assert p.part_equipment["arm.right"]["held"] is None, (
+        assert p.part_equipment["hand.left"]["held"] is None
+        assert p.part_equipment["hand.right"]["held"] is None, (
             "Two-hander should not linger on the intact arm"
         )
         assert p.inventory[bow.id] is bow
@@ -123,8 +123,8 @@ class TestMultiSlotDrop:
         # the wand to the right to verify the placement is free.
         ok, _ = p.equip(wand, EquipmentSlots.RIGHT_HELD)
         assert ok
-        assert p.part_equipment["arm.right"]["held"] is wand
-        assert p.part_equipment["arm.left"]["held"] is None
+        assert p.part_equipment["hand.right"]["held"] is wand
+        assert p.part_equipment["hand.left"]["held"] is None
 
 
 class TestIdempotency:
@@ -139,7 +139,7 @@ class TestIdempotency:
         p.apply_damage(left_arm.health, target_part=left_arm)
 
         # Sanity: wand already dropped from the first transition.
-        assert p.part_equipment["arm.left"]["held"] is None
+        assert p.part_equipment["hand.left"]["held"] is None
 
         # Now re-equip the wand (it's still in inventory). A
         # second damage hit to the already-useless arm must NOT
@@ -150,12 +150,12 @@ class TestIdempotency:
         # Force re-equip onto the left arm specifically for the test
         # (equip auto-routes; in reality the left arm being USELESS
         # would steer it to right, so write directly for this test).
-        p.part_equipment["arm.right"]["held"] = None  # undo auto-right
-        p.part_equipment["arm.left"]["held"] = wand
+        p.part_equipment["hand.right"]["held"] = None  # undo auto-right
+        p.part_equipment["hand.left"]["held"] = wand
 
         # Damage again — already useless. Should not trigger drop.
         p.apply_damage(1, target_part=left_arm)
-        assert p.part_equipment["arm.left"]["held"] is wand, (
+        assert p.part_equipment["hand.left"]["held"] is wand, (
             "Already-useless part must not re-trigger the drop"
         )
 
@@ -172,7 +172,7 @@ class TestNonUselessDamage:
         p.apply_damage(max(1, head.health // 2), target_part=head)
 
         assert head.get_injury_level() != InjuryLevels.USELESS
-        assert p.part_equipment["head"]["helm"] is hat
+        assert p.part_equipment["head"]["worn"] is hat
 
 
 class TestArmorBonusStopsApplying:
@@ -221,7 +221,7 @@ class TestDeathOrdering:
         # 1. Damage applied → part useless
         assert head.get_injury_level() == InjuryLevels.USELESS
         # 2. Gear dropped → placement empty, item back in inventory
-        assert p.part_equipment["head"]["helm"] is None
+        assert p.part_equipment["head"]["worn"] is None
         assert p.inventory[hat.id] is hat
         # 3. Death narrative returned (head is critical)
         assert p.is_dead() is True
@@ -244,7 +244,7 @@ class TestReviveStickiness:
         assert p.is_dead() is False
         assert head.get_injury_level() == InjuryLevels.NONE
         # Dropped state sticks through revive.
-        assert p.part_equipment["head"]["helm"] is None
+        assert p.part_equipment["head"]["worn"] is None
         assert p.inventory[hat.id] is hat
 
 
@@ -263,16 +263,16 @@ class TestPersistenceRoundTrip:
         # Destroy head → helm drops.
         head = p.get_part("head")
         p.apply_damage(head.health, target_part=head)
-        assert p.part_equipment["head"]["helm"] is None
-        assert p.part_equipment["arm.left"]["held"] is wand
+        assert p.part_equipment["head"]["worn"] is None
+        assert p.part_equipment["hand.left"]["held"] is wand
 
         doc = p.to_dict()
-        # Saved shape: head.helm is NOT in the serialized dict
+        # Saved shape: head.worn is NOT in the serialized dict
         # (only non-None placements are written).
         assert "head" not in doc["part_equipment"] or (
-            "helm" not in doc["part_equipment"].get("head", {})
+            "worn" not in doc["part_equipment"].get("head", {})
         )
-        assert doc["part_equipment"]["arm.left"]["held"] == str(wand.id)
+        assert doc["part_equipment"]["hand.left"]["held"] == str(wand.id)
 
         # Round-trip via from_dict. Use patch to stub inventory
         # rebuilding since we're not persisting items here, just
@@ -287,8 +287,8 @@ class TestPersistenceRoundTrip:
             restored = Player.from_dict(doc)
 
         assert restored is not None
-        assert restored.part_equipment["head"]["helm"] is None
-        assert restored.part_equipment["arm.left"]["held"] is wand
+        assert restored.part_equipment["head"]["worn"] is None
+        assert restored.part_equipment["hand.left"]["held"] is wand
 
 
 class TestMultiPartItemDrop:
@@ -323,8 +323,8 @@ class TestMultiPartItemDrop:
         p.inventory.add(item)
         ok, _ = p.equip(item)
         assert ok, "Multi-part item should equip to both placements"
-        assert p.part_equipment["torso"]["cape"] is item
-        assert p.part_equipment["neck"]["amulet"] is item
+        assert p.part_equipment["torso"]["outer"] is item
+        assert p.part_equipment["neck"]["accent"] is item
 
         # Destroy the neck — must drop from BOTH placements (the
         # intact torso placement can't keep a phantom reference
@@ -333,8 +333,8 @@ class TestMultiPartItemDrop:
         p.apply_damage(neck.health, target_part=neck)
 
         assert neck.get_injury_level() == InjuryLevels.USELESS
-        assert p.part_equipment["neck"]["amulet"] is None
-        assert p.part_equipment["torso"]["cape"] is None, (
+        assert p.part_equipment["neck"]["accent"] is None
+        assert p.part_equipment["torso"]["outer"] is None, (
             "Multi-part item must drop from every placement, not just "
             "the one on the destroyed part"
         )

@@ -77,8 +77,8 @@ class TestImitate:
         fix: a doppy that copies a tank then shifts to a squishy
         player should now have the squishy player's stats."""
         doppel = Doppelganger()
-        strong = _make_player(defense=50, dodge=40, health_max=200)
-        weak = _make_player(defense=1, dodge=1, health_max=10)
+        strong = _make_player(name="Tank", defense=50, dodge=40, health_max=200)
+        weak = _make_player(name="Squishy", defense=1, dodge=1, health_max=10)
 
         doppel.imitate(strong)
         assert doppel.defense == 50
@@ -88,23 +88,12 @@ class TestImitate:
         assert doppel.defense == 1
         assert doppel.dodge == 1
 
-    def test_does_not_heal_on_imitate(self):
-        doppel = Doppelganger()
-        doppel.health = 5
-        doppel.health_max = 50
-        player = _make_player(health_max=100)
-
-        doppel.imitate(player)
-
-        # Adopt target max; current health unchanged (wound preserved).
-        assert doppel.health == 5
-        assert doppel.health_max == 100
-
-    def test_hp_capped_at_new_max(self):
-        """Switching to a target with lower max-HP caps current HP at
-        the new max — preserves the spirit of 'no healing on switch'
-        while also not letting the doppy keep a bigger HP pool than
-        the creature it's pretending to be."""
+    def test_preserves_own_hp_pool_on_imitate(self):
+        """HP is NOT adopted from the imitated target — the doppy's
+        body is its own (20d10 at spawn). Copying ``health_max``
+        trivializes the fight because a 20HP player shift would cap
+        the creature at 20HP. Pre-fix behavior did adopt it; this
+        pins the new contract."""
         doppel = Doppelganger()
         doppel.health = 80
         doppel.health_max = 100
@@ -112,8 +101,27 @@ class TestImitate:
 
         doppel.imitate(player)
 
-        assert doppel.health_max == 30
-        assert doppel.health == 30
+        # Doppy keeps its own HP pool regardless of target.
+        assert doppel.health == 80
+        assert doppel.health_max == 100
+
+    def test_same_form_re_imitate_is_noop(self):
+        """Imitating the player whose face is already worn should
+        short-circuit. Prevents per-round narration spam and stat
+        thrashing when the same player keeps landing the hardest
+        hit in ``on_combat_round``."""
+        doppel = Doppelganger()
+        player = _make_player(name="Serena", defense=5, dodge=5)
+
+        first = doppel.imitate(player)
+        assert first  # the transformation narration
+        assert doppel.name == "Serena"
+
+        # Change a stat to detect re-run side-effects.
+        doppel.defense = 999
+        second = doppel.imitate(player)
+        assert second == ""
+        assert doppel.defense == 999  # not re-overwritten to 5
 
     def test_adds_inventory_to_loot(self):
         doppel = Doppelganger()

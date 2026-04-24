@@ -14,6 +14,8 @@ from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.mixins import Equippable as _Equippable
 from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
 from caldanai.lib.rpg.creatures.body_parts.eye import EyePlugin
+from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
+from caldanai.lib.rpg.creatures.body_parts.hand import HandPlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
 from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
@@ -169,8 +171,18 @@ PLAYER_BODY_TREE = node(TorsoPlugin, name="torso", health_max=30, children=[
             *paired(EyePlugin, "eye", health_max=4),
         ]),
     ]),
-    *paired(ArmPlugin, "arm", health_max=10),
-    *paired(LegPlugin, "leg", health_max=12),
+    *paired(
+        ArmPlugin, "arm", health_max=10,
+        children_builder=lambda side: [
+            node(HandPlugin, name=f"hand.{side}", health_max=6),
+        ],
+    ),
+    *paired(
+        LegPlugin, "leg", health_max=12,
+        children_builder=lambda side: [
+            node(FootPlugin, name=f"foot.{side}", health_max=8),
+        ],
+    ),
 ])
 
 
@@ -488,7 +500,7 @@ class Player(Creature):
 
         Inner dicts are LIVE REFERENCES to each node's
         ``placements`` dict, so mutations through this view
-        (``player.part_equipment["head"]["helm"] = item``) write
+        (``player.part_equipment["head"]["worn"] = item``) write
         directly to the node. That's the back-compat contract for
         the hundred-plus call sites predating B3; new code should
         go through :meth:`place` / :meth:`clear_placement` instead.
@@ -555,20 +567,33 @@ class Player(Creature):
         admin surface ever grows a player-side part-destroy
         command, wire it through this method too.
         """
-        if part_name not in self.part_equipment:
+        # Phase D: a destroyed non-critical part takes its whole
+        # subtree out of reachable service — a broken arm makes
+        # the hand below it functionally unusable too, even if
+        # the hand's own health is still full. Walk the destroyed
+        # part's subtree and drop gear from every Equippable
+        # descendant along with the part itself, so a wand held
+        # by a hand under a broken arm returns to inventory.
+        root = self.get_part(part_name)
+        if root is None:
             return
-        # Collect unique Item instances from this part's
-        # placements — a single multi-slot item could appear at
-        # more than one key, and ``remove`` deduplicates naturally.
+        # Collect unique Item instances across the whole subtree —
+        # a single multi-slot item could appear at more than one
+        # key on potentially different nodes, and ``remove``
+        # deduplicates naturally.
         items: List[Equipment] = []
         seen: set = set()
-        for key, item in self.part_equipment[part_name].items():
-            if item is None:
+        for node in root.walk():
+            part_placements = self.part_equipment.get(node.name)
+            if not part_placements:
                 continue
-            if id(item) in seen:
-                continue
-            seen.add(id(item))
-            items.append(item)
+            for key, item in part_placements.items():
+                if item is None:
+                    continue
+                if id(item) in seen:
+                    continue
+                seen.add(id(item))
+                items.append(item)
         for item in items:
             self.remove(item)
 
@@ -891,8 +916,8 @@ class Player(Creature):
             WeaponAttackSource,
         )
 
-        lh: Weapon = self.part_equipment.get("arm.left", {}).get("held")
-        rh: Weapon = self.part_equipment.get("arm.right", {}).get("held")
+        lh: Weapon = self.part_equipment.get("hand.left", {}).get("held")
+        rh: Weapon = self.part_equipment.get("hand.right", {}).get("held")
 
         # Detect a two-handed weapon on EITHER arm — pre-2026-04-22
         # this only checked ``lh``, which meant a right-arm-only
@@ -960,8 +985,8 @@ class Player(Creature):
         # weapon can't be wielded even if one arm is still good.
         # Check BOTH arms for the multi-slot flag — mirror of the
         # same defense-in-depth addition in ``get_attack_sources``.
-        lh = self.part_equipment.get("arm.left", {}).get("held")
-        rh = self.part_equipment.get("arm.right", {}).get("held")
+        lh = self.part_equipment.get("hand.left", {}).get("held")
+        rh = self.part_equipment.get("hand.right", {}).get("held")
         two_h = None
         if lh and EquipmentSlots.MULTI_SLOT & lh.slots:
             two_h = lh
@@ -1125,11 +1150,11 @@ class Player(Creature):
 
         Accepts three forms, in priority order:
 
-        1. **Full** ``part.key`` — ``arm.left.held``, ``head.helm``,
-           ``torso.cape``. Walks every split point between dots so
-           a multi-segment key (``head.ear.left``) resolves
+        1. **Full** ``part.key`` — ``hand.left.held``, ``head.worn``,
+           ``torso.outer``. Walks every split point between dots so
+           a multi-segment key (``head.earring.left``) resolves
            correctly even though its key contains a dot.
-        2. **Bare key** — ``helm``, ``held``, ``cape``. Scans
+        2. **Bare key** — ``worn``, ``held``, ``outer``. Scans
            anatomy in :data:`PLACEMENT_DISPLAY_ORDER` (head-to-toe)
            and returns the first occupied placement whose key
            matches. Ambiguous keys (``held`` with both hands
@@ -1181,16 +1206,16 @@ class Player(Creature):
         query matches. Three patterns, tried in order:
 
         1. **Full ``part.key``** — resolves to a single specific
-           placement. ``arm.left.held`` selects exactly that
+           placement. ``hand.left.held`` selects exactly that
            placement and bypasses all broadening.
-        2. **Bare key** (``held``, ``ring``, ``cape``) — broadens
+        2. **Bare key** (``held``, ``ring``, ``outer``) — broadens
            to every occupied placement with that key across every
            part. ``$stow held`` clears both hands.
         3. **Bare part name** (``torso``, ``arm``, ``head``) —
            broadens to every occupied placement ON that part (or
            parts, if the query is a fuzzy-prefix match like
            ``arm`` covering ``arm.left`` and ``arm.right``).
-           ``$stow torso`` clears cape + chest + belt together.
+           ``$stow torso`` clears worn + outer + accent together.
 
         Uses :data:`PLACEMENT_DISPLAY_ORDER` so head-before-torso
         and left-before-right is the stable iteration order. Two-
@@ -1271,7 +1296,7 @@ class Player(Creature):
           single-match enforced. ``.best`` / ``.quality`` / ``.N``
           selectors honored.
         - ``"stow"`` — placement-first. Placement keys
-          (``head.helm``, ``cape``, ``held``) resolve to the
+          (``head.worn``, ``outer``, ``held``) resolve to the
           currently-equipped item at that placement. Items not
           equipped at all are NOT returned — stow's purpose is
           un-equipping, so an inventory-only match is a no-op.
@@ -1301,10 +1326,10 @@ class Player(Creature):
 
         # ---- ``stow`` mode: placement-first with bare-key broadening.
         # A full ``part.key`` query selects exactly that placement;
-        # a bare key (``held`` / ``ring`` / ``glove``) stows EVERY
+        # a bare key (``held`` / ``ring`` / ``worn``) stows EVERY
         # occupied placement with that key. This matches how players
-        # think about it — "stow helm" clears the helm, "stow held"
-        # clears everything you're holding.
+        # think about it — "stow worn" clears every worn layer,
+        # "stow held" clears everything you're holding.
         if mode == "stow":
             placements = self.find_all_equipped_matching_placement(str(q))
             if placements:
@@ -1357,7 +1382,7 @@ class Player(Creature):
                     ambiguity_candidates=_candidate_labels(candidates),
                 )
             # No inventory match — fall back to placement lookup so
-            # e.g. ``$item head.helm`` shows the currently-worn helm.
+            # e.g. ``$item head.worn`` shows the currently-worn helm.
             # Bare-key queries (``held``) that match multiple occupied
             # placements surface ambiguity — unlike ``$stow held``,
             # we can't meaningfully show multiple item embeds in one
@@ -1711,6 +1736,12 @@ class Player(Creature):
         A multi-placement item (two-handed weapon, paired gear)
         appears once per placement so the player can see e.g. a
         longsword is tying up both hands.
+
+        Placements are grouped per body part (one field per part)
+        because Phase D's segmented anatomy has 27 placements —
+        above Discord's 25-field embed limit. Per-part grouping
+        keeps every layer visible under ``show_all`` without
+        tripping error 50035.
         """
         embed = Embed(title=f"Player Equipment", description=f"for {self.name} on {guild_name}", color=0x00FFFF)
 
@@ -1718,18 +1749,28 @@ class Player(Creature):
             ("Equipped", "---------------------------------------------------", False),
         ]
 
+        # Group placements by part in display order. One field per
+        # part holds every placement's line; empty placements only
+        # render when ``show_all`` is on.
+        part_buckets: "Dict[str, List[str]]" = {}
+        part_order: "List[str]" = []
         for (part_name, key) in PLACEMENT_DISPLAY_ORDER:
             if part_name not in self.part_equipment:
                 continue
             if key not in self.part_equipment[part_name]:
                 continue
             item = self.part_equipment[part_name][key]
-            label = f"{part_name}.{key}"
-            if item is None:
-                if show_all:
-                    fields.append((label, "None", True))
-            else:
-                fields.append((label, item.get_full_name(), True))
+            if item is None and not show_all:
+                continue
+            value = item.get_full_name() if item is not None else "_(empty)_"
+            line = f"`{key}`: {value}"
+            if part_name not in part_buckets:
+                part_buckets[part_name] = []
+                part_order.append(part_name)
+            part_buckets[part_name].append(line)
+
+        for part_name in part_order:
+            fields.append((part_name, "\n".join(part_buckets[part_name]), False))
 
         for f, v, i in fields:
             embed.add_field(name=f, value=v, inline=i)
@@ -1777,8 +1818,8 @@ class Player(Creature):
 
         embed = Embed(title=f"Player Profile", description=f"for {self.name} on {guild_name}", color=0x00FFFF)
 
-        lh: Weapon = self.part_equipment.get("arm.left", {}).get("held")
-        rh: Weapon = self.part_equipment.get("arm.right", {}).get("held")
+        lh: Weapon = self.part_equipment.get("hand.left", {}).get("held")
+        rh: Weapon = self.part_equipment.get("hand.right", {}).get("held")
 
         fields = [
             ("\u200b", "\u200b", False),

@@ -495,7 +495,6 @@ class Creature:
                 victims_order.append(victim)
 
             target_part = coupled_part
-            target_dodge = None
             if target_part is None and getattr(victim, "body_parts", None):
                 attacker_scale = _attack_scale_of(self)
                 target_scale = _attack_scale_of(victim)
@@ -506,15 +505,12 @@ class Creature:
                 if target_part is not None:
                     ratio = attacker_scale / max(0.01, target_scale)
                     target_part = _collapse_to_region(target_part, ratio)
-            if target_part is not None:
-                target_dodge = victim.get_targeted_dodge(self, target_part, source)
 
             atk_roll, dmg_roll = source.make_attack_rolls(self)
             result = victim.resolve_attack(
                 self, source, atk_roll, dmg_roll,
-                target_dodge=target_dodge, target_part=target_part,
+                target_part=target_part,
             )
-            result.target_part = target_part
             result.victim = victim
             self._on_attack_resolved(source, result)
             victim_buckets[id(victim)].append(result)
@@ -857,24 +853,11 @@ class Creature:
             else:
                 target_part = None
 
-            # Targeted-dodge math applies whenever a part is on the
-            # receiving end, regardless of how it was chosen. The tax
-            # lives with the *target* (small/hard-to-reach parts are
-            # harder to hit), not with the *intent* — otherwise a
-            # random swing that happens to land on an eye would hit it
-            # easier than a deliberate eye-poke, which is the wrong
-            # narrative. Shared with custom ``do_attack`` overrides
-            # via ``Creature.get_targeted_dodge``.
-            target_dodge: Optional[int] = None
-            if target_part is not None:
-                target_dodge = target.get_targeted_dodge(self, target_part, source)
-
             atk_roll, dmg_roll = source.make_attack_rolls(self)
             result = target.resolve_attack(
                 self, source, atk_roll, dmg_roll,
-                target_dodge=target_dodge, target_part=target_part,
+                target_part=target_part,
             )
-            result.target_part = target_part  # store for damage application + display
             results.append(result)
             self._on_attack_resolved(source, result)
         return AttackSequence(attacker=self, target=target, results=results)
@@ -1084,71 +1067,129 @@ class Creature:
                 return parse(template, self, attacker)
         return None
 
+    def _walk_to_aim(
+        self,
+        attacker: "Creature",
+        aim_point: BodyPart,
+        atk_roll: AttackRoll,
+        source: AttackSource,
+    ) -> Tuple[Optional[BodyPart], int]:
+        """Depth-walk resolution.
+
+        Walks ``torso → ... → aim_point`` (root to aim), checking
+        the same attack roll against each level's effective
+        dodge. Returns ``(landed_part, effective_dodge_of_landed)``
+        where:
+
+        - ``landed_part`` is the deepest part the roll beat.
+        - On no-level-beaten: returns ``(None, effective_dodge_of_aim)``
+          so the caller sees a clean miss.
+        - On stalled-at-shallower-depth: a big-vs-small attacker
+          (``ratio > _REGION_COLLAPSE_THRESHOLD``) rolls up —
+          the hit resolves on the last-successfully-beaten part.
+          Same-size / small-vs-big stall cleanly misses ("swing
+          went wide"), matching the owner's locked design.
+
+        The effective dodge value returned is reported back in
+        the ``AttackResult`` for display and narration; it's the
+        dodge of the landed (or nominal miss) part, not a
+        creature-wide value.
+
+        Crits and fumbles short-circuit the walk and return at the
+        aim point — ``CombinedRoll`` already encodes the hit/miss
+        verdict for those rolls (crit auto-hits, fumble auto-
+        misses), and stalling mid-walk on a crit would silently
+        demote it to a miss on a same-size stall.
+        """
+        if atk_roll.isCritical or atk_roll.isFumble:
+            return aim_point, effective_dodge_for_part(self, aim_point, attacker, source)
+
+        # Build path: root (ancestors reversed) + aim_point itself.
+        path: List[BodyPart] = list(aim_point.ancestors())[::-1]
+        path.append(aim_point)
+
+        deepest_beaten: Optional[BodyPart] = None
+        deepest_dodge: int = 0
+        for part in path:
+            threshold = effective_dodge_for_part(self, part, attacker, source)
+            if atk_roll.result >= threshold:
+                deepest_beaten = part
+                deepest_dodge = threshold
+            else:
+                break
+
+        # No depth beaten → swing missed even the torso.
+        if deepest_beaten is None:
+            return None, effective_dodge_for_part(self, aim_point, attacker, source)
+
+        # Beat the full depth → full hit at aim.
+        if deepest_beaten is aim_point:
+            return aim_point, deepest_dodge
+
+        # Stalled at shallower depth — roll-up vs miss branches
+        # on size ratio, matching `_collapse_to_region` threshold.
+        attacker_scale = _attack_scale_of(attacker)
+        target_scale = _attack_scale_of(self)
+        ratio = attacker_scale / max(0.01, target_scale)
+        if ratio > _REGION_COLLAPSE_THRESHOLD:
+            return deepest_beaten, deepest_dodge
+        # Same-size miss: return None to flag the miss; report
+        # the aim's effective dodge so the roll-vs-dodge narration
+        # feels coherent ("rolled 11 vs dodge 13 for eye").
+        return None, effective_dodge_for_part(self, aim_point, attacker, source)
+
     def resolve_attack(
         self,
         attacker: "Creature",
         source: AttackSource,
         atk_roll: AttackRoll,
         dmg_roll: DamageRoll,
-        target_dodge: Optional[int] = None,
         target_part: Optional[BodyPart] = None,
     ) -> AttackResult:
         """Pure calculation of a single attack against this creature.
 
-        Computes hit/miss and applies trait multipliers.  Defense is NOT
-        subtracted per-source — it is subtracted once from the per-player
-        total in ``do_combat`` (variant B, restored pre-refactor balance).
+        Computes hit/miss and applies trait multipliers. Defense is
+        NOT subtracted per-source — it is subtracted once from the
+        per-player total in ``do_combat``.
 
-        ``target_dodge`` lets the caller override the dodge check value
-        (used by per-part dodge scaling when a player explicitly targets
-        a low-exposure body part). When ``None``, the creature's base
-        dodge is used.
-
-        ``target_part`` lets the caller pass the aimed-at part so the
-        per-part ``defense_bonus`` adjusts effective defense for THIS
-        hit. Q.6.2 made defense apply per-hit at the part level (not
-        once per round at body HP) so an armored torso actually gates
-        part destruction; Q.6.3 replaced the earlier multiplicative
-        ``defense_mod`` with an additive integer ``defense_bonus``
-        for integer-exact math and directly-readable declaration
-        sites. Body HP is then drained by the already-post-defense
-        ``result.damage`` × ``bleed_rate`` without further defense
-        subtract.
+        ``target_part`` is the aimed-at body part. The depth-walk
+        through :meth:`_walk_to_aim` may resolve the landed part at
+        a shallower depth (big-vs-small roll-up) or flag a miss
+        (same-size stall). Either way the resolved part lands on
+        ``result.target_part`` for downstream damage routing.
+        Body-less creatures and no-aim calls fall back to creature-
+        wide ``get_dodge`` / ``get_defense`` with no walk.
         """
-        dodge = target_dodge if target_dodge is not None else self.get_dodge()
-        defense = self.get_defense()
-        if target_part is not None:
-            # Q.6.3: additive integer adjustment per part. Anatomy
-            # adjusts base_def by a signed bonus — tank torso +3,
-            # limb -1, eye clamps via SOFT_PART. Integer math avoids
-            # the earlier ``int(base × mult)`` truncation drama, and
-            # reads as "base_def plus/minus N" at the part declaration
-            # site.
-            defense = max(
-                0, defense + getattr(target_part, "defense_bonus", 0),
-            )
-
         # Apply attacker's HIT modifier (eye/head functionality)
         hit_mod = attacker.get_hit_modifier()
         if hit_mod != 0:
             atk_roll.skillBonus += hit_mod
             atk_roll.result += hit_mod
 
+        if target_part is not None and self.body_parts:
+            resolved_part, resolved_dodge = self._walk_to_aim(
+                attacker, target_part, atk_roll, source,
+            )
+            dodge = resolved_dodge
+            if resolved_part is None:
+                # Walk failed outright (no depth beaten) or stalled
+                # same-size. Report the aim back for narration; the
+                # roll is < resolved_dodge so CombinedRoll flags miss.
+                defense = 0
+                reported_target = target_part
+            else:
+                defense = effective_defense_for_part(self, resolved_part)
+                reported_target = resolved_part
+        else:
+            # Body-less creature (spirit) or no-aim call: creature-
+            # wide dodge / defense, no per-part resolution.
+            dodge = self.get_dodge()
+            defense = self.get_defense()
+            reported_target = target_part
+
         combined = CombinedRoll(atk_roll, dmg_roll, dodge)
         multiplier = self.get_trait_multiplier(source.damage_type)
         sub_dmg = int(multiplier * combined.result)
-        # Q.6.2: per-hit defense subtract, floor at 1 so "you
-        # connected" still registers. Q.6.3: ``defense_bonus`` on
-        # the part (tank torso +4, exposed eye SOFT_PART) adjusts
-        # how much of this hit the part absorbs before the HP pool
-        # actually drops.
-        #
-        # Sub-damage floor: a landed hit against a *partially*-
-        # resistant trait (e.g. werewolf 0.75x on a d4 roll of 1 =
-        # int(0.75) = 0) should still deal at least 1 damage — the
-        # hit connected and the creature isn't immune. Full immunity
-        # is signalled explicitly by ``multiplier == 0``, which still
-        # produces zero damage below.
         if combined.isMiss or multiplier == 0:
             damage = 0
         else:
@@ -1163,6 +1204,7 @@ class Creature:
             dodge=dodge,
             dmg_type=source.damage_type,
         )
+        result.target_part = reported_target
         # Per-hit narration: trait-aware flavor (e.g. "bones crack"
         # for bludgeoning vs skeleton). Surfaces in extra_text so it
         # renders below the attack row.
@@ -1382,44 +1424,6 @@ class Creature:
         emergent = int(self.dodge * ratio * size_mod) + self.core_agility
         floor = 1 if ratio > 0 else 0
         return max(floor, emergent)
-
-    def get_targeted_dodge(
-        self,
-        attacker: "Creature",
-        target_part: BodyPart,
-        source: AttackSource,
-    ) -> int:
-        """Effective dodge when ``attacker`` is deliberately aiming at
-        ``target_part`` on this creature. Composes three factors on top
-        of ``get_dodge()``:
-
-        - **Exposure**: the part's ``exposure[source.reach]`` value.
-          Lower exposure → the part is harder to pinpoint → effective
-          dodge scales up. Bounded below by ``EXPOSURE_FLOOR`` to keep
-          the math from exploding on near-zero exposures.
-        - **Size ratio**: ``attacker.attack_scale / self.attack_scale``,
-          clamped to ``[SIZE_RATIO_MIN, SIZE_RATIO_MAX]``. Captures the
-          "nimble vs massive" asymmetry — a TINY attacker finds a
-          MEDIUM target's parts easier, a HUGE attacker finds a TINY
-          target's parts harder. Clamp prevents extreme mismatches
-          (pixie vs colossal dragon) from trivializing combat.
-
-        Called from the base :meth:`do_attack` when a preferred or
-        explicit target is honored. Custom ``do_attack`` / ``attack_random``
-        overrides (hydra, future multi-target monsters) can call this
-        method directly instead of re-implementing the formula. Monsters
-        with bespoke targeting rules may override this method; the base
-        :meth:`do_attack` will still use the override via normal dispatch.
-        """
-        base = self.get_dodge()
-        exp = target_part.exposure.get(source.reach, 1.0)
-        attacker_scale = attacker.size.value.get("attack_scale", 1.0)
-        target_scale = self.size.value.get("attack_scale", 1.0)
-        size_ratio = max(
-            SIZE_RATIO_MIN,
-            min(SIZE_RATIO_MAX, attacker_scale / target_scale),
-        )
-        return int(base * size_ratio / max(EXPOSURE_FLOOR, exp))
 
     def get_health_max(self) -> int:
         return self.health_max
@@ -1983,6 +1987,151 @@ def _mixin_functionality(
     return active_weight / total_weight
 
 
+# ---------------------------------------------------------------------------
+# Depth-walk dodge + defense (formerly "Phase C")
+# ---------------------------------------------------------------------------
+#
+# Every attack resolves through ``effective_dodge_for_part`` /
+# ``effective_defense_for_part`` via the depth-walk in
+# :meth:`Creature._walk_to_aim`. Body-less creatures fall back to
+# creature-wide ``get_dodge`` / ``get_defense`` in
+# :meth:`resolve_attack`; there's no longer a separate resolver
+# branch to gate.
+
+#: Per-level depth coefficient. Each level of tree depth adds
+#: this much to effective dodge and subtracts this much from
+#: effective defense. Starts at 1 (gentle slope); adjust during
+#: tuning sweeps.
+DEPTH_COEFFICIENT: int = 1
+
+#: Defense multiplier for parts explicitly marked
+#: ``defense_bonus = SOFT_PART`` on their plugin class. Represents
+#: the "designated weak spot" encoding — a bare eye or wing
+#: still has skin / bone / sinew to tank with, but substantially
+#: less than a reinforced core. Depth penalty is NOT layered on
+#: top of the fraction since the fraction is itself the "this
+#: part is weaker than the creature's average" signal.
+#:
+#: 0.1 collapses to 0 at ``int(...)`` for any creature with base
+#: defense ≤ 9 — which covers most of the bestiary. Only high-
+#: defense creatures (bearowl 18, dragon 27, cyclops, golem) see
+#: a non-zero absorption, which is exactly where the design
+#: intent "even a bare wing isn't a gaping wound" matters.
+SOFT_PART_FRACTION: float = 0.1
+
+
+def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
+    """Per-part dodge used by :meth:`Creature._walk_to_aim`.
+
+    Formula (with full context available)::
+
+        scaled = int(creature.get_dodge() × size_ratio ÷ max(FLOOR, exposure))
+        return max(0, scaled + part.depth × DEPTH_COEFFICIENT + part.dodge_offset)
+
+    Three factors compose:
+
+    - **Size ratio** (attacker / target) — big attacker vs. small
+      target pays extra dodge, small attacker vs. big target gets
+      a bonus. Clamped to ``[SIZE_RATIO_MIN, SIZE_RATIO_MAX]`` so
+      pixie-vs-colossal doesn't trivialize or break the math.
+    - **Exposure** (``source.reach``) — low-exposure parts (eye 0.1)
+      are harder to pinpoint; floored at ``EXPOSURE_FLOOR`` so a
+      near-zero value doesn't blow dodge up to infinity.
+    - **Depth** — extremities are slightly harder to hit than the
+      torso via a small additive ramp.
+
+    ``attacker`` and ``source`` are optional so introspection tools
+    (``inspect_body_tree --stats``) can read a static baseline
+    without inventing an attack context. When either is missing,
+    size_ratio falls back to 1.0 and exposure to 1.0 — both neutral.
+    """
+    base = creature.get_dodge()
+
+    size_ratio = 1.0
+    if attacker is not None:
+        size_ratio = max(
+            SIZE_RATIO_MIN,
+            min(
+                SIZE_RATIO_MAX,
+                _attack_scale_of(attacker) / max(0.01, _attack_scale_of(creature)),
+            ),
+        )
+
+    exp = 1.0
+    if source is not None:
+        # Literal dict .get — exposure may legitimately be 0.0, which
+        # must land intact so EXPOSURE_FLOOR clamps it below (falsy
+        # short-circuit like ``or 1.0`` would silently re-float it
+        # and skip the floor).
+        exp = getattr(part, "exposure", {}).get(source.reach, 1.0)
+
+    scaled_base = int(base * size_ratio / max(EXPOSURE_FLOOR, exp))
+    depth_bonus = part.depth * DEPTH_COEFFICIENT
+    offset = getattr(part, "dodge_offset", 0)
+    return max(0, scaled_base + depth_bonus + offset)
+
+
+def effective_defense_for_part(creature, part) -> int:
+    """Per-part defense. Two paths depending on whether the plugin
+    class marked the part as a SOFT_PART weak spot.
+
+    **SOFT_PART parts** (eye, wing, bare limb — sentinel value
+    -999 on ``defense_bonus``): defense = ``SOFT_PART_FRACTION``
+    × creature base defense + per-plugin offset + local worn
+    armor. The fraction already encodes "this part is
+    substantially less defended than the core," so depth is NOT
+    layered on top (compounding would drive most soft parts to
+    zero and erase the tuning knob).
+
+    **Plated parts** (torso, dragon torso +3, golem head +4,
+    etc. — any non-SOFT_PART ``defense_bonus``): defense =
+    creature base defense - depth × DEPTH_COEFFICIENT +
+    intrinsic plating + per-plugin offset + local worn armor.
+    The depth curve captures "extremities are less protected
+    than core"; the intrinsic bonus is the creature's natural
+    armor; local armor is worn gear on this specific part.
+
+    Armor defense contributions are LOCAL — a chest plate on
+    torso doesn't protect the arms. Armor dodge contributions
+    (handled separately by :func:`effective_dodge_for_part` via
+    ``creature.get_dodge()``) DO aggregate because armor slows
+    the whole creature down, not just the armored part.
+    """
+    from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+    from caldanai.lib.rpg.creatures.mixins import Equippable
+
+    # Bypass Player.get_defense which aggregates armor; we want
+    # the emergence-only base so the per-part path doesn't
+    # double-count worn armor.
+    base = Creature.get_defense(creature)
+    offset = getattr(part, "defense_offset", 0)
+
+    local_armor = 0
+    if isinstance(part, Equippable):
+        placements = getattr(part, "placements", None) or {}
+        for item in placements.values():
+            if item is None:
+                continue
+            bonuses = getattr(item, "bonuses", None)
+            if bonuses:
+                local_armor += bonuses.get("defense", 0)
+
+    intrinsic_raw = getattr(part, "defense_bonus", 0)
+
+    if intrinsic_raw == BodyPartPlugin.SOFT_PART:
+        # Soft spot: fractional base defense, no depth layering.
+        # Worn armor and per-plugin offset still apply — a bare
+        # eye has some inherent tissue resistance, and strapping
+        # a face-guard on top only adds to it.
+        soft_base = int(base * SOFT_PART_FRACTION)
+        return max(0, soft_base + offset + local_armor)
+
+    # Plated part: base + intrinsic - depth + armor + offset.
+    depth_penalty = part.depth * DEPTH_COEFFICIENT
+    intrinsic = max(0, intrinsic_raw)
+    return max(0, base + offset + intrinsic + local_armor - depth_penalty)
+
+
 def _attack_scale_of(creature) -> float:
     """Look up a creature's silhouette scale (``attack_scale``).
 
@@ -2047,7 +2196,7 @@ def _collapse_to_region(
     Symmetric flavor: this function only fires on big-vs-small
     (``ratio > 1``). Small-vs-big gets its own dynamic from
     :func:`_size_attractor` (which triples eye pick rate) combined
-    with :meth:`Creature.get_targeted_dodge`'s inverse-ratio dodge
+    with :func:`effective_dodge_for_part`'s inverse-ratio dodge
     reduction — no mirrored collapse needed.
     """
     if ratio <= _REGION_COLLAPSE_THRESHOLD:

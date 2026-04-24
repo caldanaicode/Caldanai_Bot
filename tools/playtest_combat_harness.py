@@ -136,15 +136,15 @@ def _build_player(
             if w.skill not in p.skills:
                 p.skills[w.skill] = _xp_for_level(skill_level)
 
-    # Equip into the part-equipment shape. Two-handed weapons
-    # share the same instance across both arm.*.held keys.
+    # Equip into the part-equipment shape. Phase D moved weapons
+    # from arm.*.held to hand.*.held.
     if weapon:
         w_main = _instantiate_weapon(weapon, quality)
         if EquipmentSlots.MULTI_SLOT & w_main.slots:
-            p.part_equipment["arm.left"]["held"] = w_main
-            p.part_equipment["arm.right"]["held"] = w_main
+            p.part_equipment["hand.left"]["held"] = w_main
+            p.part_equipment["hand.right"]["held"] = w_main
         else:
-            p.part_equipment["arm.left"]["held"] = w_main
+            p.part_equipment["hand.left"]["held"] = w_main
             if offhand:
                 w_off = _instantiate_weapon(offhand, quality)
                 if EquipmentSlots.MULTI_SLOT & w_off.slots:
@@ -152,7 +152,7 @@ def _build_player(
                         f"Offhand weapon '{offhand}' is two-handed; "
                         "pick a one-handed offhand or omit --offhand."
                     )
-                p.part_equipment["arm.right"]["held"] = w_off
+                p.part_equipment["hand.right"]["held"] = w_off
     return p
 
 
@@ -481,6 +481,7 @@ def _sweep_monster_worker(
     player_hp: int,
     player_defense: int,
     player_dodge: int,
+    depth_coef: "int | None" = None,
 ) -> dict:
     """Multiprocessing worker: sweep one monster end-to-end.
 
@@ -492,8 +493,15 @@ def _sweep_monster_worker(
     ``quality_name`` is the enum name rather than the instance — the
     enum isn't guaranteed to round-trip cleanly through the
     multiprocessing pickle boundary on every Python build.
+
+    ``depth_coef`` is passed explicitly because each subprocess
+    re-imports the creatures module with its default value —
+    mutating the parent's module object doesn't propagate.
     """
     quality = Qualities[quality_name]
+    if depth_coef is not None:
+        from caldanai.lib.rpg import creatures as _creatures_module
+        _creatures_module.DEPTH_COEFFICIENT = depth_coef
     with (
         patch("caldanai.dispatcher.Dispatcher"),
         patch("caldanai.lib.rpg.Dispatcher"),
@@ -582,12 +590,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="Weapon quality tier.")
     ap.add_argument("--skill", type=int, default=10,
                     help="Weapon skill level (0-20).")
+    # Defaults match the live Player(...) constructor defaults
+    # in caldanai/lib/rpg/creatures/player.py (hp/def/dodge 20/6/6).
+    # Live gear routinely lifts dodge to 16-18 via armor bonuses;
+    # these are the pre-gear baseline a fresh player starts with.
     ap.add_argument("--player-hp", type=int, default=20,
-                    help="Player HP (default 20).")
-    ap.add_argument("--player-defense", type=int, default=3,
-                    help="Player defense (default 3).")
-    ap.add_argument("--player-dodge", type=int, default=15,
-                    help="Player dodge (default 15).")
+                    help="Player HP (default 20 — live Player init).")
+    ap.add_argument("--player-defense", type=int, default=6,
+                    help="Player base defense (default 6 — live Player init).")
+    ap.add_argument("--player-dodge", type=int, default=6,
+                    help="Player base dodge (default 6 — live Player init).")
     ap.add_argument("--player-name", default="Harness",
                     help="Player name (default 'Harness').")
     ap.add_argument("--monster", default=None,
@@ -624,12 +636,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="Max rounds per trial (default 50).")
     ap.add_argument("--seed", type=int, default=0,
                     help="RNG seed (default 0).")
+    ap.add_argument("--depth-coef", type=int, default=None,
+                    help="Override DEPTH_COEFFICIENT for the depth-walk "
+                         "resolver (default = module value, currently 1).")
     args = ap.parse_args(argv)
 
     random.seed(args.seed)
 
     if not args.monster and not args.sweep_monsters:
         ap.error("either --monster or --sweep-monsters is required")
+
+    if args.depth_coef is not None:
+        from caldanai.lib.rpg import creatures as _creatures_module
+        _creatures_module.DEPTH_COEFFICIENT = args.depth_coef
 
     # Sweep modes default quality to MASTERWORK if user didn't
     # override, since the sweep's job is "what's possible at best gear."
@@ -666,6 +685,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         args.player_hp,
                         args.player_defense,
                         args.player_dodge,
+                        args.depth_coef,
                     )
                     for stem in stems
                 ]

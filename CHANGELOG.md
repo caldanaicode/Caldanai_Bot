@@ -4,6 +4,113 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — Phase C depth-walk resolver + Phase D segmented anatomy
+
+Phase C and D ship together. Combat resolution walks from torso
+down to the aimed body part, computing effective dodge / defense
+per depth level. Arm and leg gain ``hand`` and ``foot`` child
+nodes (Phase D); equipment placement vocabulary collapses to a
+generic ``worn`` / ``held`` / ``outer`` / ``accent`` set.
+
+**Operator note:** run the migration before this build touches
+production, otherwise pre-D equipment silently drops at load:
+
+    python -m tools.migrate_to_segmented_anatomy LIVE_DB_NAME          # dry-run
+    python -m tools.migrate_to_segmented_anatomy LIVE_DB_NAME --write  # apply
+
+Combat resolver:
+
+- ``Creature._walk_to_aim`` walks root → aim. Each depth is a
+  fresh dodge threshold. Same-size stalls miss cleanly; big-vs-
+  small stalls roll up to the last-beaten part.
+- ``effective_dodge_for_part`` composes base dodge, size-ratio
+  and exposure scaling (the former ``get_targeted_dodge`` math),
+  and an additive depth gradient.
+- ``effective_defense_for_part`` localizes armor to the specific
+  part it's worn on. Default unarmored parts absorb
+  ``base - depth``; ``SOFT_PART`` spots (eye default) absorb
+  ``int(base × 0.1)``; plated parts add intrinsic + local armor.
+- Crit / fumble short-circuit to the aim point so the walk can't
+  silently demote a crit to a miss by stalling mid-path.
+- Removed ``get_targeted_dodge``, the ``target_dodge`` resolver
+  parameter, and the ``PHASE_C_DEPTH_RESOLUTION`` flag. The
+  depth-walk is the only combat-resolution path.
+
+Segmented anatomy (Phase D):
+
+- ``HandPlugin`` + ``FootPlugin`` as depth-2 children of arm and
+  leg. Weapons land at ``hand.*.held``; boots at
+  ``foot.*.worn``; gloves at ``hand.*.worn``; rings at
+  ``hand.*.ring.1``.
+- Placement keys collapse to the generic set
+  ``worn`` / ``held`` / ``outer`` / ``accent`` with dotted sub-
+  keys (``worn.upper``, ``ring.1``, ``earring.left``).
+- ``EquipmentSlots`` enum unchanged; routing table lives at
+  ``equipment_routing.SLOT_TO_PART_KEY``.
+- ``tools/migrate_to_segmented_anatomy`` remaps existing player
+  ``part_equipment`` docs via a single ``_KEY_REMAP`` table
+  (old ``(part, key)`` → new). Dry-run default.
+
+Doppelganger fixes:
+
+- Keeps own ``health_max`` on imitation. Prior adoption of the
+  target's max trivialized the fight (20HP player shift capped
+  the doppy at 20HP).
+- Early-return guard when re-imitating the same player; stops
+  the per-round ``on_combat_round`` from re-running the full
+  imitation ritual.
+- ``uses_article = False`` so post-imitation ``@1np`` renders
+  "Serena's" instead of "the serena's".
+- Copies raw ``target.defense``, not the armor-aggregated
+  ``.get_defense()``. Deep-copied body tree carries armor via
+  localized placements; aggregated-copy would double-count.
+
+Other fixes:
+
+- ``$gear all`` no longer throws Discord error 50035. Phase D's
+  27 placements + header exceeded the 25-field embed limit;
+  ``get_equipment`` now groups placements per body part.
+- Neck exposure raised from uniform 0.2 to a head-like
+  0.6 / 0.7 / 0.8 / 0.9 (MELEE / REACH / THROWN / RANGED). The
+  0.2 value produced 3.3× dodge multipliers on neck hits under
+  the scaled-dodge formula — neck is not eye-tier geometry.
+- Default ``defense_bonus`` flipped from ``SOFT_PART`` sentinel
+  to ``0``. Eye opts into ``SOFT_PART`` explicitly. Old default
+  clamped every unarmored part to zero absorption.
+- Math teacher's "LORD OF PRIMES" narration no longer fires on
+  zero-damage hits. Pre-defense prime roll that armor fully
+  absorbed was emitting "/ 2 = 0" noise.
+
+Stale-vocabulary sweep across ``mixins.py``, ``player.py``,
+``utils.py``, ``rpg_inventory_commands.py``, and the ``neck`` /
+``head`` plugins: docstrings and user-facing help text moved
+from ``helm`` / ``cape`` / ``chest`` / ``amulet`` to the Phase D
+generic-key vocabulary.
+
+Tooling:
+
+- ``playtest_combat_harness`` and ``playtest_monster_duel`` pick
+  up a ``--depth-coef`` flag for tuning sweeps.
+- Combat-harness player defaults updated to match live Player
+  init (``def=6 dodge=6``) — the prior ``def=3 dodge=15``
+  modeled a specific geared player, creating a B4-aggregation
+  artifact that didn't correspond to fresh Players.
+- Sweep captures land in a gitignored ``sweeps/`` directory.
+
+Tests:
+
+- New ``test_resolver_depth_walk`` + ``test_effective_stats``
+  covering the walk and per-part helpers end-to-end.
+- New ``test_tools_migrate_to_segmented_anatomy`` pinning the
+  key-remap table, collision warnings, and all-None placements.
+- Removed ``test_per_part_dodge`` (coverage folded into the new
+  effective-stats + resolver tests).
+- Fixed trivially-passing assertions in ``test_loadouts`` and
+  ``test_destroyed_part_drops_gear`` that had survived Phase D
+  renames unnoticed.
+
+Suite: 3536 passing.
+
 ### 2026-04-22 — Gear loadouts: ``$loadout save / load / clear``
 
 QoL follow-up to stage 2a. Players can snapshot their current

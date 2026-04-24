@@ -28,8 +28,11 @@ from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.body_builder import node, paired
 from caldanai.lib.rpg.creatures.body_parts.arm import ArmPlugin
+from caldanai.lib.rpg.creatures.body_parts.foot import FootPlugin
+from caldanai.lib.rpg.creatures.body_parts.hand import HandPlugin
 from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.creatures.body_parts.leg import LegPlugin
+from caldanai.lib.rpg.creatures.body_parts.neck import NeckPlugin
 from caldanai.lib.rpg.creatures.body_parts.torso import TorsoPlugin
 from caldanai.lib.rpg.creatures.body_parts.wing import WingPlugin
 from caldanai.lib.rpg.creatures import Creature
@@ -39,15 +42,26 @@ from caldanai.lib.rpg.helpers.enums import (
 
 
 class Pixie(MonsterPlugin):
-    # Humanoid template plus wings. No eye parts (matches pre-B1
-    # anatomy — pixie perception is fae-sensing, HIT emergence
-    # falls back to the head). The ``"flying"`` flag (set in
-    # __init__) makes dodge emerge from wings while airborne —
-    # mirrors dragon / bearowl.
+    # Phase D segmented humanoid + wings. Still no eye parts —
+    # pixie perception is fae-sensing, HIT emergence uses the
+    # head as a Sensory fallback. The ``"flying"`` flag (set in
+    # __init__) makes dodge emerge from wings while airborne.
     BODY_TREE = node(TorsoPlugin, name="torso", children=[
-        node(HeadPlugin, name="head"),
-        *paired(ArmPlugin, "arm"),
-        *paired(LegPlugin, "leg"),
+        node(NeckPlugin, name="neck", children=[
+            node(HeadPlugin, name="head"),  # no eyes
+        ]),
+        *paired(
+            ArmPlugin, "arm",
+            children_builder=lambda side: [
+                node(HandPlugin, name=f"hand.{side}"),
+            ],
+        ),
+        *paired(
+            LegPlugin, "leg",
+            children_builder=lambda side: [
+                node(FootPlugin, name=f"foot.{side}"),
+            ],
+        ),
         *paired(WingPlugin, "wing"),
     ])
 

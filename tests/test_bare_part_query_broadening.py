@@ -47,8 +47,8 @@ class BarePartBroadeningTests(TestCase):
         p = _fresh_player()
         cape = _fake_item("cape")
         chest = _fake_item("chest_armor")
-        p.place("torso", "cape", cape)
-        p.place("torso", "chest", chest)
+        p.place("torso", "outer", cape)
+        p.place("torso", "worn", chest)
 
         results = p.find_all_equipped_matching_placement("torso")
         items = [r[0] for r in results]
@@ -56,37 +56,37 @@ class BarePartBroadeningTests(TestCase):
         self.assertEqual(len(results), 2)
         self.assertIn(cape, items)
         self.assertIn(chest, items)
-        self.assertIn(("torso", "cape"), placements)
-        self.assertIn(("torso", "chest"), placements)
+        self.assertIn(("torso", "outer"), placements)
+        self.assertIn(("torso", "worn"), placements)
 
-    def test_bare_head_returns_helm_and_face(self):
+    def test_bare_head_returns_worn_and_outer(self):
         p = _fresh_player()
         helm = _fake_item("helm")
         bandanna = _fake_item("bandanna")
-        p.place("head", "helm", helm)
-        p.place("head", "face", bandanna)
+        p.place("head", "worn", helm)
+        p.place("head", "outer", bandanna)
 
         results = p.find_all_equipped_matching_placement("head")
         self.assertEqual(len(results), 2)
         placement_keys = {r[1][1] for r in results}
-        self.assertEqual(placement_keys, {"helm", "face"})
+        self.assertEqual(placement_keys, {"worn", "outer"})
 
-    def test_fuzzy_prefix_arm_matches_both_sides(self):
-        """``arm`` is a base name — ``find_parts`` fuzzy-
-        matches it to both ``arm.left`` and ``arm.right``. A
+    def test_fuzzy_prefix_hand_matches_both_sides(self):
+        """``hand`` is a base name — ``find_parts`` fuzzy-
+        matches it to both ``hand.left`` and ``hand.right``. A
         bare part query should collect placements across all
-        matched parts."""
+        matched parts. Phase D moved weapons to hand.*.held."""
         p = _fresh_player()
         wand_left = _fake_item("wand_left")
         wand_right = _fake_item("wand_right")
-        p.place("arm.left", "held", wand_left)
-        p.place("arm.right", "held", wand_right)
+        p.place("hand.left", "held", wand_left)
+        p.place("hand.right", "held", wand_right)
 
-        results = p.find_all_equipped_matching_placement("arm")
+        results = p.find_all_equipped_matching_placement("hand")
         self.assertEqual(len(results), 2)
         self.assertEqual(
             {r[1] for r in results},
-            {("arm.left", "held"), ("arm.right", "held")},
+            {("hand.left", "held"), ("hand.right", "held")},
         )
 
     def test_bare_key_still_wins_over_bare_part(self):
@@ -96,13 +96,13 @@ class BarePartBroadeningTests(TestCase):
         interpretation would still win, matching today's docs."""
         p = _fresh_player()
         wand = _fake_item("wand")
-        p.place("arm.left", "held", wand)
+        p.place("hand.left", "held", wand)
 
         results = p.find_all_equipped_matching_placement("held")
         # Single match via bare-key path; part-name path doesn't
         # contribute because "held" isn't a part name.
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][1], ("arm.left", "held"))
+        self.assertEqual(results[0][1], ("hand.left", "held"))
 
     def test_unoccupied_part_returns_empty(self):
         p = _fresh_player()
@@ -116,16 +116,16 @@ class BarePartBroadeningTests(TestCase):
         results = p.find_all_equipped_matching_placement("xyzzy")
         self.assertEqual(results, [])
 
-    def test_two_handed_weapon_deduplicated_on_bare_arm(self):
+    def test_two_handed_weapon_deduplicated_on_bare_hand(self):
         """A two-handed weapon shares its Item reference across
-        both arm placements. ``$item arm`` should report it
+        both hand placements. ``$item hand`` should report it
         once, not twice."""
         p = _fresh_player()
         staff = _fake_item("staff")
-        p.place("arm.left", "held", staff)
-        p.place("arm.right", "held", staff)
+        p.place("hand.left", "held", staff)
+        p.place("hand.right", "held", staff)
 
-        results = p.find_all_equipped_matching_placement("arm")
+        results = p.find_all_equipped_matching_placement("hand")
         self.assertEqual(len(results), 1)
         self.assertIs(results[0][0], staff)
 
@@ -135,12 +135,12 @@ class BarePartBroadeningTests(TestCase):
         p = _fresh_player()
         wand_left = _fake_item("wand_left")
         wand_right = _fake_item("wand_right")
-        p.place("arm.left", "held", wand_left)
-        p.place("arm.right", "held", wand_right)
+        p.place("hand.left", "held", wand_left)
+        p.place("hand.right", "held", wand_right)
 
-        results = p.find_all_equipped_matching_placement("arm.left.held")
+        results = p.find_all_equipped_matching_placement("hand.left.held")
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][1], ("arm.left", "held"))
+        self.assertEqual(results[0][1], ("hand.left", "held"))
         self.assertIs(results[0][0], wand_left)
 
 
@@ -153,7 +153,7 @@ class ItemModeAmbiguitySurfacingTests(TestCase):
     def test_item_mode_single_match_returns_item(self):
         p = _fresh_player()
         cape = _fake_item("cape")
-        p.place("torso", "cape", cape)
+        p.place("torso", "outer", cape)
 
         res = p.resolve_item_query("torso", mode="item")
         self.assertEqual(len(res.items), 1)
@@ -163,15 +163,15 @@ class ItemModeAmbiguitySurfacingTests(TestCase):
         p = _fresh_player()
         cape = _fake_item("cape")
         chest = _fake_item("chest_armor")
-        p.place("torso", "cape", cape)
-        p.place("torso", "chest", chest)
+        p.place("torso", "outer", cape)
+        p.place("torso", "worn", chest)
 
         res = p.resolve_item_query("torso", mode="item")
         # No single item chosen — ambiguity surfaced.
         self.assertEqual(res.items, [])
         self.assertEqual(
             set(res.ambiguity_candidates),
-            {"torso.cape", "torso.chest"},
+            {"torso.outer", "torso.worn"},
         )
 
     def test_stow_mode_bare_part_clears_all_on_that_part(self):
@@ -181,8 +181,8 @@ class ItemModeAmbiguitySurfacingTests(TestCase):
         p = _fresh_player()
         cape = _fake_item("cape")
         chest = _fake_item("chest_armor")
-        p.place("torso", "cape", cape)
-        p.place("torso", "chest", chest)
+        p.place("torso", "outer", cape)
+        p.place("torso", "worn", chest)
 
         res = p.resolve_item_query("torso", mode="stow")
         self.assertEqual(len(res.items), 2)

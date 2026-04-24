@@ -103,7 +103,7 @@ class MathTeacher(MonsterPlugin):
 
     def _on_attack_resolved(self, source: AttackSource, result: AttackResult) -> None:
         """Doubles prime damage dealt by the math teacher and sets LORD OF PRIMES flavor."""
-        if self.is_prime(result.damage):
+        if result.damage > 0 and self.is_prime(result.damage):
             result.damage *= 2
             result.extra_text = f"LORD OF PRIMES! * 2 = {result.damage}"
 
@@ -113,7 +113,6 @@ class MathTeacher(MonsterPlugin):
         source: AttackSource,
         atk_roll: AttackRoll,
         dmg_roll: DamageRoll,
-        target_dodge: Optional[int] = None,
         target_part=None,
     ) -> AttackResult:
         """Halves incoming prime damage and sets LORD OF PRIMES flavor.
@@ -126,9 +125,12 @@ class MathTeacher(MonsterPlugin):
         compounds with the per-hit defense subtract."""
         result = super().resolve_attack(
             attacker, source, atk_roll, dmg_roll,
-            target_dodge=target_dodge, target_part=target_part,
+            target_part=target_part,
         )
-        if self.is_prime(result.sub_damage):
+        # Guard on ``result.damage > 0`` so a pre-defense prime roll
+        # that was fully absorbed by armor doesn't emit noisy "/ 2 = 0"
+        # narration — nothing to halve.
+        if result.damage > 0 and self.is_prime(result.sub_damage):
             result.damage //= 2
             result.extra_text = f"LORD OF PRIMES! / 2 = {result.damage}"
         return result
