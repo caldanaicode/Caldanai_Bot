@@ -65,12 +65,13 @@ class Pixie(MonsterPlugin):
         *paired(WingPlugin, "wing"),
     ])
 
-    # Mischief bias: ~30% chance to poke at an eye. With the post-Q.5
-    # dodge math (EXPOSURE_FLOOR 0.3, TINY-vs-MEDIUM size ratio 0.5),
-    # the pixie's effective eye-shot dodge against a MEDIUM player is
-    # ~``base_dodge × 0.5 / 0.3`` — roughly base dodge × 1.67. She
-    # actually *lands* most eye-pokes; the joke is the underwhelming
-    # 1d4 damage that follows. Sting, not slay.
+    # Mischief bias: ~30% chance to poke at an eye. Under the linear
+    # exposure-tax dodge formula (EXPOSURE_TAX_COEF=1.0, TINY-vs-
+    # MEDIUM size ratio 0.5), the pixie's effective eye-shot dodge
+    # against a MEDIUM player is ``base × 0.5 × 1.9 ≈ base × 0.95``
+    # — roughly base dodge. She actually *lands* most eye-pokes; the
+    # joke is the underwhelming 1d4 damage that follows. Sting, not
+    # slay.
     TARGET_PREFERENCES = {"eye": 0.3}
 
     def __init__(self):

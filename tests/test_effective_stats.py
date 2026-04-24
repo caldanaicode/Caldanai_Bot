@@ -158,31 +158,32 @@ class ScaledDodgeTests(TestCase):
             exposure={r: value for r in Reach},
         )
 
-    def test_low_exposure_amplifies_dodge(self):
-        """Exposure 0.5 on a base-10 dodge → ``int(10 / 0.5) = 20``."""
+    def test_exposure_tax_is_additive(self):
+        """Exposure 0.5 on a base-10 dodge → tax = 1 + (1-0.5)*1.0
+        = 1.5, scaled = int(10 * 1.5) = 15."""
         attacker, target = self._pair()
         part = self._torso_with_exposure(0.5)
+        src = self._source()
+        self.assertEqual(
+            effective_dodge_for_part(target, part, attacker, src),
+            15,
+        )
+
+    def test_zero_exposure_caps_at_double_base(self):
+        """Fully-hidden part (exposure 0) pays max tax under
+        EXPOSURE_TAX_COEF=1.0 → ``1 + 1 = 2`` × base = 20. No
+        hyperbolic runaway — the cap is predictable."""
+        attacker, target = self._pair()
+        part = self._torso_with_exposure(0.0)
         src = self._source()
         self.assertEqual(
             effective_dodge_for_part(target, part, attacker, src),
             20,
         )
 
-    def test_exposure_floored_to_prevent_division_blowup(self):
-        """Exposure 0.0 would blow up to infinity; EXPOSURE_FLOOR
-        (0.3) clamps the divisor so effective dodge stays finite.
-        ``int(10 / 0.3) = 33``."""
-        attacker, target = self._pair()
-        part = self._torso_with_exposure(0.0)
-        src = self._source()
-        self.assertEqual(
-            effective_dodge_for_part(target, part, attacker, src),
-            int(10 / 0.3),
-        )
-
     def test_small_attacker_vs_big_target_reduces_dodge(self):
         """TINY vs HUGE: size_ratio 0.5 / 1.5 ≈ 0.33, clamped to
-        SIZE_RATIO_MIN (0.5). ``int(10 * 0.5 / 1.0) = 5``."""
+        SIZE_RATIO_MIN (0.5). Base 10 * 0.5 * tax_1.0 = 5."""
         from caldanai.lib.rpg.helpers.enums import Size
         attacker, target = self._pair(
             attacker_size=Size.TINY, target_size=Size.HUGE,
@@ -196,7 +197,7 @@ class ScaledDodgeTests(TestCase):
 
     def test_big_attacker_vs_small_target_boosts_dodge(self):
         """HUGE vs TINY: size_ratio 1.5 / 0.5 = 3.0, clamped to
-        SIZE_RATIO_MAX (2.0). ``int(10 * 2.0 / 1.0) = 20``."""
+        SIZE_RATIO_MAX (2.0). Base 10 * 2.0 * tax_1.0 = 20."""
         from caldanai.lib.rpg.helpers.enums import Size
         attacker, target = self._pair(
             attacker_size=Size.HUGE, target_size=Size.TINY,
@@ -209,8 +210,8 @@ class ScaledDodgeTests(TestCase):
         )
 
     def test_same_size_ratio_is_one(self):
-        """MEDIUM vs MEDIUM: ratio 1.0 — no scaling beyond the
-        exposure divisor."""
+        """MEDIUM vs MEDIUM, torso (exp 1.0): ratio 1.0, tax 1.0,
+        no modifier beyond base."""
         attacker, target = self._pair()
         part = self._torso_with_exposure(1.0)
         src = self._source()
@@ -223,9 +224,9 @@ class ScaledDodgeTests(TestCase):
         """``attacker`` and ``source`` both default to ``None`` so
         introspection tools (inspect_body_tree --stats) can read a
         static baseline. size_ratio falls back to 1.0, exposure to
-        1.0 — both neutral, so only depth/offset contribute."""
+        1.0 — both neutral, no tax applies."""
         _, target = self._pair()
-        part = self._torso_with_exposure(0.1)  # would scale ×10 with source
+        part = self._torso_with_exposure(0.1)  # would tax with source
         # No attacker/source passed → exposure ignored.
         self.assertEqual(effective_dodge_for_part(target, part), 10)
 

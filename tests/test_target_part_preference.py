@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
-from caldanai.lib.rpg.creatures import Creature, EXPOSURE_FLOOR
+from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.enums import Reach
 
@@ -81,8 +81,8 @@ class TestPreferenceIsHonored:
             Creature, "get_target_part_preference", return_value="head"
         ):
             seq = attacker.do_attack(target)
-        # effective_dodge = 8 / 0.5 = 16, vs base 8
-        assert seq.results[0].dodge == 16
+        # Linear tax: base 8 * (1 + (1 - 0.5) * 1.0) = 8 * 1.5 = 12
+        assert seq.results[0].dodge == 12
 
 
 class TestPreferenceFallback:

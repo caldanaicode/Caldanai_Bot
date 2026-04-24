@@ -34,12 +34,18 @@ from caldanai.logger import get_logger
 _log = get_logger(__name__)
 
 
-# Minimum effective exposure for per-part dodge calculations. Caps the
-# maximum dodge multiplier at ``1 / EXPOSURE_FLOOR`` so aiming at a
-# low-exposure part (eye 0.1, guarded dragon head 0.05) is harder but
-# not "nat-20-only harder." At 0.3 the cap is ~3.33×. Below 0.3 feels
-# punishing; above 0.5 makes targeting small parts trivial.
-EXPOSURE_FLOOR = 0.3
+# Exposure-tax coefficient for per-part dodge calculations. A part
+# with ``exposure = 1.0`` pays no tax (0% bonus to base dodge). A
+# part with ``exposure = 0.0`` pays ``EXPOSURE_TAX_COEF`` times the
+# base as additive bonus — so a fully-hidden part is ``(1 +
+# EXPOSURE_TAX_COEF)`` × base dodge. Linear curve; predictable.
+#
+# At 1.0, an eye (exposure 0.1) pays 0.9 × base extra = 1.9 × base.
+# Base dodge 14 eye → 26 before depth, 29 after +3 depth. Hard but
+# not crit-gated. Lower values soften every low-exposure part;
+# higher values approach the old "eye is essentially unreachable
+# without a crit" regime.
+EXPOSURE_TAX_COEF: float = 1.0
 
 # Attacker/target size-scale ratio is clamped to this range before
 # entering the dodge calc. Prevents a TINY pixie from treating a
@@ -2064,7 +2070,8 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
 
     Formula (with full context available)::
 
-        scaled = int(creature.get_dodge() × size_ratio ÷ max(FLOOR, exposure))
+        tax = 1 + (1 - exposure) × EXPOSURE_TAX_COEF
+        scaled = int(creature.get_dodge() × size_ratio × tax)
         return max(0, scaled + part.depth × DEPTH_COEFFICIENT + part.dodge_offset)
 
     Three factors compose:
@@ -2074,8 +2081,10 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
       a bonus. Clamped to ``[SIZE_RATIO_MIN, SIZE_RATIO_MAX]`` so
       pixie-vs-colossal doesn't trivialize or break the math.
     - **Exposure** (``source.reach``) — low-exposure parts (eye 0.1)
-      are harder to pinpoint; floored at ``EXPOSURE_FLOOR`` so a
-      near-zero value doesn't blow dodge up to infinity.
+      get an additive tax on base dodge; ``EXPOSURE_TAX_COEF``
+      controls aggressiveness. Bounded: a fully-hidden part
+      (exposure 0) caps at ``(1 + EXPOSURE_TAX_COEF)`` × base —
+      never hyperbolic.
     - **Depth** — extremities are slightly harder to hit than the
       torso via a small additive ramp.
 
@@ -2098,13 +2107,15 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
 
     exp = 1.0
     if source is not None:
-        # Literal dict .get — exposure may legitimately be 0.0, which
-        # must land intact so EXPOSURE_FLOOR clamps it below (falsy
-        # short-circuit like ``or 1.0`` would silently re-float it
-        # and skip the floor).
         exp = getattr(part, "exposure", {}).get(source.reach, 1.0)
+    # Clamp exposure to [0, 1] so a legitimate 0.0 produces max tax
+    # (no runaway) and values > 1.0 (unlikely but possible) don't
+    # produce a negative tax (a dodge discount for over-exposed
+    # parts).
+    exp = max(0.0, min(1.0, exp))
 
-    scaled_base = int(base * size_ratio / max(EXPOSURE_FLOOR, exp))
+    tax_multiplier = 1 + (1 - exp) * EXPOSURE_TAX_COEF
+    scaled_base = int(base * size_ratio * tax_multiplier)
     depth_bonus = part.depth * DEPTH_COEFFICIENT
     offset = getattr(part, "dodge_offset", 0)
     return max(0, scaled_base + depth_bonus + offset)
