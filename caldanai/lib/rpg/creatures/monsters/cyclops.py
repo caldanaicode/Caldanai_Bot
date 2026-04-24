@@ -167,6 +167,20 @@ class Cyclops(MonsterPlugin):
             ]
         return super().get_attack_sources()
 
+    def pick_actions(self):
+        """B4 combat routes through the action-pool path (part
+        DEFAULT_ACTIONS × ACTION_REPERTOIRE), which would otherwise
+        make the blind-cyclops's ``get_attack_sources`` override
+        dead code — the cyclops would keep politely chestbutting
+        and biting even mid-rampage. Short-circuit here: when the
+        eye is destroyed, abandon the part-vocabulary entirely and
+        return the three flailing wild swings directly. Flavor
+        matches mechanics — a blinded cyclops doesn't pick targets
+        with discipline."""
+        if self._is_blind():
+            return self.get_attack_sources()
+        return super().pick_actions()
+
     def on_combat_round(self, damage_by_player) -> str:
         """One-time bellow the round the eye is destroyed. Returns
         empty string in all other cases (including subsequent blind

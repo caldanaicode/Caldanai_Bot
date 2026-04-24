@@ -146,6 +146,27 @@ class Game:
         from the underlying ``player_manager.players`` dict shape."""
         return self.player_manager.players.get(user_id)
 
+    def _pick_arrival_witness(self) -> Optional[Player]:
+        """Pick a random player to serve as the ``@2`` slot in
+        monster arrival / spawn flavor. Prefers recently-active
+        players (same threshold as :meth:`PlayerManager.update_inactive_roles`
+        — within the last day) so the flavor mentions someone who's
+        likely still around. Falls back to any known player when
+        nobody's been active, and returns ``None`` when the channel
+        has no players at all (empty guild / fresh install)."""
+        players = list(self.player_manager.players.values())
+        if not players:
+            return None
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        active = [
+            p for p in players
+            if getattr(p, "last_active", None)
+            and (now - p.last_active) < timedelta(days=1)
+        ]
+        pool = active or players
+        return choice(pool)
+
     def ambience_enabled(self, subsystem: str) -> bool:
         """Return the effective on/off state of an ambience subsystem.
 
@@ -442,14 +463,29 @@ class Game:
             _log.info(f"{self.monster} spawned administratively")
 
         embed, file = self.monster.get_embed()
-        Dispatcher.add(self.channel, parse(self.monster.arrival, self.monster), embed=embed, file=file)
+        # Monster arrival templates may reference ``@2`` as a
+        # witness / target player (e.g. pixie's "rifling through
+        # @2's pocket", minotaur's "decided @2 look like a
+        # problem"). Pass a random active-player so those tokens
+        # render into a real name instead of silently falling back
+        # to @1 and producing "rifling through pixie's pocket".
+        # Falls back to any known player if none are recently
+        # active; skips the second actor entirely when no players
+        # exist in the channel yet.
+        arrival_witness = self._pick_arrival_witness()
+        arrival_args = (self.monster,) if arrival_witness is None else (self.monster, arrival_witness)
+        Dispatcher.add(
+            self.channel,
+            parse(self.monster.arrival, *arrival_args),
+            embed=embed, file=file,
+        )
         # Populate the structural channel id before on_spawn so that
         # any override (or anything on_spawn dispatches to) can
         # already use the time façade. Keeps per-monster ``on_spawn``
         # focused on flavor / narrative, not plumbing.
         self.monster._channel_id = self.channel_id
         if spawn_msg := self.monster.on_spawn(self):
-            Dispatcher.add(self.channel, parse(spawn_msg, self.monster))
+            Dispatcher.add(self.channel, parse(spawn_msg, *arrival_args))
         if self.monster.dies_from_time or self.monster.flees_from_time:
             self.game_clock.add_routine(self.check_time, 1)
         return True
