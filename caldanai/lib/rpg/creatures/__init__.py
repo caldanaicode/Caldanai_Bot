@@ -1697,11 +1697,28 @@ class Creature:
     # Returns a boolean indicating whether the creature's health is depleted.
     def is_dead(self) -> bool:
         """
-        Returns a boolean indicating whether the creature's health is depleted.
+        Returns a boolean indicating whether the creature is no longer
+        functional. A creature is dead when either its HP is depleted
+        OR any critical body part has been destroyed (directly or via
+        an ancestor-destroyed cascade).
 
-        :return: True if health <= 0, otherwise False.
+        The critical-part check catches paths that bypass
+        :meth:`apply_damage`'s safety sweep — e.g. admin commands
+        that zero a part's health directly, or any future code that
+        mutates part state outside the damage-application flow. Sets
+        ``self.health = 0`` as a side effect so subsequent health
+        checks agree with this verdict.
+
+        :return: True if dead (HP 0 or critical part destroyed).
         """
-        return self.health <= 0
+        if self.health <= 0:
+            return True
+        if self.body_parts:
+            for part in self.body_parts:
+                if part.is_critical and part.is_destroyed():
+                    self.health = 0
+                    return True
+        return False
 
     def check_part_driven_death(self) -> Optional[str]:
         """Hook for part-state-driven death detection, called by the
