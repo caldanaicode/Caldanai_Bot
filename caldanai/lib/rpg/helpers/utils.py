@@ -343,7 +343,14 @@ class RpgUtilities:
             return player
 
         if notify:
-            if isinstance(ctx, (Member, User)) and ctx.bot:
+            from caldanai.environment import PLAYER_BOT_ALLOWLIST
+            ctx_author_id = getattr(
+                getattr(ctx, "author", None) or ctx, "id", None,
+            )
+            if (
+                isinstance(ctx, (Member, User)) and ctx.bot
+                and ctx_author_id not in PLAYER_BOT_ALLOWLIST
+            ):
                 file = File(f"./site/static/images/hal9000.gif", filename="hal9000.gif")
                 Dispatcher.add(game.channel, file=file)
                 return None

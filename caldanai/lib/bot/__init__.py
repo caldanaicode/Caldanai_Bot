@@ -23,6 +23,7 @@ from os import path
 from random import choice
 
 from caldanai import Subject
+from caldanai.environment import PLAYER_BOT_ALLOWLIST
 from caldanai.lib.bot.events import *
 from caldanai.lib.rpg import Game
 from caldanai.dispatcher import Dispatcher, send
@@ -135,6 +136,24 @@ class Bot(BotBase, Subject):
         # datetime of the last hint we sent. See ``on_command_error``.
         self._error_hint_cooldowns: Dict[tuple, datetime] = {}
         _log.info("Bot init complete.")
+
+    async def process_commands(self, message) -> None:
+        """Override the default bot-filter so dedicated tester-bot
+        accounts (listed in ``PLAYER_BOT_ALLOWLIST``) can drive the
+        bot like real players — used by ``tools.bot_player`` to
+        run scripted playtest sweeps against the bestiary.
+
+        Still filters out self-authored messages (recursion guard)
+        and any bot account NOT in the allowlist, so random bots
+        present in the guild stay silent. A human-player command
+        path is unchanged.
+        """
+        if message.author.id == self.user.id:
+            return
+        if message.author.bot and message.author.id not in PLAYER_BOT_ALLOWLIST:
+            return
+        ctx = await self.get_context(message)
+        await self.invoke(ctx)
 
     @property
     def games(self) -> "Mapping[int, Game]":
