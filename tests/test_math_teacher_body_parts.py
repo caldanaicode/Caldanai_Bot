@@ -396,9 +396,10 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         """Sweep a handful of primes and pin the post-defense halving.
 
         Q.6.2: defense is subtracted per-hit inside super().resolve_attack
-        BEFORE the prime check + halving. Each prime's final damage is
-        ``max(1, prime - defense) // 2`` (with prime check on the
-        pre-defense ``sub_damage`` value)."""
+        BEFORE the prime check + halving. The halving fires only when
+        it produces meaningful damage reduction (``halved > 0``). A
+        prime roll that got absorbed down to 1 damage skips the halve
+        entirely — ``1 // 2 = 0`` would emit noisy "/ 2 = 0" narration."""
         teacher = MathTeacher()
         teacher.defense = 0
         teacher.dodge = 0
@@ -410,10 +411,12 @@ class TestMathTeacherPrimeDamageHalvingPreserved:
         for prime in [2, 3, 5, 7, 11, 13]:
             atk, dmg = _make_attack_rolls(prime)
             result = teacher.resolve_attack(attacker, source, atk, dmg)
-            expected = max(1, prime - defense) // 2
+            pre_halve = max(1, prime - defense)
+            halved = pre_halve // 2
+            expected = halved if halved > 0 else pre_halve
             assert result.damage == expected, (
-                f"prime {prime}: max(1, {prime}-{defense})//2 = {expected}, "
-                f"got {result.damage}"
+                f"prime {prime}: pre_halve={pre_halve} halved={halved} "
+                f"expected={expected}, got {result.damage}"
             )
 
     def test_resolve_attack_then_apply_damage_routes_halved_value(self):

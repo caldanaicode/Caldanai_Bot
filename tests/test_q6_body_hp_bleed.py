@@ -199,6 +199,50 @@ class TestDefenseBonusAppliesPerHit:
         assert result.defense == 0
 
 
+class TestCriticalPartDeathSafetySweep:
+    """``Creature.apply_damage`` sweeps the whole body tree after each
+    hit and kills the creature if any critical part is destroyed —
+    even when the triggering hit's ``target_part`` subtree doesn't
+    include the critical part. Catches cases where a prior hit
+    left a critical part destroyed but the walk-from-target path
+    missed it (e.g., critical descendant of an ancestor we didn't
+    visit)."""
+
+    def test_prior_critical_destruction_kills_on_next_hit(self):
+        """Simulate a critical part reaching destroyed state via
+        some prior path, then land an unrelated hit. Safety sweep
+        should catch the pre-existing critical destruction and end
+        the creature."""
+        from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
+        from caldanai.lib.rpg.creatures.monsters.math_teacher import MathTeacher
+        from caldanai.lib.rpg.helpers.enums import DamageTypes
+
+        mt = MathTeacher()
+        head = mt.get_part("head")
+        arm = mt.get_part("arm.left")
+
+        # Force the head destroyed without going through apply_damage.
+        head.health = 0
+        # Creature not yet marked dead — the destruction happened
+        # "silently" as far as the apply_damage path is concerned.
+        assert mt.health > 0
+
+        # Land an arm hit. target_part.walk() for arm.left never
+        # visits head, so without the safety sweep the creature
+        # would stay alive with a destroyed critical head.
+        source = NaturalAttackSource(
+            atk="1d4", dmg_type=DamageTypes.SLASHING,
+            label="test", skill="natural",
+        )
+        mt.apply_damage(1, dmg_type=DamageTypes.SLASHING, target_part=arm)
+
+        assert head.is_destroyed()
+        assert mt.is_dead(), (
+            "safety sweep should detect the pre-existing critical-part "
+            "destruction and end the creature on any subsequent hit"
+        )
+
+
 class TestBleedRatePerPartClass:
     """Each shipped body-part plugin carries the bleed rate locked
     in the Q.6 design doc."""

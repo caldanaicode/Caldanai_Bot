@@ -127,10 +127,13 @@ class MathTeacher(MonsterPlugin):
             attacker, source, atk_roll, dmg_roll,
             target_part=target_part,
         )
-        # Guard on ``result.damage > 0`` so a pre-defense prime roll
-        # that was fully absorbed by armor doesn't emit noisy "/ 2 = 0"
-        # narration — nothing to halve.
-        if result.damage > 0 and self.is_prime(result.sub_damage):
-            result.damage //= 2
-            result.extra_text = f"LORD OF PRIMES! / 2 = {result.damage}"
+        # Check post-halve value to avoid "/ 2 = 0" noise: a prime
+        # sub_damage that got absorbed by armor down to 1 shouldn't
+        # narrate a halving when the halving floors to zero. Skip
+        # entirely when halving would produce no meaningful damage.
+        if self.is_prime(result.sub_damage):
+            halved = result.damage // 2
+            if halved > 0:
+                result.damage = halved
+                result.extra_text = f"LORD OF PRIMES! / 2 = {result.damage}"
         return result

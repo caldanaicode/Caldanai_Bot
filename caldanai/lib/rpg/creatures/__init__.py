@@ -305,6 +305,21 @@ class Creature:
                     self.health = 0
                     break
 
+        # Safety sweep: any critical part destroyed anywhere in
+        # the body tree means the creature is done. Covers cases
+        # where a prior hit already landed a critical destruction
+        # but didn't route through the walk above (e.g. the
+        # ``is_destroyed`` cascade reports a critical part gone
+        # via a destroyed ancestor we didn't visit), and guards
+        # against any future damage path that bypasses
+        # ``target_part``. Idempotent — subsequent hits re-fire
+        # the same verdict.
+        if self.health > 0 and self.body_parts:
+            for part in self.body_parts:
+                if part.is_critical and part.is_destroyed():
+                    self.health = 0
+                    break
+
         return ""
 
     def get_attack_sources(self) -> List[AttackSource]:
