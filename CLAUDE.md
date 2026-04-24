@@ -40,6 +40,12 @@ Existing tools (`python -m tools.<name> --help` for details):
 - **`notify`** — Windows PowerShell TTS for an audible cue when
   the user is AFK and the agent needs attention (background-agent
   completion, pre/post-deploy ritual approval gates, etc.).
+- **`bot_player`** — send commands as a dedicated tester bot in
+  the TEST guild's combat channel (REST POST only, no Gateway).
+  Requires ``CLAUDE_TESTER_TOKEN`` in ``.env`` and a separately-
+  registered Discord application. Pairs with ``tail_peek TEST``
+  for read-back. Use for automated playtest sweeps against the
+  bestiary; scoped TEST-only, never LIVE.
 
 Shape to follow when adding a new tool:
 
