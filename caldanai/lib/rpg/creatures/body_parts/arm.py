@@ -125,8 +125,9 @@ class ArmPlugin(BodyPartPlugin, Offensive, Equippable):
     """
 
     # Phase D placement keys: armor slots are layered on the
-    # arm via dotted sub-keys (``worn.upper`` holds a bracer,
-    # ``worn.lower`` a vambrace). Weapon + glove + ring moved
+    # arm via dotted sub-keys (``worn.upper`` holds a rerebrace
+    # or spaulder — upper-arm armor; ``worn.lower`` a bracer or
+    # vambrace — forearm armor). Weapon + glove + ring moved
     # to the new :class:`HandPlugin` at the next depth.
     PLACEMENT_KEYS = ["worn.upper", "worn.lower"]
 

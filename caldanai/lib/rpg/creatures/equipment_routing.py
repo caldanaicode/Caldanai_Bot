@@ -3,9 +3,10 @@
 Phase D (2026-04-23) rewrites the routing for the segmented
 anatomy: hands and feet are dedicated body-part nodes, armor
 layering on arms / legs uses dotted sub-keys (``worn.upper``
-for bracers, ``worn.lower`` for vambraces), and key vocabulary
-collapses to a small generic set (``worn`` / ``held`` / ``outer``
-/ ``accent``).
+for upper-arm / upper-leg pieces like rerebraces and greaves,
+``worn.lower`` for forearm / shin pieces like bracers and
+vambraces), and key vocabulary collapses to a small generic set
+(``worn`` / ``held`` / ``outer`` / ``accent``).
 
 The EquipmentSlots enum values that items declare stay unchanged;
 this file just re-routes each to its new (part, key) home. A
@@ -48,7 +49,8 @@ SLOT_TO_PART_KEY: Dict[EquipmentSlots, Tuple[str, str]] = {
     # Neck accessory.
     EquipmentSlots.NECK:          ("neck",       "accent"),
     EquipmentSlots.AMULET:        ("neck",       "accent"),
-    # Arms — bracers on the upper arm layer, vambraces on the lower.
+    # Arms — rerebrace / spaulder on the upper arm layer,
+    # bracer / vambrace on the lower (forearm) layer.
     EquipmentSlots.LEFT_ARM:      ("arm.left",   "worn.upper"),
     EquipmentSlots.RIGHT_ARM:     ("arm.right",  "worn.upper"),
     EquipmentSlots.LEFT_FOREARM:  ("arm.left",   "worn.lower"),
