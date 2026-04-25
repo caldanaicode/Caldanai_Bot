@@ -465,22 +465,35 @@ class Player(Creature):
         # player hasn't LOST anything, they've just lost the USE
         # of it until the part heals. Matches the project memo
         # rationale ("NOT lost or broken, temporary loss of
-        # access").
+        # access"). 2026-04-25 follow-up: each per-part drop now
+        # surfaces a flavor line via ``BodyPart.gear_drop_flavor``
+        # so the player sees what fell off (silent before — they
+        # had to ``$gear`` to discover their sword wasn't equipped
+        # anymore).
+        drop_lines: List[str] = []
         for part in list(self.body_parts or []):
             if (
                 part.get_injury_level() == InjuryLevels.USELESS
                 and part.name not in already_useless
             ):
-                self._drop_gear_on_destroyed_part(part.name)
+                dropped = self._drop_gear_on_destroyed_part(part.name)
+                line = part.gear_drop_flavor(dropped, self)
+                if line:
+                    drop_lines.append(line)
 
+        # Death / revive lines append after the drop narration so
+        # the reader sees gear leave first ("X slips from your now-
+        # useless arm." then "You crumple to the ground.") — the
+        # equipment beat lands while the player is still alive in
+        # the narrative, matching the in-fiction order.
+        tail = ""
         if was_alive and self.is_dead():
-            return parse("@1 crumples to the ground lifelessly!", self)
-
-        if not was_alive and not self.is_dead():
+            tail = parse("@1 crumples to the ground lifelessly!", self)
+        elif not was_alive and not self.is_dead():
             mention = f"<@!{self.member.id}>" if self.member is not None else self.name
-            return parse(f"{mention} suddenly gasps raggedly as life returns to @1o!", self)
+            tail = parse(f"{mention} suddenly gasps raggedly as life returns to @1o!", self)
 
-        return ""
+        return "\n".join([*drop_lines, tail]) if drop_lines else tail
 
     # ------------------------------------------------------------------
     # Equipment access (Phase B3)
@@ -543,17 +556,18 @@ class Player(Creature):
         at call sites that semantically mean "remove"."""
         self.place(part_name, key, None)
 
-    def _drop_gear_on_destroyed_part(self, part_name: str) -> None:
+    def _drop_gear_on_destroyed_part(self, part_name: str) -> List[Equipment]:
         """Return every item at ``part_name``'s placements to the
-        inventory pool. Items already live in ``self.inventory`` —
-        ``part_equipment`` holds *references* to inventory items —
-        so the drop is accomplished by clearing the placements via
-        :meth:`remove`. ``remove`` walks every placement holding a
-        given ``Item`` instance, so multi-placed items (two-handed
-        weapons, paired gear) come off fully even when only one
-        of their placements is at the destroyed part: the weapon
-        "can no longer be wielded with one good arm," so the
-        other arm stops holding it too.
+        inventory pool, returning the list of dropped items so the
+        caller can narrate the drop. Items already live in
+        ``self.inventory`` — ``part_equipment`` holds *references*
+        to inventory items — so the drop is accomplished by clearing
+        the placements via :meth:`remove`. ``remove`` walks every
+        placement holding a given ``Item`` instance, so multi-placed
+        items (two-handed weapons, paired gear) come off fully even
+        when only one of their placements is at the destroyed part:
+        the weapon "can no longer be wielded with one good arm,"
+        so the other arm stops holding it too.
 
         Called from :meth:`apply_damage` on the frame a part
         transitions to USELESS.
@@ -566,36 +580,39 @@ class Player(Creature):
         ``part_equipment``), so this hole is theoretical; if the
         admin surface ever grows a player-side part-destroy
         command, wire it through this method too.
+
+        :return: Unique items that were dropped (deduplicated for
+            multi-placed gear). Empty list when the part has no
+            equipment or doesn't exist.
         """
-        # Phase D: a destroyed non-critical part takes its whole
-        # subtree out of reachable service — a broken arm makes
-        # the hand below it functionally unusable too, even if
-        # the hand's own health is still full. Walk the destroyed
-        # part's subtree and drop gear from every Equippable
-        # descendant along with the part itself, so a wand held
-        # by a hand under a broken arm returns to inventory.
-        root = self.get_part(part_name)
-        if root is None:
-            return
-        # Collect unique Item instances across the whole subtree —
-        # a single multi-slot item could appear at more than one
-        # key on potentially different nodes, and ``remove``
-        # deduplicates naturally.
+        # Operates on this part's OWN placements only. The Phase D
+        # subtree-cascade ("a hand under a destroyed arm is also
+        # unreachable") is handled by the caller: the
+        # ``apply_damage`` loop iterates every newly-useless part,
+        # and cascaded descendants report ``get_injury_level() ==
+        # USELESS`` automatically (via the ``ancestor.health <= 0``
+        # check on :meth:`BodyPart.get_injury_level`). So each node
+        # in the destroyed subtree gets its own drop call — and its
+        # own per-part flavor line via :meth:`BodyPart.gear_drop_flavor`,
+        # attributing the drop to the right part name. A wand held
+        # by ``hand.left`` under a destroyed ``arm.left`` narrates
+        # against ``hand.left`` instead of being conflated into the
+        # arm's flavor.
+        part_placements = self.part_equipment.get(part_name)
+        if not part_placements:
+            return []
         items: List[Equipment] = []
         seen: set = set()
-        for node in root.walk():
-            part_placements = self.part_equipment.get(node.name)
-            if not part_placements:
+        for key, item in part_placements.items():
+            if item is None:
                 continue
-            for key, item in part_placements.items():
-                if item is None:
-                    continue
-                if id(item) in seen:
-                    continue
-                seen.add(id(item))
-                items.append(item)
+            if id(item) in seen:
+                continue
+            seen.add(id(item))
+            items.append(item)
         for item in items:
             self.remove(item)
+        return items
 
     # ------------------------------------------------------------------
     # Gear loadouts — save / load / clear / list

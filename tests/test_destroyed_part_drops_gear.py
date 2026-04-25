@@ -355,3 +355,57 @@ class TestIsDirtyFlag:
         p.apply_damage(left_arm.health, target_part=left_arm)
 
         assert p.is_dirty is True
+
+
+class TestGearDropFlavor:
+    """``BodyPart.gear_drop_flavor`` surfaces a per-part flavor line
+    when a destroyed part returns gear to inventory. The
+    ``apply_damage`` return value carries the lines (joined with
+    ``\\n``) so combat narration prints them inline.
+
+    Per-part attribution matters under Phase D's subtree cascade:
+    destroying ``arm.left`` also makes ``hand.left`` unreachable,
+    and items on either part should narrate against THEIR OWN part
+    name (not a single conflated "arm" line)."""
+
+    def test_apply_damage_returns_drop_line_for_single_item(self):
+        p, (wand,) = _player_with_inventory("wand")
+        p.equip(wand)
+
+        left_arm = p.get_part("arm.left")
+        msg = p.apply_damage(left_arm.health, target_part=left_arm)
+
+        # Wand was at hand.left.held — drop attributed to the hand.
+        assert "wand" in msg
+        assert "left hand" in msg
+        # Pronoun-driven possessive renders via @1a (not raw "Your").
+        assert "slip" in msg
+
+    def test_cascade_attributes_drop_to_owning_node_not_destroyed_root(self):
+        """Wand at hand.left.held, arm.left is the part destroyed.
+        hand.left cascades to USELESS via the ancestor-health
+        check. The wand's drop must narrate against ``left hand``
+        (its owning node), NOT ``left arm`` (the destroyed root) —
+        the pre-fix subtree-walk conflated everything under the
+        root part name."""
+        p, (wand,) = _player_with_inventory("wand")
+        p.equip(wand)
+
+        left_arm = p.get_part("arm.left")
+        msg = p.apply_damage(left_arm.health, target_part=left_arm)
+
+        wand_line = next(l for l in msg.split("\n") if "wand" in l)
+        assert "left hand" in wand_line
+        assert "left arm" not in wand_line
+
+    def test_no_drop_returns_no_flavor(self):
+        """A destroyed part with no equipment shouldn't add a stray
+        empty line to the apply_damage return."""
+        p, _ = _player_with_inventory()
+        head = p.get_part("head")
+        msg = p.apply_damage(head.health, target_part=head)
+        # No items on head → no drop line. Death line still fires
+        # if the damage killed (head is critical), so accept the
+        # tail-only string.
+        for line in (msg or "").split("\n"):
+            assert "slip" not in line and "free from" not in line

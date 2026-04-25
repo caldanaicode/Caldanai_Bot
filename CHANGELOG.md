@@ -4,6 +4,38 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Destroyed-part gear drop now narrates per node
+
+Stage 2a (commit ``3c573e7``) silently moved gear from a destroyed
+part's placements back to the inventory pool. Players had no
+in-fiction signal that their sword had unequipped — they'd swing
+empty-handed next round and have to ``$gear`` to find out.
+
+- ``BodyPart.gear_drop_flavor(items, creature)`` on the body-part
+  base class — default voice: ``"@1A X (and Y) slip(s) free from
+  @1a now-useless <part>."`` Singular/plural verb agreement,
+  Oxford comma, empty-list returns empty string. Subclasses can
+  override per-part if they want a unique voice (a wing's
+  collapse beat differs from an arm).
+- ``Player._drop_gear_on_destroyed_part`` returns the dropped-
+  item list (was ``None``) AND now operates on the part's OWN
+  placements — the Phase D subtree-cascade is handled by the
+  ``apply_damage`` loop iterating every newly-useless part.
+  Cascaded descendants report ``get_injury_level() == USELESS``
+  via the ``ancestor.health <= 0`` check, so each node narrates
+  its own dropped items: a wand held by the hand under a
+  destroyed arm produces ``"…now-useless left hand."`` (NOT
+  conflated under the arm's flavor).
+- ``Player.apply_damage`` collects the per-part flavor lines and
+  threads them into the return string before the death/revive
+  tail — so the equipment beat lands while the player is still
+  alive in the narrative.
+
+Existing 13 stage-2a regression tests stay green. 3 new tests
+cover the flavor format, cascade attribution (wand-on-hand under
+destroyed arm renders against ``"left hand"``), and the empty-
+placements no-flavor case.
+
 ### 2026-04-25 — Bandit escape flavor: stop promising theft
 
 ``"@1dc runs off, taking whatever @1s can grab."`` lied — bandits

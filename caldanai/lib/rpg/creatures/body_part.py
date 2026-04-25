@@ -245,6 +245,39 @@ class BodyPart(Node, ABC):
         regrowth). Override in subclasses; empty string by default."""
         return ""
 
+    def gear_drop_flavor(
+        self, items: "List", creature: "Creature",
+    ) -> str:
+        """Return a single-line flavor message describing items
+        falling off this part when it transitions to USELESS.
+
+        Default voice: "@1A X (and Y) slip(s) free from @1a now-
+        useless <part>." Pairs with the existing limp-arm beat
+        (already surfaced at attack-time as part of the
+        narration). Lives on the body-part base because every
+        equippable part can drop gear on destruction; subclasses
+        can override to give specific parts their own voice
+        (e.g. a wing might say "tear free as the wing crumples").
+
+        Empty list returns empty string — caller's contract is
+        "ask first, the part decides whether to narrate."
+        """
+        if not items:
+            return ""
+        from caldanai.lib.rpg.helpers.parser import parse
+        names = [getattr(it, "name", None) or "something" for it in items]
+        if len(names) == 1:
+            joined, verb = names[0], "slips"
+        elif len(names) == 2:
+            joined, verb = f"{names[0]} and {names[1]}", "slip"
+        else:
+            joined = ", ".join(names[:-1]) + f", and {names[-1]}"
+            verb = "slip"
+        return parse(
+            f"@1A {joined} {verb} free from @1a now-useless {self.display_name}.",
+            creature,
+        )
+
     @classmethod
     def make(cls, plugin_name: str, **overrides) -> "BodyPart":
         """Factory that constructs a :class:`BodyPart` from a registered
