@@ -1793,8 +1793,13 @@ class RpgSocialCommands(Cog):
                 msgs = [
                     f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
                     f"@2v(senses|sense) the unearthly presence of @1.",
-                    f"Soft laughter echoes in {'the ' if not isinstance(haunted, Player) else ''}@2np ears as @1np spirit toys with @2o.",
-                    f"{'The ' if not isinstance(haunted, Player) else ''}@2np breath suddenly catches as @1np shade wisps through @2o.",
+                    # ``@2np`` already prepends the article for article-using
+                    # creatures ("the hydra's"); the prior inline ``'the '``
+                    # double-applied it (rendered "the the hydra's ears").
+                    # ``@2Np`` at sentence start carries the implicit capital
+                    # so monsters render "The hydra's" without the inline.
+                    f"Soft laughter echoes in @2np ears as @1np spirit toys with @2o.",
+                    f"@2Np breath suddenly catches as @1np shade wisps through @2o.",
                 ]
 
         else:

@@ -4,6 +4,18 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Haunt flavor: drop double-article on monster targets
+
+Two ``$haunt`` non-Player templates double-applied the definite
+article: each line interpolated ``'the '`` inline before a
+``@2np``/``@2Np`` token that ALREADY prepends the article for
+article-using creatures, rendering ``"the the hydra's ears"`` /
+``"The the hydra's breath"`` (caught live by Caels mid-playtest).
+
+Removed the inline ternary; the parser's noun-mode possessive
+handles the article correctly. Sentence-start template upgraded
+to ``@2Np`` so the implicit-capitalize carries through.
+
 ### 2026-04-25 — Stat block: bandage marker baseline switches to full-health emergent
 
 Live test caught a false-positive on the previous comparison
