@@ -409,6 +409,20 @@ class Hydra(MonsterPlugin):
 
     MAX_HEADS = 10
 
+    # Per-hit narration: hydra-class flavor that reads correctly
+    # across all variants. Variant-specific resistance overlays
+    # (hexed magic-resist, swamp poison-resist) are layered onto
+    # ``self.traits`` at __init__ time but the flavor stays generic
+    # — overlapping scales, multi-headed serpent body. The dense
+    # build cushions blunt blows; sharp points find the seams.
+    HIT_NARRATIONS = {
+        DamageTypes.BLUDGEONING: "The blow lands on overlapping scales; @1d shifts under the impact but barely flinches.",
+        DamageTypes.SLASHING:    "The blade glances off @1a scales, biting only where they overlap unevenly.",
+        DamageTypes.PIERCING:    "The point slips between @1a scales and finds the soft serpent body beneath.",
+        DamageTypes.FIRE:        "Flame catches at @1a scales and crackles along the seams.",
+        DamageTypes.MAGICAL:     "Arcane force ripples across @1a draconic frame, finding only the deep magic that holds @1o together.",
+    }
+
     def __init__(self):
         # Pick variant by weight.
         variant = choices(

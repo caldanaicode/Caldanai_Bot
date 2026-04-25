@@ -72,6 +72,15 @@ from caldanai.lib.rpg.helpers.parser import parse
 
 
 class Spirit(Undead, MonsterPlugin):
+    # Per-hit narration: ``Undead`` mixin already provides LIGHT and
+    # DARK entries. Physical hits go through ``_on_attacked``'s
+    # "passes through like mist" callout. The remaining trait worth
+    # narrating is the FIRE 1.25× — gentle vulnerability, ghosts
+    # don't burn cleanly but they do flinch.
+    HIT_NARRATIONS = {
+        DamageTypes.FIRE: "Flame eddies through @1a translucent form, leaving brief afterimages of warmth.",
+    }
+
     def __init__(self):
         super().__init__(
             name="spirit",

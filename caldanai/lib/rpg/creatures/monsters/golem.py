@@ -53,6 +53,18 @@ class Golem(MonsterPlugin):
     # Sensory fallback, same pre-D behavior.
     BODY_TREE = humanoid_tree(eyes=False)
 
+    # Per-hit narration: signals the trait-multiplier matchups via
+    # flavor instead of raw 0.25× / 0.5× numbers in the table.
+    HIT_NARRATIONS = {
+        DamageTypes.PIERCING:    "The point chips off @1a granite hide, leaving only a hairline scar.",
+        DamageTypes.SLASHING:    "The blade rings against stone, biting only into the thin runes between joints.",
+        DamageTypes.BLUDGEONING: "The blow lands true; flakes of stone shower from the impact.",
+        DamageTypes.FIRE:        "Flame washes over @1d harmlessly, leaving sooted stone and nothing else.",
+        DamageTypes.WATER:       "Water finds the seams and works them slowly, slick on the runes.",
+        DamageTypes.EARTH:       "Earth meets earth — the impact passes through @1d as if @1s were the ground itself.",
+        DamageTypes.MAGICAL:     "Arcane force snags on the binding glyphs; they flare and unravel a thread.",
+    }
+
     def __init__(self):
         super().__init__(
             name="golem",

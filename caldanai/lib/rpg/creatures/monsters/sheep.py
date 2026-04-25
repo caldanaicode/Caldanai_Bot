@@ -11,6 +11,14 @@ from caldanai.lib.rpg.creatures.body_builder import quadruped_tree
 class Sheep(MonsterPlugin):
     BODY_TREE = quadruped_tree()
 
+    # Per-hit narration: thick wool cushions slashes; piercing
+    # finds the soft body underneath without resistance.
+    HIT_NARRATIONS = {
+        DamageTypes.SLASHING:    "The blade catches in @1a thick wool, opening a shallow line through the layered fleece.",
+        DamageTypes.PIERCING:    "The point parts @1a wool cleanly and sinks deep into the body beneath.",
+        DamageTypes.BLUDGEONING: "The blow lands solid; even fleece can only soften so much.",
+    }
+
     def __init__(self):
         super().__init__(
             name="sheep",

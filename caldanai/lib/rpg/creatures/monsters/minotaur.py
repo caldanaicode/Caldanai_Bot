@@ -37,6 +37,16 @@ class Minotaur(MonsterPlugin):
     # accuracy.
     TARGET_PREFERENCES = {"head": 0.5}
 
+    # Per-hit narration: dense slabs of muscle absorb blunt blows;
+    # piercing finds the seams between corded muscle. Coarse coat
+    # catches fire surprisingly well.
+    HIT_NARRATIONS = {
+        DamageTypes.FIRE:        "Flame catches in @1a coarse coat and spreads with the smell of burning hair.",
+        DamageTypes.PIERCING:    "The point parts @1a hide and slips between thick cords of muscle.",
+        DamageTypes.BLUDGEONING: "The blow sinks into dense muscle; @1s rocks back but holds the line.",
+        DamageTypes.SLASHING:    "The blade scores @1a hide; sweat-darkened fur splits and reveals raw skin beneath.",
+    }
+
     def __init__(self):
         super().__init__(
             name="minotaur",

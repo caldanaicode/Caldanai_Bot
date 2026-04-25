@@ -8,6 +8,17 @@ from caldanai.lib.rpg.helpers.dice import Dice
 class Giant(MonsterPlugin):
     BODY_TREE = humanoid_tree()
 
+    # Per-hit narration: huge slabs of muscle and thick hide blunt
+    # most damage; ranged attacks lose force across the distance.
+    # Magic at giant-scale is the great leveller.
+    HIT_NARRATIONS = {
+        DamageTypes.MAGICAL:     "Arcane force ripples through @1a vast frame; even mountains feel magic.",
+        DamageTypes.RANGED:      "The shot strikes @1d but seems undersized for the target — a thrown pebble against a hill.",
+        DamageTypes.SLASHING:    "The blade opens a long, shallow line in @1a thick hide.",
+        DamageTypes.PIERCING:    "The point sinks into @1a flesh but seems lost in the mass of @1o.",
+        DamageTypes.BLUDGEONING: "The blow lands heavy; @1s shifts a half-step but doesn't fall.",
+    }
+
     def __init__(self):
         super().__init__(
             name="giant",

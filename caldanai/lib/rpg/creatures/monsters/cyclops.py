@@ -80,6 +80,13 @@ class Cyclops(MonsterPlugin):
         ),
     ])
 
+    # Per-hit narration: cyclops is a huge sack of flesh — most
+    # weapons land messily but cleanly. Mild fire sensitivity (the
+    # only deviation from baseline 1.0×) gets its own line.
+    HIT_NARRATIONS = {
+        DamageTypes.FIRE: "Flame finds @1a coarse hair and oily skin readily; @1s bellows at the unfamiliar pain.",
+    }
+
     def __init__(self):
         super().__init__(
             name="cyclops",

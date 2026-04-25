@@ -15,6 +15,16 @@ class Bandit(MonsterPlugin):
     # to exposure-weighted random.
     TARGET_PREFERENCES = {"leg": 0.3}
 
+    # Per-hit narration: layered leather + stolen padding cushions
+    # most blows at 0.75×; magical attacks find the gaps in the
+    # patchwork at 1.5×.
+    HIT_NARRATIONS = {
+        DamageTypes.MAGICAL:     "Arcane force slips past @1a patchwork armor as if @1s weren't wearing any.",
+        DamageTypes.BLUDGEONING: "The blow thuds against layered leather; @1s grunts but stays standing.",
+        DamageTypes.SLASHING:    "The blade scores @1d through cobbled-together straps and stolen padding.",
+        DamageTypes.PIERCING:    "The point catches on a buckle, then slides past into the gap behind it.",
+    }
+
     def __init__(self):
         super().__init__(
             name="bandit",

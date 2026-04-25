@@ -16,6 +16,17 @@ class Bearowl(MonsterPlugin):
     # a predator misreads prey sometimes.
     TARGET_PREFERENCES = {"head": 0.4}
 
+    # Per-hit narration: thick fur and feather padding cushions
+    # blunt blows; sharp edges and pierce-points slip through to
+    # the muscle and bone beneath. Ranged shots have the angle to
+    # find the gaps that melee can't reach.
+    HIT_NARRATIONS = {
+        DamageTypes.RANGED:      "The shot threads between @1a feathers and lodges deep — distance was the friend @1s lacked.",
+        DamageTypes.SLASHING:    "The blade opens @1a hide cleanly; clumps of fur and down drift loose.",
+        DamageTypes.PIERCING:    "The point parts feather and pelt and finds the muscle beneath without resistance.",
+        DamageTypes.BLUDGEONING: "The blow sinks into thick fur and dense down; @1s barely feels it.",
+    }
+
     def __init__(self):
         super().__init__(
             name="bearowl",

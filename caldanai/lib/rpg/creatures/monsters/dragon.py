@@ -86,6 +86,19 @@ class Dragon(MonsterPlugin):
         },
     ]
 
+    # Per-hit narration: dragon scales shrug off most physical hits
+    # at 0.5×; piercing finds the seams better but still chips at
+    # 0.75×; ranged piercing combos (arrows) thread the gaps cleanly
+    # at 1.5×. Flavor signals the matchup so players learn which
+    # angle of attack is rewarded.
+    HIT_NARRATIONS = {
+        DamageTypes.SLASHING:    "The blade glances off @1a interlocking scales, biting only between the seams.",
+        DamageTypes.BLUDGEONING: "The blow lands flat against @1a armored hide; @1s barely registers it.",
+        DamageTypes.PIERCING:    "The point seeks the seam between @1a scales and finds purchase.",
+        DamageTypes.RANGED:      "The shaft slips between @1a scales clean as breath, finding the soft tissue beneath.",
+        DamageTypes.MAGICAL:     "Arcane force ripples across @1a hide, slowed by the deep magic that runs through every scale.",
+    }
+
     def __init__(self):
         # Defense rolls 4d4 + 6 (range 10-22) — we want a meaningful
         # floor on dragon defense so low rolls don't trivialize the

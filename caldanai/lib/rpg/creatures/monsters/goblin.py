@@ -9,6 +9,17 @@ from caldanai.lib.rpg.helpers.dice import Dice
 class Goblin(MonsterPlugin):
     BODY_TREE = humanoid_tree()
 
+    # Per-hit narration: spiteful little things, brittle bones make
+    # bludgeoning especially effective. Their innate magical
+    # affinity sheds arcane attacks. Sliced/pierced flesh is sharp
+    # but the bone gives easily.
+    HIT_NARRATIONS = {
+        DamageTypes.BLUDGEONING: "The blow lands with a sickening crack — goblin bones break easily.",
+        DamageTypes.SLASHING:    "The blade scores @1d shallowly; sinewy hide tugs back against the cut.",
+        DamageTypes.PIERCING:    "The point glances off @1a wiry build, finding less to bite into than it expected.",
+        DamageTypes.MAGICAL:     "Arcane force slides off @1d strangely, as if @1s were already half-magical itself.",
+    }
+
     def __init__(self):
         super().__init__(
             name="goblin",

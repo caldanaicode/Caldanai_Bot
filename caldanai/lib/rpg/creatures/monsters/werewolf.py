@@ -75,6 +75,16 @@ class Werewolf(MonsterPlugin):
     # MORNING during which the werewolf is considered "desperate".
     _DESPERATION_WINDOW_HOURS = 1.0
 
+    # Per-hit narration: pelt is dense and rubbery, blunting blunt
+    # blows; piercing slips through the fur cleanly. LIGHT (silver
+    # stand-in) and FIRE (purification) hit hardest.
+    HIT_NARRATIONS = {
+        DamageTypes.LIGHT:       "Holy light brands a glowing scar through @1a coarse fur; @1s yelps and shies away.",
+        DamageTypes.FIRE:        "Flame catches in @1a thick pelt and spreads with a crackle of singed hair.",
+        DamageTypes.BLUDGEONING: "The blow sinks into dense pelt and corded muscle; @1s rolls with the impact.",
+        DamageTypes.PIERCING:    "The point parts @1a fur cleanly and bites deep into the muscle beneath.",
+    }
+
     def __init__(self):
         super().__init__(
             name="werewolf",

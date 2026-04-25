@@ -38,6 +38,16 @@ class Toad(MonsterPlugin):
         ),
     ])
 
+    # Per-hit narration: damp slick hide shrugs off blunt blows;
+    # pointed shafts and arrows slip through cleanly. Fire is
+    # devastating against amphibian flesh.
+    HIT_NARRATIONS = {
+        DamageTypes.FIRE:        "Flame meets damp hide; @1d's flesh blisters audibly, hissing as it cooks.",
+        DamageTypes.RANGED:      "The shaft punches clean through @1a slick hide and finds the soft body beneath.",
+        DamageTypes.PIERCING:    "The point slides through @1a slick hide cleanly.",
+        DamageTypes.BLUDGEONING: "The blow lands flat against rubbery hide; @1s gives a wet, dismissive croak.",
+    }
+
     def __init__(self):
         super().__init__(
             name="toad",

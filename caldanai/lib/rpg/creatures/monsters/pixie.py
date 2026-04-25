@@ -74,6 +74,19 @@ class Pixie(MonsterPlugin):
     # slay.
     TARGET_PREFERENCES = {"eye": 0.3}
 
+    # Per-hit narration: pixies ARE magic, so arcane force barely
+    # touches them. Bludgeoning struggles to land cleanly on a
+    # tiny darting target. Piercing is unforgiving when it lands.
+    # Fire and Light burn fae fiercely (folklore reaches across
+    # the table on this one).
+    HIT_NARRATIONS = {
+        DamageTypes.FIRE:        "Iron-cold @1d shrieks; flame is anathema to fae and @1a wings curl in distress.",
+        DamageTypes.LIGHT:       "Pure radiance strikes @1d harder than mortal light has any right to.",
+        DamageTypes.MAGICAL:     "Arcane force passes around @1d like wind around a leaf; @1s laughs.",
+        DamageTypes.BLUDGEONING: "The blow lands awkwardly — @1s's smaller than the swing, and most of it goes wide.",
+        DamageTypes.PIERCING:    "The point finds @1d square; for something so small, @1s feels every bit of it.",
+    }
+
     def __init__(self):
         super().__init__(
             name="pixie",

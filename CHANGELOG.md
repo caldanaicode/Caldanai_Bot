@@ -4,6 +4,30 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — Resistance hint flavor across the bestiary
+
+Damage-type traits (``self.traits[DamageTypes.X] = 0.5``) shifted
+the multiplier column in the combat table but offered no flavor
+cue — players had to read the raw numbers to learn a vampire
+shrugs off slashing or a golem laughs at piercing. Skeleton and
+spirit had this; the rest didn't. Surfacing the same matchup
+information through inline ``HIT_NARRATIONS`` flavor (the
+existing skeleton pattern) keeps the combat table's column count
+unchanged while making resistances learnable from narration.
+
+- ``HIT_NARRATIONS`` dicts added to: vampire, werewolf, golem,
+  dragon, pixie, bandit, goblin, giant, bearowl, toad, sheep,
+  minotaur, cyclops, hydra. Spirit gained a FIRE entry to fill
+  the one trait gap not already covered by ``_on_attacked``
+  intangibility callouts or the ``Undead`` mixin's LIGHT/DARK
+  defaults.
+- All flavor lines avoid body-part-specific anatomy (no "ribs",
+  "throat" etc.) so the same line reads correctly whether the
+  player was aiming for head, leg, torso, or anywhere else.
+- The ``HIT_NARRATIONS`` MRO-merge in ``Creature.get_hit_narration``
+  already handles classification mixin defaults stacking with
+  per-monster overrides, so no engine changes were needed.
+
 ### 2026-04-26 — Combat tables: ``ansi`` fence + per-row outcome dots
 
 Legacy ``diff`` fence forced whole-line color via the ``+``/``-``

@@ -25,6 +25,19 @@ class Vampire(MonsterPlugin):
     # wastes most "fixated" attacks.
     TARGET_PREFERENCES = {"head": 0.4}
 
+    # Per-hit narration: signals the trait multipliers in flavor text
+    # so players learn the matchup without seeing the raw 0.5×.
+    # Slashing/piercing/bludgeoning/magical all sit at 0.5× — separate
+    # entries so the flavor stays grounded in the weapon, not generic.
+    HIT_NARRATIONS = {
+        DamageTypes.LIGHT:       "Holy radiance sears @1a corpse-pale skin; @1s hisses, recoiling.",
+        DamageTypes.FIRE:        "Flame catches eagerly to @1a unliving form.",
+        DamageTypes.SLASHING:    "The blade opens @1d shallowly; the wound seeps a thin black ichor and starts closing.",
+        DamageTypes.PIERCING:    "The point pierces @1a cold flesh and finds nothing alive to wound.",
+        DamageTypes.BLUDGEONING: "The blow lands with a dull thud against @1a unyielding undeath.",
+        DamageTypes.MAGICAL:     "Arcane force washes over @1d, blunted by the wrongness that animates @1o.",
+    }
+
     def __init__(self):
         super().__init__(
             name="vampire",
