@@ -654,12 +654,13 @@ class TestPlayerPipelinePort:
         monkeypatch.setattr(Player, "resolve", _res)
         monkeypatch.setattr(Player, "render_table", _rt)
 
-        msg, _damage, _res_obj = await game._run_player_block(alice, goblin)
+        block = await game._run_player_block(alice, goblin)
         # All three pipeline stages called in order.
         assert call_order.index("pick_actions") < call_order.index("resolve")
         assert call_order.index("resolve") < call_order.index("render_table")
         # Table produced (unless every roll missed — accept notes-only too).
-        assert "```diff" in msg or msg == ""
+        msg = block.table or ""
+        assert "```ansi" in msg or msg == ""
 
     @pytest.mark.asyncio
     async def test_run_player_block_honors_explicit_part_targets(
@@ -711,7 +712,8 @@ class TestPlayerPipelinePort:
         self._cripple(alice, "arm.right")
         game.combatants = [alice]
 
-        msg, _damage, _res = await game._run_player_block(alice, goblin)
+        block = await game._run_player_block(alice, goblin)
+        msg = block.table or ""
         assert "right arm hangs limp" in msg.lower()
 
     @pytest.mark.asyncio
@@ -747,7 +749,13 @@ class TestPlayerPipelinePort:
         self._cripple(alice, "arm.right")
         game.combatants = [alice]
 
-        msg, damage, res = await game._run_player_block(alice, goblin)
+        block = await game._run_player_block(alice, goblin)
+        msg = block.table or ""
+        results = block.results
+        damage = sum(
+            r.damage for r in (results.all_results or []) if r.damage > 0
+        ) if results is not None else 0
+        res = results.per_victim.get(goblin) if results is not None else None
         assert damage == 0
         assert res is None
         assert "arm hangs limp" in msg.lower() or "cannot be wielded" in msg.lower()

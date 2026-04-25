@@ -24,8 +24,10 @@ make the cyclops *safer* — it triggers **blind rage**:
   often, but with three rolls of bigger dice the *expected* round
   damage is roughly tripled. Bad luck during a blinded fight can
   catch a complacent player off-guard.
-- ``on_combat_round`` emits a one-time bellow the round the eye
-  goes out, so the table that follows is contextualized.
+- ``on_pre_retaliation`` emits a one-time bellow the round the eye
+  goes out, so the wild-swing attack table that follows is
+  contextualized — the bellow lands above the table because it's
+  what causes the wild swings.
 
 No target preference override — even rampaging, the cyclops is
 flailing, not aiming. Standard exposure-weighted random selection.
@@ -181,11 +183,16 @@ class Cyclops(MonsterPlugin):
             return self.get_attack_sources()
         return super().pick_actions()
 
-    def on_combat_round(self, damage_by_player) -> str:
+    def on_pre_retaliation(self, damage_by_player) -> str:
         """One-time bellow the round the eye is destroyed. Returns
         empty string in all other cases (including subsequent blind
         rounds — the rage is ongoing but the *announcement* only
-        fires once)."""
+        fires once).
+
+        Lives on ``on_pre_retaliation`` (not ``on_combat_round``) so
+        the bellow lands above the wild-swing attack table — the
+        bellow is what *causes* the wild swings, not a reaction to
+        them."""
         if self._is_blind() and not self._has_raged:
             self._has_raged = True
             return parse(

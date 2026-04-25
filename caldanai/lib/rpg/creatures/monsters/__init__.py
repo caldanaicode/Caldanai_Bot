@@ -99,9 +99,31 @@ class MonsterPlugin(Creature):
         # "monster leaves evidence behind" as a first-class concept.
         self.flee_loot: Dict[str, float] = {}
 
+    def on_pre_retaliation(self, damage_by_player: list) -> str:
+        """Called after players attack but BEFORE the monster retaliates.
+        Override to surface narration that contextualizes the monster's
+        upcoming attack — e.g. a cyclops bellowing in agony as it
+        transitions to a blind rampage, a doppelganger imitating the
+        hardest hitter before swinging back, a werewolf's desperation
+        flaring near dawn. The narration lands above the retaliation
+        attack table because it explains the attack that follows.
+
+        :param damage_by_player: List of (Player, int) tuples with
+            damage dealt this round.
+        :return: An optional message string to display, or empty string.
+        """
+        return ""
+
     def on_combat_round(self, damage_by_player: list) -> str:
-        """Called after players attack but before the monster retaliates.
-        Override to react to per-player damage dealt this round.
+        """Called AFTER the monster retaliates. Override for post-
+        retaliation state mutation (and any narration that describes
+        consequences of the monster's own attack) — e.g. hydra ticking
+        breath cooldowns and regrowing severed heads. The returned
+        narration lands below the retaliation attack table.
+
+        For narration that *causes* the retaliation (rage, desperation,
+        transformation), override :meth:`on_pre_retaliation` instead so
+        it lands above the attack table.
 
         :param damage_by_player: List of (Player, int) tuples with damage dealt this round.
         :return: An optional message string to display, or empty string.

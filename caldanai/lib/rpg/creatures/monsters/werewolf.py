@@ -28,7 +28,7 @@ The base engine already handles the actual dawn-flee (see
 
 - **Dawn desperation** — once the current hour is within ~1h of
   ``MORNING``, ``get_attack_sources`` adds a second "Desperate Lunge"
-  alongside the normal bite, and ``on_combat_round`` emits a
+  alongside the normal bite, and ``on_pre_retaliation`` emits a
   one-time announcement. Mechanically: the werewolf *knows* time is
   running out and gets reckless. Untargeted (normal exposure
   weighting) — the desperation is about urgency, not precision.
@@ -210,10 +210,15 @@ class Werewolf(MonsterPlugin):
             ]
         return sources
 
-    def on_combat_round(self, damage_by_player) -> str:
+    def on_pre_retaliation(self, damage_by_player) -> str:
         """One-time announcement when desperation kicks in. Subsequent
         rounds stay desperate (get_attack_sources keeps adding the
-        lunge) but don't re-announce."""
+        lunge) but don't re-announce.
+
+        Lives on ``on_pre_retaliation`` so the desperation flare lands
+        above the werewolf's attack table — the dawn-pressure mood
+        shift is what fuels the upcoming desperate lunge, not a
+        reaction to it."""
         if self._is_near_dawn() and not self._announced_desperation:
             self._announced_desperation = True
             return parse(

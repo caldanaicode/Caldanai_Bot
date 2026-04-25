@@ -14,8 +14,48 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from caldanai.lib.rpg.helpers import ansi
 from caldanai.lib.rpg.helpers.enums import DamageTypes
 from caldanai.lib.rpg.helpers.roll_data import CombinedRoll
+
+
+# Per-outcome SGR coloring for the compact combat table. The ``ansi``
+# code-fence colors the prefix character AND the trailing
+# HIT/MISS/CRIT/FUMBLE word independently — the legacy ``diff`` fence
+# forced whole-line color via ``+``/``-`` prefixes; the ``ansi`` fence
+# lets us highlight just the eye-catch tokens and leave the rest of
+# the row plain.
+#
+# Each entry is ``(color, intensity)`` so the same pair drives both
+# the prefix glyph and the outcome word in one row.
+_OUTCOME_HIT = (ansi.GREEN, ansi.NORMAL)
+_OUTCOME_MISS = (ansi.RED, ansi.NORMAL)
+_OUTCOME_CRIT = (ansi.YELLOW, ansi.BOLD)
+_OUTCOME_FUMBLE = (ansi.RED, ansi.BOLD)
+
+
+def _outcome_codes(parts: Dict[str, Any]) -> "tuple[str, str]":
+    """Pick the (color, intensity) pair signalling this row's outcome.
+
+    Fumble outranks miss because a fumble IS a miss but with the
+    bold-red emphasis the natural-1 deserves; crit outranks the
+    default hit for the same reason."""
+    if parts["is_fumble"]:
+        return _OUTCOME_FUMBLE
+    if parts["is_critical"]:
+        return _OUTCOME_CRIT
+    if parts["is_miss"]:
+        return _OUTCOME_MISS
+    return _OUTCOME_HIT
+
+
+def _wrap_outcome(text: str, parts: Dict[str, Any]) -> str:
+    """Wrap ``text`` in the SGR pair appropriate for ``parts``'s
+    outcome (fumble / crit / miss / hit). Wrap AFTER any width-based
+    padding — ANSI bytes are zero-width in Discord but ``len()``
+    counts them, which would throw off ``ljust`` alignment."""
+    color, intensity = _outcome_codes(parts)
+    return ansi.wrap(text, color, intensity=intensity)
 
 
 def _visual_width(s: str) -> int:
@@ -137,7 +177,7 @@ class AttackResult:
         }
 
     def to_markdown(self, label: Optional[str] = None) -> str:
-        """Render this result as a standalone Discord diff code block.
+        """Render this result as a standalone Discord ``ansi`` code block.
 
         This is used for standalone rendering (e.g., debugging or direct
         display); `AttackSequence.to_markdown` typically uses the compact
@@ -147,7 +187,10 @@ class AttackResult:
             If None, no header is added (the caller is expected to provide one).
         :return: A Discord-formatted markdown string.
         """
-        hit_mark = "-" if self.combined.isMiss else "+"
+        parts = self.to_display_parts()
+        color, intensity = _outcome_codes(parts)
+        hit_mark = ansi.wrap("-" if self.combined.isMiss else "+", color, intensity=intensity)
+        hit_str = ansi.wrap(self.combined.get_hit_string(), color, intensity=intensity)
         dmg_type_str = f"{str(self.dmg_type).title()} " if self.dmg_type else ""
         emoji = self.dmg_type.emoji if self.dmg_type else ""
         sub = self.sub_damage
@@ -155,8 +198,8 @@ class AttackResult:
         header = f"**{label}:**" if label else ""
 
         msg = (
-            f"{header}```diff\nAttack vs Dodge ({self.dodge}): "
-            f"\n{hit_mark}    {self.combined.attack} ({self.combined.get_hit_string()})"
+            f"{header}```ansi\nAttack vs Dodge ({self.dodge}): "
+            f"\n{hit_mark}    {self.combined.attack} ({hit_str})"
         )
 
         msg += (
@@ -215,7 +258,7 @@ class AttackSequence:
             if not self.notes:
                 return ""
             header = self._build_header()
-            body = "```diff\n"
+            body = "```ansi\n"
             for note in self.notes:
                 body += f"   {note}\n"
             body += "```\n"
@@ -300,7 +343,7 @@ class AttackSequence:
 
         total_damage = self.total_damage()
 
-        lines = ["```diff"]
+        lines = ["```ansi"]
 
         # Informational notes (e.g. "Your right arm hangs limp and
         # useless.") render inside the diff block, above the auto-hit
@@ -345,20 +388,36 @@ class AttackSequence:
 
             if all_auto_hit:
                 row = (
-                    f"{prefix}  {label} | {dmg_padded} | {mult_padded} | "
+                    f"{prefix} {label} | {dmg_padded} | {mult_padded} | "
                     f"{def_padded} | {final_rendered}{emoji_trailer}"
                 )
             else:
+                # Pad against the plain check string so column alignment
+                # uses visible width; THEN replace the trailing
+                # HIT/MISS/CRIT/FUMBLE word with its ANSI-colored
+                # version. The ANSI bytes are zero-width in Discord's
+                # renderer, so the padding stays correct.
                 check_padded = check_col.ljust(check_w)
+                hit_str = p["hit_str"]
+                if hit_str:
+                    check_padded = check_padded.replace(
+                        hit_str, _wrap_outcome(hit_str, p), 1,
+                    )
                 row = (
-                    f"{prefix}  {label} | {check_padded} | "
+                    f"{prefix} {label} | {check_padded} | "
                     f"{dmg_padded} | {mult_padded} | {def_padded} | "
                     f"{final_rendered}{emoji_trailer}"
                 )
             lines.append(row)
 
+            # Extra-text line for special per-hit narration (chill drain,
+            # vampire feed, etc.). Indented to align with the
+            # column-header row's 3-space leader so it reads as a
+            # continuation of the row above; no leading marker — the
+            # outcome dot already carried the signal for the parent
+            # row, the continuation just needs its own line.
             if p["extra_text"]:
-                lines.append(f"!  {' ' * label_w}   {p['extra_text']}")
+                lines.append(f"   {' ' * label_w}   {p['extra_text']}")
 
         if self.multi_target:
             # Q.6.3-followup: break out per-victim totals. A single
@@ -472,12 +531,28 @@ class AttackSequence:
 
     @staticmethod
     def _prefix_for(parts: Dict[str, Any]) -> str:
-        """Returns the diff-block prefix character for a result's display parts."""
+        """Returns the per-row outcome dot for a result's display parts.
+
+        Replaces the legacy ``+``/``-``/``!`` diff-fence prefix glyphs
+        — those carried color via the ``diff`` highlighter, vestigial
+        once the ``ansi`` fence took over the row coloring. The dot
+        emoji is the universal channel: it renders the same on phone
+        (which strips ANSI) as on desktop (where the SGR-colored
+        outcome word in the check column is the redundant signal).
+
+        Palette mirrors :data:`INJURY_LEVEL_DISPLAY` so the per-row
+        outcome dot reads in the same vocabulary as the body-part
+        injury dots: 🟢 hit, ⚫ miss, 🟡 crit, 🔴 fumble (the natural-1
+        gets the eye-catching red — fumbles are rarer and more
+        attention-worthy than ordinary misses, so the saturated dot
+        goes there)."""
+        if parts["is_fumble"]:
+            return "🔴"
         if parts["is_critical"]:
-            return "!"
+            return "🟡"
         if parts["is_miss"]:
-            return "-"
-        return "+"
+            return "⚫"
+        return "🟢"
 
     def _build_header(self) -> str:
         """Build a per-sequence header string.

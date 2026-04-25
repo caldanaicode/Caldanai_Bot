@@ -218,17 +218,17 @@ class TestCyclops:
         True for every subsequent round."""
         c = Cyclops()
         # Pre-blind: no announcement.
-        assert c.on_combat_round([]) == ""
+        assert c.on_pre_retaliation([]) == ""
 
         # Destroy the eye and call the round hook.
         eye = next(p for p in c.body_parts if isinstance(p, EyePlugin))
         eye.health = 0
-        first = c.on_combat_round([])
+        first = c.on_pre_retaliation([])
         assert first
         assert "bellows" in first.lower() or "agony" in first.lower()
 
         # Subsequent rounds: still blind, but no repeat announcement.
-        second = c.on_combat_round([])
+        second = c.on_pre_retaliation([])
         assert second == ""
 
 
@@ -450,14 +450,14 @@ class TestWerewolf:
         assert any("Lunge" in (s.label or "") for s in desperate)
 
     def test_desperate_announcement_fires_once(self, monkeypatch):
-        """``on_combat_round`` returns the announcement the first
+        """``on_pre_retaliation`` returns the announcement the first
         time desperation kicks in, then goes quiet on subsequent
         rounds even while still desperate."""
         self._stub_time(monkeypatch, 0.5)
         w = Werewolf()
         w._channel_id = self._FAKE_CHANNEL_ID
-        first = w.on_combat_round([])
-        second = w.on_combat_round([])
+        first = w.on_pre_retaliation([])
+        second = w.on_pre_retaliation([])
         assert "dawn" in first.lower() or "horizon" in first.lower()
         assert second == ""
 
@@ -721,13 +721,13 @@ class TestSpirit:
     def test_fade_announcement_fires_once(self):
         s = Spirit()
         # Above fade: nothing.
-        assert s.on_combat_round([]) == ""
+        assert s.on_pre_retaliation([]) == ""
         # Drop below 25%.
         s.health = max(1, int(s.health_max * 0.2))
-        first = s.on_combat_round([])
+        first = s.on_pre_retaliation([])
         assert "thins" in first.lower() or "warmth" in first.lower()
         # Stay below 25%, no repeat.
-        second = s.on_combat_round([])
+        second = s.on_pre_retaliation([])
         assert "thins" not in second.lower() and "warmth" not in second.lower()
 
     def _make_spirit_attack_result(

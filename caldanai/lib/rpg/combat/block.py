@@ -262,3 +262,107 @@ def _multi_victim_to_dict(mv: Optional[Any]) -> Optional[Dict[str, Any]]:
         "all_results": [_result_to_dict(r) for r in (getattr(mv, "all_results", []) or [])],
         "any_critical_part_kill": bool(getattr(mv, "any_critical_part_kill", False)),
     }
+
+
+@dataclass
+class RoundOutput:
+    """Round-level accumulator for ``Game.do_combat``'s message
+    composition.
+
+    Holds the named output slots one combat round produces. The
+    composer (``do_combat``) populates whichever slots apply for the
+    round's control flow — death, escape, rampage, or normal retaliate —
+    then calls :meth:`render` once at dispatch time. Slot order is
+    fixed so that ``on_pre_retaliation`` narration (cyclops bellow,
+    werewolf desperation, doppelganger imitation, spirit fade) lands
+    above the retaliation attack table that it explains, and
+    ``on_combat_round`` narration (hydra regrowth) lands below it.
+
+    **Why this exists.** Pre-Phase-7, ``do_combat`` accumulated output
+    by string concatenation, with control-flow ordering forcing the
+    monster's reactive-flavor (``on_combat_round``) to land *after*
+    its retaliation attack table — surfaced in playtest as cyclops
+    "bellows in agony, lashes out wildly" appearing under the wild-
+    swing table it was meant to introduce. Named slots make the
+    relative position of pre/post narration explicit instead of
+    accidental.
+
+    All slots default to empty so populating only the slots that
+    apply for a given control path (e.g. death-only: player_blocks +
+    death_narration + loot_hint) is the natural shape.
+    """
+
+    # Player attack blocks in turn order. Today only ``block.table``
+    # is consumed by render(); the structured fields (results,
+    # assignments, etc.) ride along for downstream consumers (API
+    # narrator, replay log).
+    player_blocks: List["CombatBlock"] = field(default_factory=list)
+    # Per-player injury feedback strings (already joined w/ trailing
+    # newline). Aligns 1:1 with ``player_blocks``; an empty string
+    # at index ``i`` means that player's attacks didn't destroy
+    # anything new.
+    injury_feedback: List[str] = field(default_factory=list)
+    # ``"Total damage done vs Health: ..."`` summary row. Empty
+    # when ``critical_part_kill`` suppresses it (the part-driven
+    # death narration carries the meaning instead).
+    total_damage_row: str = ""
+    # Monster death narration (already parsed). Renders for monster-
+    # killed-this-round paths.
+    death_narration: str = ""
+    # Post-death loot ping (e.g. ``"There might be something to
+    # `$loot`..."``). Only populated when the monster died this round.
+    loot_hint: str = ""
+    # Pre-retaliation monster narration — the cyclops bellow, the
+    # doppy mid-form transformation, the werewolf desperation flare.
+    # Lands above the retaliation table because it explains the
+    # attack that follows.
+    pre_retaliation_narration: str = ""
+    # Monster retaliation attack table, from ``attack_random``.
+    retaliation_table: str = ""
+    # Post-retaliation monster narration — hydra regrowth message,
+    # any other "consequence of the monster's own attack" line.
+    post_retaliation_narration: str = ""
+    # Escape narration when the monster flees (no-combatants /
+    # vengeful-passive / survive-near-death paths).
+    escape_narration: str = ""
+
+    def render(self) -> str:
+        """Compose populated slots into the final Discord message.
+
+        Separators match the pre-RoundOutput byte shape: each player
+        block carries its own internal whitespace, and the
+        retaliation / escape chunks each get a single leading
+        ``\\n`` to separate them from the prior chunk (mirrors the
+        legacy ``msg += f"\\n{attack_random(...)}"`` cadence).
+        Empty slots contribute nothing — this is the right shape for
+        every control path (death-only, escape, rampage-continue,
+        normal-retaliate).
+        """
+        parts: List[str] = []
+
+        for i, block in enumerate(self.player_blocks):
+            if block.table:
+                parts.append(block.table)
+            if i < len(self.injury_feedback) and self.injury_feedback[i]:
+                parts.append(self.injury_feedback[i])
+
+        if self.total_damage_row:
+            parts.append(self.total_damage_row)
+        if self.death_narration:
+            parts.append(self.death_narration)
+        if self.loot_hint:
+            parts.append(self.loot_hint)
+
+        # Retaliation chunks each carry a leading ``\n`` so they
+        # peel away cleanly from the player-attack section above.
+        if self.pre_retaliation_narration:
+            parts.append(f"\n{self.pre_retaliation_narration}")
+        if self.retaliation_table:
+            parts.append(f"\n{self.retaliation_table}")
+        if self.post_retaliation_narration:
+            parts.append(f"\n{self.post_retaliation_narration}")
+
+        if self.escape_narration:
+            parts.append(f"\n{self.escape_narration}")
+
+        return "".join(parts)

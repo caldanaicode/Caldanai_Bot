@@ -396,7 +396,7 @@ class TestRenderTable:
         random.seed(7)
         results = attacker.resolve(assignments)
         out = attacker.render_table(results)
-        assert "```diff" in out
+        assert "```ansi" in out
 
 
 class TestNarrateResults:

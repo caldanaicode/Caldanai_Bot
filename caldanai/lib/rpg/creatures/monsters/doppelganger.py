@@ -319,8 +319,12 @@ class Doppelganger(MonsterPlugin):
             return f"{items[0]} and {items[1]}"
         return ", ".join(items[:-1]) + f", and {items[-1]}"
 
-    def on_combat_round(self, damage_by_player: list) -> str:
-        """Imitate whoever hit the hardest this round."""
+    def on_pre_retaliation(self, damage_by_player: list) -> str:
+        """Imitate whoever hit the hardest this round.
+
+        Lives on ``on_pre_retaliation`` so the form-shift narration
+        lands above the doppelganger's retaliation attack table —
+        you imitate the hardest hitter, *then* attack as them."""
         if not damage_by_player:
             return ""
 

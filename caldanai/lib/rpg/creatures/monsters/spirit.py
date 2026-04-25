@@ -45,8 +45,8 @@ Spirit-specific mechanics layered on top
 - **First-physical-hit narrative** (also ``_on_attacked``): the first
   time a player lands a physical swing — regardless of the
   multiplier-chewed final damage — set a one-shot flag so the next
-  ``on_combat_round`` can surface "your blade passes through" as a
-  teaching moment. Lives on ``_on_attacked`` rather than
+  ``on_pre_retaliation`` can surface "your blade passes through" as
+  a teaching moment. Lives on ``_on_attacked`` rather than
   ``apply_damage`` because the sequence helper skips
   ``apply_damage`` for zero-damage hits (and physical-vs-spirit is
   always zero after the 0.1 multiplier), so the flag would never
@@ -172,7 +172,7 @@ class Spirit(Undead, MonsterPlugin):
     def _is_fading(self) -> bool:
         """Spirit drops below 25% HP — too thin to siphon life force,
         so drain disables. Narrative announcement fires once via
-        ``on_combat_round``."""
+        ``on_pre_retaliation``."""
         if self.health_max <= 0:
             return False
         return self.health / self.health_max < 0.25
@@ -255,12 +255,17 @@ class Spirit(Undead, MonsterPlugin):
 
     # -- Combat round narrative ------------------------------------------
 
-    def on_combat_round(self, damage_by_player) -> str:
+    def on_pre_retaliation(self, damage_by_player) -> str:
         """One-time fade-state announcement.
 
         The first-physical-hit callout lives in ``_on_attacked`` now
         — surfaced via ``result.extra_text`` so it lands inline with
         the attack-table row, not after the monster's counter-attack.
+
+        Lives on ``on_pre_retaliation`` so the fade narration lands
+        above the spirit's chill-touch retaliation — the form-thinning
+        is the round's mood-shift, not a reaction to the attack that
+        follows.
         """
         if self._is_fading() and not self._has_faded:
             self._has_faded = True

@@ -12,6 +12,7 @@ from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
 from caldanai.lib.rpg import Game
+from caldanai.lib.rpg.helpers import ansi
 from caldanai.lib.rpg.helpers.enums import (
     Directions, INJURY_LEVEL_DISPLAY, InjuryLevels, Pronouns, Roles,
 )
@@ -39,14 +40,9 @@ def _body_hp_dot(player) -> str:
     return "⚫"
 
 
-_ANSI_RESET = "\x1b[0m"
-
-
-def _ansi_wrap(text: str, color_code: str) -> str:
-    """Wrap ``text`` in an ANSI color escape for a ```ansi fence.
-    Uses the dim/normal intensity (``2;``) to match Discord's other
-    colored-diff aesthetics."""
-    return f"\x1b[2;{color_code}m{text}{_ANSI_RESET}"
+# ANSI helpers live in caldanai.lib.rpg.helpers.ansi; injury
+# coloring uses ansi.DIM intensity to keep body-part labels as
+# secondary information rather than primary alerts.
 
 
 def _injured_parts_suffix(player) -> str:
@@ -60,7 +56,7 @@ def _injured_parts_suffix(player) -> str:
         if level == InjuryLevels.NONE:
             continue
         _, word, color = INJURY_LEVEL_DISPLAY.get(level, ("", str(level), "37"))
-        chunks.append(f"{part.name} {_ansi_wrap(word, color)}")
+        chunks.append(f"{part.name} {ansi.wrap(word, color, intensity=ansi.DIM)}")
     return ", ".join(chunks)
 
 

@@ -116,9 +116,9 @@ class TestMonsterPluginAttackRandom:
         msg = bandit.attack_random([victim])
         assert msg is not None
         assert isinstance(msg, str)
-        # Compact diff-block table marker is always present in
+        # Compact ansi-block table marker is always present in
         # ``AttackSequence.to_markdown`` output when any source fires.
-        assert "```diff" in msg
+        assert "```ansi" in msg
 
     def test_victim_takes_damage_across_many_trials(self):
         """Over 20 retaliations any reasonable bandit eventually
@@ -195,7 +195,7 @@ class TestMultiVictimRetaliation:
         v2 = _make_player(name="bob", uid=2, health=10_000)
         for _ in range(20):
             msg = bandit.attack_random([v1, v2], count=2)
-            if msg and "```diff" in msg:
+            if msg and "```ansi" in msg:
                 return
         pytest.skip("Bandit multi-victim failed to produce a table in 20 rounds")
 

@@ -4,6 +4,62 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — Combat tables: ``ansi`` fence + per-row outcome dots
+
+Legacy ``diff`` fence forced whole-line color via the ``+``/``-``
+line prefix; the ``ansi`` fence lets us color the trailing
+HIT/MISS/CRIT/FUMBLE word in the check column for desktop, and
+replace the prefix glyph with an emoji dot for the mobile / ANSI-
+stripped channel — both signals in lockstep.
+
+- ``AttackSequence.to_markdown`` and ``AttackResult.to_markdown``
+  emit ``\`\`\`ansi`` blocks instead of ``\`\`\`diff``.
+- Per-row prefix swapped from ``+``/``-``/``!`` to dot emoji:
+  🟢 hit, 🔴 fumble, 🟡 crit, ⚫ miss. Saturated red for the rare
+  natural-1 fumble, gone-dark dot for the routine miss. Mirrors
+  the ``INJURY_LEVEL_DISPLAY`` palette in ``helpers/enums.py``.
+- New ``caldanai.lib.rpg.helpers.ansi`` module — full Solarized-Dark
+  palette, intensity modifiers (``NORMAL``/``BOLD``/``DIM``/
+  ``UNDERLINE``), and a single ``wrap(text, color, *,
+  intensity=NORMAL)`` helper. The duplicated ``_ansi_wrap`` in
+  ``cogs/rpg_info_commands.py`` collapses into the shared module.
+- ANSI bytes are zero-width in Discord's renderer, so column
+  alignment is unchanged. Width math runs against the plain
+  un-coloured string; the outcome word is replaced post-``ljust``.
+- Extra-text continuation lines (chill drains, vampire feeds, etc.)
+  drop the ``!`` marker glyph and render as plain indented
+  continuation under the row they belong to.
+
+### 2026-04-26 — Combat round sectioning + cyclops/doppy/spirit/werewolf land before retaliation
+
+`Game.do_combat` was string-concatenating round output in execution
+order, which forced reactive-flavor (``on_combat_round``) to land
+*after* the monster's retaliation attack table. Live cyclops
+playtest surfaced the worst case: "*The cyclops bellows in blinding
+agony, lashes out wildly*" appearing under the wild-swing table it
+was supposed to introduce. Same shape lurked in doppelganger
+imitation, spirit fade, werewolf desperation — all narration that
+explains the upcoming attack.
+
+- New `RoundOutput` dataclass (`caldanai/lib/rpg/combat/block.py`)
+  with named slots: player blocks, injury feedback, total-damage
+  row, death narration, loot hint, **pre-retaliation narration**,
+  retaliation table, **post-retaliation narration**, escape. A
+  `render()` method composes them into the final Discord message
+  in fixed slot order — the structural fix for the cyclops bug.
+- New `MonsterPlugin.on_pre_retaliation(damage_by_player)` hook;
+  cyclops, doppelganger, spirit, werewolf migrated to it. Hydra
+  stays on `on_combat_round` (head regrowth is post-retaliation
+  state mutation, narration of which belongs *below* the attack
+  table by design).
+- `Game._run_player_block` now returns the populated
+  `CombatBlock` (the block was being constructed and discarded
+  before — `_ = CombatBlock(...)` with a "no downstream consumer
+  yet" comment). Callers derive `damage`/`resolution` from
+  `block.results`.
+- Legacy `_do_combat_legacy` path untouched — still callable for
+  one-line regression bisect during playtest.
+
 ### 2026-04-25 — ``$look`` word-token fallback for variant-named creatures
 
 Live playtest caught that ``$look hydra`` / ``$look hexed``

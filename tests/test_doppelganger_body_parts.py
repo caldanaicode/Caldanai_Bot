@@ -245,24 +245,19 @@ class TestDoppelgangerImitateNoPartsTarget:
 
 
 class TestDoppelgangerNeverImitatesSelf:
-    def test_on_combat_round_skips_doppelganger_target(self):
+    def test_on_pre_retaliation_skips_doppelganger_target(self):
         """If the hardest hitter is another doppelganger, re-imitation
         must be skipped — body parts must not change."""
         d = Doppelganger()
         original_parts = d.body_parts[:]
 
         other_doppel = Doppelganger()
-        # Pretend the other doppelganger is a Player for the isinstance
-        # check in on_combat_round — but the guard should still fire
-        # because the target is a Doppelganger.
-        # We call imitate directly to test the guard.
-        # First, make it look like a Player so the existing isinstance
-        # check doesn't reject it before the doppelganger guard fires.
-        # Actually, the guard should be BEFORE the Player isinstance check
-        # or alongside it. Let's test via on_combat_round which checks
-        # isinstance(hardest_hitter, Player) — the other doppelganger
-        # won't pass that check either, so the guard is defense-in-depth.
-        # Test the direct imitate path instead:
+        # The on_pre_retaliation hook gates on
+        # ``isinstance(hardest_hitter, Player)``, so another
+        # Doppelganger wouldn't reach imitate() through that path
+        # at all. Test the direct imitate guard so we still cover
+        # the "doppelganger never imitates a doppelganger" rule
+        # even if the call shape changes.
         result = d.imitate(other_doppel)
 
         assert result == ""

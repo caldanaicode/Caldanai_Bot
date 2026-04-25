@@ -109,7 +109,7 @@ class TestImitate:
         """Imitating the player whose face is already worn should
         short-circuit. Prevents per-round narration spam and stat
         thrashing when the same player keeps landing the hardest
-        hit in ``on_combat_round``."""
+        hit in ``on_pre_retaliation``."""
         doppel = Doppelganger()
         player = _make_player(name="Serena", defense=5, dodge=5)
 
@@ -162,13 +162,13 @@ class TestImitate:
         assert doppel.name == "???"
 
 
-class TestOnCombatRound:
+class TestOnPreRetaliation:
     def test_imitates_hardest_hitter(self):
         doppel = Doppelganger()
         weak = _make_player("Weak")
         strong = _make_player("Strong")
 
-        msg = doppel.on_combat_round([(weak, 5), (strong, 15)])
+        msg = doppel.on_pre_retaliation([(weak, 5), (strong, 15)])
 
         assert doppel.name == "Strong"
         assert "likeness" in msg
@@ -177,7 +177,7 @@ class TestOnCombatRound:
         doppel = Doppelganger()
         original_name = doppel.name
 
-        msg = doppel.on_combat_round([])
+        msg = doppel.on_pre_retaliation([])
 
         assert doppel.name == original_name
         assert msg == ""
@@ -186,7 +186,7 @@ class TestOnCombatRound:
         doppel = Doppelganger()
         creature = MagicMock(spec=Creature)
 
-        msg = doppel.on_combat_round([(creature, 99)])
+        msg = doppel.on_pre_retaliation([(creature, 99)])
 
         assert msg == ""
         assert doppel.name == "???"

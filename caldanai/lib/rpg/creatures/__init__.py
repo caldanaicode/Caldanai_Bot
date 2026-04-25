@@ -5,7 +5,7 @@ from typing import List, Tuple, Union, Optional, Dict, Set
 
 from discord import Embed, File
 
-from caldanai.lib.rpg import parse
+from caldanai.lib.rpg import parse, _INDENT
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.mixins import (
     Defensive, Equippable, Mobility, Offensive, Sensory,
@@ -727,7 +727,7 @@ class Creature:
                 victim_name = getattr(victim, "name", "someone") or "someone"
                 header = f"{victim_name} — Total damage done vs Health:"
             out_lines.append(
-                f"{header}\n\u2800\u2800\u2800\u2800"
+                f"{header}\n{_INDENT}"
                 f"{final:,} vs {reference:,} "
                 f"= **{remaining} health remaining.**"
             )

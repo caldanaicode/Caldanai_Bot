@@ -826,8 +826,8 @@ class TestDragonBreathPathPreserved:
 
         assert result is not None
         assert isinstance(result, str)
-        # Phase 6b pipeline output carries the shared diff-block table.
-        assert "```diff" in result
+        # Phase 6b pipeline output carries the shared ansi-block table.
+        assert "```ansi" in result
         # Breath flavor must not appear on a non-breath round.
         assert "column of liquid flame" not in result
 

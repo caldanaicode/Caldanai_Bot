@@ -152,7 +152,7 @@ class TestAttackResultToMarkdown:
         r = _make_result()
         md = r.to_markdown(label=None)
         assert "**" not in md  # no label header
-        assert "```diff" in md
+        assert "```ansi" in md
 
     def test_hit_shows_total_line(self):
         r = _make_result(damage=4, is_miss=False, defense=2)
@@ -281,8 +281,8 @@ class TestAttackSequence:
             ],
         )
         md = seq.to_markdown()
-        # Compact table uses ```diff fence and a single block
-        assert "```diff" in md
+        # Compact table uses ```ansi fence and a single block
+        assert "```ansi" in md
         # Both labels appear inside the table rows
         assert "Left" in md
         assert "Right" in md
@@ -400,5 +400,11 @@ class TestAttackSequence:
         seq = AttackSequence(attacker=attacker, target=target, results=[r1, r2])
         md = seq.to_markdown()
         assert "LORD OF PRIMES" in md
-        # Extra text should be on its own line (prefixed with !)
-        assert "\n!" in md
+        # Extra text renders as an indented continuation line under
+        # the row it belongs to — the dot-prefix outcome on the parent
+        # row already carries the signal, so the continuation just
+        # gets the column-header's 3-space leader and no marker.
+        assert "\n   " in md
+        # And the extra-text content lives on its own line, not
+        # smushed onto the row.
+        assert "Right" not in md.split("LORD OF PRIMES")[0].rsplit("\n", 1)[-1]

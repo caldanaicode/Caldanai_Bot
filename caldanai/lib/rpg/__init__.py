@@ -11,6 +11,15 @@ from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.areas import Area
 from caldanai.lib.rpg.time import GameClock
 from caldanai.lib.rpg.helpers import get_random_direction
+
+# Discord-renderable indent: U+2800 BRAILLE PATTERN BLANK, four wide.
+# Imported by ``caldanai.lib.rpg.creatures`` for its own total-damage
+# row, so it MUST be defined before the imports below that trigger
+# circular loading of the creatures package \u2014 otherwise that package
+# sees a partially-initialized ``caldanai.lib.rpg`` without
+# ``_INDENT`` yet bound and the import fails.
+_INDENT = "\u2800" * 4
+
 from caldanai.lib.rpg.combat.resolution import (
     apply_sequence_to_target,
     compute_body_hp_damage as _compute_body_hp_damage,
@@ -557,18 +566,28 @@ class Game:
         return msg
 
     async def do_combat(self):
-        """Phase-5 pipeline-driven round composer.
+        """Phase-7 pipeline-driven round composer.
 
         Players attack in join order (``self.combatants`` forward),
         monster retaliates afterwards. Each attacker produces a
-        :class:`CombatBlock` whose fields render into the final
-        message shape — output-parity with the pre-Phase-5 legacy
-        path is the bar.
+        :class:`CombatBlock`; the round-level output accumulates into
+        a :class:`RoundOutput` whose named slots (player blocks,
+        injury feedback, total-damage row, death narration, pre/post
+        retaliation narration, escape) compose into the final
+        Discord message via :meth:`RoundOutput.render`.
+
+        The cyclops-style ordering bug — pre-retaliation flavor (the
+        bellow that *causes* the wild swings) appearing below the
+        wild-swing attack table — is fixed by slot order: the
+        ``pre_retaliation_narration`` slot lands above the
+        ``retaliation_table`` slot, with hydra-style state mutations
+        staying in ``post_retaliation_narration`` below.
 
         The legacy monolithic body is preserved as
         :meth:`_do_combat_legacy` so a playtest regression can flip
         the call site in one line.
         """
+        from caldanai.lib.rpg.combat.block import RoundOutput
 
         if self.monster is None:
             _log.error(f"Combat unable to proceed in `{self.guild.name}` because no monster was present.")
@@ -577,7 +596,7 @@ class Game:
             return
 
         monster = self.monster
-        msg = ""
+        round_output = RoundOutput()
         actual_body_damage = 0
         damage_by_player: Dict[int, Tuple[Player, int]] = {}
         death_msg = ""
@@ -592,15 +611,23 @@ class Game:
             if player.is_dead():
                 dead_idx.append(i)
                 continue
-            player_block_msg, player_damage, player_res = await self._run_player_block(
-                player, monster,
+            block = await self._run_player_block(player, monster)
+            round_output.player_blocks.append(block)
+
+            results = block.results
+            player_damage = sum(
+                r.damage for r in (results.all_results or []) if r.damage > 0
+            ) if results is not None else 0
+            player_res = (
+                results.per_victim.get(monster) if results is not None else None
             )
-            msg += player_block_msg
+
             if player.user_id not in damage_by_player:
                 damage_by_player[player.user_id] = (player, 0)
             _, prev = damage_by_player[player.user_id]
             damage_by_player[player.user_id] = (player, prev + player_damage)
 
+            injury_chunk = ""
             if player_res is not None:
                 if player_res.death_msg and not death_msg:
                     death_msg = player_res.death_msg
@@ -614,7 +641,10 @@ class Game:
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
                 if player_res.injury_feedback_lines:
-                    msg += "\n".join(player_res.injury_feedback_lines) + "\n"
+                    injury_chunk = (
+                        "\n".join(player_res.injury_feedback_lines) + "\n"
+                    )
+            round_output.injury_feedback.append(injury_chunk)
 
         # Remove dead combatants in reverse order so indices stay
         # valid. Matches the legacy ``combatants.pop(i)`` semantics.
@@ -634,39 +664,46 @@ class Game:
 
         if not critical_part_kill:
             remaining = 0 if monster.is_dead() else max(health_before - actual_body_damage, 0)
-            msg += (
-                f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "
+            round_output.total_damage_row = (
+                f"Total damage done vs Health:\n{_INDENT}{actual_body_damage:,} vs {health_before:,} "
                 f"= **{remaining} health remaining.**\n"
             )
 
-        msg += parse(death_msg, monster)
+        round_output.death_narration = parse(death_msg, monster)
 
         if monster.is_dead():
             self.monster_statics[f"{monster.name}.killed"] += 1
-            msg += parse(await self.on_monster_death(), monster)
-            msgs = Dispatcher.split_message(msg, "```\n", True)
+            round_output.loot_hint = parse(await self.on_monster_death(), monster)
+            msgs = Dispatcher.split_message(round_output.render(), "```\n", True)
             for m in msgs:
                 Dispatcher.add(self.channel, m)
             return
 
         # Monster retaliation block — their turn in the new turn order.
-        # Today's ``attack_random`` is the backward-compat entry point
-        # for every monster (hydra is the only one driving the
-        # pipeline internally; others still own their attack_random).
+        # ``on_pre_retaliation`` runs before ``attack_random`` so the
+        # rage / desperation / transformation announcement lands above
+        # the table it explains; ``on_combat_round`` runs after for
+        # state-mutation hooks (hydra regrowth) whose narration belongs
+        # below the attack table.
         if self.combatants and (
             monster.aggression & (AggressionLevels.RAMPAGE | AggressionLevels.VENGEFUL | AggressionLevels.SURVIVE)
         ):
-            # Unconditional append preserves legacy output shape even
-            # when attack_random returns "" — the trailing \n still
-            # lands the same way the pre-Phase-5 loop did.
-            msg += f"\n{monster.attack_random(self.combatants)}"
-            if round_msg := monster.on_combat_round(list(damage_by_player.values())):
-                msg += f"\n{round_msg}"
+            damage_pairs = list(damage_by_player.values())
+            round_output.pre_retaliation_narration = (
+                monster.on_pre_retaliation(damage_pairs) or ""
+            )
+            # Unconditional assignment preserves legacy output shape
+            # even when attack_random returns "" — the slot's leading
+            # newline in render() still lands the same separator.
+            round_output.retaliation_table = monster.attack_random(self.combatants)
+            round_output.post_retaliation_narration = (
+                monster.on_combat_round(damage_pairs) or ""
+            )
 
             if monster.aggression & AggressionLevels.RAMPAGE or (
                 monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() > 0.1
             ):
-                Dispatcher.add(self.channel, msg)
+                Dispatcher.add(self.channel, round_output.render())
                 self.combatants.clear()
                 self.combat_targets.clear()
                 self.game_clock.add_routine(self.do_combat, int(self.spawn_duration / 2), True)
@@ -678,21 +715,19 @@ class Game:
             or (monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() <= 0.1)
         ):
             self.monster_statics[f"{monster.name}.escaped"] += 1
-            Dispatcher.add(
-                self.channel,
-                f"{msg}\n{parse(monster.escape, *self._build_witness_args(monster))}",
+            round_output.escape_narration = parse(
+                monster.escape, *self._build_witness_args(monster),
             )
+            Dispatcher.add(self.channel, round_output.render())
             await self.cancel_combat()
 
     async def _run_player_block(
         self,
         player: "Player",
         monster: "MonsterPlugin",
-    ) -> "Tuple[str, int, Optional[object]]":
+    ) -> "CombatBlock":
         """Execute one player's attacker-block via the combat pipeline
-        stages and return its rendered markdown, total damage dealt, and
-        the per-victim :class:`ResolutionResult` for body-HP + death
-        bookkeeping.
+        stages and return the populated :class:`CombatBlock`.
 
         Phase 6d port — player combat runs through
         ``pick_actions`` → ``pick_targets`` → ``resolve`` →
@@ -705,6 +740,14 @@ class Game:
         legacy ``do_attack`` did. Body-HP application with the
         ``max(num_hits, total - defense)`` floor stays the composer's
         responsibility (Phase 6a moved it out of ``Creature.resolve``).
+
+        Phase 7 wired the block as the actual return value (it was
+        constructed and discarded before, with the caller taking a
+        ``(msg, damage, resolution)`` tuple). Callers derive those
+        three from the block: ``block.table`` is the message,
+        ``block.results.per_victim[monster]`` is the resolution, and
+        ``sum(r.damage for r in block.results.all_results if r.damage
+        > 0)`` is the damage tally.
         """
         from caldanai.lib.rpg.combat.block import Assignment, CombatBlock
         from random import choice as _choice
@@ -748,13 +791,7 @@ class Game:
         table = player.render_table(results)
         result_lines = player.narrate_results(results)
 
-        resolution = results.per_victim.get(monster) if results is not None else None
-
-        # Accumulator block populated with the real pipeline outputs.
-        # Local-only today — no downstream consumer yet — but the
-        # fields carry real data so a future API-narrator bridge
-        # reads structured assignments / results, not empty shells.
-        _ = CombatBlock(
+        return CombatBlock(
             attacker=player,
             actions=list(actions),
             assignments=list(assignments),
@@ -762,13 +799,6 @@ class Game:
             table=table or None,
             result_narratives=list(result_lines),
         )
-
-        block_msg = table
-        damage = sum(
-            r.damage for r in (results.all_results or []) if r.damage > 0
-        ) if results is not None else 0
-
-        return block_msg, damage, resolution
 
     async def _do_combat_legacy(self):
         """Pre-Phase-5 monolithic combat loop. Preserved so a regression
@@ -880,7 +910,7 @@ class Game:
         if not critical_part_kill:
             remaining = 0 if monster.is_dead() else max(health_before - actual_body_damage, 0)
             msg += (
-                f"Total damage done vs Health:\n\u2800\u2800\u2800\u2800{actual_body_damage:,} vs {health_before:,} "
+                f"Total damage done vs Health:\n{_INDENT}{actual_body_damage:,} vs {health_before:,} "
                 f"= **{remaining} health remaining.**\n"
             )
 

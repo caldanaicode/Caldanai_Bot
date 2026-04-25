@@ -11,8 +11,8 @@ Usage::
     python -m tools.render_combat_table --scenario miss
     python -m tools.render_combat_table --scenario multi-target
 
-Why this exists: a tweak to the per-row column layout (Def column
-reintroduced, ANSI vs diff fence, etc.) needs visual inspection
+Why this exists: a tweak to the per-row column layout (Def column,
+ANSI fence + per-segment SGR coloring, etc.) needs visual inspection
 across every code path — single-vs-multi target, miss-vs-hit,
 auto-hit dragon-breath shape. Inline ``python -c`` rebuilds the
 synthetic ``AttackSequence`` from scratch each time and re-prompts
