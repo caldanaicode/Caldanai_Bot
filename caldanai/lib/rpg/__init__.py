@@ -529,8 +529,15 @@ class Game:
         )
 
     async def cancel_combat(self):
-        """Monster escapes — no loot, full combat cleanup."""
-        self.loot.clear()
+        """Monster escapes — combat ends without rolling death loot.
+
+        Mid-combat salvage that landed in ``self.loot`` (parts the
+        players cleaved off before the monster bolted) stays —
+        players keep what they earned. The pre-Phase-2 ``loot.clear()``
+        here predates salvage and would now erase legitimate work;
+        the death-loot pool simply doesn't roll when nobody died,
+        and ``loot_expires`` still cleans up uncollected items
+        downstream."""
         await self.end_combat()
         await self.set_spawn_timer()
 
@@ -557,12 +564,16 @@ class Game:
         for player in self.looters:
             self.loot[player.user_id].extend(self.monster.get_loot())
 
+        # Compute has_loot BEFORE end_combat — that call clears
+        # ``self.looters``, after which any "iterate looters and
+        # check their loot" reads an empty list and false-negatives
+        # the prompt. Read straight from ``self.loot.values()`` so
+        # salvage-only / death-loot-only / both paths all surface
+        # the prompt correctly.
+        has_loot = any(items for items in self.loot.values())
+
         await self.end_combat()
         await self.set_spawn_timer()
-
-        # Read post-extend so a player with mid-combat salvage but
-        # zero death-roll loot still sees the loot prompt.
-        has_loot = any(self.loot.get(p.user_id) for p in self.looters)
 
         if has_loot:
             self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)

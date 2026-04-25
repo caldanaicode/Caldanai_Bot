@@ -56,7 +56,7 @@ class Bandit(MonsterPlugin):
 
         self.time_partition = TimePartitions.CATHEMERAL
         self.image = "bandit128.png"
-        self.aggression = AggressionLevels.VENGEFUL
+        self.aggression = AggressionLevels.SURVIVE
         self.arrival = (
             f"A masked @1 {choice('stealthily|clumsily|quickly|slowly'.split('|'))} "
             f"{choice('walks|saunters|sashays|sneaks'.split('|'))} out of the "

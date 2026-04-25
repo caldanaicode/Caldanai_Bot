@@ -287,14 +287,23 @@ class TestCancelCombat:
     @patch("caldanai.lib.rpg.DB")
     @patch("caldanai.lib.rpg.player_manager")
     @patch("caldanai.lib.rpg.GameClock")
-    async def test_cancel_combat_clears_state_and_loot(self, mock_gc_cls, mock_pm_cls, mock_db):
+    async def test_cancel_combat_clears_state_but_preserves_salvage(self, mock_gc_cls, mock_pm_cls, mock_db):
+        """``cancel_combat`` (monster fleeing) clears combat state
+        but preserves any mid-combat salvage already accumulated
+        in ``Game.loot``. Players keep what they earned even when
+        the monster bolts. Pre-Phase-2 this method also called
+        ``self.loot.clear()``; that erased legitimate dismemberment
+        loot and was removed once salvage drops became a thing."""
         game = _make_combat_game(mock_db, mock_gc_cls)
+        # Seed mid-combat salvage to verify it's preserved.
+        game.loot[42] = ["pre-existing salvage item"]
         await game.cancel_combat()
 
         assert game.monster is None
         assert len(game.combatants) == 0
-        assert len(game.loot) == 0
         assert len(game.looters) == 0
+        # Salvage survives the flee.
+        assert game.loot[42] == ["pre-existing salvage item"]
         game.set_spawn_timer.assert_awaited_once()
         game.player_manager.clear_combat_roles.assert_awaited_once()
 

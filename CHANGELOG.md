@@ -4,6 +4,31 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — Salvage playtest fixes
+
+Three issues surfaced in the first armored-bandit playtest:
+
+- **Mid-combat salvage was wiped on monster flee.**
+  ``Game.cancel_combat`` called ``self.loot.clear()`` —
+  appropriate when the only loot was death-rolled (no death =
+  no loot existed), but Phase 2's mid-combat salvage now
+  populates ``self.loot`` before death. Cleared on flee. Removed
+  the ``loot.clear()`` so players keep what they earned even when
+  the monster bolts. ``loot_expires`` still cleans up uncollected
+  items downstream.
+- **"Nothing to loot" message lied when salvage existed.**
+  ``Game.on_monster_death`` computed ``has_loot`` *after*
+  ``end_combat()``, which clears ``self.looters`` — so the
+  follow-up ``any(self.loot.get(p.user_id) for p in self.looters)``
+  iterated an empty list and false-negatived the prompt. Switched
+  to ``any(items for items in self.loot.values())`` which doesn't
+  depend on the looters list.
+- **Bandit aggression bumped VENGEFUL → SURVIVE.** VENGEFUL
+  flees after one round; SURVIVE sticks until ~10% HP. Bandit
+  fights are now long enough to drive parts to USELESS via
+  damage instead of admin-destroy, which is the natural
+  combat-driven path for the salvage loop.
+
 ### 2026-04-26 — Armor Phase 2: salvage-on-dismemberment + scrap set + subdir layout
 
 The "destroying a body part yields a piece harvested from it"
