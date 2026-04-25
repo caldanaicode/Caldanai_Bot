@@ -258,28 +258,41 @@ class AttackSequence:
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]
         mult_col_list = [self._build_mult_column(p) for p in parts_list]
+        # Per-row Def column shows what the target part's defense
+        # absorbed from this hit (``sub_damage - final_damage``).
+        # Phase C localized defense per-part, so each row's hit
+        # passes through a different absorber. Misses render ``-``
+        # (no contact, no absorption math). Hits with no absorption
+        # still render ``0`` so the column shape is consistent and
+        # the player can see at a glance that defense didn't matter
+        # for this hit.
+        def_col_list = [
+            "-" if p["is_miss"] else f"-{p['sub_damage'] - p['final_damage']}"
+            for p in parts_list
+        ]
         # Q.6.2: Final column shows post-defense damage
         # (``r.damage``) — what actually landed after the part's
-        # armor absorbed. Diverges from the Multiplier column when
-        # the target's defense (or part ``defense_bonus``) bit into the
-        # hit. Miss stays 0.
+        # armor absorbed. Miss stays 0.
         final_col_list = [
             f"→ {0 if p['is_miss'] else p['final_damage']}" for p in parts_list
         ]
 
-        # Header labels per column (Def column removed — defense is
-        # subtracted once from the per-player total, not per-source).
-        # H_FINAL is the per-source damage output; H_CHECK is the
-        # attack-check outcome. They're distinct columns.
+        # Header labels per column. Def reintroduced post-Phase C —
+        # defense is now per-part, not per-player, so each source
+        # row passes through a different absorber and wants its
+        # own column. H_FINAL is the per-source damage output;
+        # H_CHECK is the attack-check outcome.
         H_LABEL = "Source"
         H_CHECK = "Roll v Dodge → Result"
         H_DAMAGE = "Damage"
         H_MULT = "Multiplier"
+        H_DEF = "Def"
         H_FINAL = "Final"
 
         label_w = max(len(H_LABEL), max(len(p["label"]) for p in parts_list))
         dmg_w = max(len(H_DAMAGE), max(len(s) for s in dmg_col_list))
         mult_w = max(len(H_MULT), max(len(s) for s in mult_col_list))
+        def_w = max(len(H_DEF), max(len(s) for s in def_col_list))
         final_w = max(len(H_FINAL), max(len(s) for s in final_col_list))
 
         if not all_auto_hit:
@@ -306,24 +319,26 @@ class AttackSequence:
         if all_auto_hit:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_DAMAGE.ljust(dmg_w)} | "
-                f"{H_MULT.ljust(mult_w)} | {H_FINAL.ljust(final_w)}"
+                f"{H_MULT.ljust(mult_w)} | {H_DEF.ljust(def_w)} | "
+                f"{H_FINAL.ljust(final_w)}"
             )
         else:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_CHECK.ljust(check_w)} | "
                 f"{H_DAMAGE.ljust(dmg_w)} | {H_MULT.ljust(mult_w)} | "
-                f"{H_FINAL.ljust(final_w)}"
+                f"{H_DEF.ljust(def_w)} | {H_FINAL.ljust(final_w)}"
             )
         lines.append(header_row)
 
-        for p, check_col, dmg_col, mult_col, final_col in zip(
+        for p, check_col, dmg_col, mult_col, def_col, final_col in zip(
             parts_list, check_col_list,
-            dmg_col_list, mult_col_list, final_col_list,
+            dmg_col_list, mult_col_list, def_col_list, final_col_list,
         ):
             prefix = self._prefix_for(p)
             label = p["label"].ljust(label_w)
             dmg_padded = dmg_col.ljust(dmg_w)
             mult_padded = mult_col.ljust(mult_w)
+            def_padded = def_col.ljust(def_w)
             emoji = p["damage_type_emoji"]
             final_rendered = final_col.ljust(final_w) if emoji else final_col
             emoji_trailer = f" {emoji}" if emoji else ""
@@ -331,13 +346,14 @@ class AttackSequence:
             if all_auto_hit:
                 row = (
                     f"{prefix}  {label} | {dmg_padded} | {mult_padded} | "
-                    f"{final_rendered}{emoji_trailer}"
+                    f"{def_padded} | {final_rendered}{emoji_trailer}"
                 )
             else:
                 check_padded = check_col.ljust(check_w)
                 row = (
                     f"{prefix}  {label} | {check_padded} | "
-                    f"{dmg_padded} | {mult_padded} | {final_rendered}{emoji_trailer}"
+                    f"{dmg_padded} | {mult_padded} | {def_padded} | "
+                    f"{final_rendered}{emoji_trailer}"
                 )
             lines.append(row)
 
@@ -378,32 +394,28 @@ class AttackSequence:
                 grouped[idx][1] += r.sub_damage
                 grouped[idx][2] += r.damage
             for display, raw_v, final_v in grouped:
-                if raw_v != final_v:
-                    absorbed = raw_v - final_v
-                    lines.append(
-                        f"   {display}: {raw_v} raw - {absorbed} "
-                        f"absorbed \u2192 {final_v} damage"
-                    )
-                else:
-                    lines.append(f"   {display}: {final_v} damage")
+                # Always emit the breakdown shape \u2014 consistent format
+                # across every fight even when absorbed = 0. Pairs
+                # with the per-row Def column so the bottom-line math
+                # mirrors the per-source story.
+                absorbed = raw_v - final_v
+                lines.append(
+                    f"   {display}: {raw_v} raw - {absorbed} "
+                    f"absorbed \u2192 {final_v} damage"
+                )
         else:
             # Q.6.2: defense is applied per-hit inside resolve_attack,
-            # so ``r.damage`` is already post-defense. The footer now
-            # shows raw → post-defense rather than the pre-Q.6.2
-            # subtract-at-body shape.
-            num_hits = sum(1 for r in self.results if r.damage > 0)
+            # so ``r.damage`` is already post-defense. Always shows
+            # the raw / absorbed / final breakdown so the format is
+            # consistent across monsters (skeleton vs werewolf in the
+            # 2026-04-24 playtest had different shapes here, reading
+            # as a UI bug). Pairs with the per-row Def column.
             raw_total = sum(r.sub_damage for r in self.results)
-            if num_hits > 0 and raw_total != total_damage:
-                # Defense absorbed some of the raw damage — surface
-                # the absorbed amount explicitly so the arithmetic
-                # reads at a glance.
-                absorbed = raw_total - total_damage
-                lines.append(
-                    f"   Total: {raw_total} raw - {absorbed} absorbed "
-                    f"→ {total_damage} damage"
-                )
-            else:
-                lines.append(f"   Total: {total_damage} damage")
+            absorbed = raw_total - total_damage
+            lines.append(
+                f"   Total: {raw_total} raw - {absorbed} absorbed "
+                f"→ {total_damage} damage"
+            )
         lines.append("```")
 
         return "\n".join(lines) + "\n"
@@ -460,21 +472,29 @@ class AttackSequence:
     def _build_header(self) -> str:
         """Build a per-sequence header string.
 
-        Players get a Discord mention; other creatures get a capitalized name.
-        Multi-target attacks (auto-hit results with multiple victims) get a
-        generic "attacks everyone" header instead of naming one victim.
+        Players get a Discord mention; other creatures get a
+        first-letter-capitalized name (preserves multi-word and
+        Mc-/Mac-/O'- internal capitals — matters for doppelgangers
+        post-imitation, who carry the imitated player's display
+        name verbatim, and any monster whose display name has
+        intentional internal capitals). Multi-target attacks (auto-
+        hit results with multiple victims) get a generic "attacks
+        everyone" header instead of naming one victim.
         """
         from caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.helpers.parser import _capitalize_first
 
         if isinstance(self.attacker, Player) and getattr(self.attacker, "member", None):
             return f"<@!{self.attacker.member.id}>'s attack:"
 
-        attacker_name = getattr(self.attacker, "name", "") or "Something"
+        attacker_name = _capitalize_first(
+            getattr(self.attacker, "name", "") or "Something"
+        )
         is_auto_hit_aoe = len(self.results) > 1 and all(r.auto_hit for r in self.results)
         if is_auto_hit_aoe:
-            return f"**{attacker_name.capitalize()} attacks everyone:**"
+            return f"**{attacker_name} attacks everyone:**"
         if self.multi_target:
-            return f"**{attacker_name.capitalize()} lashes out:**"
+            return f"**{attacker_name} lashes out:**"
 
         target_name = getattr(self.target, "name", "") or "the target"
-        return f"**{attacker_name.capitalize()} attacks {target_name}:**"
+        return f"**{attacker_name} attacks {target_name}:**"

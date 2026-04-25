@@ -4,6 +4,39 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — Combat output: per-row Def column + unified Total breakdown + attack-header caps fix
+
+Three combat-output cleanups landing together since they share a
+file and a playtest-finding parent:
+
+- **Per-row ``Def`` column reintroduced** between Multiplier and
+  Final. Phase C localized defense per-part, so each source row
+  passes through a different absorber and warrants its own column.
+  Hits show the absorbed amount (``-2``, ``-0`` for no absorption);
+  misses show ``-``. Pre-Phase-C it had been removed because
+  defense was player-wide; post-Phase-C the column belongs.
+- **Total footer always shows the breakdown shape**
+  (``Total: N raw - K absorbed → M damage``) regardless of whether
+  ``K == 0``. Pre-fix, the same resolver rendered different
+  summary rows on different monsters (skeleton vs werewolf in the
+  2026-04-24 playtest), reading as a UI bug. Pairs with the per-
+  row Def column so the bottom-line math mirrors the per-source
+  story. Multi-target per-victim rows unify on the same shape.
+- **Attack header preserves internal capitals** (``_capitalize_first``
+  instead of ``str.capitalize``). The doppelganger imitates a
+  player and renders ``**{attacker} attacks {target}:**`` with
+  ``self.name = "Caldanai Playtester"`` — pre-fix the ``capitalize``
+  call lowercased the ``P`` to produce ``**Caldanai playtester
+  attacks Caldanai Playtester:**`` (verified live during 2026-04-24
+  playtest). Companion to the parser-level fix from earlier today
+  — same root cause (``str.capitalize`` lowercasing the tail), same
+  helper.
+
+New tool ``tools/render_combat_table`` covers all five combat-table
+shapes (default / auto-hit / miss / no-absorption / multi-target)
+in one render pass — bypasses the bot, replaces inline ``python -c``
+when a layout edit needs visual verification.
+
 ### 2026-04-24 — ``tools.render_flavor`` gains ``--template`` mode
 
 Arbitrary-template render mode for parser regressions and one-shot
