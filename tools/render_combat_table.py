@@ -181,12 +181,31 @@ def _scenario_multi_target() -> AttackSequence:
     return seq
 
 
+def _scenario_multi_target_untouched() -> AttackSequence:
+    """Multi-target where one victim was aimed at but every result
+    against them missed. Exercises the ``Victim: untouched`` short-
+    circuit in the per-victim footer (added 2026-04-25 to drop the
+    ``Victim: 0 raw - 0 absorbed → 0 damage`` noise that the live
+    hydra playtest flagged)."""
+    seq = _make_sequence([
+        _make_result(label="Cleave → Caels", damage=4, defense=2),
+        _make_result(label="Cleave → Serena", damage=0, is_miss=True),
+    ])
+    seq.multi_target = True
+    caels = MagicMock(); caels.name = "Caels"
+    serena = MagicMock(); serena.name = "Serena"
+    seq.results[0].victim = caels
+    seq.results[1].victim = serena
+    return seq
+
+
 SCENARIOS: Dict[str, Callable[[], AttackSequence]] = {
-    "default":        _scenario_default,
-    "auto-hit":       _scenario_auto_hit,
-    "miss":           _scenario_miss,
-    "no-absorption":  _scenario_no_absorption,
-    "multi-target":   _scenario_multi_target,
+    "default":               _scenario_default,
+    "auto-hit":              _scenario_auto_hit,
+    "miss":                  _scenario_miss,
+    "no-absorption":         _scenario_no_absorption,
+    "multi-target":          _scenario_multi_target,
+    "multi-target-untouched": _scenario_multi_target_untouched,
 }
 
 

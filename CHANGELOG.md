@@ -4,6 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Multi-target footer: ``Victim: untouched`` for untargeted-or-missed victims
+
+The per-victim Total breakout previously emitted
+``Victim: 0 raw - 0 absorbed → 0 damage`` for victims aimed at
+but missed entirely — read as noise during the live hydra
+playtest (e.g. when the hydra spat at one player and missed
+everyone else, the footer still listed the unhit victims with
+zero arithmetic).
+
+Collapsed to ``Victim: untouched`` for the all-missed case so
+the targeting info stays visible (per-row table still shows the
+intended target part) without the noisy zero-arithmetic breakdown.
+Hits still render the full ``raw - absorbed → damage`` breakdown.
+
+``tools/render_combat_table`` gains a ``multi-target-untouched``
+scenario so the layout regression is visible in the all-scenarios
+sweep.
+
 ### 2026-04-25 — Haunt flavor: drop double-article on monster targets
 
 Two ``$haunt`` non-Player templates double-applied the definite

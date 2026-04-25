@@ -398,6 +398,16 @@ class AttackSequence:
                 # across every fight even when absorbed = 0. Pairs
                 # with the per-row Def column so the bottom-line math
                 # mirrors the per-source story.
+                #
+                # When every result aimed at this victim missed (raw
+                # and final both 0), collapse to "Victim: untouched"
+                # \u2014 the per-row attack table still shows targeting,
+                # but the footer doesn't waste a line on
+                # "0 raw - 0 absorbed \u2192 0 damage" (caught live during
+                # the 2026-04-24 hydra playtest as noise).
+                if raw_v == 0 and final_v == 0:
+                    lines.append(f"   {display}: untouched")
+                    continue
                 absorbed = raw_v - final_v
                 lines.append(
                     f"   {display}: {raw_v} raw - {absorbed} "
