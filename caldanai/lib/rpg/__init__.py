@@ -146,14 +146,15 @@ class Game:
         from the underlying ``player_manager.players`` dict shape."""
         return self.player_manager.players.get(user_id)
 
-    def _pick_arrival_witness(self) -> Optional[Player]:
-        """Pick a random player to serve as the ``@2`` slot in
-        monster arrival / spawn flavor. Prefers recently-active
-        players (same threshold as :meth:`PlayerManager.update_inactive_roles`
-        — within the last day) so the flavor mentions someone who's
-        likely still around. Falls back to any known player when
-        nobody's been active, and returns ``None`` when the channel
-        has no players at all (empty guild / fresh install)."""
+    def _pick_witness(self) -> Optional[Player]:
+        """Pick a random player to serve as the ``@2`` slot in any
+        monster flavor template (arrival, on_spawn, escape / flee).
+        Prefers recently-active players (same threshold as
+        :meth:`PlayerManager.update_inactive_roles` — within the
+        last day) so the flavor mentions someone who's likely still
+        around. Falls back to any known player when nobody's been
+        active, and returns ``None`` when the channel has no
+        players at all (empty guild / fresh install)."""
         players = list(self.player_manager.players.values())
         if not players:
             return None
@@ -166,6 +167,18 @@ class Game:
         ]
         pool = active or players
         return choice(pool)
+
+    def _build_witness_args(self, monster) -> tuple:
+        """Return ``(monster, witness)`` or ``(monster,)`` for use
+        as ``*args`` to :func:`parse` on flavor templates that may
+        reference ``@2``. The original arrival fix landed inline at
+        the spawn site, but escape / flee templates carry the same
+        gap (e.g. pixie's "blows a kiss at @2") — this builder
+        generalizes the witness pickup so any future ``@2``-bearing
+        flavor render can call one place. ``None``-witness collapses
+        to a 1-tuple so ``@2``-free templates still render."""
+        witness = self._pick_witness()
+        return (monster,) if witness is None else (monster, witness)
 
     def ambience_enabled(self, subsystem: str) -> bool:
         """Return the effective on/off state of an ambience subsystem.
@@ -469,11 +482,7 @@ class Game:
         # problem"). Pass a random active-player so those tokens
         # render into a real name instead of silently falling back
         # to @1 and producing "rifling through pixie's pocket".
-        # Falls back to any known player if none are recently
-        # active; skips the second actor entirely when no players
-        # exist in the channel yet.
-        arrival_witness = self._pick_arrival_witness()
-        arrival_args = (self.monster,) if arrival_witness is None else (self.monster, arrival_witness)
+        arrival_args = self._build_witness_args(self.monster)
         Dispatcher.add(
             self.channel,
             parse(self.monster.arrival, *arrival_args),
@@ -669,7 +678,10 @@ class Game:
             or (monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() <= 0.1)
         ):
             self.monster_statics[f"{monster.name}.escaped"] += 1
-            Dispatcher.add(self.channel, f"{msg}\n{parse(monster.escape, monster)}")
+            Dispatcher.add(
+                self.channel,
+                f"{msg}\n{parse(monster.escape, *self._build_witness_args(monster))}",
+            )
             await self.cancel_combat()
 
     async def _run_player_block(
@@ -908,7 +920,10 @@ class Game:
                 or (monster.aggression & AggressionLevels.SURVIVE and monster.get_health_scale() <= 0.1)
             ):
                 self.monster_statics[f"{monster.name}.escaped"] += 1
-                Dispatcher.add(self.channel, f"{msg}\n{parse(monster.escape, monster)}")
+                Dispatcher.add(
+                    self.channel,
+                    f"{msg}\n{parse(monster.escape, *self._build_witness_args(monster))}",
+                )
                 await self.cancel_combat()
 
     async def kill_monster(self):

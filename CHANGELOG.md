@@ -4,6 +4,21 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — Escape / flee flavor: ``@2`` witness wired through
+
+Companion fix to the arrival ``@2`` witness landing in ``f3c7deb``.
+The escape / flee parse paths still passed only the monster, so
+templates like the pixie's "blows a kiss at @2 that smells faintly
+of petrichor" silently fell back to ``@1`` — rendering "blows a
+kiss at pixie".
+
+- ``Game._pick_arrival_witness`` → ``Game._pick_witness``: name
+  no longer pins it to the arrival path.
+- New ``Game._build_witness_args`` helper centralizes the
+  ``(monster,)`` / ``(monster, witness)`` tuple build that the
+  arrival site was inlining. Both escape call sites in ``do_combat``
+  now render through the same helper.
+
 ### 2026-04-24 — Bot-player DM routing: ``$inventory`` / ``$warmth`` / ``$games``
 
 Allowlisted tester bots invoking DM-only commands silently
