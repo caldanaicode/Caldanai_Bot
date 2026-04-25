@@ -7,6 +7,7 @@ from the servers collection, dry-run vs. post selection, and the
 all-guild-by-default vs. ``--guild`` scoping behavior.
 """
 
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,15 +19,36 @@ from tools import post_patch_notes
 @pytest.fixture
 def tmp_blurb(tmp_path: Path) -> Path:
     f = tmp_path / "blurb.md"
-    f.write_text("**Patch notes — 2026-04-18**\n\n- A change.\n", encoding="utf-8")
+    f.write_text("- A change.\n", encoding="utf-8")
     return f
 
 
+_HEADER_RE = re.compile(r"\*\*Patch notes — \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\*\*")
+
+
 class TestReadBlurb:
-    def test_reads_and_strips_content(self, tmp_blurb):
+    def test_reads_strips_and_prepends_header(self, tmp_blurb):
         content = post_patch_notes._read_blurb(tmp_blurb)
-        assert "Patch notes" in content
+        assert _HEADER_RE.match(content), (
+            f"expected current-UTC header at start of content; got {content!r}"
+        )
+        assert "- A change." in content
         assert content == content.strip()
+
+    def test_replaces_legacy_embedded_header(self, tmp_path: Path):
+        """A scratch file written before the auto-prepend landed
+        carries its own ``**Patch notes — old-date UTC**`` header.
+        Re-reading must strip the stale header rather than
+        double-stamp the message with two different timestamps."""
+        f = tmp_path / "legacy.md"
+        f.write_text(
+            "**Patch notes — 2026-01-01 00:00 UTC**\n\n- A change.\n",
+            encoding="utf-8",
+        )
+        content = post_patch_notes._read_blurb(f)
+        # Exactly one header line, and it's NOT the legacy timestamp.
+        assert content.count("**Patch notes — ") == 1
+        assert "2026-01-01 00:00 UTC" not in content
 
     def test_missing_file_raises_with_path(self, tmp_path: Path):
         with pytest.raises(SystemExit, match="not found"):
@@ -40,11 +62,12 @@ class TestReadBlurb:
 
     def test_oversize_blurb_raises_with_limit_in_message(self, tmp_path: Path):
         """Discord's 2000-char limit; we refuse rather than silently
-        truncate or post a 400 from the API. Message names the
-        actual length so the operator knows by how much."""
+        truncate or post a 400 from the API. The size check runs
+        against the post-prepend content so the limit is honest
+        about what'll actually be sent."""
         f = tmp_path / "big.md"
         f.write_text("x" * 2500, encoding="utf-8")
-        with pytest.raises(SystemExit, match="2500"):
+        with pytest.raises(SystemExit, match=r"\d{4} chars"):
             post_patch_notes._read_blurb(f)
 
 

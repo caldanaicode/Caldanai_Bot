@@ -4,6 +4,15 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — `post_patch_notes` auto-prepends the UTC timestamp header
+
+Operators were copy-pasting / hand-typing the
+``**Patch notes — YYYY-MM-DD HH:MM UTC**`` header into every
+scratch file. ``post_patch_notes`` now prepends the current-UTC
+header at read time, so the scratch file is body-only. A legacy
+header with a stale timestamp (left over from prior workflow) is
+stripped first so the output never carries two timestamps.
+
 ### 2026-04-26 — Resistance hint flavor across the bestiary
 
 Damage-type traits (``self.traits[DamageTypes.X] = 0.5``) shifted

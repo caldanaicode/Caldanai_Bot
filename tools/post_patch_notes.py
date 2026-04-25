@@ -20,6 +20,8 @@ writes to.
 
 import argparse
 import asyncio
+import datetime as _dt
+import re
 import sys
 from pathlib import Path
 
@@ -30,18 +32,47 @@ from tools._common import DiscordRestClient, get_auth, live_db, use_db_env_var
 _DEFAULT_FILE = Path(".patch-notes-scratch.md")
 _DISCORD_MESSAGE_LIMIT = 2000
 
+# Match a leading ``**Patch notes — YYYY-MM-DD HH:MM UTC**`` header
+# (and trailing blank line) so a legacy scratch file with a stale
+# timestamp gets its header replaced rather than stacked.
+_LEGACY_HEADER_RE = re.compile(
+    r"^\*\*Patch notes — \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\*\*\s*\n+",
+)
+
+
+def _prepend_current_timestamp(body: str) -> str:
+    """Prepend a fresh ``**Patch notes — YYYY-MM-DD HH:MM UTC**``
+    header to ``body``, stripping any pre-existing timestamp header
+    so a re-read of a legacy file doesn't double-stamp.
+
+    The timestamp is computed at read time (effectively the moment
+    of the dry-run / post invocation) so the scratch file can be
+    body-only and the operator never has to type the current UTC
+    by hand. Drift between dry-run and the subsequent ``--post``
+    is single-digit seconds in practice, fine for player-facing
+    notes."""
+    stripped = _LEGACY_HEADER_RE.sub("", body, count=1)
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"**Patch notes — {stamp}**\n\n{stripped}"
+
 
 def _read_blurb(path: Path) -> str:
     """Read and lightly validate the blurb file. Refuses an empty
     file (almost certainly a mistake) and warns when the content
     exceeds Discord's per-message character limit — splitting is
     out of scope for this tool today; the operator should tighten
-    the blurb or split manually."""
+    the blurb or split manually.
+
+    Auto-prepends a current-UTC ``**Patch notes — ... UTC**`` header
+    via :func:`_prepend_current_timestamp` so the scratch file is
+    body-only. The size check runs against the prepended content
+    so the limit is honest about what'll actually be posted."""
     if not path.is_file():
         raise SystemExit(f"Patch-notes file not found: {path}")
-    content = path.read_text(encoding="utf-8").strip()
-    if not content:
+    body = path.read_text(encoding="utf-8").strip()
+    if not body:
         raise SystemExit(f"Patch-notes file is empty: {path}")
+    content = _prepend_current_timestamp(body)
     if len(content) > _DISCORD_MESSAGE_LIMIT:
         raise SystemExit(
             f"Patch-notes content is {len(content)} chars; Discord's "
