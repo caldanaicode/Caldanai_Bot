@@ -1333,11 +1333,27 @@ class Creature:
             file = File(f"./site/static/images/{self.image}", filename=self.image)
             embed.set_thumbnail(url=f"attachment://{self.image}")
 
+        # Mark Defense / Dodge with a bandage emoji (U+1FA79) when
+        # the emergent value (get_*) is below the creature's
+        # intrinsic base \u2014 signals "your body damage is reducing
+        # this stat" so the player doesn't read a mid-fight stat
+        # drop as a UI bug. The 2026-04-24 playtest flagged this
+        # confusion: Phase C localized stat aggregation is visibly
+        # working, but a falling defense number with no annotation
+        # looks like a regression. Armor-elevated stats above base
+        # render without the marker (no need \u2014 the player just
+        # equipped the armor).
+        injury_marker = " \U0001fa79"
+        emergent_def = self.get_defense()
+        emergent_dodge = self.get_dodge()
+        def_marker = injury_marker if emergent_def < self.defense else ""
+        dodge_marker = injury_marker if emergent_dodge < self.dodge else ""
+
         fields = [
             ("Size", self.size.name.title(), True),
             ("Attack", self.attack, True),
-            ("Defense", self.get_defense(), True),
-            ("Dodge", self.get_dodge(), True),
+            ("Defense", f"{emergent_def:,}{def_marker}", True),
+            ("Dodge", f"{emergent_dodge:,}{dodge_marker}", True),
             ("Health", f"{self.health} / {self.health_max}", True),
             ("\u200b", "\u200b", True),
         ]

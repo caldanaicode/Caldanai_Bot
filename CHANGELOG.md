@@ -4,6 +4,31 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Stat block: bandage marker on injury-reduced Defense / Dodge
+
+Phase C's localized stat aggregation has been visibly working
+since the resolver shipped, but the embed stat block surfaced
+falling Defense / Dodge as bare numbers with no annotation —
+players read a mid-fight drop as a UI bug rather than the
+intended "your body damage is reducing this stat" signal. Per
+the 2026-04-24 playtest finding: "worth mentioning in player-
+facing docs so players understand why their defense drops during
+a fight (it'll look like a bug otherwise)."
+
+- ``Creature.get_embed`` appends a 🩹 (bandage, U+1FA79) to the
+  Defense / Dodge field values when the emergent stat falls
+  below the creature's intrinsic base. Marker comparison is
+  ``get_defense() < self.defense`` (and the dodge equivalent),
+  which catches injury-reduced stats without lighting up
+  armor-boosted stats.
+- ``\U0001fa79`` escape used in source rather than a literal
+  emoji so the Edit-pipeline doesn't surrogate-pair-mangle the
+  codepoint (caught by the test the first time around).
+
+Four regression tests: healthy creature has no marker on
+Defense or Dodge; destroyed torso marks Defense; destroyed leg
+marks Dodge.
+
 ### 2026-04-25 — Per-part dodge: absurdity ceiling on multiplicative inflation
 
 ``effective_dodge_for_part`` stacked size_ratio (up to 2.0) ×
