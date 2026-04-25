@@ -23,7 +23,7 @@ from caldanai.lib.rpg.helpers.enums import (
     Size,
     TimePartitions,
 )
-from caldanai.lib.rpg.creatures.monsters.doppelganger import _PAIN_CRIES
+from caldanai.lib.rpg.creatures.monsters.doppelganger import _PAIN_SUMMARIES_BY_LEVEL
 
 
 @pytest.fixture(autouse=True)
@@ -472,88 +472,102 @@ class TestDoppelgangerBackwardsCompat:
 
 
 class TestDoppelgangerPainCries:
-    def test_no_pain_cries_when_target_uninjured(self):
-        """Imitating a fully healthy target produces no pain-cry lines."""
+    def test_no_pain_summary_when_target_uninjured(self):
+        """Imitating a fully healthy target produces no pain summary lines."""
         d = Doppelganger()
         target = _make_player_with_parts("Healthy")
         result = d.imitate(target)
-        # The base imitation message is always present; pain cries would
-        # appear as extra lines after it.
+        # The base imitation message is always present; pain
+        # summaries would appear as extra lines after it.
         lines = result.strip().split("\n")
         assert len(lines) == 1
 
-    def test_pain_cry_emitted_for_injured_part(self):
-        """Imitating a target with an injured leg emits a pain cry."""
+    def test_pain_summary_emitted_for_injured_part(self):
+        """Imitating a target with an injured leg produces ONE summary
+        line at that injury level. Replaces the prior per-part loop —
+        same outcome for a single-injury case, different for multi."""
         d = Doppelganger()
         target = _make_player_with_parts("Wounded")
         leg = next(p for p in target.body_parts if p.name == "leg.left")
         leg.health_max = 20
         leg.health = 2  # SEVERE
         result = d.imitate(target)
-        assert "leg" in result.lower() or "thigh" in result.lower() or "bone" in result.lower()
+        # Imitation line + one SEVERE summary that mentions the leg.
+        lines = [l for l in result.strip().split("\n") if l]
+        assert len(lines) == 2
+        assert "left leg" in lines[1]
 
-    def test_multiple_injured_parts_produce_multiple_cries(self):
-        """Each injured part gets its own pain cry line."""
+    def test_multiple_parts_at_same_level_collapse_to_one_line(self):
+        """Six parts all at SEVERE → ONE summary line listing every
+        injured part, NOT six separate lines. Regression for the
+        2026-04-24 playtest "doctor's chart" finding (left+right
+        pairs rendering identical duplicate lines)."""
         d = Doppelganger()
         target = _make_player_with_parts("Battered")
         for part in target.body_parts:
             part.health_max = 20
             part.health = 2  # SEVERE for all
         result = d.imitate(target)
-        lines = result.strip().split("\n")
-        # 1 base message + 6 pain cries (head, torso, 2 arms, 2 legs)
-        assert len(lines) == 7
+        lines = [l for l in result.strip().split("\n") if l]
+        # 1 imitation line + 1 SEVERE summary covering all parts.
+        assert len(lines) == 2
+        # Every part's display name should appear in the joined list.
+        for part in target.body_parts:
+            assert part.display_name in lines[1], (
+                f"missing {part.display_name!r} in summary line {lines[1]!r}"
+            )
 
-    def test_no_cry_for_none_injury_level(self):
-        """Parts at full health (NONE) produce no cry."""
+    def test_multiple_levels_emit_one_line_per_level(self):
+        """Mixed-severity injury profile → one line per non-NONE level
+        present, in descending-severity order (USELESS → MINOR).
+
+        Only the targeted parts are damaged; every other part stays
+        at full health (NONE) so the test isn't fragile to default
+        health_max ratios across part types."""
+        d = Doppelganger()
+        target = _make_player_with_parts("Mixed")
+        torso = next(p for p in target.body_parts if p.name == "torso")
+        arm_l = next(p for p in target.body_parts if p.name == "arm.left")
+        # Use direct health-percent ratios so the band selection is
+        # unambiguous regardless of base health_max per part type.
+        # USELESS: torso to 0. SEVERE: arm to 20% of its max.
+        torso.health = 0
+        arm_l.health = max(1, int(arm_l.health_max * 0.20))
+
+        result = d.imitate(target)
+        lines = [l for l in result.strip().split("\n") if l]
+        # Imitation + USELESS (torso) + SEVERE (arm.left).
+        # Cascaded descendants of torso would also appear under
+        # USELESS, but humanoid_tree puts torso at the root with no
+        # ancestors, so only torso itself is at USELESS. arm.left is
+        # an independent root subtree, no cascade.
+        assert len(lines) == 3
+        assert "torso" in lines[1]
+        assert "left arm" in lines[2]
+
+    def test_no_summary_for_none_injury_level(self):
+        """Parts at full health (NONE) produce no summary line."""
         d = Doppelganger()
         target = _make_player_with_parts("Fresh")
-        # All parts at full health by default
         result = d.imitate(target)
-        lines = result.strip().split("\n")
+        lines = [l for l in result.strip().split("\n") if l]
         assert len(lines) == 1
 
-    def test_get_pain_cry_uses_base_name(self):
-        """``_get_pain_cry`` strips the dot-qualifier to find the base part
-        name, so ``"arm.left"`` resolves to ``"arm"``."""
-        d = Doppelganger()
-        arm = BodyPart.make("arm", name="arm.left", health_max=20)
-        arm.health = 2  # SEVERE
-        cry = d._get_pain_cry(arm, InjuryLevels.SEVERE)
-        assert cry != ""
-        assert cry == _PAIN_CRIES[("arm", InjuryLevels.SEVERE)]
-
-    def test_get_pain_cry_returns_empty_for_unknown_part(self):
-        """Parts not in the lookup (e.g. toe, dragon_head) return empty."""
-        d = Doppelganger()
-        toe = BodyPart.make("toe")
-        assert d._get_pain_cry(toe, InjuryLevels.USELESS) == ""
-
-    def test_get_pain_cry_returns_empty_for_none_level(self):
-        """NONE injury level always returns empty."""
-        d = Doppelganger()
-        arm = BodyPart.make("arm", health_max=20)
-        assert d._get_pain_cry(arm, InjuryLevels.NONE) == ""
-
-    def test_pain_cries_table_covers_all_standard_parts(self):
-        """Every standard part type (head, torso, arm, leg, wing, tail, eye)
-        has entries for MINOR through USELESS."""
-        expected_parts = {"head", "torso", "arm", "leg", "wing", "tail", "eye"}
-        injury_levels = {
+    def test_summary_pools_cover_all_injury_levels(self):
+        """Every non-NONE injury level (MINOR through USELESS) has at
+        least one template in the summary pools."""
+        for level in (
             InjuryLevels.MINOR,
             InjuryLevels.MODERATE,
             InjuryLevels.SEVERE,
             InjuryLevels.USELESS,
-        }
-        for part_name in expected_parts:
-            for level in injury_levels:
-                cry = _PAIN_CRIES.get((part_name, level), "")
-                assert cry != "", f"missing pain cry for ({part_name}, {level})"
-
-    def test_pain_cries_are_distinct_per_part_and_level(self):
-        """No two entries in the pain cry table share the same text."""
-        values = list(_PAIN_CRIES.values())
-        assert len(values) == len(set(values)), "duplicate pain cry text found"
+        ):
+            templates = _PAIN_SUMMARIES_BY_LEVEL.get(level, [])
+            assert templates, f"no templates for {level}"
+            for t in templates:
+                assert "{parts}" in t, (
+                    f"template missing {{parts}} placeholder: {t!r}"
+                )
 
 
 # ---------------------------------------------------------------------------

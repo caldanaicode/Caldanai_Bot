@@ -4,6 +4,39 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Doppelganger pain summary: per-level grouping replaces per-part chart
+
+The doppelganger emitted ONE pain-cry line per inherited injured
+body part — N injured parts produced N lines, with left+right
+pairs rendering identical text twice. Read like a doctor's chart
+("Caldanai Playtester flexes his arm and winces..." × 4).
+
+Per-level grouping collapses the noise: every non-NONE injury
+level present produces exactly one line, listing every part at
+that level via an Oxford-comma joiner ("his head, left eye, right
+eye, left arm, and left hand now ruined and useless"). One beat
+per severity tier, descending intensity (USELESS → MINOR).
+
+- ``_PAIN_SUMMARIES_BY_LEVEL`` replaces the
+  ``(base_part, InjuryLevels) → str`` ``_PAIN_CRIES`` table.
+  4 level pools, each with 2-3 templates.
+- Templates use a verb-on-actor / parts-as-prepositional-object
+  structure ("@1 staggers as wounds tear open across @1a {parts}.")
+  so the ``{parts}`` substitution doesn't trip subject-verb
+  agreement regardless of part count.
+- ``Doppelganger._pain_summary_lines`` walks ``self.body_parts``,
+  groups by level, picks templates, renders. ``_oxford_join``
+  sibling helper matches the gear-drop voice for consistency.
+- ``_get_pain_cry`` removed (the per-part lookup helper has no
+  consumer post-refactor).
+
+7 existing per-part regression tests rewritten as per-level
+tests covering: no-injury → no extra lines, single-injury → one
+summary line, same-level multi-part → ONE line listing all,
+multi-level → one line per level in descending order, NONE-
+level → no summary, every level has at least one template
+with the ``{parts}`` placeholder.
+
 ### 2026-04-25 — Destroyed-part gear drop now narrates per node
 
 Stage 2a (commit ``3c573e7``) silently moved gear from a destroyed

@@ -14,121 +14,43 @@ from caldanai.logger import get_logger
 _log = get_logger(__name__)
 
 
-# Pain cries the doppelganger emits when it imitates a target and inherits
-# injured body parts.  Keyed by (base_part_name, InjuryLevels).  The base
-# part name is the portion before the dot-qualifier (e.g. "arm" from
-# "arm.left").  Parts not listed here (toe, dragon_head, hydra_head, etc.)
-# silently produce no cry.
-_PAIN_CRIES = {
-    ("head", InjuryLevels.MINOR): (
-        "@1 winces as a dull ache throbs behind @1a eyes out of nowhere."
-    ),
-    ("head", InjuryLevels.MODERATE): (
-        "@1's head snaps sideways as an invisible blow lands; "
-        "blood trickles from @1a nose."
-    ),
-    ("head", InjuryLevels.SEVERE): (
-        "@1 clutches @1a temples as a deep gash opens across "
-        "@1a scalp of its own accord."
-    ),
-    ("head", InjuryLevels.USELESS): (
-        "@1's head jerks violently as the imitation completes "
-        "itself in the worst possible way."
-    ),
-    ("torso", InjuryLevels.MINOR): (
-        "@1 grunts as an unseen blow presses against @1a ribs."
-    ),
-    ("torso", InjuryLevels.MODERATE): (
-        "@1 doubles over, coughing as bruises bloom across @1a "
-        "chest from nowhere."
-    ),
-    ("torso", InjuryLevels.SEVERE): (
-        "@1 staggers, hands pressed to @1a torso as blood seeps "
-        "through @1a clothes of its own accord."
-    ),
-    ("torso", InjuryLevels.USELESS): (
-        "@1 collapses, @1a chest caving inward as the "
-        "imitation's wound finishes materializing."
-    ),
-    ("arm", InjuryLevels.MINOR): (
-        "@1 flexes @1a arm and winces at an ache that wasn't "
-        "there moments ago."
-    ),
-    ("arm", InjuryLevels.MODERATE): (
-        "@1's arm twists at an unnatural angle as sinews pop "
-        "beneath @1a skin."
-    ),
-    ("arm", InjuryLevels.SEVERE): (
-        "@1 howls as @1a arm hangs limp, bone pressing visibly "
-        "against skin."
-    ),
-    ("arm", InjuryLevels.USELESS): (
-        "@1's arm crumples grotesquely, fingers curling into a "
-        "useless claw as the imitation completes."
-    ),
-    ("leg", InjuryLevels.MINOR): (
-        "@1 favors one leg as a phantom ache shoots up @1a "
-        "thigh."
-    ),
-    ("leg", InjuryLevels.MODERATE): (
-        "@1 staggers slightly, knee buckling beneath @1a own "
-        "weight."
-    ),
-    ("leg", InjuryLevels.SEVERE): (
-        "@1 cries out as @1a leg twists at an impossible "
-        "angle, bone pressing through the skin."
-    ),
-    ("leg", InjuryLevels.USELESS): (
-        "@1's leg goes limp, dragging uselessly behind as the "
-        "imitation's crippling finishes."
-    ),
-    ("wing", InjuryLevels.MINOR): (
-        "@1's shoulder blades twitch as phantom feathers ripple "
-        "beneath @1a skin."
-    ),
-    ("wing", InjuryLevels.MODERATE): (
-        "@1 hunches forward, wet cracking sounds echoing from "
-        "@1a back as something tries to unfold."
-    ),
-    ("wing", InjuryLevels.SEVERE): (
-        "@1 howls as a great torn wing rips free of @1a "
-        "shoulder, trailing blood that was never there."
-    ),
-    ("wing", InjuryLevels.USELESS): (
-        "@1's wing crumples into a twisted ruin of bone and "
-        "membrane as the imitation completes itself."
-    ),
-    ("tail", InjuryLevels.MINOR): (
-        "@1 flicks @1a tail and winces at an unexpected twinge."
-    ),
-    ("tail", InjuryLevels.MODERATE): (
-        "@1's tail lashes erratically as unseen damage works "
-        "its way down the vertebrae."
-    ),
-    ("tail", InjuryLevels.SEVERE): (
-        "@1 yelps as @1a tail bends at a sickening angle, "
-        "blood matting the fur."
-    ),
-    ("tail", InjuryLevels.USELESS): (
-        "@1's tail drops limp and still, a final twitch "
-        "betraying its uselessness as the imitation sets."
-    ),
-    ("eye", InjuryLevels.MINOR): (
-        "@1 blinks rapidly as one eye clouds over with "
-        "unexplained tears."
-    ),
-    ("eye", InjuryLevels.MODERATE): (
-        "@1 squints hard, @1a eye going bloodshot and swollen "
-        "in an instant."
-    ),
-    ("eye", InjuryLevels.SEVERE): (
-        "@1 claps @1a hand to @1a face as the eye beneath it "
-        "splits open without warning."
-    ),
-    ("eye", InjuryLevels.USELESS): (
-        "@1's eye sinks deep into its socket, pupil blown "
-        "black as the imitation blinds it."
-    ),
+# Pain summaries the doppelganger emits when it imitates a target and
+# inherits injured body parts. Grouped by injury level — at imitate
+# time the doppy walks every non-NONE-injured part, groups them by
+# level, picks ONE template per level present, and substitutes the
+# joined display-name list (e.g. "left arm and right leg") into the
+# {parts} placeholder.
+#
+# Voice trick: every template keeps the verb on ``@1`` (the imitating
+# doppy, always singular) and treats body parts as objects of
+# prepositions. That sidesteps singular/plural verb agreement on the
+# part-count side — "across @1a {parts}" reads correctly whether
+# {parts} is "left arm" or "left arm, right leg, and torso".
+#
+# Pre-2026-04-25 emitted one line per injured part (keyed by
+# ``(base_part_name, level)``) — ended up reading like a doctor's
+# chart, with left+right pairs producing identical duplicate lines.
+# Per-level grouping collapses the noise into one beat per
+# severity tier.
+_PAIN_SUMMARIES_BY_LEVEL = {
+    InjuryLevels.USELESS: [
+        "@1 collapses as the imitation finishes its worst across @1a {parts}.",
+        "@1 howls as the imitation tears @1a {parts} apart in mirror-image of the original.",
+        "Pain rips through @1 as the imitation completes — @1a {parts} now ruined and useless.",
+    ],
+    InjuryLevels.SEVERE: [
+        "@1 staggers as deep wounds tear open across @1a {parts}.",
+        "@1 howls as old wounds reopen across @1a {parts}.",
+        "Blood seeps through @1a clothes as the imitation drinks the worst of @1a {parts}.",
+    ],
+    InjuryLevels.MODERATE: [
+        "@1 doubles over as bruises bloom across @1a {parts}.",
+        "@1 grunts as a chorus of borrowed aches settles into @1a {parts}.",
+    ],
+    InjuryLevels.MINOR: [
+        "@1 rolls @1a shoulders, stiff with phantom aches in @1a {parts}.",
+        "@1 winces as faint remembered pains settle in @1a {parts}.",
+    ],
 }
 
 
@@ -142,16 +64,18 @@ class Doppelganger(MonsterPlugin):
 
     **Body part design note:** when the doppelganger imitates a target
     it deep-copies the target's body parts *including injury state*,
-    then emits a per-part "pain cry" for each inherited injury via
-    :data:`_PAIN_CRIES`. There is one flavor string per
-    ``(base_part, InjuryLevels)`` pair across every base part in the
-    plugin set (head, torso, arm, leg, wing, tail, eye), escalating
-    from a mysterious ache at MINOR up through a visibly crippling
-    wound at USELESS. This is the reason base-part docstrings mention
-    "pain cries" as a design expectation: it's a doppelganger feature
-    implemented here on the monster, not on the parts themselves.
-    Parts not keyed in :data:`_PAIN_CRIES` (toe, dragon_head,
-    hydra_head, etc.) silently produce no cry.
+    then emits ONE pain summary line per non-NONE injury level present.
+    Templates live in :data:`_PAIN_SUMMARIES_BY_LEVEL` (one pool per
+    severity tier) and substitute a comma-joined list of part display
+    names into the ``{parts}`` placeholder. Parts at the same level
+    collapse into a single beat — ``"@1 collapses as the imitation
+    finishes its worst across @1a left arm and right leg."``.
+
+    Pre-2026-04-25 emitted one line per injured part keyed by
+    ``(base_part, InjuryLevels)``; that read like a doctor's chart and
+    rendered duplicate lines for left+right pairs. The per-level
+    grouping is the narrative compression of that pattern — same
+    information, one beat per severity instead of one per body part.
     """
 
     def __init__(self):
@@ -333,26 +257,67 @@ class Doppelganger(MonsterPlugin):
             f"both disturbing and fascinating, as it molds itself slowly into the likeness of {target.name}."
         )
 
-        # Emit per-part pain cries for any inherited injuries.
-        for part in self.body_parts:
-            level = part.get_injury_level()
-            if level != InjuryLevels.NONE:
-                cry = self._get_pain_cry(part, level)
-                if cry:
-                    msg += "\n" + parse(cry, self)
+        # Emit ONE pain summary per non-NONE injury level present —
+        # parts at the same severity collapse into a single beat
+        # (e.g. "left arm and right leg" → one USELESS line, not
+        # two duplicate ones). Walks high-to-low severity so the
+        # narrative ramps from worst to mildest.
+        for line in self._pain_summary_lines():
+            msg += "\n" + line
 
         return msg
 
-    @staticmethod
-    def _get_pain_cry(part: BodyPart, level: InjuryLevels) -> str:
-        """Look up a pain cry for a body part at a given injury level.
+    def _pain_summary_lines(self) -> list:
+        """Group injured body parts by injury level, render one
+        flavor line per level present using a level-tier template +
+        the joined display-name list.
 
-        The key is the base part name (before the dot-qualifier), so
-        ``"arm.left"`` and ``"arm.right"`` both resolve to ``"arm"``.
-        Returns an empty string for unknown parts or NONE level.
+        Returns lines in descending-severity order. Empty list when
+        no parts are injured (target was at full health).
         """
-        base = part.name.split(".")[0]
-        return _PAIN_CRIES.get((base, level), "")
+        by_level: dict = {}
+        for part in self.body_parts:
+            level = part.get_injury_level()
+            if level == InjuryLevels.NONE:
+                continue
+            by_level.setdefault(level, []).append(part)
+
+        # Order high-to-low so the narrative leads with the worst.
+        # USELESS first reads as "the imitation finishes its worst"
+        # before "and ALSO inherits these lesser aches" — descending
+        # intensity beats the reverse.
+        ordered_levels = (
+            InjuryLevels.USELESS,
+            InjuryLevels.SEVERE,
+            InjuryLevels.MODERATE,
+            InjuryLevels.MINOR,
+        )
+
+        lines = []
+        for level in ordered_levels:
+            parts = by_level.get(level)
+            if not parts:
+                continue
+            templates = _PAIN_SUMMARIES_BY_LEVEL.get(level)
+            if not templates:
+                continue
+            joined = self._oxford_join([p.display_name for p in parts])
+            line = parse(choice(templates).format(parts=joined), self)
+            lines.append(line)
+        return lines
+
+    @staticmethod
+    def _oxford_join(items: list) -> str:
+        """Join with Oxford comma + "and" before the last item.
+        Matches ``BodyPart.gear_drop_flavor``'s join voice so the
+        two narration pipelines read consistently."""
+        if not items:
+            return ""
+        if len(items) == 1:
+            return items[0]
+        if len(items) == 2:
+            return f"{items[0]} and {items[1]}"
+        return ", ".join(items[:-1]) + f", and {items[-1]}"
 
     def on_combat_round(self, damage_by_player: list) -> str:
         """Imitate whoever hit the hardest this round."""
