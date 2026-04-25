@@ -35,7 +35,10 @@ class Bandit(MonsterPlugin):
 
         self.flavor = choice(["Your money or your life.", "This is a stick up.", "You'll never take me alive."])
 
-        self.escape = choice(["@1dc runs off, taking whatever @1s can grab.", "Other horizons call @1d away."])
+        self.escape = choice([
+            "@1dc spits a curse and bolts for the treeline.",
+            "Other horizons call @1d away.",
+        ])
 
         self.death = choice(
             [

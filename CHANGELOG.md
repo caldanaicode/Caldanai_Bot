@@ -4,6 +4,15 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Bandit escape flavor: stop promising theft
+
+``"@1dc runs off, taking whatever @1s can grab."`` lied — bandits
+don't currently steal on hit (only via the hug path), so the
+flavor advertised loot the player would not find on their
+inventory. Replaced with ``"@1dc spits a curse and bolts for the
+treeline."`` until the steal-on-hit hook lands and the dramatic
+flee can be gated on ``stole_anything``.
+
 ### 2026-04-24 — Combat output: per-row Def column + unified Total breakdown + attack-header caps fix
 
 Three combat-output cleanups landing together since they share a
