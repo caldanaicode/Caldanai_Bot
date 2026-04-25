@@ -4,6 +4,30 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — ``$look`` word-token fallback for variant-named creatures
+
+Live playtest caught that ``$look hydra`` / ``$look hexed``
+against a spawned ``hexed hydra`` both silently returned "Nothing
+to see here" — only the literal ``$look hexed hydra`` matched.
+``RpgInfoCommands.look`` was doing exact
+``target.lower() == game.monster.name.lower()`` with no fuzzy
+fallback. Same UX gap surfaces on every variant-named species
+(``flying math teacher``, ``swamp hydra``, etc.).
+
+- ``RpgInfoCommands._monster_matches_look_target`` accepts the
+  full name OR any whitespace-separated token from the name.
+  ``hexed hydra`` → matches ``hexed hydra``, ``hexed``, ``hydra``.
+  Partials like ``hex`` still fail (those want the bigger
+  ``find_plugin_classes`` resolver shipped for ``$spawn``).
+- Tactical patch, not the full resolver — ``$look`` only ever
+  inspects ``game.monster`` (singular) so disambiguation isn't
+  needed today. When multi-monster lands, ``$look`` should
+  route through ``find_plugin_classes``.
+
+13 regression tests in ``tests/test_look_target_match.py``
+(exact / token / non-match including empty target and partial-
+substring rejection).
+
 ### 2026-04-25 — Multi-target footer: ``Victim: untouched`` for untargeted-or-missed victims
 
 The per-victim Total breakout previously emitted

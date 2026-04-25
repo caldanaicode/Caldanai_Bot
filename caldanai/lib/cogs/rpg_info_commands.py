@@ -721,6 +721,31 @@ class RpgInfoCommands(Cog):
 
     @cooldown(1, 5, BucketType.member)
     @guild_only()
+    @staticmethod
+    def _monster_matches_look_target(monster, target: str) -> bool:
+        """Match ``$look <target>`` against the active monster's
+        rendered name. Accepts the full display name OR any single
+        whitespace-separated token from it.
+
+        Variant-aware: a Hexed Hydra's ``self.name`` is "hexed
+        hydra"; players see "hydra" in spawn flavor and reach for
+        ``$look hydra``, which the prior literal-equality check
+        rejected. Word-token matching catches both "hexed" and
+        "hydra" without false-positive partials ("hex" rightly
+        fails since it isn't a full token).
+
+        Future generalization is the ``MonsterPlugin.find_plugin_classes``
+        fuzzy resolver (already used by ``$spawn``). Today's
+        simpler word-token rule covers the immediate UX gap and
+        leaves the harder multi-monster disambiguation for the
+        time it ships.
+        """
+        target_lower = target.lower()
+        name_lower = (monster.name or "").lower()
+        if target_lower == name_lower:
+            return True
+        return target_lower in name_lower.split()
+
     @command(name="look", brief="Displays information about the area, a direction, or a creature.")
     async def look(self, ctx: Context, *target: str):
         """
@@ -751,7 +776,9 @@ class RpgInfoCommands(Cog):
             time = game.game_clock.get_time_of_day()
             msg += f" It appears to be {time}."
 
-        elif game.monster and target.lower() == game.monster.name.lower():
+        elif game.monster and self._monster_matches_look_target(
+            game.monster, target,
+        ):
             embed, file = game.monster.get_embed()
             Dispatcher.add(game.channel, embed=embed, file=file)
             return
