@@ -4,6 +4,12 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — Skeleton: ``Something animates @1d``
+
+Bare ``@1`` token rendered "Something animates skeleton" — missing
+article. ``@1d`` produces "the skeleton" via the standard
+article-form pipeline.
+
 ### 2026-04-24 — Parser ``@Nc`` / implicit-capitalize preserves internal caps
 
 ``str.capitalize`` lowercases every character after the first, so

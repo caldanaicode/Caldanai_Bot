@@ -74,7 +74,7 @@ class Skeleton(Undead, MonsterPlugin):
         self.flavor = choice([
             "A hollow-eyed thing of bleached bone, moving in defiance of "
             "its own anatomy.",
-            "Something animates @1. Whatever it is, it doesn't belong.",
+            "Something animates @1d. Whatever it is, it doesn't belong.",
             "@1dc's jaw hangs crooked, teeth chattering to a rhythm only it "
             "can hear.",
         ])
