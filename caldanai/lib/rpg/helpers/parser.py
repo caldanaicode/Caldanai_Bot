@@ -104,11 +104,22 @@ _ARTICLE_FORMS = frozenset({FORM_DEFINITE_ARTICLE, FORM_INDEFINITE_ARTICLE})
 # default), so this dict is just the inverse mapping.
 _PRONOUN_FORMS = {p.form: p for p in Pronouns}
 
+def _capitalize_first(s: str) -> str:
+    """Capitalize the first character only, preserving the rest.
+    Differs from :meth:`str.capitalize`, which lowercases all
+    subsequent characters — that breaks multi-word names like
+    ``"Caldanai Playtester"`` (the ``P`` would become lowercase)
+    and any intentionally-capped name form (``"McDonald"``,
+    ``"O'Brien"``, doppelgangers post-imitation). Empty input
+    returned as-is."""
+    return s[0].upper() + s[1:] if s else s
+
+
 _CASING_FORMS = {
-    FORM_CAPITALIZE: "capitalize",
-    FORM_LOWER:      "lower",
-    FORM_TITLE:      "title",
-    FORM_UPPER:      "upper",
+    FORM_CAPITALIZE: _capitalize_first,
+    FORM_LOWER:      str.lower,
+    FORM_TITLE:      str.title,
+    FORM_UPPER:      str.upper,
 }
 
 # Subjective-pronoun values that imply plural verb agreement. Looked
@@ -383,7 +394,7 @@ def _process(match: Match, actors: Tuple) -> str:
             result = actor.pronouns[_PRONOUN_FORMS[f]]
 
     for f in casing_forms:
-        result = getattr(result, _CASING_FORMS[f])()
+        result = _CASING_FORMS[f](result)
 
     return result
 

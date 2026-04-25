@@ -79,8 +79,25 @@ class TestBasicSubstitution:
 
 class TestCasing:
     def test_capitalize_name(self):
-        # str.capitalize lowercases everything after the first char.
         assert parse("@1c", _actor("cyclops")) == "Cyclops"
+
+    def test_capitalize_preserves_internal_caps(self):
+        """Capitalize only touches the first character — multi-word
+        names ("Caldanai Playtester"), Mc-/Mac-/O'-style names, and
+        doppelgangers carrying a player name post-imitation must
+        keep their internal capitals. Regression: ``str.capitalize``
+        lowercases the tail and was producing
+        "Caldanai playtester's" in damage-flavor renders."""
+        assert parse("@1c", _actor("Caldanai Playtester")) == "Caldanai Playtester"
+        assert parse("@1c", _actor("McDonald")) == "McDonald"
+        # Implicit-capitalize via uppercase form letter must not lower
+        # the tail either — ``@1Np`` is the most common damage-flavor
+        # token shape for player @-actors at sentence start.
+        actor = _actor("Caldanai Playtester", uses_article=False)
+        assert (
+            parse("@1Np head seems lightly battered.", actor)
+            == "Caldanai Playtester's head seems lightly battered."
+        )
 
     def test_capitalize_article(self):
         assert parse("@1dc swings.", _actor("cyclops")) == "The cyclops swings."

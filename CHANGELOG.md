@@ -4,6 +4,26 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — Parser ``@Nc`` / implicit-capitalize preserves internal caps
+
+``str.capitalize`` lowercases every character after the first, so
+multi-word names rendered with the implicit-capitalize flag (any
+uppercase form letter, e.g. ``@1Np`` at sentence start) lost their
+internal capitals: ``"Caldanai Playtester"`` → ``"Caldanai
+playtester's"``. Same bug bit doppelgangers post-imitation (their
+``self.name`` carries the imitated player's casing) and any
+Mc-/Mac-/O'-style monster name. Damage-flavor was the most visible
+symptom because healing-flavor tokens didn't trigger the casing op.
+
+- New ``_capitalize_first`` helper: first character up, rest
+  unchanged.
+- ``_CASING_FORMS`` dict now stores callables (custom helper for
+  ``c``, ``str.lower`` / ``str.title`` / ``str.upper`` for the
+  rest) and dispatch is direct rather than via ``getattr``.
+- Regression test ``test_capitalize_preserves_internal_caps``
+  covers the multi-word, McDonald, and ``@1Np`` damage-flavor
+  cases.
+
 ### 2026-04-24 — Escape / flee flavor: ``@2`` witness wired through
 
 Companion fix to the arrival ``@2`` witness landing in ``f3c7deb``.
