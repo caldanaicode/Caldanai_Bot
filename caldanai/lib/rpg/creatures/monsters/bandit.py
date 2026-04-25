@@ -25,6 +25,19 @@ class Bandit(MonsterPlugin):
         DamageTypes.PIERCING:    "The point catches on a buckle, then slides past into the gap behind it.",
     }
 
+    # Salvage drops — destroying a bandit's body part yields scrap-
+    # tier armor harvested from the corpse. Quality range biases
+    # toward the JUNK/ORDINARY end of the curve via the inverted
+    # ``Qualities.from_scale`` mapping (higher randint -> lower
+    # quality). Bandit armor IS scrap; the occasional FINE roll is
+    # the lucky-break exception.
+    SALVAGE_DROPS = {
+        "arm":   [("patchwork_bracer", 0.6, (50, 95))],
+        "foot":  [("worn_boot",        0.5, (50, 95))],
+        "hand":  [("ratty_glove",      0.4, (50, 95))],
+        "torso": [("bandits_sash",     0.3, (50, 95))],
+    }
+
     def __init__(self):
         super().__init__(
             name="bandit",

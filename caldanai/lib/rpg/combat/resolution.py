@@ -109,6 +109,12 @@ class ResolutionResult:
     # (``compute_body_hp_damage``) can iterate damage × part.bleed_rate
     # without re-threading the bucket through every caller.
     victim_results: "List[object]" = field(default_factory=list)
+    # Parts on the victim that transitioned to USELESS during this
+    # resolve. Salvage / dismemberment-loot consumers (Game-level)
+    # use this to award per-part drops without re-scanning the
+    # monster's state. Newly-destroyed only — parts already at
+    # USELESS at the start of the sequence don't appear.
+    destroyed_parts: "List[object]" = field(default_factory=list)
 
 
 @dataclass
@@ -224,6 +230,7 @@ def apply_sequence_to_target(
     num_hits = 0
     body_damage_total = 0
     critical_part_kill = False
+    destroyed_parts: List["BodyPart"] = []
 
     # Snapshot each uniquely-hit part's starting injury level *once*
     # before any damage lands. This is the crux of the hook-coalescing
@@ -313,6 +320,7 @@ def apply_sequence_to_target(
             new_level == InjuryLevels.USELESS
             and old_level != InjuryLevels.USELESS
         ):
+            destroyed_parts.append(part)
             destroyed_msg = part.on_destroyed(target)
             if destroyed_msg:
                 injury_feedback.append(f"   {destroyed_msg}")
@@ -333,4 +341,5 @@ def apply_sequence_to_target(
         num_hits=num_hits,
         critical_part_kill=critical_part_kill,
         victim_results=[r for r in sequence.results if r.damage > 0],
+        destroyed_parts=destroyed_parts,
     )

@@ -20,6 +20,16 @@ class Goblin(MonsterPlugin):
         DamageTypes.MAGICAL:     "Arcane force slides off @1d strangely, as if @1s were already half-magical itself.",
     }
 
+    # Salvage drops — same scrap pieces as bandits (goblins steal
+    # the same kind of mismatched gear), at a lower drop chance
+    # because goblins are scrappier and the gear's been beaten up
+    # in a different way.
+    SALVAGE_DROPS = {
+        "arm":   [("patchwork_bracer", 0.4, (50, 95))],
+        "foot":  [("worn_boot",        0.4, (50, 95))],
+        "hand":  [("ratty_glove",      0.3, (50, 95))],
+    }
+
     def __init__(self):
         super().__init__(
             name="goblin",

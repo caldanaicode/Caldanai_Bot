@@ -107,13 +107,39 @@ def _instantiate_weapon(stem: str, quality: Qualities):
     return module.WeaponPlugin(iid=None, quality=quality, bonus=None)
 
 
+def _instantiate_armor(stem: str, quality: Qualities):
+    """Instantiate an armor plugin by stem (e.g. 'mushroom_hat',
+    'patchwork_bracer'). Routes through ``Inventory.load_item`` so
+    set-organized subdir layouts (``armor/scrap/...``) and the
+    legacy flat layout both resolve uniformly — no duplicate
+    import-path logic between the harness and the live loader."""
+    from caldanai.lib.rpg.inventory import Inventory
+    item = Inventory.load_item(
+        name=stem,
+        data={"plugin": stem, "quality": quality.name},
+    )
+    if item is None:
+        raise SystemExit(f"Unknown armor stem: {stem}")
+    return item
+
+
 def _build_player(
     *, name: str, hp: int, defense: int, dodge: int,
     weapon: Optional[str], offhand: Optional[str],
     quality: Qualities, skill_level: int,
+    armor: Optional[List[str]] = None,
+    armor_quality: Optional[Qualities] = None,
 ) -> Player:
     """Headless Player. No Discord Member, no DB. Equip slots seeded
-    directly from the weapon plugin registry."""
+    directly from the weapon plugin registry. ``armor`` is an
+    optional list of armor stems to layer on; each piece resolves
+    its placements via :func:`resolve_placements` so MULTI-slot
+    items (paired bracers, paired boots) land on every applicable
+    spot."""
+    from caldanai.lib.rpg.creatures.equipment_routing import (
+        resolve_placements,
+    )
+
     p = Player(
         pid=1, gid=1, uid=1,
         health=hp, health_max=hp,
@@ -153,6 +179,17 @@ def _build_player(
                         "pick a one-handed offhand or omit --offhand."
                     )
                 p.part_equipment["hand.right"]["held"] = w_off
+
+    # Layer armor pieces. Each stem resolves to one or more
+    # (part, key) placements via the armor's ``slots`` mask.
+    if armor:
+        aq = armor_quality if armor_quality is not None else quality
+        for stem in armor:
+            piece = _instantiate_armor(stem, aq)
+            for part_name, key in resolve_placements(piece.slots):
+                if part_name in p.part_equipment:
+                    if key in p.part_equipment[part_name]:
+                        p.part_equipment[part_name][key] = piece
     return p
 
 
@@ -639,6 +676,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--depth-coef", type=int, default=None,
                     help="Override DEPTH_COEFFICIENT for the depth-walk "
                          "resolver (default = module value, currently 1).")
+    ap.add_argument("--armor", default=None,
+                    help="Comma-separated armor stems to equip "
+                         "(e.g. 'mushroom_hat,tee_shirt,cape'). Each "
+                         "piece's ``slots`` mask routes it to the "
+                         "appropriate part(s) via resolve_placements. "
+                         "Use to test the armor floor / per-part "
+                         "defense localization in real combat.")
+    ap.add_argument("--armor-quality", default=None,
+                    choices=[q.name for q in Qualities],
+                    help="Armor quality (default: same as --quality).")
     args = ap.parse_args(argv)
 
     random.seed(args.seed)
@@ -750,6 +797,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         outcomes: List[TrialOutcome] = []
         for trial in range(args.trials):
+            armor_list = (
+                [s.strip() for s in args.armor.split(",")]
+                if args.armor else None
+            )
+            armor_quality = (
+                Qualities[args.armor_quality]
+                if args.armor_quality else None
+            )
             player = _build_player(
                 name=args.player_name,
                 hp=args.player_hp,
@@ -759,6 +814,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 offhand=args.offhand,
                 quality=quality,
                 skill_level=args.skill,
+                armor=armor_list,
+                armor_quality=armor_quality,
             )
             monster = _spawn_monster(args.monster)
             outcome = _run_one_trial(

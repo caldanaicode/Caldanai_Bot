@@ -544,16 +544,25 @@ class Game:
         self.loot.clear()
 
     async def on_monster_death(self) -> str:
-        """Generates loot, ends combat, and sets up respawn."""
-        has_loot = False
+        """Append death-time creature loot for each looter, end
+        combat, and set up respawn.
+
+        ``self.loot[user_id]`` is initialized empty when a player
+        joins combat (in ``_run_player_block``) and may already
+        contain mid-combat salvage drops by the time death loot
+        rolls. Death loot extends the same list rather than
+        overwriting, so a player who farmed body parts during the
+        fight keeps their salvage alongside whatever the corpse
+        rolls."""
         for player in self.looters:
-            loot = self.monster.get_loot()
-            if len(loot) > 0:
-                has_loot = True
-            self.loot[player.user_id] = loot
+            self.loot[player.user_id].extend(self.monster.get_loot())
 
         await self.end_combat()
         await self.set_spawn_timer()
+
+        # Read post-extend so a player with mid-combat salvage but
+        # zero death-roll loot still sees the loot prompt.
+        has_loot = any(self.loot.get(p.user_id) for p in self.looters)
 
         if has_loot:
             self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
@@ -640,6 +649,22 @@ class Game:
                     )
                     monster.health = max(0, monster.health - final_body_dmg)
                     actual_body_damage += final_body_dmg
+                # Salvage drops for parts this player's resolution
+                # destroyed. ``destroyed_parts`` is populated by
+                # :func:`apply_sequence_to_target` and contains only
+                # parts whose injury level transitioned to USELESS
+                # this round. Last-hit attribution is implicit: the
+                # part transitioned during THIS player's resolve, so
+                # this player landed the destroying blow.
+                #
+                # Each entry yields 0 or N items via the monster's
+                # ``get_salvage(part_base_name)`` table. Quality is
+                # rolled at item-creation time inside the helper.
+                from caldanai.lib.rpg.creatures import _part_base_name
+                for destroyed in player_res.destroyed_parts:
+                    salvage = monster.get_salvage(_part_base_name(destroyed))
+                    if salvage:
+                        self.loot[player.user_id].extend(salvage)
                 if player_res.injury_feedback_lines:
                     injury_chunk = (
                         "\n".join(player_res.injury_feedback_lines) + "\n"
@@ -756,6 +781,11 @@ class Game:
         if player not in self.looters:
             await self.player_manager.set_player_combatant(player)
             self.looters.append(player)
+            # Initialize this player's loot bucket so mid-combat
+            # salvage drops have somewhere to accumulate alongside
+            # the death-time creature loot. Replaces the old "loot
+            # assigned at on_monster_death" pattern.
+            self.loot.setdefault(player.user_id, [])
 
         actions = player.pick_actions()
         explicit_targets = self.combat_targets.get(player.user_id)

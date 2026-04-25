@@ -4,6 +4,56 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — Armor Phase 2 (start): salvage-on-dismemberment + scrap set + subdir layout
+
+The "destroying a body part yields a piece harvested from it"
+gameplay loop. Pairs the existing destroyed-part-drops-gear hook
+(items the part was *wearing* return on destruction) with a new
+parallel hook (items the part itself *becomes*).
+
+- **Scrap set** (4 pieces, all sub-`armor/scrap/`):
+  ``patchwork_bracer`` (def +1, ``arm.worn.lower``),
+  ``worn_boot`` (def +1, ``foot.worn``),
+  ``ratty_glove`` (def +1, ``hand.worn``),
+  ``bandits_sash`` (hp +1, ``torso.accent``). Defense-leaning
+  per-part rather than dodge-aggregating, so a full kit doesn't
+  trivialize low-tier fights the way the original 5 dodge-heavy
+  pieces did.
+- **Salvage hook** on ``MonsterPlugin``: ``SALVAGE_DROPS`` dict
+  (per-part-base-name → list of ``(item_name, drop_chance,
+  quality_range)`` triples) + ``get_salvage(part_base_name)``
+  helper. Drop chance and quality bias both roll independently;
+  ``Qualities.from_scale`` already powers the latter.
+- **Per-player loot accumulation**: ``Game.loot[user_id]`` now
+  initializes when a player joins combat and *extends* through
+  the fight (mid-combat salvage drops + end-of-combat creature
+  loot all land in the same list), instead of being assigned
+  once at ``on_monster_death``. Last-hit attribution per-part:
+  the player whose resolve destroyed a part gets that part's
+  salvage. Three players dogpiling one foot still drops one
+  boot, to whoever's hit took it to USELESS.
+- **``ResolutionResult.destroyed_parts``** new field — populated
+  by the resolution helper when parts transition to USELESS, read
+  by the salvage hook in ``Game._run_player_block``. Keeps
+  resolution layer-pure (doesn't know about loot) while giving
+  the Game layer everything it needs.
+- **Bandit + goblin SALVAGE_DROPS** seeded with the scrap set.
+  Ranges biased to JUNK-heavy with rare ORDINARY upticks
+  (``(50, 95)`` randint, mapped through ``Qualities.from_scale``).
+- **Set-organized armor subdirs**: ``Inventory.discover_items``
+  walks ancestors to find the recognized type, ``Armor.from_plugin``
+  falls through to a recursive subdir search after the flat
+  import miss. Plugin stems remain globally unique. Existing
+  flat pieces (cape, tee_shirt, mushroom_hat, etc.) untouched —
+  they're not part of any thematic set yet.
+- **Harness ``--armor`` flag** added (and ``--armor-quality``).
+  Routes through ``Inventory.load_item`` so flat and subdir
+  layouts both resolve. Lets balance sweeps verify "would a
+  full scrap-kit player actually tip the curve?" answers
+  (it doesn't — extremity defense doesn't fix the bottleneck
+  on cyclops/dragon fights, AND it doesn't pile dodge enough
+  to trivialize bandit fights, which is the design intent).
+
 ### 2026-04-26 — Armor rework Phase 1: per-part defense floor + small-numbers re-tune
 
 Phase C localized defense to the part each armor piece is worn on,

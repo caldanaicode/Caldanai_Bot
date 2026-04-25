@@ -41,20 +41,57 @@ class Armor(Equipment):
 
     @classmethod
     def from_plugin(cls, plugin_name: str, data: dict):
-        """Creates a new armor from a plugin with initial data."""
+        """Creates a new armor from a plugin with initial data.
 
+        Resolves the plugin file by stem: flat
+        ``...armor.patchwork_bracer`` first (legacy unsorted layout),
+        then a recursive search through ``armor/<set>/<stem>.py``
+        subdirectories so set-organized pieces register without
+        needing to thread the subdir name through call sites.
+        Plugin stems must remain globally unique across the armor
+        tree — duplicates would silently shadow each other under
+        the flat ``Inventory.ITEMS`` registry anyway."""
+
+        iid = data["_id"] if "_id" in data.keys() else None
+        quality = (
+            Qualities[data["quality"]]
+            if "quality" in data.keys() and data["quality"] in Qualities.__members__
+            else None
+        )
+
+        # Try the legacy flat path first — fast path for the
+        # pre-set-reorg pieces (cape, tee_shirt, mushroom_hat, etc.).
         try:
-            item = importlib.import_module(f"caldanai.lib.rpg.inventory.equipment.armor.{plugin_name}").ArmorPlugin(
-                data["_id"] if "_id" in data.keys() else None,
-                (
-                    Qualities[data["quality"]]
-                    if "quality" in data.keys() and data["quality"] in Qualities.__members__
-                    else None
-                ),
+            mod = importlib.import_module(
+                f"caldanai.lib.rpg.inventory.equipment.armor.{plugin_name}"
             )
-
-            return item
-
+            return mod.ArmorPlugin(iid, quality)
+        except ModuleNotFoundError:
+            pass
         except Exception as e:
             _log.error(f"Unable to load ArmorPlugin: {data}\n\tReason: {e}")
             return None
+
+        # Recursive search through set-organized subdirs.
+        from glob import glob
+        from os import path as _ospath
+        armor_root = _ospath.dirname(__file__)
+        pattern = _ospath.join(armor_root, "**", f"{plugin_name}.py")
+        for filepath in glob(pattern, recursive=True):
+            rel = _ospath.relpath(filepath, armor_root)
+            # Skip the flat layer (already tried above).
+            if _ospath.sep not in rel:
+                continue
+            module_path = (
+                "caldanai.lib.rpg.inventory.equipment.armor."
+                + rel[:-3].replace(_ospath.sep, ".")
+            )
+            try:
+                mod = importlib.import_module(module_path)
+                return mod.ArmorPlugin(iid, quality)
+            except Exception as e:
+                _log.error(f"Unable to load ArmorPlugin: {data}\n\tReason: {e}")
+                return None
+
+        _log.error(f"Unable to load ArmorPlugin: {data}\n\tReason: stem '{plugin_name}' not found")
+        return None

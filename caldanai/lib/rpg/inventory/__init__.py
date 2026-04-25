@@ -30,6 +30,17 @@ class Inventory:
 
     @staticmethod
     def discover_items():
+        """Scan ``caldanai/lib/rpg/inventory/`` for plugin files and
+        register each one's stem in :attr:`ITEMS` against the
+        appropriate base class.
+
+        The category (armor / weapon / consumable / etc.) is read
+        from whichever ancestor directory matches a known type in
+        :attr:`ITEM_TYPES`, so set-organized subdirectories like
+        ``armor/scrap/patchwork_bracer.py`` register as Armor the
+        same way flat ``armor/cape.py`` does. Walk-up resolution
+        means future per-set / per-tier subtrees nest freely
+        without touching this method."""
         items = [
             filepath
             for filepath in glob("./caldanai/lib/rpg/inventory/*/**/*.py", recursive=True)
@@ -39,9 +50,22 @@ class Inventory:
         for filepath in items:
             parts = filepath.split(path.sep)[1:]
             _name = parts[-1][:-3].lower()
-            _type = parts[-2].lower()
+            # Walk parent directories upward until we hit a recognized
+            # type. For ``armor/scrap/patchwork_bracer.py`` the
+            # immediate parent is ``scrap`` (unrecognized) and the
+            # next is ``armor`` (recognized). For ``armor/cape.py``
+            # the immediate parent is already ``armor``. Falls
+            # through with no registration if no ancestor matches.
+            _type = None
+            for ancestor in reversed(parts[:-1]):
+                if ancestor.lower() in Inventory.ITEM_TYPES.keys():
+                    _type = ancestor.lower()
+                    break
 
-            if _name not in Inventory.ITEMS.keys() and _type in Inventory.ITEM_TYPES.keys():
+            if (
+                _type is not None
+                and _name not in Inventory.ITEMS.keys()
+            ):
                 Inventory.ITEMS[_name] = Inventory.ITEM_TYPES[_type]
 
     @staticmethod

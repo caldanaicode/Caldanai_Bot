@@ -245,6 +245,58 @@ class MonsterPlugin(Creature):
 
         return items
 
+    # Per-part salvage drop tables — what items can be harvested
+    # from a destroyed body part of this monster. Keyed by the
+    # part's plugin base name (``"arm"``, ``"foot"``, ``"head"``,
+    # etc., per :func:`_part_base_name`), so an entry under
+    # ``"arm"`` covers BOTH ``arm.left`` and ``arm.right``.
+    #
+    # Each entry is a list of ``(item_name, drop_chance, quality_range)``
+    # tuples:
+    #   - ``item_name``: plugin filename stem from ``Inventory.ITEMS``.
+    #   - ``drop_chance``: float in [0, 1]. Rolled at destruction time;
+    #     a part can yield 0 or 1 of the entry.
+    #   - ``quality_range``: ``(lo, hi)`` ints fed to
+    #     ``Qualities.from_scale(randint(lo, hi))`` to bias the
+    #     quality roll. Lower-half range -> better quality (the
+    #     ``from_scale`` mapping inverts), so scrap-tier drops use
+    #     ``(60, 100)`` for JUNK-heavy spread; dragon-scale drops
+    #     would use ``(1, 50)`` for FINE-up.
+    #
+    # Default empty: monsters opt in by overriding the dict on the
+    # plugin class.
+    SALVAGE_DROPS: Dict[str, List[tuple]] = {}
+
+    def get_salvage(self, part_base_name: str) -> List[Item]:
+        """Roll the salvage drops for a single destroyed body-part
+        of this monster. Called by ``Game._run_player_block`` once
+        per newly-destroyed part, with the result extending that
+        player's loot pool. Returns an empty list when the part
+        has no salvage table or every drop-chance roll fails."""
+        from random import randint
+        from caldanai.lib.rpg.helpers.enums import Qualities
+
+        entries = self.SALVAGE_DROPS.get(part_base_name, [])
+        items: List[Item] = []
+        for entry in entries:
+            name, freq, q_range = entry
+            if random() > freq:
+                continue
+            if name not in Inventory.ITEMS.keys():
+                Inventory.discover_items()
+            if name not in Inventory.ITEMS.keys():
+                _log.warning(
+                    f"No such item '{name}' found in the Inventory.ITEMS list."
+                )
+                continue
+            quality = Qualities.from_scale(randint(*q_range))
+            item = Inventory.ITEMS[name].from_plugin(
+                name, {"quality": quality.name},
+            )
+            if item:
+                items.append(item)
+        return items
+
     def attack_random(self, combatants: list, count=1) -> Optional[str]:
         """Attack ``count`` randomly chosen combatants and return the
         rendered attack markdown plus any resulting injury / death
