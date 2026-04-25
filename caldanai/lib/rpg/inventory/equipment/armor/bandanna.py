@@ -15,5 +15,5 @@ class ArmorPlugin(Armor):
             image="bandanna128.png",
             quality=quality,
             slots=EquipmentSlots.FACE,
-            bonuses={"dodge": 2, "health_max": -1},
+            bonuses={"dodge": 1},
         )

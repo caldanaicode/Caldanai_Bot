@@ -15,5 +15,5 @@ class ArmorPlugin(Armor):
             image="mushroom_red.png",
             quality=quality,
             slots=EquipmentSlots.HEAD,
-            bonuses={"dodge": 2, "defense": -2},
+            bonuses={"dodge": 1, "defense": -1},
         )

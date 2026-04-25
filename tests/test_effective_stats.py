@@ -385,6 +385,96 @@ class EffectiveDefenseTests(TestCase):
         self.assertIsInstance(val, int)
         self.assertGreaterEqual(val, 0)
 
+    def test_negative_armor_floors_at_half_natural_baseline(self):
+        """Equipped armor with hostile defense penalty can't take a
+        part below half its no-armor baseline. ``Skull stays a skull``
+        — strapping on a fragile cap doesn't make your head thinner
+        than the bone underneath. Models the masterwork-mushroom-hat
+        cratering case (-4 def vs head natural ~4 → would otherwise
+        zero out)."""
+        p = _fresh_player()  # base defense 6
+        head = p.get_part("head")
+        natural_head_def = effective_defense_for_part(p, head)
+        # Sanity: head depth 2 → natural 6 - 2 = 4.
+        self.assertEqual(natural_head_def, 4)
+
+        # Equip a masterwork-equivalent fragile cap: -4 defense.
+        crater_cap = _fake_armor(defense_bonus=-4)
+        from caldanai.lib.rpg.inventory.equipment.armor import Armor
+        crater_cap.__class__ = Armor
+        crater_cap.name = "crater_cap"
+        crater_cap.id = id(crater_cap)
+        p.place("head", "worn", crater_cap)
+
+        # Without floor: 4 + (-4) = 0. With floor: at least 4 // 2 = 2.
+        floored = effective_defense_for_part(p, head)
+        self.assertEqual(floored, 2)
+
+    def test_floor_is_depth_aware(self):
+        """The floor scales per-part: deeper parts have a smaller
+        natural baseline → smaller floor. Equipping crater armor on
+        torso (depth 0, natural 6 → floor 3) vs arm.left (depth 1,
+        natural 5 → floor 2) yields different floor heights."""
+        from caldanai.lib.rpg.inventory.equipment.armor import Armor
+
+        cases = [
+            ("torso", "worn", 3),
+            ("arm.left", "worn.upper", 2),
+        ]
+        for part_name, placement_key, expected_floor in cases:
+            p = _fresh_player()
+            crater = _fake_armor(defense_bonus=-99)  # arbitrary big penalty
+            crater.__class__ = Armor
+            crater.name = "crater"
+            crater.id = id(crater)
+            p.place(part_name, placement_key, crater)
+            part = p.get_part(part_name)
+            self.assertEqual(
+                effective_defense_for_part(p, part), expected_floor,
+                f"{part_name} expected floor {expected_floor}",
+            )
+
+    def test_positive_armor_lifts_above_floor(self):
+        """When local armor sums to positive, the floor doesn't kick
+        in — armor adds normally. A +3 chest plate on torso brings
+        head from natural 6 to 9, not capped by the natural-half
+        floor (which is 3)."""
+        p = _fresh_player()
+        chest = _fake_armor(defense_bonus=3)
+        from caldanai.lib.rpg.inventory.equipment.armor import Armor
+        chest.__class__ = Armor
+        chest.name = "chest"
+        chest.id = id(chest)
+        p.place("torso", "worn", chest)
+        torso = p.get_part("torso")
+        # natural=6, +3 armor = 9. Floor (3) doesn't cap because 9>3.
+        self.assertEqual(effective_defense_for_part(p, torso), 9)
+
+    def test_mixed_armor_on_same_part_combines_then_floors(self):
+        """A negative cap + positive helm on the same head: bonuses
+        sum first, then the floor catches the result if it's still
+        sub-natural-half. -4 cap + +3 helm = -1 net → 4 - 1 = 3,
+        which beats the floor (2), so the helm's +3 lifts the head
+        from 0/floor up to 3."""
+        from caldanai.lib.rpg.inventory.equipment.armor import Armor
+        p = _fresh_player()
+
+        cap = _fake_armor(defense_bonus=-4)
+        cap.__class__ = Armor
+        cap.name = "cap"
+        cap.id = id(cap)
+        helm = _fake_armor(defense_bonus=3)
+        helm.__class__ = Armor
+        helm.name = "helm"
+        helm.id = id(helm)
+
+        p.place("head", "worn", cap)
+        p.place("head", "outer", helm)
+        head = p.get_part("head")
+        # natural = 4, local_armor = -4 + 3 = -1, total = 3.
+        # Floor = 2; max(2, 3) = 3.
+        self.assertEqual(effective_defense_for_part(p, head), 3)
+
 
 class DepthSemanticsTests(TestCase):
     def test_deeper_parts_have_more_dodge_less_defense(self):

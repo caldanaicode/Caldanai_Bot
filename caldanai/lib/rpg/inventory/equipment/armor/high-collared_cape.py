@@ -15,5 +15,5 @@ class ArmorPlugin(Armor):
             image=None,
             quality=quality,
             slots=EquipmentSlots.CAPE,
-            bonuses={"dodge": -1, "defense": -1, "health_max": 5},
+            bonuses={"dodge": -1, "defense": -1, "health_max": 3},
         )

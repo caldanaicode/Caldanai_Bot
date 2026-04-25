@@ -4,7 +4,35 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
-### 2026-04-26 — Action selection: shuffle parts before walking the budget
+### 2026-04-26 — Armor rework Phase 1: per-part defense floor + small-numbers re-tune
+
+Phase C localized defense to the part each armor piece is worn on,
+which made hidden penalty scaling sharp: a masterwork mushroom hat
+(base ``-2 def`` × MW 2.0 = ``-4``) crashed Serena's head defense
+from 4 to 0 — a 100% nerf on one part. The local-defense model is
+right; the per-piece magnitudes were tuned for B4 aggregation and
+need to be smaller now that they bite locally.
+
+- **Per-part defense floor** in ``effective_defense_for_part``: a
+  part's effective defense never drops below half its no-armor
+  natural baseline (``(base + intrinsic + offset − depth × coef)
+  // 2``). Skull stays a skull regardless of what fragile cap is
+  strapped on top. Floor scales with depth — head's floor is
+  smaller than torso's, arm.lower's smaller than arm.upper's.
+- **Re-tuned the existing 5 armor pieces** to small per-piece
+  numbers so MW scaling can't crater anymore:
+  - bandanna: ``dodge +2 / hp -1`` → ``dodge +1`` (drop the hp penalty)
+  - mushroom_hat: ``dodge +2 / def -2`` → ``dodge +1 / def -1``
+  - high-collared_cape: ``dodge -1 / def -1 / hp +5`` → ``dodge -1 / def -1 / hp +3``
+  - tee_shirt and cape unchanged (already small).
+- 4 new tests in ``test_effective_stats.py`` pin the floor
+  behavior: cratering armor floors at half-natural, depth-aware
+  floor varies by part, positive armor lifts above floor without
+  capping, mixed positive+negative armor on same part combines
+  then floors.
+
+Phase 2 — adding pieces for uncovered slots (gloves, boots,
+greaves, bracers, neck/torso accents) — is still TODO.
 
 `_select_actions_within_budget` walked parts in body-tree depth-
 first order (torso → neck → head → eyes → arms → legs) and picked

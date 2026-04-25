@@ -2251,12 +2251,28 @@ def effective_defense_for_part(creature, part) -> int:
         # eye has some inherent tissue resistance, and strapping
         # a face-guard on top only adds to it.
         soft_base = int(base * SOFT_PART_FRACTION)
-        return max(0, soft_base + offset + local_armor)
+        natural = soft_base + offset
+        # Floor: hostile armor can't take a soft part below half
+        # its natural baseline. Same intent as the plated branch
+        # below — equipping a brittle face-guard shouldn't make
+        # your eye more vulnerable than no guard at all.
+        floor = max(0, natural // 2)
+        return max(floor, natural + local_armor)
 
     # Plated part: base + intrinsic - depth + armor + offset.
     depth_penalty = part.depth * DEPTH_COEFFICIENT
     intrinsic = max(0, intrinsic_raw)
-    return max(0, base + offset + intrinsic + local_armor - depth_penalty)
+    # Natural baseline = the part's defense with NO worn equipment.
+    # Local armor (positive or negative) layers on top of natural.
+    # Floor protects against equipped pieces with hostile penalties
+    # (e.g. an MW mushroom_hat with -4 defense on a head whose
+    # natural baseline is 4) — the floor keeps the part at half
+    # its no-armor baseline regardless of what's worn. Phrased as
+    # "skull stays a skull": equipping a fragile cap can't make
+    # your head thinner than the bone underneath it.
+    natural = base + offset + intrinsic - depth_penalty
+    floor = max(0, natural // 2)
+    return max(floor, natural + local_armor)
 
 
 def _attack_scale_of(creature) -> float:
