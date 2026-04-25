@@ -1,6 +1,6 @@
 import math
 from collections import defaultdict
-from random import choice, choices, random, sample
+from random import choice, choices, random, sample, shuffle
 from typing import List, Tuple, Union, Optional, Dict, Set
 
 from discord import Embed, File
@@ -2387,21 +2387,32 @@ def _select_actions_within_budget(
 ) -> List[Tuple[BodyPart, str, Dict]]:
     """Weighted-random action selection capped by ``budget``.
 
-    Walks the parts in the caller's order, picking one action per
-    part by ``weight`` and subtracting its ``cost`` from the remaining
-    budget. When the cheapest action for the current part is too
-    expensive, skip the part rather than pick nothing. Returns
-    ``(part, action_name, action_dict)`` triples for the selected
-    actions.
+    The pool order is uniformly shuffled before the budget walk —
+    body-tree depth-first iteration places torso/head ahead of
+    arms/legs, and the previous "walk in caller's order" behavior
+    let those early parts always exhaust ACTION_BUDGET (default 2)
+    before the limbs got a turn (humanoid monsters never punched,
+    grabbed, kicked, or stomped). Shuffling per-round restores
+    even part-attention across rounds.
 
-    Shape lifted directly from hydra's ``_select_round_actions`` for
-    parity — see the design doc's "Action budget" section for the
-    behavioral contract."""
+    Within the chosen part, the per-action ``weight`` field still
+    governs which entry from that part's repertoire fires. Cost
+    debits ``budget``; parts whose cheapest affordable action
+    exceeds the remaining budget get skipped, not stalled on.
+    Returns ``(part, action_name, action_dict)`` triples in
+    selection order (NOT body-tree order — callers that care about
+    rendering order should sort downstream).
+
+    Originally lifted from hydra's ``_select_round_actions``; hydra
+    overrides ``attack_random`` so its heads pool is unaffected by
+    this shuffle, and its head order is symmetric anyway."""
     if budget <= 0 or not part_pools:
         return []
+    pool_order = list(part_pools)
+    shuffle(pool_order)
     selected: List[Tuple[BodyPart, str, Dict]] = []
     remaining = budget
-    for part, repertoire in part_pools:
+    for part, repertoire in pool_order:
         if remaining <= 0:
             break
         if not repertoire:

@@ -4,6 +4,21 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — Action selection: shuffle parts before walking the budget
+
+`_select_actions_within_budget` walked parts in body-tree depth-
+first order (torso → neck → head → eyes → arms → legs) and picked
+one action per part until ACTION_BUDGET ran out. Default budget
+is 2, so torso (chestbutt) and head (bite/headbutt) burned the
+budget every round and arms/legs were never reached. Live result:
+humanoid monsters didn't punch, grab, kick, or stomp — ever.
+
+The pool now shuffles uniformly before the walk. Bandit 200-
+trial sample went from `100% chestbutt + 65/35 bite/headbutt` to
+balanced across `punch / kick / chestbutt / bite / stomp / grab /
+headbutt`. Hydra's heads pool is unaffected — hydra overrides
+``attack_random`` and its head order is symmetric anyway.
+
 ### 2026-04-26 — `post_patch_notes` auto-prepends the UTC timestamp header
 
 Operators were copy-pasting / hand-typing the
