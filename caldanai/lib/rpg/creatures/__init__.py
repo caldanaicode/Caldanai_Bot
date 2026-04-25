@@ -1320,6 +1320,34 @@ class Creature:
         lines.append("```")
         return "\n".join(lines)
 
+    def _healthy_aggregate(self, getter):
+        """Run ``getter`` (e.g. ``self.get_defense``) against a
+        temporary full-health snapshot of this creature's body parts.
+
+        Used by :meth:`get_embed` to decide whether the displayed
+        stat is reduced by injury — comparing the live emergent
+        value against this baseline neutralizes size-mod and other
+        intrinsic factors that already differ from
+        ``self.defense`` / ``self.dodge`` even at full health.
+
+        Mutates each ``part.health`` to ``part.health_max`` for the
+        duration of the call and restores afterward in a try/finally
+        so an exception in ``getter`` doesn't leave the creature in
+        a fake-healthy state. Pure-read in effect (no health
+        observers fire on transient set in this codebase). No-op
+        for body-less creatures — falls through to ``getter`` once.
+        """
+        if not self.body_parts:
+            return getter()
+        snapshot = [(p, p.health) for p in self.body_parts]
+        try:
+            for p, _ in snapshot:
+                p.health = p.health_max
+            return getter()
+        finally:
+            for p, h in snapshot:
+                p.health = h
+
     def get_embed(self) -> tuple:
         """
         Generates a discord embed and image file for displaying information about this creature.
@@ -1334,20 +1362,27 @@ class Creature:
             embed.set_thumbnail(url=f"attachment://{self.image}")
 
         # Mark Defense / Dodge with a bandage emoji (U+1FA79) when
-        # the emergent value (get_*) is below the creature's
-        # intrinsic base \u2014 signals "your body damage is reducing
-        # this stat" so the player doesn't read a mid-fight stat
-        # drop as a UI bug. The 2026-04-24 playtest flagged this
-        # confusion: Phase C localized stat aggregation is visibly
-        # working, but a falling defense number with no annotation
-        # looks like a regression. Armor-elevated stats above base
-        # render without the marker (no need \u2014 the player just
-        # equipped the armor).
+        # the emergent value (get_*) is below what that aggregation
+        # would yield with every body part at full health.
+        # Signals "your body damage is reducing this stat" so the
+        # player doesn't read a mid-fight stat drop as a UI bug
+        # (2026-04-24 playtest finding).
+        #
+        # Comparing emergent against ``self.defense`` / ``self.dodge``
+        # produced false positives because ``get_defense`` /
+        # ``get_dodge`` bake ``size_mod`` into the emergent value:
+        # a HUGE creature at full health has ``emergent < self.dodge``
+        # by design, which lit up the marker on a healthy hydra.
+        # The full-health baseline comparison neutralizes the
+        # size-mod factor and only fires when injury actually
+        # reduces the stat.
         injury_marker = " \U0001fa79"
         emergent_def = self.get_defense()
         emergent_dodge = self.get_dodge()
-        def_marker = injury_marker if emergent_def < self.defense else ""
-        dodge_marker = injury_marker if emergent_dodge < self.dodge else ""
+        baseline_def = self._healthy_aggregate(self.get_defense)
+        baseline_dodge = self._healthy_aggregate(self.get_dodge)
+        def_marker = injury_marker if emergent_def < baseline_def else ""
+        dodge_marker = injury_marker if emergent_dodge < baseline_dodge else ""
 
         fields = [
             ("Size", self.size.name.title(), True),

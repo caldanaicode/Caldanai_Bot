@@ -4,6 +4,25 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Stat block: bandage marker baseline switches to full-health emergent
+
+Live test caught a false-positive on the previous comparison
+(``emergent < self.defense`` / ``self.dodge``): a freshly-spawned
+hydra rendered ``Dodge: 7 🩹`` with zero injuries because
+``get_dodge`` bakes ``size_mod`` (HUGE 0.5, COLOSSAL 0.25, etc.)
+into the emergent value — emergent is below intrinsic *by design*
+for any non-Medium creature.
+
+- New ``Creature._healthy_aggregate(getter)`` helper snapshots
+  ``part.health`` for every body part, restores ``health_max``
+  for the duration of ``getter``, and restores after. Try/finally
+  so an exception in ``getter`` doesn't leave the creature in a
+  fake-healthy state. No-op for body-less creatures.
+- ``get_embed`` compares ``emergent_def`` / ``emergent_dodge``
+  against ``self._healthy_aggregate(self.get_*)`` instead of the
+  intrinsic ``self.*``. Marker now fires iff injury is *actually*
+  reducing the displayed stat.
+
 ### 2026-04-25 — Stat block: bandage marker on injury-reduced Defense / Dodge
 
 Phase C's localized stat aggregation has been visibly working
