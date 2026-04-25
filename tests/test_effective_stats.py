@@ -230,6 +230,54 @@ class ScaledDodgeTests(TestCase):
         # No attacker/source passed → exposure ignored.
         self.assertEqual(effective_dodge_for_part(target, part), 10)
 
+    def test_dodge_cap_clamps_runaway_inflation(self):
+        """Big-vs-Tiny attacker with a low-exposure part stacks
+        size_ratio (2.0) × tax (2.0) = 4× base on the multiplicative
+        side. The ``DODGE_CAP_COEF`` ceiling clamps that to 2× base
+        (20) BEFORE the additive depth + offset apply. Regression
+        for the 2026-04-24 Tiny-toadstool-neck dodge-32-vs-base-5
+        playtest finding."""
+        from caldanai.lib.rpg.helpers.enums import Size
+        attacker, target = self._pair(
+            attacker_size=Size.HUGE, target_size=Size.TINY,
+        )
+        part = self._torso_with_exposure(0.0)  # max tax
+        src = self._source()
+        # Pre-cap raw would be int(10 × 2.0 × 2.0) = 40; cap is
+        # int(10 × 2.0) = 20. Torso depth 0, no offset → 20.
+        self.assertEqual(
+            effective_dodge_for_part(target, part, attacker, src),
+            20,
+        )
+
+    def test_dodge_cap_does_not_flatten_per_part_ordering(self):
+        """The cap is on the multiplicative product only — additive
+        depth still differentiates parts at the cap. A deeper part
+        (arm, depth 1) ends one above a shallower part (torso,
+        depth 0) when both saturate the cap, so the depth-walk
+        resolver still sees an ordering. Uses a real Player so
+        ``depth`` comes from tree construction (the property has
+        no setter)."""
+        from caldanai.lib.rpg.helpers.enums import Size, Reach
+        from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+        BodyPartPlugin.load_plugins()
+        attacker_template, _ = self._pair(
+            attacker_size=Size.HUGE, target_size=Size.TINY,
+        )
+        target = _fresh_player()
+        target.size = Size.TINY
+        attacker_template.size = Size.HUGE
+        torso = target.get_part("torso")
+        arm = target.get_part("arm.left")
+        # Force max-tax exposure on both parts so both saturate
+        # the multiplicative cap.
+        torso.exposure = {r: 0.0 for r in Reach}
+        arm.exposure = {r: 0.0 for r in Reach}
+        src = self._source()
+        torso_dodge = effective_dodge_for_part(target, torso, attacker_template, src)
+        arm_dodge = effective_dodge_for_part(target, arm, attacker_template, src)
+        self.assertGreater(arm_dodge, torso_dodge)
+
 
 class EffectiveDefenseTests(TestCase):
     """Default ``defense_bonus = 0`` routes unarmored parts through

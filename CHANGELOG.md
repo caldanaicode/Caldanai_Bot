@@ -4,6 +4,30 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-25 — Per-part dodge: absurdity ceiling on multiplicative inflation
+
+``effective_dodge_for_part`` stacked size_ratio (up to 2.0) ×
+exposure_tax (up to 2.0) multiplicatively, allowing the
+multiplicative product alone to reach 4× base. The 2026-04-24
+playtest observed dodge 32 against base 5 on a Tiny toadstool's
+neck (6.4× base after additive depth/offset) — rip-and-tear
+unplayable for that target even on a nat-20 from a maxed
+character.
+
+- ``DODGE_CAP_COEF`` constant (default 2.0) clamps the
+  multiplicative product at ``base × DODGE_CAP_COEF``. Additive
+  ``depth × DEPTH_COEFFICIENT`` and ``dodge_offset`` still apply
+  on top, preserving per-part ordering for the depth-walk
+  resolver (``test_big_vs_small_stall_rolls_up`` regressed
+  briefly under a final-value cap; the multiplicative-only cap
+  passes).
+- Tunable from one place — alongside ``EXPOSURE_TAX_COEF`` and
+  ``SIZE_RATIO_MAX`` — for future balance sweeps.
+
+Two regression tests: cap saturates Big-vs-Tiny + zero-exposure
+to 2× base; deeper part still ends above shallower part when
+both saturate the cap.
+
 ### 2026-04-25 — Doppelganger pain summary: per-level grouping replaces per-part chart
 
 The doppelganger emitted ONE pain-cry line per inherited injured

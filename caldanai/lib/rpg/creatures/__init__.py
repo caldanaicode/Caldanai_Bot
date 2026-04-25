@@ -54,6 +54,20 @@ EXPOSURE_TAX_COEF: float = 1.0
 SIZE_RATIO_MIN = 0.5
 SIZE_RATIO_MAX = 2.0
 
+# Absurdity ceiling on per-part effective dodge inflation. The
+# multiplicative scaling step (``base × size_ratio × tax``) can
+# stack, especially for small targets with low-exposure critical
+# parts: a Medium attacker vs. a Small toadstool's neck observed
+# dodge 32 against base 5 (6.4× base) during the 2026-04-24
+# playtest, making rip-and-tear unplayable for that target. The
+# multiplicative product caps at ``base × DODGE_CAP_COEF``;
+# additive depth/offset still apply afterward, preserving per-
+# part ordering for the depth-walk resolver. 2.0 keeps the
+# Tiny-neck case at ~10 (down from 32) while keeping the
+# dragon-vs-pixie torso/arm differentiation that
+# ``test_big_vs_small_stall_rolls_up`` relies on.
+DODGE_CAP_COEF: float = 2.0
+
 # Size-aware target selection (see "Size-Aware Targeting" design doc).
 # ``pick_random_part`` multiplies each part's exposure weight by a
 # size-ratio attractor: small-exposure parts (eye, ear) get
@@ -2071,10 +2085,10 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
     Formula (with full context available)::
 
         tax = 1 + (1 - exposure) × EXPOSURE_TAX_COEF
-        scaled = int(creature.get_dodge() × size_ratio × tax)
+        scaled = min(int(base × size_ratio × tax), int(base × DODGE_CAP_COEF))
         return max(0, scaled + part.depth × DEPTH_COEFFICIENT + part.dodge_offset)
 
-    Three factors compose:
+    Three factors compose with a multiplicative cap:
 
     - **Size ratio** (attacker / target) — big attacker vs. small
       target pays extra dodge, small attacker vs. big target gets
@@ -2085,8 +2099,16 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
       controls aggressiveness. Bounded: a fully-hidden part
       (exposure 0) caps at ``(1 + EXPOSURE_TAX_COEF)`` × base —
       never hyperbolic.
+    - **Absurdity ceiling** — the composed multiplicative product
+      ``base × size_ratio × tax`` clamps at
+      ``DODGE_CAP_COEF × base``. Stacked size-ratio + exposure tax
+      could otherwise drive an eye or neck on a Tiny target to
+      6× base. Additive depth + offset still apply on top, so
+      the final value can exceed the cap by those small constants
+      — keeps per-part ordering intact for the depth-walk
+      resolver while preventing runaway inflation.
     - **Depth** — extremities are slightly harder to hit than the
-      torso via a small additive ramp.
+      torso via a small additive ramp (post-cap).
 
     ``attacker`` and ``source`` are optional so introspection tools
     (``inspect_body_tree --stats``) can read a static baseline
@@ -2116,6 +2138,10 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
 
     tax_multiplier = 1 + (1 - exp) * EXPOSURE_TAX_COEF
     scaled_base = int(base * size_ratio * tax_multiplier)
+    # Cap the multiplicative inflation only — additive depth and
+    # offset still apply afterward, preserving per-part ordering
+    # for the depth-walk resolver.
+    scaled_base = min(scaled_base, int(base * DODGE_CAP_COEF))
     depth_bonus = part.depth * DEPTH_COEFFICIENT
     offset = getattr(part, "dodge_offset", 0)
     return max(0, scaled_base + depth_bonus + offset)
