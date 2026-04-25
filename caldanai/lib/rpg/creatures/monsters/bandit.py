@@ -32,10 +32,17 @@ class Bandit(MonsterPlugin):
     # quality). Bandit armor IS scrap; the occasional FINE roll is
     # the lucky-break exception.
     SALVAGE_DROPS = {
-        "arm":   [("patchwork_bracer", 0.6, (50, 95))],
-        "foot":  [("worn_boot",        0.5, (50, 95))],
+        "head":  [("rough_cap",        0.4, (50, 95)),
+                  ("rag_hood",         0.2, (50, 95))],
+        "neck":  [("scrap_collar",     0.3, (50, 95))],
+        "torso": [("rough_jerkin",     0.4, (50, 95)),
+                  ("bandits_sash",     0.2, (50, 95))],
+        "arm":   [("patchwork_bracer", 0.5, (50, 95)),
+                  ("rough_rerebrace",  0.3, (50, 95))],
         "hand":  [("ratty_glove",      0.4, (50, 95))],
-        "torso": [("bandits_sash",     0.3, (50, 95))],
+        "leg":   [("rough_greave",     0.4, (50, 95)),
+                  ("scrap_shin",       0.3, (50, 95))],
+        "foot":  [("worn_boot",        0.5, (50, 95))],
     }
 
     def __init__(self):

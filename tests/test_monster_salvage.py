@@ -94,15 +94,6 @@ class TestBanditScrapDrops:
     """Bandit's scrap-set wiring — the seed monster for the new
     salvage gameplay loop."""
 
-    def test_arm_drops_patchwork_bracer(self):
-        b = Bandit()
-        Inventory.discover_items()
-        # Force the random roll into the always-fires zone.
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("arm")
-        assert len(items) == 1
-        assert items[0].name == "patchwork bracer"
-
     def test_foot_drops_worn_boot(self):
         b = Bandit()
         Inventory.discover_items()
@@ -119,20 +110,50 @@ class TestBanditScrapDrops:
         assert len(items) == 1
         assert items[0].name == "ratty glove"
 
-    def test_torso_drops_bandits_sash(self):
+    def test_torso_drops_jerkin_and_sash(self):
+        """Bandit torso has TWO salvage entries — a jerkin
+        (torso.worn slot) and a sash (torso.accent slot). Different
+        slots, both can drop from one part destruction."""
         b = Bandit()
         Inventory.discover_items()
         with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
             items = b.get_salvage("torso")
-        assert len(items) == 1
-        assert items[0].name == "bandit's sash"
+        names = sorted(i.name for i in items)
+        assert names == ["bandit's sash", "rough jerkin"]
 
-    def test_head_has_no_scrap_drop(self):
-        """Bandits don't drop helms — head isn't in the salvage
-        table. Pinning so a future rebalance pass doesn't quietly
-        add a head entry without intent."""
+    def test_head_drops_cap_and_hood(self):
         b = Bandit()
-        assert b.get_salvage("head") == []
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = b.get_salvage("head")
+        names = sorted(i.name for i in items)
+        assert names == ["rag hood", "rough cap"]
+
+    def test_neck_drops_collar(self):
+        b = Bandit()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = b.get_salvage("neck")
+        assert len(items) == 1
+        assert items[0].name == "scrap collar"
+
+    def test_arm_drops_bracer_and_rerebrace(self):
+        """Arm has the lower-bracer (forearm) AND upper-rerebrace
+        slots; both drop from a destroyed arm."""
+        b = Bandit()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = b.get_salvage("arm")
+        names = sorted(i.name for i in items)
+        assert names == ["patchwork bracer", "rough rerebrace"]
+
+    def test_leg_drops_greave_and_shin(self):
+        b = Bandit()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = b.get_salvage("leg")
+        names = sorted(i.name for i in items)
+        assert names == ["rough greave", "scrap shin"]
 
 
 class TestGoblinScrapDrops:
@@ -147,9 +168,10 @@ class TestGoblinScrapDrops:
         assert len(items) == 1
         assert items[0].name == "patchwork bracer"
 
-    def test_goblin_skips_torso(self):
-        """Goblins don't carry sashes — torso isn't in their
+    def test_goblin_skips_neck(self):
+        """Goblins don't carry collars — neck isn't in their
         salvage table. Differentiates the goblin scrap profile
-        from the bandit's."""
+        from the bandit's (bandits get sashes + collars; goblins
+        skip both ornamental layers)."""
         g = Goblin()
-        assert g.get_salvage("torso") == []
+        assert g.get_salvage("neck") == []

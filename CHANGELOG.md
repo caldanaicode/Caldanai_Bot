@@ -4,21 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
-### 2026-04-26 — Armor Phase 2 (start): salvage-on-dismemberment + scrap set + subdir layout
+### 2026-04-26 — Armor Phase 2: salvage-on-dismemberment + scrap set + subdir layout
 
 The "destroying a body part yields a piece harvested from it"
 gameplay loop. Pairs the existing destroyed-part-drops-gear hook
 (items the part was *wearing* return on destruction) with a new
 parallel hook (items the part itself *becomes*).
 
-- **Scrap set** (4 pieces, all sub-`armor/scrap/`):
-  ``patchwork_bracer`` (def +1, ``arm.worn.lower``),
-  ``worn_boot`` (def +1, ``foot.worn``),
-  ``ratty_glove`` (def +1, ``hand.worn``),
-  ``bandits_sash`` (hp +1, ``torso.accent``). Defense-leaning
-  per-part rather than dodge-aggregating, so a full kit doesn't
-  trivialize low-tier fights the way the original 5 dodge-heavy
-  pieces did.
+- **Scrap set** (11 pieces, all sub-`armor/scrap/`):
+  ``rough_cap`` (head.worn), ``rag_hood`` (head.outer),
+  ``scrap_collar`` (neck.accent), ``rough_jerkin`` (torso.worn),
+  ``bandits_sash`` (torso.accent), ``patchwork_bracer``
+  (arm.worn.lower), ``rough_rerebrace`` (arm.worn.upper),
+  ``ratty_glove`` (hand.worn), ``rough_greave`` (leg.worn.upper),
+  ``scrap_shin`` (leg.worn.lower), ``worn_boot`` (foot.worn).
+  Mostly def +1 / hp +1 — small per-piece numbers,
+  defense-leaning rather than dodge-aggregating so a full
+  kit gives modest aggregate (sweep: bandit 68% → 74%, werewolf
+  65% → 71%; bosses unchanged). No "unkillable god" outcome.
 - **Salvage hook** on ``MonsterPlugin``: ``SALVAGE_DROPS`` dict
   (per-part-base-name → list of ``(item_name, drop_chance,
   quality_range)`` triples) + ``get_salvage(part_base_name)``

@@ -25,9 +25,12 @@ class Goblin(MonsterPlugin):
     # because goblins are scrappier and the gear's been beaten up
     # in a different way.
     SALVAGE_DROPS = {
+        "head":  [("rough_cap",        0.3, (50, 95))],
+        "torso": [("rough_jerkin",     0.3, (50, 95))],
         "arm":   [("patchwork_bracer", 0.4, (50, 95))],
-        "foot":  [("worn_boot",        0.4, (50, 95))],
         "hand":  [("ratty_glove",      0.3, (50, 95))],
+        "leg":   [("rough_greave",     0.3, (50, 95))],
+        "foot":  [("worn_boot",        0.4, (50, 95))],
     }
 
     def __init__(self):
