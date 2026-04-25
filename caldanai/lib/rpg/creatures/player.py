@@ -1103,6 +1103,21 @@ class Player(Creature):
             self.gain_skill_experience(source.skill, hit=False)
         self.update_roll_counts(result.combined)
 
+    def _placement_is_blocked(self, part_name: str) -> bool:
+        """True if ``part_name`` resolves to a part that's
+        functionally destroyed (own health depleted OR a tree-
+        ancestor destroyed — :meth:`BodyPart.is_destroyed`
+        cascades). Equip refuses placement at blocked parts: a
+        severed arm doesn't hold a sword, and a hand below a
+        destroyed arm doesn't wear a glove. Without the gate,
+        ``$equip wand@r`` succeeds on a destroyed right arm and
+        the item silently rides a part the player no longer has.
+        """
+        part = self.get_part(part_name)
+        if part is None:
+            return False
+        return part.is_destroyed()
+
     def replace_equipment(
         self, item: Equipment, part_name: str, key: str,
     ) -> Tuple[bool, Optional[Equipment]]:
@@ -1517,6 +1532,11 @@ class Player(Creature):
             placements = resolve_placements(item.slots)
             if not placements:
                 return False, "Unable to auto-equip: Multi-slot item matched no equipment slots."
+            # Two-handers need every required placement intact —
+            # half-equipping a bow on the surviving arm would
+            # leave a phantom reference and a useless wield.
+            if any(self._placement_is_blocked(pn) for (pn, _) in placements):
+                return False, "Unable to equip: That gear can't ride a part this damaged."
             removed: List[Equipment] = []
             for (part_name, key) in placements:
                 ok, replaced = self.replace_equipment(item, part_name, key)
@@ -1532,10 +1552,15 @@ class Player(Creature):
         # Case 3 (handled before case 2 because auto-equip also
         # triggers when ``slot`` is an aggregate like ``EITHER_HELD``
         # — ``exclude_from_output`` names the aggregates). Find the
-        # first empty placement compatible with the item.
+        # first empty placement compatible with the item. Blocked
+        # placements (severed arm, crushed hand) are skipped so a
+        # `$equip glove` lands on the surviving hand rather than
+        # the destroyed one.
         elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
             compatible = resolve_placements(item.slots)
             for (part_name, key) in compatible:
+                if self._placement_is_blocked(part_name):
+                    continue
                 if self.part_equipment.get(part_name, {}).get(key) is None:
                     ok, replaced = self.replace_equipment(item, part_name, key)
                     if ok:
@@ -1556,6 +1581,8 @@ class Player(Creature):
                 target = SLOT_TO_PART_KEY.get(slot)
                 if target is not None:
                     part_name, key = target
+                    if self._placement_is_blocked(part_name):
+                        return False, "Unable to equip: That part is too damaged to hold gear right now."
                     ok, replaced = self.replace_equipment(item, part_name, key)
                     if ok:
                         dirty = True

@@ -225,6 +225,60 @@ class TestEquipment:
             "Left arm still holds the displaced two-hander (phantom)"
         )
 
+    def test_equip_refuses_destroyed_specific_slot(self):
+        """Playtest bug 2026-04-26: ``$equip wand@r`` succeeded
+        when the right arm was destroyed (cascading hand.right to
+        USELESS via ancestor-destroyed). Specific-slot equip must
+        refuse with an informative message rather than silently
+        riding the placement on a part the player no longer has."""
+        p = _make_player()
+        wand = _make_equipment(name="wand", slots=EquipmentSlots.RIGHT_HELD)
+        # Destroy the right arm — hand.right cascades to USELESS
+        # via BodyPart.is_destroyed walking ancestors.
+        arm = next(part for part in p.body_parts if part.name == "arm.right")
+        arm.health = 0
+
+        success, msg = p.equip(wand, EquipmentSlots.RIGHT_HELD)
+        assert success is False
+        assert "damaged" in msg.lower()
+        assert p.part_equipment["hand.right"]["held"] is None
+
+    def test_equip_auto_skips_destroyed_lands_on_healthy(self):
+        """Auto-equip must skip destroyed placements and land on
+        the surviving counterpart. Player with a destroyed left
+        arm `$equip glove` should land on hand.right."""
+        p = _make_player()
+        glove = _make_equipment(name="glove", slots=EquipmentSlots.GLOVES)
+        arm = next(part for part in p.body_parts if part.name == "arm.left")
+        arm.health = 0
+
+        success, _ = p.equip(glove)
+        assert success is True
+        assert p.part_equipment["hand.right"]["worn"] is glove
+        assert p.part_equipment["hand.left"]["worn"] is None
+
+    def test_equip_multi_slot_refuses_when_any_part_destroyed(self):
+        """Two-handed weapons need every required placement
+        intact — equipping a bow with one severed arm would
+        otherwise leave a half-wielded phantom reference."""
+        from caldanai.lib.rpg.inventory import Inventory
+        from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+
+        BodyPartPlugin.load_plugins()
+        Inventory.discover_items()
+
+        p = Player(uid=1, gid=2, cid=3)
+        bow = Inventory.load_item(name="bow")
+        p.inventory.add(bow)
+        arm = next(part for part in p.body_parts if part.name == "arm.right")
+        arm.health = 0
+
+        success, msg = p.equip(bow)
+        assert success is False
+        assert "damaged" in msg.lower()
+        assert p.part_equipment["hand.left"]["held"] is None
+        assert p.part_equipment["hand.right"]["held"] is None
+
     def test_remove_equipped_item(self):
         p = _make_player()
         item = _make_equipment(name="cap", slots=EquipmentSlots.HEAD)

@@ -109,8 +109,7 @@ need to be smaller now that they bite locally.
   capping, mixed positive+negative armor on same part combines
   then floors.
 
-Phase 2 — adding pieces for uncovered slots (gloves, boots,
-greaves, bracers, neck/torso accents) — is still TODO.
+### 2026-04-26 — Action selection: shuffle parts before walking the budget
 
 `_select_actions_within_budget` walked parts in body-tree depth-
 first order (torso → neck → head → eyes → arms → legs) and picked
@@ -124,6 +123,29 @@ trial sample went from `100% chestbutt + 65/35 bite/headbutt` to
 balanced across `punch / kick / chestbutt / bite / stomp / grab /
 headbutt`. Hydra's heads pool is unaffected — hydra overrides
 ``attack_random`` and its head order is symmetric anyway.
+
+### 2026-04-26 — Inline salvage narration in injury feedback
+
+When a destroyed body part dropped a salvage piece, players had
+no signal mid-combat — items materialized silently in
+``Game.loot``, only revealed at post-combat ``$loot``. Each rolled
+salvage now appends a line to the destroying player's
+``injury_feedback_lines``: "*A patchwork bracer slips free of the
+bandit's left arm.*" Lands inline with the destruction
+announcement, so the salvage cause-and-effect reads in real time
+instead of being a post-mortem surprise.
+
+### 2026-04-26 — `$equip` refuses destroyed body parts
+
+``$equip wand@r`` succeeded when the right arm was destroyed
+(cascading ``hand.right`` to USELESS), silently riding the
+placement on a part the player no longer had. ``Player.equip``
+now gates each of its three cases on a new ``_placement_is_blocked``
+helper that reads ``BodyPart.is_destroyed`` (which already cascades
+through ancestors). Specific-slot equip refuses with a clear
+message; auto-equip skips destroyed placements and lands on the
+surviving counterpart; multi-slot two-handers refuse if any
+required arm is destroyed.
 
 ### 2026-04-26 — `post_patch_notes` auto-prepends the UTC timestamp header
 
