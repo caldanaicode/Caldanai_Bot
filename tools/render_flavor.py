@@ -1,11 +1,12 @@
 """Render a monster's flavor strings (arrival / escape / death /
 on_hugged / on_social) — or a body-part plugin's DEFAULT_ACTIONS
-narrative pools — through the ``parse()`` pipeline so new
-templates can be eyeballed for token bugs without spinning up the
-bot.
+narrative pools, or an arbitrary template — through the
+``parse()`` pipeline so new templates can be eyeballed for token
+bugs without spinning up the bot.
 
 Usage::
 
+    # Monster pool (default mode):
     python -m tools.render_flavor <monster_stem>
     python -m tools.render_flavor bandit --count 40
     python -m tools.render_flavor bandit --actor-name Serena --seed 0
@@ -15,6 +16,14 @@ Usage::
     # Body-part action pools (Phase 3 content):
     python -m tools.render_flavor --part head
     python -m tools.render_flavor --part arm --attacker goblin
+
+    # Arbitrary template (parser-regression / one-shot proofing):
+    python -m tools.render_flavor --template "Something animates @1d." \\
+        --actor-name skeleton --article
+    python -m tools.render_flavor --template "@1Np head feels battered." \\
+        --actor-name "Caldanai Playtester"
+    python -m tools.render_flavor --template "@1D blows a kiss at @2." \\
+        --actor-name pixie --article --witness-name Caels
 
 ``<monster_stem>`` is the plugin filename stem (``bandit``,
 ``math_teacher``, ...), matched the same way the ``$spawn monster``
@@ -26,6 +35,11 @@ times and the unique parsed outputs are dumped. Static flavor
 (arrival, flavor, escape, death) is rendered once. Part-mode
 renders every template in every action's narrative pool once per
 action, with ``@Np_target`` pointing at a synthetic target part.
+``--template`` mode bypasses the registry entirely and renders
+its argument verbatim against synthetic actors — the actor
+defaults to player-shape (``uses_article=False``) so multi-word
+names like ``"Caldanai Playtester"`` survive ``@1Np``; pass
+``--article`` to flip to monster-shape ("the bandit").
 
 Why this exists: rendering templates with inline ``python -c``
 forces an approval every time and drifts each rewrite. A fixed
@@ -55,6 +69,33 @@ def _build_actor(name: str) -> Player:
     p.name = name
     p.uses_article = False
     return p
+
+
+def _build_synthetic_actor(name: str, *, uses_article: bool) -> SimpleNamespace:
+    """Lightweight ``parse()``-ready actor for ``--template`` mode.
+    The parser only reads ``name``, ``pronouns``, ``uses_article``,
+    ``indefinite_article``, and ``plural_verbs`` via getattr, so a
+    namespace with those attributes covers every code path without
+    paying the Player / Creature plugin-load cost.
+
+    Pronouns default to she/her — same convention as the part-mode
+    ``_build_attacker`` helper. Authors who need different pronouns
+    on a one-off render can extend the flag set later; today's
+    parser-regression workflows haven't asked for it."""
+    from caldanai.lib.rpg.helpers.enums import Pronouns
+    return SimpleNamespace(
+        name=name,
+        uses_article=uses_article,
+        indefinite_article=None,
+        pronouns={
+            Pronouns.SUBJECTIVE: "she",
+            Pronouns.OBJECTIVE:  "her",
+            Pronouns.POSSESSIVE: "hers",
+            Pronouns.ADJECTIVE:  "her",
+            Pronouns.REFLEXIVE:  "herself",
+        },
+        plural_verbs=False,
+    )
 
 
 def _resolve_monster(stem: str) -> MonsterPlugin:
@@ -237,10 +278,58 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="in monster-stem mode, render the monster's "
                          "per-part DEFAULT_ACTIONS narrative pools "
                          "(post-spawn wiring).")
+    ap.add_argument("--template", default=None,
+                    help="render an arbitrary template string against "
+                         "synthetic actors (--actor-name for @1, "
+                         "--witness-name for @2). Bypasses the monster / "
+                         "part registries — use for parser regressions or "
+                         "proofing edits before they land in a flavor pool.")
+    ap.add_argument("--article", action="store_true",
+                    help="in --template mode, give @1 a definite article "
+                         "(``the bandit``). Default is player-shape — no "
+                         "article, so multi-word names render unmodified "
+                         "through @1Np.")
+    ap.add_argument("--witness-name", default=None,
+                    help="in --template mode, attach a second actor for "
+                         "the @2 slot. Useful for proofing escape / flee "
+                         "templates where @2 is a witness player.")
+    ap.add_argument("--witness-article", action="store_true",
+                    help="in --template mode, give @2 a definite article. "
+                         "Default is player-shape (witnesses are usually "
+                         "players).")
     args = ap.parse_args(argv)
 
     if args.seed is not None:
         random.seed(args.seed)
+
+    if args.template is not None:
+        actor = _build_synthetic_actor(
+            args.actor_name, uses_article=args.article,
+        )
+        actors = [actor]
+        if args.witness_name is not None:
+            actors.append(_build_synthetic_actor(
+                args.witness_name, uses_article=args.witness_article,
+            ))
+        rendered = parse(args.template, *actors)
+        if args.json:
+            print(json.dumps({
+                "template": args.template,
+                "rendered": rendered,
+                "actors": [
+                    {"name": a.name, "uses_article": a.uses_article}
+                    for a in actors
+                ],
+            }, indent=2, ensure_ascii=False))
+            return 0
+        actors_summary = ", ".join(
+            f"@{i + 1}={a.name!r}{'(d)' if a.uses_article else ''}"
+            for i, a in enumerate(actors)
+        )
+        print(f"# template render — {actors_summary}")
+        print(f"  template: {args.template!r}")
+        print(f"  rendered: {rendered!r}")
+        return 0
 
     if args.part:
         part_cls = _resolve_part(args.part)

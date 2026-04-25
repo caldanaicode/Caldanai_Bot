@@ -24,10 +24,13 @@ Reasons:
 
 Existing tools (`python -m tools.<name> --help` for details):
 
-- **`render_flavor`** — render a monster's flavor strings, or a
-  social-command intent/acceptance pool, or a self-directed
-  verb's pool, through the `parse()` pipeline. Use this *before*
-  reaching for inline Python when proofing parse tokens.
+- **`render_flavor`** — render a monster's flavor strings, a
+  social-command intent/acceptance pool, a self-directed verb's
+  pool, or an arbitrary `--template` string through the `parse()`
+  pipeline. Use `--template "<text>" --actor-name <name>` (with
+  `--article` and `--witness-name` as needed) for parser
+  regressions or proofing edits before they land in a flavor
+  pool — beats `python -c` and beats spinning up the bot.
 - **`tail_peek`** — pull recent Discord messages from the running
   test bot (HTTP on port 8765 via `tail_channel.py`). Lets you see
   what just happened in the test channel without attaching.

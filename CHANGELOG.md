@@ -4,6 +4,21 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — ``tools.render_flavor`` gains ``--template`` mode
+
+Arbitrary-template render mode for parser regressions and one-shot
+proofing — bypasses the monster / part registries. Replaces the
+``python -c`` reach when checking a single template against
+synthetic actors.
+
+- ``--template "<text>"`` renders verbatim against a synthetic
+  actor (player-shape by default — ``uses_article=False``).
+- ``--article`` flips @1 to monster-shape ("the bandit").
+- ``--witness-name <name>`` (with optional ``--witness-article``)
+  attaches a @2 actor for escape / flee / witness-bearing
+  templates.
+- ``--json`` shapes the same emit for scripting use.
+
 ### 2026-04-24 — Skeleton: ``Something animates @1d``
 
 Bare ``@1`` token rendered "Something animates skeleton" — missing
