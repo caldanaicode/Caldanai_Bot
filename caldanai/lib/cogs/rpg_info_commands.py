@@ -388,8 +388,11 @@ class RpgInfoCommands(Cog):
         for idx, game in enumerate(games):
             msg += f"{idx}: {game.guild.name}\n"
 
-        Dispatcher.add(ctx.author, f"```js\n{msg}```" if len(msg) > 0 else "You are not playing any games.")
-        if ctx.guild is not None:
+        Dispatcher.add(
+            RpgUtilities.dm_target(ctx.author, ctx.channel),
+            f"```js\n{msg}```" if len(msg) > 0 else "You are not playing any games.",
+        )
+        if ctx.guild is not None and not RpgUtilities.is_bot_player(ctx.author):
             await ctx.message.delete()
 
     @cooldown(1, 5, BucketType.member)

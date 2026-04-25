@@ -4,6 +4,28 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-24 — Bot-player DM routing: ``$inventory`` / ``$warmth`` / ``$games``
+
+Allowlisted tester bots invoking DM-only commands silently
+failed — Discord rejects bot→bot DMs (HTTP 50007), so the
+dispatcher swallowed every reply. New ``RpgUtilities.dm_target``
+falls back to the originating channel when the recipient is in
+``PLAYER_BOT_ALLOWLIST``; real players keep getting DMs.
+
+- ``RpgUtilities.is_bot_player`` — predicate for bare allowlist
+  checks (also used to skip ``ctx.message.delete`` on bot-author
+  invocations so the channel echo stays visible).
+- ``RpgUtilities.dm_target(recipient, fallback_channel)`` — pure
+  selector: channel for tester bots, recipient otherwise.
+- Threaded through ``$games`` (``rpg_info_commands``),
+  ``$inventory`` (``rpg_inventory_commands``), and ``$warmth``
+  (``rpg_social_commands._send_dm`` plus the no-guild
+  ``_ack_or_dm`` branch).
+
+Tests: ``TestDmTarget`` covers regular member, non-allowlisted
+bot, allowlisted bot, allowlist-without-fallback, and non-User
+passthrough.
+
 ### 2026-04-24 — Phase C depth-walk resolver + Phase D segmented anatomy
 
 Phase C and D ship together. Combat resolution walks from torso

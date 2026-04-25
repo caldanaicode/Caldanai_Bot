@@ -422,6 +422,64 @@ class TestDeadInvokerGuard:
         assert "Caels's" in sent_line
 
 
+class TestDmTarget:
+    """``RpgUtilities.dm_target`` picks between a DM recipient and a
+    channel fallback for allowlisted tester-bots. Discord rejects
+    bot→bot DMs (HTTP 50007), so ``$inventory`` / ``$warmth`` /
+    ``$games`` silently broke when invoked by the tester bot before
+    this helper existed."""
+
+    def _fake_user(self, uid: int, *, is_bot: bool):
+        from discord import User
+        u = MagicMock(spec=User)
+        u.id = uid
+        u.bot = is_bot
+        return u
+
+    def test_regular_member_keeps_dm_recipient(self):
+        real_member = self._fake_user(999, is_bot=False)
+        channel = MagicMock()
+        assert RpgUtilities.dm_target(real_member, channel) is real_member
+
+    def test_bot_not_in_allowlist_keeps_dm_recipient(self):
+        """A different bot (not a tester) still gets the original
+        dispatch target — we only redirect the allowlisted ones so
+        every other bot-author message is controlled by the normal
+        HAL9000 / command gates."""
+        bot = self._fake_user(42, is_bot=True)
+        channel = MagicMock()
+        with patch(
+            "caldanai.environment.PLAYER_BOT_ALLOWLIST", frozenset({999})
+        ):
+            assert RpgUtilities.dm_target(bot, channel) is bot
+
+    def test_allowlisted_bot_routes_to_channel(self):
+        tester = self._fake_user(12345, is_bot=True)
+        channel = MagicMock()
+        with patch(
+            "caldanai.environment.PLAYER_BOT_ALLOWLIST", frozenset({12345})
+        ):
+            assert RpgUtilities.dm_target(tester, channel) is channel
+
+    def test_allowlisted_bot_without_fallback_keeps_recipient(self):
+        """No channel to echo to → fall through to the DM (which
+        will fail at send-time). Keeps the call-site's failure mode
+        explicit rather than silently swallowing the message."""
+        tester = self._fake_user(12345, is_bot=True)
+        with patch(
+            "caldanai.environment.PLAYER_BOT_ALLOWLIST", frozenset({12345})
+        ):
+            assert RpgUtilities.dm_target(tester, None) is tester
+
+    def test_non_user_recipient_passthrough(self):
+        """Some callers already dispatch to a channel / MagicMock
+        (tests). Only objects that look like a Discord User/Member
+        get the allowlist check — everything else is returned as-is."""
+        channel = MagicMock()
+        fallback = MagicMock()
+        assert RpgUtilities.dm_target(channel, fallback) is channel
+
+
 class TestDeadInvokerFlavorPools:
     """Every cog-registered dead-invoker pool must be non-empty
     and each line must render as a valid parse template against a

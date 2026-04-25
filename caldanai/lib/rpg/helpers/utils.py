@@ -145,6 +145,42 @@ class RpgUtilities:
         Dispatcher.add(channel, parse(line, player))
         return True
 
+    @staticmethod
+    def is_bot_player(recipient) -> bool:
+        """True iff ``recipient`` is an allowlisted tester bot.
+
+        Separate from :meth:`dm_target` because some call-sites
+        need just the predicate (e.g. to skip ``ctx.message.delete``
+        when the output is echoing back into the same channel)
+        rather than a routed target.
+        """
+        from caldanai.environment import PLAYER_BOT_ALLOWLIST
+        return (
+            isinstance(recipient, (User, Member))
+            and getattr(recipient, "bot", False)
+            and recipient.id in PLAYER_BOT_ALLOWLIST
+        )
+
+    @staticmethod
+    def dm_target(recipient, fallback_channel):
+        """Return ``recipient`` for a normal player, or ``fallback_channel``
+        if ``recipient`` is an allowlisted tester bot.
+
+        Discord rejects bot→bot DMs (HTTP 50007), which silently
+        breaks every DM-only command (``$inventory``, ``$warmth``,
+        ``$games``) when invoked by a ``PLAYER_BOT_ALLOWLIST`` bot.
+        Call-sites feed this into their existing ``Dispatcher.add``
+        call so tester bots see the output in-channel via
+        ``tail_peek``. Real players keep getting DMs.
+
+        Kept as a pure selector (rather than a dispatch wrapper)
+        so each cog's own ``Dispatcher`` module reference — which
+        its tests patch — remains the one that actually runs.
+        """
+        if RpgUtilities.is_bot_player(recipient) and fallback_channel is not None:
+            return fallback_channel
+        return recipient
+
     # Checks the given context to see if a game exists for it.
     @staticmethod
     async def check_game_exists(ctx) -> bool:

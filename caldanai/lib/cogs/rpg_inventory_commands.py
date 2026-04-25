@@ -315,14 +315,15 @@ class RpgInventoryCommands(Cog):
         if game is None or player is None:
             return
 
-        if ctx.guild is not None:
+        if ctx.guild is not None and not RpgUtilities.is_bot_player(player.member):
             await ctx.message.delete()
 
-        Dispatcher.add(player.member, f'Inventory for {player.name} on {game.guild.name}')
+        dest = RpgUtilities.dm_target(player.member, ctx.channel)
+        Dispatcher.add(dest, f'Inventory for {player.name} on {game.guild.name}')
         inv = Dispatcher.split_message(player.get_inventory(filtr), keep_sep=True)
 
         for msg in inv:
-            Dispatcher.add(player.member, f'```js\n{msg.strip()}```')
+            Dispatcher.add(dest, f'```js\n{msg.strip()}```')
 
     @command(name='item', brief='Displays details about an item or placement.')
     @cooldown(1, 2, BucketType.member)

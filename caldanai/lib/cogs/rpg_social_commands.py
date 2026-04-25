@@ -2078,8 +2078,11 @@ class RpgSocialCommands(Cog):
         """Route a message to the invoker's DM via the Dispatcher.
         ``ctx.author`` is a ``Member`` (or ``User``) which the
         Dispatcher knows how to ``.send()`` to — same path
-        ``inspect_monster`` uses for owner-only owner-DMs."""
-        Dispatcher.add(ctx.author, text)
+        ``inspect_monster`` uses for owner-only owner-DMs.
+
+        Allowlisted bot-players can't receive DMs (Discord 50007)
+        so ``dm_target`` re-routes them to the channel."""
+        Dispatcher.add(RpgUtilities.dm_target(ctx.author, ctx.channel), text)
 
     def _ack_in_channel(self, ctx: Context, text: str) -> None:
         """Briefly acknowledge the command in its originating
@@ -2145,7 +2148,7 @@ class RpgSocialCommands(Cog):
         name in a public acknowledgement would violate the
         privacy-first contract."""
         if ctx.guild is None:
-            Dispatcher.add(ctx.author, text)
+            Dispatcher.add(RpgUtilities.dm_target(ctx.author, ctx.channel), text)
         else:
             Dispatcher.add(ctx, text)
 
