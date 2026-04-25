@@ -671,11 +671,26 @@ class Game:
                 # Each entry yields 0 or N items via the monster's
                 # ``get_salvage(part_base_name)`` table. Quality is
                 # rolled at item-creation time inside the helper.
+                # Each rolled item gets an inline narration line
+                # appended to the player's injury feedback so the
+                # drop is visible *during* combat, not only at
+                # post-combat ``$loot`` time. Pairs with the
+                # destroyed-part-drops-gear narration (which fires
+                # for items the part WAS WEARING) — different
+                # source, same beat in the round output.
                 from caldanai.lib.rpg.creatures import _part_base_name
                 for destroyed in player_res.destroyed_parts:
                     salvage = monster.get_salvage(_part_base_name(destroyed))
-                    if salvage:
-                        self.loot[player.user_id].extend(salvage)
+                    if not salvage:
+                        continue
+                    self.loot[player.user_id].extend(salvage)
+                    owner_phrase = parse("@1np", monster)
+                    for item in salvage:
+                        narration = (
+                            f"   {item.article.capitalize()} {item.name} "
+                            f"slips free of {owner_phrase} {destroyed.display_name}."
+                        )
+                        player_res.injury_feedback_lines.append(narration)
                 if player_res.injury_feedback_lines:
                     injury_chunk = (
                         "\n".join(player_res.injury_feedback_lines) + "\n"
