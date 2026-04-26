@@ -320,6 +320,7 @@ class Player(Creature):
         social: Optional[Dict[str, object]] = None,
         skills_schema_version: Optional[int] = None,
         loadouts: Optional[Dict[str, Dict[str, Dict[str, str]]]] = None,
+        known_recipes: Optional[List[str]] = None,
     ):
         super().__init__(
             name=None,
@@ -350,6 +351,11 @@ class Player(Creature):
         self.clarks = clarks
         self.inventory = inventory or Inventory()
         self.skills = skills or {}
+        # Crafting: recipe outputs the player has learned. Used by
+        # recipes that declare ``requires_known = True`` (advanced
+        # recipes that drop as scrolls). Basic recipes don't check
+        # this set, so an empty set is fine for fresh players.
+        self.known_recipes: set = set(known_recipes or [])
         self.is_dirty = False
         self.rolls = rolls or {
             "d4": [0] * 4,
@@ -1626,6 +1632,7 @@ class Player(Creature):
             social=p.get("social"),
             skills_schema_version=p.get("skills_schema_version"),
             loadouts=p.get("loadouts"),
+            known_recipes=p.get("known_recipes"),
         )
 
         # 2026-04-21 migration: legacy ``equip_slots`` docs are
@@ -2087,12 +2094,18 @@ class Player(Creature):
             },
             "social": self.social,
             "skills_schema_version": self.skills_schema_version,
+            # Sorted list for stable serialization. Empty list is
+            # stripped below so never-learned-anything players don't
+            # bloat their doc.
+            "known_recipes": sorted(self.known_recipes),
         }
 
         # Empty ``social`` stays out of the saved doc so never-touched
         # players don't gain a noisy field on first save.
         if not self.social:
             del d["social"]
+        if not self.known_recipes:
+            del d["known_recipes"]
 
         for part_name, keys in self.part_equipment.items():
             for key, item in keys.items():

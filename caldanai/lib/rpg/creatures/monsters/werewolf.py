@@ -85,6 +85,28 @@ class Werewolf(MonsterPlugin):
         DamageTypes.PIERCING:    "The point parts @1a fur cleanly and bites deep into the muscle beneath.",
     }
 
+    # Crafting materials. Second source-creature for the leather
+    # chain — same quadrupedal-mammalian-hide story as bearowl.
+    # Slightly leaner drop chances (the description specifically
+    # notes "the pelt is matted in patches" — not a pristine hide)
+    # and the same ORDINARY-mode quality band ``(45, 60)``.
+    #
+    # Keys must match ``_part_base_name(part)`` (plugin class
+    # ``name`` attribute), so all four leg parts on the quadruped
+    # share a single ``"leg"`` entry — see bearowl's note on the
+    # initial keying bug.
+    SALVAGE_DROPS = {
+        "torso": [
+            ("leather", 0.6, (45, 60)),
+            ("leather", 0.4, (45, 60)),
+            ("leather", 0.2, (45, 60)),
+        ],
+        "leg": [
+            ("leather", 0.4, (45, 60)),
+            ("leather", 0.2, (45, 60)),
+        ],
+    }
+
     def __init__(self):
         super().__init__(
             name="werewolf",

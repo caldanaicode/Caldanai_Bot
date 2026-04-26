@@ -71,27 +71,49 @@ class Stackable(Item):
 
         d["count"] = self.count
 
+        # ``Item.to_dict`` already pops ``_id`` when ``self.id is
+        # None`` — use ``pop`` here so the redundant defensive
+        # delete doesn't KeyError on instances without an id.
         if self.id is None:
-            del d["_id"]
+            d.pop("_id", None)
         return d
 
     @classmethod
     def from_plugin(cls, plugin_name: str, data: dict):
-        """Creates a new item from a plugin with initial data."""
+        """Creates a new item from a plugin with initial data.
+
+        Standard kwargs (iid, quality, count) are extracted from
+        ``data`` and passed by name. Any *additional* keys in
+        ``data`` that match named parameters on the plugin's
+        ``StackablePlugin.__init__`` are forwarded through —
+        this lets variant-bearing stackables (e.g. ``recipe_scroll``
+        carrying a ``recipe_name``) declare extra constructor
+        params without each plugin needing its own load path.
+        """
+        import inspect
 
         try:
-            item = importlib.import_module(f"caldanai.lib.rpg.inventory.stackables.{plugin_name}").StackablePlugin(
-                data["_id"] if "_id" in data.keys() else None,
-                (
+            mod = importlib.import_module(
+                f"caldanai.lib.rpg.inventory.stackables.{plugin_name}"
+            )
+            plugin_cls = mod.StackablePlugin
+            kwargs = {
+                "iid": data["_id"] if "_id" in data.keys() else None,
+                "quality": (
                     Qualities[data["quality"]]
-                    if "quality" in data.keys() and data["quality"] in Qualities.__members__
+                    if "quality" in data.keys()
+                    and data["quality"] in Qualities.__members__
                     else None
                 ),
-                data["count"] if "count" in data.keys() else 1,
-            )
-
-            return item
-
+                "count": data["count"] if "count" in data.keys() else 1,
+            }
+            sig_params = inspect.signature(plugin_cls.__init__).parameters
+            for key, value in data.items():
+                if key in {"_id", "quality", "count"}:
+                    continue
+                if key in sig_params:
+                    kwargs[key] = value
+            return plugin_cls(**kwargs)
         except Exception as e:
             _log.error(f"Unable to load StackablePlugin: {data}\n\tReason: {e}")
             return None

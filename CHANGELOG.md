@@ -4,6 +4,76 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — Crafting system v1: leather chain (held for playtest)
+
+The "monster materials → recipes → finished gear" loop. Bearowl
+drops leather; players combine leather via skill-gated recipes to
+produce a 6-piece leather armor set. Output quality emerges from
+input quality + skill margin + variance. MVP scope is the leather
+chain only; bone/scale/etc. ride later sets onto the same plumbing.
+
+- **New ``$craft`` command group**:
+  - ``$craft <item>``: attempt the craft. Gates in order — known? skill
+    min? materials? — then rolls success against ``success_chance``,
+    rolls quality on success, consumes materials (full on success,
+    half on failure), grants skill XP either way.
+  - ``$craft list``: enumerates recipes the player knows AND has
+    materials for AND meets the skill minimum for, with current
+    success % per row.
+  - ``$craft info <item>``: shows materials, skill requirement,
+    learned status (for ``requires_known`` recipes), and current
+    success %.
+- **New ``$learn`` command**: consume a recipe scroll from inventory,
+  add the embedded recipe to ``player.known_recipes``. Already-known
+  scrolls grant a small skill-XP refund (~10% of the recipe's
+  ``min_skill``) instead of being wasted — duplicates are useful,
+  not garbage.
+- **``RecipePlugin`` base + discovery** at
+  ``caldanai/lib/rpg/crafting/recipes/<set>/<stem>.py``. Plugin shape:
+  ``output``, ``materials: Dict[str, int]``, ``skill``, ``min_skill``,
+  ``requires_known``, ``xp_reward_success/failure``. Discovery walks
+  the tree on first miss; warns loudly when a file's ``RecipePlugin``
+  symbol resolves to the base class (the import-without-alias
+  footgun).
+- **Quality formula** in ``crafting/math.py`` (pure functions,
+  seedable):
+  - ``success_chance``: 0% below min skill, 50% at min, +10% per +25
+    XP, capped at 95%.
+  - ``roll_quality``: ``avg_input_rank + skill_bonus + variance``,
+    clamped to the valid quality range. ``skill_bonus`` is +1 per 50
+    XP above min, soft-capped at +2. Variance is ``randint(-1, 1)``
+    most of the time, with a 1% jackpot/disaster of ±2.
+- **``Stackable.from_plugin`` extended** to forward extra ``data``
+  keys to the plugin ``__init__`` by name-introspection. Enables
+  variant-bearing stackables like ``recipe_scroll`` (carries a
+  per-instance ``recipe_name``) without a per-variant load path.
+- **``recipe_scroll`` stackable**: weightless, stackable per-recipe.
+  One file covers every recipe variant.
+- **Latent fix** in ``Stackable.to_dict``: ``del d["_id"]`` →
+  ``d.pop("_id", None)``. The prior delete was always operating
+  on an absent key — exposed by the new scroll round-trip tests.
+- **``Player.known_recipes: Set[str]``** — persisted as a sorted
+  list, omitted from the saved doc when empty.
+- **Bearowl + werewolf seed the leather pipeline** with parallel
+  ``SALVAGE_DROPS`` (torso 0-3 leather, all legs 0-2 each;
+  werewolf slightly leaner). Quality range ``(45, 60)`` skews
+  ORDINARY-mode — well above the scrap-tier band. Bearowl bumped
+  ``VENGEFUL → SURVIVE`` so it actually fights long enough to
+  dismember (mirror-fix to the bandit bump from scrap salvage).
+- **Leather armor set** (6 pieces, all under
+  ``armor/leather/``): leather_cap (head), leather_bracer (forearms),
+  leather_glove (gloves), leather_boot (feet), leather_greave (legs),
+  leather_jerkin (torso). All ``def +1`` per piece except jerkin's
+  ``def +2`` (it's the biggest). Per-piece costs scale with size:
+  caps/gloves/boots/bracers cost 2 leather; greaves 4; jerkin 5.
+- **Leather recipes** (6, all under ``recipes/leather/``): one per
+  armor piece, all using ``leatherworking`` skill, ``min_skill = 0``
+  (all basic / known by default), ``requires_known = False``.
+
+77 new tests pinning the math (success/quality/jackpot paths),
+plugin discovery, scroll round-trip + stacking, $craft success /
+failure / refusal flows, $learn refund, and bearowl drop tables.
+
 ### 2026-04-26 — Salvage playtest fixes
 
 Three issues surfaced in the first armored-bandit playtest:

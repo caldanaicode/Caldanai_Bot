@@ -175,3 +175,150 @@ class TestGoblinScrapDrops:
         skip both ornamental layers)."""
         g = Goblin()
         assert g.get_salvage("neck") == []
+
+
+class TestBearowlLeatherDrops:
+    """Bearowl is the first source-creature for the leather
+    crafting chain (per the source-creature-shape split locked
+    2026-04-26: quadrupeds drop materials, not finished armor).
+    Each entry produces a single ``leather`` stackable; multiple
+    entries roll independently so a torso can yield 0-3 pieces.
+
+    Keys must match ``_part_base_name(part)`` — for ``LegPlugin``
+    that's ``"leg"`` for ALL four leg parts (foreleg + hindleg)."""
+
+    def test_torso_yields_up_to_three_leathers(self):
+        from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
+        b = Bearowl()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = b.get_salvage("torso")
+        assert len(items) == 3
+        assert all(i.plugin == "leather" for i in items)
+
+    def test_leg_yields_up_to_two_leathers(self):
+        from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
+        b = Bearowl()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = b.get_salvage("leg")
+        assert len(items) == 2
+        assert all(i.plugin == "leather" for i in items)
+
+    def test_real_part_lookup_path_works(self):
+        """The actual lookup in ``Game._run_player_block`` calls
+        ``monster.get_salvage(_part_base_name(part))``. This pin-
+        tests that the keys in SALVAGE_DROPS match what
+        ``_part_base_name`` returns for each leg-part instance —
+        catches the original 2026-04-26 bug where keys were
+        ``"foreleg"``/``"hindleg"`` and never matched."""
+        from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
+        from caldanai.lib.rpg.creatures import _part_base_name
+        b = Bearowl()
+        Inventory.discover_items()
+        # All four leg instances should resolve through the real
+        # base-name path to a non-empty drop list.
+        leg_parts = [
+            p for p in b.body_parts
+            if p.name in (
+                "foreleg.left", "foreleg.right",
+                "hindleg.left", "hindleg.right",
+            )
+        ]
+        assert len(leg_parts) == 4, "bearowl should have 4 leg parts"
+        for leg in leg_parts:
+            base = _part_base_name(leg)
+            assert base in b.SALVAGE_DROPS, (
+                f"Leg {leg.name} resolves to base '{base}' which "
+                f"isn't in SALVAGE_DROPS. Keys: {sorted(b.SALVAGE_DROPS)}"
+            )
+
+    def test_unmapped_part_yields_nothing(self):
+        """No leather from wings, head, eyes, paws, neck, tail —
+        only the bulk torso and the legs."""
+        from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
+        b = Bearowl()
+        for part in ("head", "wing", "eye", "neck", "tail", "foot"):
+            assert b.get_salvage(part) == []
+
+    def test_quality_band_skews_ordinary(self):
+        """Quality range ``(45, 60)`` skews ORDINARY-mode with a
+        FINE upper tail and a thin JUNK tail — well above the
+        bandit scrap-tier band, suitable input for crafting."""
+        from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
+        b = Bearowl()
+        Inventory.discover_items()
+        qualities = Counter()
+        for _ in range(500):
+            with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+                for item in b.get_salvage("torso"):
+                    qualities[item.quality] += 1
+        # ORDINARY should be the modal quality.
+        assert qualities[Qualities.ORDINARY] > qualities[Qualities.FINE]
+        assert qualities[Qualities.ORDINARY] > qualities[Qualities.JUNK]
+        # No SUPERIOR or higher — leather isn't legendary.
+        assert qualities[Qualities.SUPERIOR] == 0
+        assert qualities[Qualities.MASTERWORK] == 0
+
+    def test_aggression_is_survive(self):
+        """Bearowl was VENGEFUL (flees after one hit), which made
+        the leather salvage loop unviable in playtest. SURVIVE
+        keeps it engaged until ~10% HP — same fix the bandits got
+        when scrap salvage shipped."""
+        from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
+        from caldanai.lib.rpg.helpers.enums import AggressionLevels
+        b = Bearowl()
+        assert b.aggression == AggressionLevels.SURVIVE
+
+
+class TestWerewolfLeatherDrops:
+    """Werewolf is the second source-creature for the leather chain
+    — same quadrupedal mammal shape as bearowl, slightly leaner
+    yields per the matted-pelt description. Same single ``"leg"``
+    key covers all four leg parts."""
+
+    def test_torso_yields_up_to_three_leathers(self):
+        from caldanai.lib.rpg.creatures.monsters.werewolf import Werewolf
+        w = Werewolf()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = w.get_salvage("torso")
+        assert len(items) == 3
+        assert all(i.plugin == "leather" for i in items)
+
+    def test_leg_yields_up_to_two_leathers(self):
+        from caldanai.lib.rpg.creatures.monsters.werewolf import Werewolf
+        w = Werewolf()
+        Inventory.discover_items()
+        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            items = w.get_salvage("leg")
+        assert len(items) == 2
+        assert all(i.plugin == "leather" for i in items)
+
+    def test_real_part_lookup_path_works(self):
+        """Same regression-pin as bearowl — catches the
+        ``"foreleg"``/``"hindleg"`` keying bug."""
+        from caldanai.lib.rpg.creatures.monsters.werewolf import Werewolf
+        from caldanai.lib.rpg.creatures import _part_base_name
+        w = Werewolf()
+        Inventory.discover_items()
+        leg_parts = [
+            p for p in w.body_parts
+            if p.name in (
+                "foreleg.left", "foreleg.right",
+                "hindleg.left", "hindleg.right",
+            )
+        ]
+        assert len(leg_parts) == 4
+        for leg in leg_parts:
+            base = _part_base_name(leg)
+            assert base in w.SALVAGE_DROPS, (
+                f"Leg {leg.name} resolves to base '{base}' which "
+                f"isn't in SALVAGE_DROPS. Keys: {sorted(w.SALVAGE_DROPS)}"
+            )
+
+    def test_unmapped_part_yields_nothing(self):
+        from caldanai.lib.rpg.creatures.monsters.werewolf import Werewolf
+        w = Werewolf()
+        for part in ("head", "eye", "neck", "tail", "foot"):
+            assert w.get_salvage(part) == []

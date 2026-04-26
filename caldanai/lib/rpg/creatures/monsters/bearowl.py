@@ -27,6 +27,34 @@ class Bearowl(MonsterPlugin):
         DamageTypes.BLUDGEONING: "The blow sinks into thick fur and dense down; @1s barely feels it.",
     }
 
+    # Crafting materials. Bearowl is the first source-creature for
+    # the leather chain (per the source-creature-shape split locked
+    # 2026-04-26: quadrupeds drop materials, humanoids drop finished
+    # armor). Each entry is one ``leather`` stackable; multiple
+    # entries roll independently so a torso can yield 0-3 leathers,
+    # a leg 0-2. Quality range ``(45, 60)`` skews ORDINARY-mode
+    # (~62%) with a FINE upper tail (~31%) and a thin JUNK tail
+    # (~6%) — well above the scrap-tier (50, 95) band.
+    #
+    # Keys must match ``_part_base_name(part)`` which returns the
+    # plugin's class-level ``name`` attribute. ``LegPlugin.name``
+    # is ``"leg"`` regardless of whether the instance is a foreleg
+    # or hindleg, so a single ``"leg"`` entry covers all four leg
+    # parts on a quadruped. (Initial v1 used ``"foreleg"`` /
+    # ``"hindleg"`` keys — never matched, surfaced 2026-04-26 in
+    # playtest after two destroyed legs in a row dropped nothing.)
+    SALVAGE_DROPS = {
+        "torso": [
+            ("leather", 0.7, (45, 60)),
+            ("leather", 0.5, (45, 60)),
+            ("leather", 0.3, (45, 60)),
+        ],
+        "leg": [
+            ("leather", 0.5, (45, 60)),
+            ("leather", 0.3, (45, 60)),
+        ],
+    }
+
     def __init__(self):
         super().__init__(
             name="bearowl",
@@ -38,7 +66,12 @@ class Bearowl(MonsterPlugin):
 
         self.time_partition = TimePartitions.NOCTURNAL | TimePartitions.CREPUSCULAR
         self.image = "owl128.png"
-        self.aggression = AggressionLevels.VENGEFUL
+        # SURVIVE (was VENGEFUL): VENGEFUL fled after one hit, which
+        # made the bearowl unviable as the leather-source — players
+        # couldn't drive parts to USELESS before it bolted. SURVIVE
+        # sticks until ~10% HP, mirroring the same fix applied to
+        # bandits when scrap salvage shipped.
+        self.aggression = AggressionLevels.SURVIVE
         self.arrival = (
             "A genetically improbable creature "
             f"{choice('lurches|trudges|charges|walks|wanders'.split('|'))} "

@@ -161,6 +161,26 @@ class TestSerialization:
         assert p.health_regen == 3
         assert p.skills == {"unarmed bludgeoning": 100}
 
+    def test_known_recipes_default_empty(self):
+        p = _make_player()
+        assert p.known_recipes == set()
+
+    def test_known_recipes_round_trip(self):
+        p = _make_player()
+        p.known_recipes.add("studded_leather_jerkin")
+        p.known_recipes.add("dragon_scale_helm")
+        d = p.to_dict()
+        assert sorted(d["known_recipes"]) == [
+            "dragon_scale_helm",
+            "studded_leather_jerkin",
+        ]
+
+    def test_known_recipes_omitted_when_empty(self):
+        """Empty set shouldn't bloat the persisted doc."""
+        p = _make_player()
+        d = p.to_dict()
+        assert "known_recipes" not in d
+
 
 # ---------------------------------------------------------------------------
 # equip / replace_equipment / remove
