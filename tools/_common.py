@@ -329,17 +329,22 @@ class DiscordRestClient:
         self,
         channel_id: int,
         after: Optional[int] = None,
+        before: Optional[int] = None,
         limit: int = 50,
     ) -> list:
         """GET recent messages from a channel.
 
         :param after: Discord message snowflake — only messages
             newer than this id are returned. ``None`` (the
-            default) returns the most recent ``limit`` messages.
+            default) returns the most recent ``limit`` messages
+            (when ``before`` is also ``None``).
+        :param before: Discord message snowflake — only messages
+            older than this id are returned. Used by callers
+            paginating backwards through history (combine with
+            ``limit=100`` and feed the oldest-id-of-batch back as
+            ``before`` for the next call).
         :param limit: 1–100 per page. Single-page only; callers
-            paginate manually if they need more (rare for the
-            ideas-channel cursor read since ``after`` bounds the
-            window naturally).
+            paginate manually if they need more.
 
         Returns the raw Discord message-object list. Discord
         returns messages newest-first within the page; callers
@@ -349,6 +354,8 @@ class DiscordRestClient:
         params: dict = {"limit": min(max(limit, 1), 100)}
         if after is not None:
             params["after"] = str(after)
+        if before is not None:
+            params["before"] = str(before)
         async with self._session.get(url, params=params) as resp:
             resp.raise_for_status()
             return await resp.json()

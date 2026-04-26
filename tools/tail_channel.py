@@ -17,6 +17,11 @@ Usage::
     python -m tools.tail_channel LIVE --follow                 # tail new messages (poll)
     python -m tools.tail_channel LIVE --channel-id 999         # skip picker
     python -m tools.tail_channel LIVE --guild 123              # narrow picker to one guild
+    python -m tools.tail_channel LIVE --since-time 9h          # everything from 9h ago to now
+    python -m tools.tail_channel LIVE --since-time 9h --duration 1h
+                                                               # 1h window starting 9h ago (i.e. 9h–8h ago)
+    python -m tools.tail_channel LIVE --since-time 2026-04-25T16:00Z --until-time 2026-04-25T17:00Z
+                                                               # absolute ISO range
 
 The ``LIVE`` / ``TEST`` positional is mandatory and maps to the
 matching ``LIVE_DB_NAME`` / ``TEST_DB_NAME`` env var internally.
@@ -66,6 +71,7 @@ import asyncio
 import collections
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiohttp
@@ -79,6 +85,30 @@ from tools._common import (
     TAIL_ENVS,
     use_db_env_var,
 )
+
+
+# Discord epoch in ms (2015-01-01T00:00:00Z). Snowflakes are
+# ``(ms_since_epoch << 22) | <internal bits>``; the high 42 bits
+# are the time component, monotonically increasing.
+_DISCORD_EPOCH_MS = 1420070400000
+
+# Relative time spec: integer + unit suffix. ``9h`` = 9 hours
+# ago from "now" at parse time. Units are second / minute / hour
+# / day / week. Any other format falls through to ISO parsing.
+_RELATIVE_TIME_RE = re.compile(r"^(\d+)([smhdw])$", re.IGNORECASE)
+_RELATIVE_UNITS = {
+    "s": "seconds",
+    "m": "minutes",
+    "h": "hours",
+    "d": "days",
+    "w": "weeks",
+}
+
+# Safety cap on backward-paginated fetches. 50 batches × 100 msgs =
+# 5000 messages, comfortably more than a busy day on TEST or LIVE.
+# Surfaced via stderr if hit so the operator knows the window was
+# truncated rather than the channel quietly being that empty.
+_MAX_BACKFILL_BATCHES = 50
 
 
 _DEFAULT_LIMIT = 10
@@ -564,6 +594,171 @@ async def _start_http_server(
     return runner
 
 
+def _parse_relative_delta(spec: str) -> timedelta:
+    """Parse a ``\\d+[smhdw]`` spec into a positive ``timedelta``.
+
+    Used for both ``--since-time``/``--until-time`` (subtract from
+    ``now``) and ``--duration`` (length of a window). Case-insensitive
+    on the unit letter. Raises ``ValueError`` if the spec doesn't
+    match the relative format — callers can fall back to ISO parsing
+    if they accept absolute timestamps too.
+    """
+    if not spec:
+        raise ValueError("empty time spec")
+    rel = _RELATIVE_TIME_RE.match(spec.strip())
+    if not rel:
+        raise ValueError(
+            f"{spec!r} is not a relative time spec (``\\d+[smhdw]``)"
+        )
+    n, unit_letter = rel.groups()
+    unit = _RELATIVE_UNITS[unit_letter.lower()]
+    return timedelta(**{unit: int(n)})
+
+
+def _parse_time_spec(spec: str, now: Optional[datetime] = None) -> datetime:
+    """Parse a time spec into a UTC ``datetime``.
+
+    Accepts:
+
+    - **Relative**: ``\\d+[smhdw]`` (e.g. ``30m``, ``9h``, ``2d``,
+      ``1w``) — subtracted from ``now`` (default ``datetime.now(tz=UTC)``).
+      Case-insensitive.
+    - **ISO 8601**: anything ``datetime.fromisoformat`` accepts,
+      with ``Z`` suffix tolerated. Naive timestamps are interpreted
+      as UTC (the bot's canonical time zone).
+
+    Raises ``ValueError`` with a helpful message on garbage input
+    so the CLI can surface a clear error.
+    """
+    if not spec:
+        raise ValueError("empty time spec")
+    now = now or datetime.now(tz=timezone.utc)
+
+    try:
+        return now - _parse_relative_delta(spec)
+    except ValueError:
+        pass  # fall through to ISO parsing
+
+    # ISO 8601. Strip a trailing 'Z' (Python <3.11 fromisoformat
+    # didn't accept it; we normalize for safety).
+    iso = spec.strip()
+    if iso.endswith("Z"):
+        iso = iso[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError as e:
+        raise ValueError(
+            f"could not parse {spec!r} as a relative spec "
+            f"(``\\d+[smhdw]``) or ISO 8601 timestamp: {e}"
+        )
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _datetime_to_snowflake(dt: datetime) -> int:
+    """Convert a UTC datetime to a Discord snowflake (left-shifted
+    millisecond timestamp). Used to synthesize ``before`` / ``after``
+    bounds for time-range queries — the result is a synthetic
+    snowflake (no internal bits), which Discord still accepts as a
+    pivot for its ID-based filters.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    ms = int(dt.timestamp() * 1000)
+    return max(0, (ms - _DISCORD_EPOCH_MS) << 22)
+
+
+async def _backfill_messages(
+    client: DiscordRestClient,
+    channel_id: int,
+    since_dt: datetime,
+    until_dt: Optional[datetime] = None,
+) -> list[dict]:
+    """Page backwards through a channel until we cover the full
+    ``[since_dt, until_dt]`` window.
+
+    Each call to ``get_messages`` returns up to 100 messages
+    newest-first; we feed the oldest id of each batch back as
+    ``before`` and stop when the oldest message in a batch is
+    earlier than ``since_dt`` (the rest of that batch is still
+    included; messages older than ``since_dt`` are filtered after).
+
+    Returns chronological order (oldest → newest), filtered to the
+    requested window. Capped at ``_MAX_BACKFILL_BATCHES`` pages —
+    if the cap hits, prints a warning to stderr so the operator
+    knows to narrow the window or expect a partial view.
+    """
+    until_snowflake = (
+        _datetime_to_snowflake(until_dt) if until_dt is not None else None
+    )
+    collected: list[dict] = []
+    before: Optional[int] = until_snowflake
+    for batch_idx in range(_MAX_BACKFILL_BATCHES):
+        batch = await client.get_messages(
+            channel_id, before=before, limit=100,
+        )
+        if not batch:
+            break
+        collected.extend(batch)
+        # Discord returns newest-first; the LAST entry is the oldest.
+        oldest_in_batch = batch[-1]
+        oldest_ts_str = oldest_in_batch.get("timestamp")
+        if not oldest_ts_str:
+            break
+        try:
+            oldest_dt = datetime.fromisoformat(oldest_ts_str.replace("Z", "+00:00"))
+        except ValueError:
+            break
+        if oldest_dt <= since_dt:
+            break
+        before = int(oldest_in_batch["id"])
+    else:
+        print(
+            f"[hit backfill cap of {_MAX_BACKFILL_BATCHES} batches "
+            f"({_MAX_BACKFILL_BATCHES * 100} messages) — window may "
+            f"be truncated; narrow --since-time/--until-time]",
+            file=sys.stderr,
+        )
+
+    # Filter to the requested window and reverse to chronological.
+    in_window: list[dict] = []
+    for msg in collected:
+        ts = msg.get("timestamp")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt < since_dt:
+            continue
+        if until_dt is not None and dt > until_dt:
+            continue
+        in_window.append(msg)
+    in_window.reverse()
+    return in_window
+
+
+def _format_range_header(
+    game: dict, guild_names: dict[int, str],
+    messages: list[dict], since_dt: datetime, until_dt: Optional[datetime],
+) -> str:
+    """Header for the time-range fetch — distinguishes from the
+    standard ``--limit N`` initial fetch by surfacing the window."""
+    lines = [_format_header(game, guild_names)]
+    until_label = (
+        until_dt.isoformat(timespec="seconds")
+        if until_dt is not None else "now"
+    )
+    lines.append(
+        f"*Range: {since_dt.isoformat(timespec='seconds')} → "
+        f"{until_label} — {len(messages)} message(s), chronological.*"
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
 async def _run(args: argparse.Namespace, token: str) -> int:
     async with DiscordRestClient(token) as client:
         if args.channel_id is not None:
@@ -607,6 +802,30 @@ async def _run(args: argparse.Namespace, token: str) -> int:
         mention_map = _build_mention_map(
             game.get("guild_id") or 0, game["channel_id"],
         )
+
+        # Range mode: ``--since-time`` (with an optional upper bound
+        # via ``--until-time`` OR ``--duration``) paginates back
+        # through history until the window is covered. Mutually
+        # exclusive with ``--follow`` — the range query is a one-shot
+        # historical scan, not a live tail.
+        if args.since_time is not None:
+            since_dt = _parse_time_spec(args.since_time)
+            if args.until_time is not None:
+                until_dt = _parse_time_spec(args.until_time)
+            elif args.duration is not None:
+                until_dt = since_dt + _parse_relative_delta(args.duration)
+            else:
+                until_dt = None
+            messages = await _backfill_messages(
+                client, game["channel_id"], since_dt, until_dt,
+            )
+            print(_format_range_header(
+                game, guild_names, messages, since_dt, until_dt,
+            ))
+            for msg in messages:
+                for line in _format_message(msg, mention_map=mention_map):
+                    print(line)
+            return 0
 
         messages = await client.get_messages(
             game["channel_id"], limit=args.limit,
@@ -726,7 +945,54 @@ def main() -> int:
             "bound only."
         ),
     )
+    parser.add_argument(
+        "--since-time",
+        type=str,
+        default=None,
+        metavar="TIME",
+        help=(
+            "Range fetch: paginate backwards through history until "
+            "we cover everything from this time forward. Accepts "
+            "relative ``\\d+[smhdw]`` (e.g. ``9h``, ``30m``, ``2d``) "
+            "or ISO 8601 (``2026-04-25T16:00Z``). Mutually exclusive "
+            "with ``--follow``; ignores ``--limit``."
+        ),
+    )
+    parser.add_argument(
+        "--until-time",
+        type=str,
+        default=None,
+        metavar="TIME",
+        help=(
+            "Upper bound for ``--since-time`` window. Same format as "
+            "``--since-time``. Useful for absolute ranges, e.g. "
+            "``--since-time 2026-04-25T16:00Z --until-time 17:00Z``. "
+            "Mutually exclusive with ``--duration``."
+        ),
+    )
+    parser.add_argument(
+        "--duration",
+        type=str,
+        default=None,
+        metavar="LENGTH",
+        help=(
+            "Length of the ``--since-time`` window. Relative-format "
+            "only (``\\d+[smhdw]``). Useful for relative windows, "
+            "e.g. ``--since-time 9h --duration 1h`` for the hour "
+            "between 9h and 8h ago. Mutually exclusive with "
+            "``--until-time``."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.follow and args.since_time is not None:
+        parser.error("--follow and --since-time are mutually exclusive.")
+    if args.until_time is not None and args.since_time is None:
+        parser.error("--until-time requires --since-time.")
+    if args.duration is not None and args.since_time is None:
+        parser.error("--duration requires --since-time.")
+    if args.until_time is not None and args.duration is not None:
+        parser.error("--until-time and --duration are mutually exclusive.")
 
     env_var, default_port = resolve_tail_env(args.env)
     effective_port = args.port if args.port is not None else default_port

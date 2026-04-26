@@ -4,6 +4,34 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-26 — `tail_channel`: time-range historical scans
+
+Previously `tail_channel` could only fetch the last N messages
+(capped at 100) or `--follow` from a starting point. There was no
+way to scan a specific window in the past — answering "how did
+the patch land overnight?" required the inspector to have been
+running before the patch shipped.
+
+- **`--since-time TIME`**: paginate backwards via Discord
+  `before` snowflakes until we cover everything from this time
+  forward. Accepts relative (``9h``, ``30m``, ``2d``) or ISO
+  8601 timestamps; naive ISO assumed UTC.
+- **`--until-time TIME`**: optional upper bound, same format.
+  Best for absolute ranges.
+- **`--duration LENGTH`**: alternative upper bound — relative-
+  format only — natural for relative windows
+  (``--since-time 9h --duration 1h`` for the hour between 9h
+  and 8h ago). Mutually exclusive with `--until-time`.
+- Pagination capped at 50 batches × 100 messages = 5000;
+  warning to stderr if hit so the operator knows the window
+  was truncated rather than the channel quietly being empty.
+- `DiscordRestClient.get_messages` extended with a `before`
+  parameter so other tools can paginate backwards too.
+
+19 new tests covering relative + ISO + edge-case parsing,
+Discord epoch math, backfill pagination loop, and window
+filtering.
+
 ### 2026-04-26 — Crafting system v1: leather chain (held for playtest)
 
 The "monster materials → recipes → finished gear" loop. Bearowl

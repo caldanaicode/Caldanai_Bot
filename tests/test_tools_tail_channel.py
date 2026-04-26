@@ -890,3 +890,180 @@ class TestTailHandler:
         import json
         payload = json.loads(response.body)
         assert "error" in payload
+
+
+# ---------------------------------------------------------------------------
+# _parse_time_spec — relative + ISO + edge cases
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timedelta, timezone
+
+
+class TestParseTimeSpec:
+    _NOW = datetime(2026, 4, 26, 12, 0, 0, tzinfo=timezone.utc)
+
+    @pytest.mark.parametrize("spec,delta", [
+        ("30s", timedelta(seconds=30)),
+        ("5m", timedelta(minutes=5)),
+        ("9h", timedelta(hours=9)),
+        ("2d", timedelta(days=2)),
+        ("1w", timedelta(weeks=1)),
+        ("9H", timedelta(hours=9)),  # case-insensitive
+    ])
+    def test_relative_subtracts_from_now(self, spec, delta):
+        result = tail_channel._parse_time_spec(spec, now=self._NOW)
+        assert result == self._NOW - delta
+
+    def test_iso_with_z_suffix(self):
+        result = tail_channel._parse_time_spec("2026-04-25T16:00:00Z")
+        assert result == datetime(2026, 4, 25, 16, 0, 0, tzinfo=timezone.utc)
+
+    def test_iso_without_z_assumes_utc(self):
+        result = tail_channel._parse_time_spec("2026-04-25T16:00:00")
+        assert result == datetime(2026, 4, 25, 16, 0, 0, tzinfo=timezone.utc)
+
+    def test_iso_with_offset(self):
+        result = tail_channel._parse_time_spec("2026-04-25T16:00:00+02:00")
+        assert result.utcoffset() == timedelta(hours=2)
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            tail_channel._parse_time_spec("")
+
+    def test_garbage_raises_with_helpful_message(self):
+        with pytest.raises(ValueError, match=r"could not parse"):
+            tail_channel._parse_time_spec("not-a-real-time")
+
+
+# ---------------------------------------------------------------------------
+# _datetime_to_snowflake — Discord epoch math
+# ---------------------------------------------------------------------------
+
+class TestDatetimeToSnowflake:
+    def test_discord_epoch_is_zero(self):
+        epoch = datetime(2015, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert tail_channel._datetime_to_snowflake(epoch) == 0
+
+    def test_one_ms_after_epoch(self):
+        # 1 ms past the Discord epoch should yield 1 << 22.
+        dt = datetime(2015, 1, 1, 0, 0, 0, 1000, tzinfo=timezone.utc)
+        assert tail_channel._datetime_to_snowflake(dt) == 1 << 22
+
+    def test_naive_datetime_assumed_utc(self):
+        naive = datetime(2015, 1, 1, 0, 0, 0)  # no tzinfo
+        assert tail_channel._datetime_to_snowflake(naive) == 0
+
+    def test_pre_epoch_clamps_to_zero(self):
+        ancient = datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert tail_channel._datetime_to_snowflake(ancient) == 0
+
+    def test_monotonic_with_time(self):
+        a = datetime(2026, 4, 25, 16, 0, 0, tzinfo=timezone.utc)
+        b = datetime(2026, 4, 26, 16, 0, 0, tzinfo=timezone.utc)
+        assert tail_channel._datetime_to_snowflake(b) > tail_channel._datetime_to_snowflake(a)
+
+
+# ---------------------------------------------------------------------------
+# _backfill_messages — pagination + window filter
+# ---------------------------------------------------------------------------
+
+class TestBackfillMessages:
+    @pytest.mark.asyncio
+    async def test_paginates_until_oldest_predates_since(self):
+        # Three batches of 2 messages each, then nothing. Each batch
+        # is older than the previous (Discord newest-first).
+        client = MagicMock()
+        batches = [
+            [
+                {"id": "300", "timestamp": "2026-04-26T12:00:00Z"},
+                {"id": "299", "timestamp": "2026-04-26T11:00:00Z"},
+            ],
+            [
+                {"id": "298", "timestamp": "2026-04-26T10:00:00Z"},
+                {"id": "297", "timestamp": "2026-04-26T09:00:00Z"},
+            ],
+            # 8h window means since=04:00; oldest in this batch is
+            # 03:00 (predates since), so loop stops after this batch.
+            [
+                {"id": "296", "timestamp": "2026-04-26T05:00:00Z"},
+                {"id": "295", "timestamp": "2026-04-26T03:00:00Z"},
+            ],
+        ]
+        client.get_messages = AsyncMock(side_effect=batches + [[]])
+
+        since_dt = datetime(2026, 4, 26, 4, 0, 0, tzinfo=timezone.utc)
+        result = await tail_channel._backfill_messages(
+            client, channel_id=999, since_dt=since_dt,
+        )
+
+        # 03:00 should be filtered out (older than since_dt); rest in.
+        ids = [m["id"] for m in result]
+        # Chronological: oldest-included → newest.
+        assert ids == ["296", "297", "298", "299", "300"]
+        # Should have made 3 calls (loop broke after seeing 03:00).
+        assert client.get_messages.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_until_dt_filters_upper_bound(self):
+        client = MagicMock()
+        client.get_messages = AsyncMock(side_effect=[
+            [
+                {"id": "200", "timestamp": "2026-04-26T12:00:00Z"},
+                {"id": "199", "timestamp": "2026-04-26T11:00:00Z"},
+                {"id": "198", "timestamp": "2026-04-26T10:00:00Z"},
+                {"id": "197", "timestamp": "2026-04-26T09:00:00Z"},
+            ],
+            [],
+        ])
+
+        # Window: 09:30 → 11:30. Should keep 10:00 and 11:00 only.
+        since_dt = datetime(2026, 4, 26, 9, 30, 0, tzinfo=timezone.utc)
+        until_dt = datetime(2026, 4, 26, 11, 30, 0, tzinfo=timezone.utc)
+        result = await tail_channel._backfill_messages(
+            client, channel_id=999, since_dt=since_dt, until_dt=until_dt,
+        )
+
+        ids = [m["id"] for m in result]
+        assert ids == ["198", "199"]
+
+    @pytest.mark.asyncio
+    async def test_empty_first_batch_returns_empty(self):
+        client = MagicMock()
+        client.get_messages = AsyncMock(return_value=[])
+        result = await tail_channel._backfill_messages(
+            client, channel_id=999,
+            since_dt=datetime(2026, 4, 26, 0, 0, 0, tzinfo=timezone.utc),
+        )
+        assert result == []
+        assert client.get_messages.await_count == 1
+
+
+# ---------------------------------------------------------------------------
+# _parse_relative_delta — used by --duration and shared with --since-time
+# ---------------------------------------------------------------------------
+
+class TestParseRelativeDelta:
+    @pytest.mark.parametrize("spec,expected", [
+        ("30s", timedelta(seconds=30)),
+        ("5m", timedelta(minutes=5)),
+        ("1h", timedelta(hours=1)),
+        ("2d", timedelta(days=2)),
+        ("1w", timedelta(weeks=1)),
+        ("1H", timedelta(hours=1)),  # case-insensitive
+    ])
+    def test_units(self, spec, expected):
+        assert tail_channel._parse_relative_delta(spec) == expected
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            tail_channel._parse_relative_delta("")
+
+    def test_iso_format_raises(self):
+        # _parse_relative_delta is strict — only relative format.
+        # ISO falls through to _parse_time_spec's secondary handler.
+        with pytest.raises(ValueError, match="not a relative"):
+            tail_channel._parse_relative_delta("2026-04-25T16:00Z")
+
+    def test_unitless_number_raises(self):
+        with pytest.raises(ValueError, match="not a relative"):
+            tail_channel._parse_relative_delta("30")
