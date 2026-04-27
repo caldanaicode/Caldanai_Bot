@@ -497,6 +497,15 @@ class Game:
             parse(self.monster.arrival, *arrival_args),
             embed=embed, file=file,
         )
+        # Body-parts table dispatched as a separate plain message so
+        # it inherits full channel width (embeds render narrower and
+        # wrap the Worn column). Caels' eye on 2026-04-26 confirmed
+        # this is necessary for visible-loadout monsters.
+        parts_table = self.monster.render_body_part_status_table(
+            show_hp=False,
+        )
+        if parts_table:
+            Dispatcher.add(self.channel, parts_table)
         # Populate the structural channel id before on_spawn so that
         # any override (or anything on_spawn dispatches to) can
         # already use the time façade. Keeps per-monster ``on_spawn``
@@ -562,7 +571,14 @@ class Game:
         fight keeps their salvage alongside whatever the corpse
         rolls."""
         for player in self.looters:
-            self.loot[player.user_id].extend(self.monster.get_loot())
+            # ``setdefault`` defensively — the bucket should already
+            # exist from ``_run_player_block``'s per-round assertion,
+            # but if any future code path adds a player to
+            # ``self.looters`` outside that pipeline, we'd crash here
+            # without it. Cheap idempotent fallback.
+            self.loot.setdefault(player.user_id, []).extend(
+                self.monster.get_loot()
+            )
 
         # Compute has_loot BEFORE end_combat — that call clears
         # ``self.looters``, after which any "iterate looters and
@@ -668,22 +684,24 @@ class Game:
                 # part transitioned during THIS player's resolve, so
                 # this player landed the destroying blow.
                 #
-                # Each entry yields 0 or N items via the monster's
-                # ``get_salvage(part_base_name)`` table. Quality is
-                # rolled at item-creation time inside the helper.
+                # ``get_salvage(part)`` returns a combined list:
+                # actually-worn armor pieces from the part's
+                # placements (each rolled against
+                # ``SALVAGE_SURVIVAL_CHANCE``) plus generic
+                # SALVAGE_DROPS harvest entries (rags, leather,
+                # scale). Quality on worn pieces preserves the
+                # spawn-time roll; SALVAGE_DROPS entries roll fresh.
                 # Each rolled item gets an inline narration line
                 # appended to the player's injury feedback so the
                 # drop is visible *during* combat, not only at
-                # post-combat ``$loot`` time. Pairs with the
-                # destroyed-part-drops-gear narration (which fires
-                # for items the part WAS WEARING) — different
-                # source, same beat in the round output.
-                from caldanai.lib.rpg.creatures import _part_base_name
+                # post-combat ``$loot`` time.
                 for destroyed in player_res.destroyed_parts:
-                    salvage = monster.get_salvage(_part_base_name(destroyed))
+                    salvage = monster.get_salvage(destroyed)
                     if not salvage:
                         continue
-                    self.loot[player.user_id].extend(salvage)
+                    self.loot.setdefault(
+                        player.user_id, [],
+                    ).extend(salvage)
                     owner_phrase = parse("@1np", monster)
                     for item in salvage:
                         narration = (
@@ -807,11 +825,18 @@ class Game:
         if player not in self.looters:
             await self.player_manager.set_player_combatant(player)
             self.looters.append(player)
-            # Initialize this player's loot bucket so mid-combat
-            # salvage drops have somewhere to accumulate alongside
-            # the death-time creature loot. Replaces the old "loot
-            # assigned at on_monster_death" pattern.
-            self.loot.setdefault(player.user_id, [])
+        # Re-assert the loot bucket every round, not just on first
+        # join: ``loot_expires`` is a clock routine that fires
+        # ``self.loot.clear()`` after a delay, and the delay is
+        # scheduled by the PREVIOUS combat's death. If it fires
+        # mid-fight (between rounds of the next combat), the bucket
+        # we set up at first-join gets wiped — and ``self.looters``
+        # still has the player, so the join-time branch above
+        # doesn't re-run. Without this re-assertion, the next
+        # ``self.loot[player.user_id]`` access (salvage extend
+        # below, or death-loot extend in ``on_monster_death``)
+        # KeyErrors and crashes the round mid-resolve.
+        self.loot.setdefault(player.user_id, [])
 
         actions = player.pick_actions()
         explicit_targets = self.combat_targets.get(player.user_id)

@@ -1,17 +1,20 @@
-"""Tests for ``MonsterPlugin.SALVAGE_DROPS`` and
-``MonsterPlugin.get_salvage`` — the dismemberment-yields-armor
-gameplay loop.
+"""Tests for ``MonsterPlugin`` salvage paths — the
+dismemberment-yields-armor-or-materials gameplay loop.
 
-Salvage drops have two independent rolls:
+Two independent sources feed ``get_salvage(part)``:
 
-1. Drop chance — does an entry fire at all? (per-entry float in
-   ``SALVAGE_DROPS``, e.g. ``0.6``).
-2. Quality roll — when it fires, what tier? (per-entry
-   ``(lo, hi)`` randint range fed through
-   ``Qualities.from_scale``).
-
-These tests pin both — the contract on the helper, the per-entry
-shape, and the Bandit/Goblin scrap-set wiring.
+1. **Worn-armor branch** — ``ARMOR_LOADOUT`` populates spawn-time
+   placements at ``__init__``; ``get_salvage`` then rolls
+   ``SALVAGE_SURVIVAL_CHANCE`` on each worn piece. The actual
+   worn item drops with its rolled-at-spawn quality preserved.
+   Bandits + goblins ride this path: they walk up wearing a
+   subset of the scrap set, and only what they were wearing can
+   drop. Defense from worn pieces flows automatically through
+   :func:`effective_defense_for_part`.
+2. **Generic SALVAGE_DROPS** — legacy ``(item_name, drop_chance,
+   quality_range)`` table for NON-EQUIPMENT harvest (rags,
+   leather, scale). Bearowl + werewolf ride this path: their
+   bodies feed the crafting chain, not finished armor.
 """
 
 from collections import Counter
@@ -24,13 +27,17 @@ from caldanai.lib.rpg.helpers.enums import Qualities
 from caldanai.lib.rpg.inventory import Inventory
 
 
-class TestSalvageHelper:
+class TestSalvageHelperGenericPath:
+    """Generic ``SALVAGE_DROPS`` path — string-arg form, no
+    placements involved. Pins the per-entry contract used by
+    non-equipment drops (leather, scale, future fang/ichor)."""
+
     def test_default_returns_empty_for_unmapped_part(self):
-        """Monsters that don't override SALVAGE_DROPS yield nothing
-        for any part. Drop-in default; opt-in via class attribute."""
+        """Monsters with no SALVAGE_DROPS entry for a part yield
+        nothing for it."""
         b = Bandit()
-        # Bandit has entries for arm/foot/hand/torso — try a part it
-        # doesn't have a salvage entry for.
+        # Bandit's SALVAGE_DROPS is empty — armor moved to
+        # ARMOR_LOADOUT — so any base-name string returns [].
         assert b.get_salvage("eye") == []
 
     def test_drop_chance_zero_never_fires(self):
@@ -42,7 +49,6 @@ class TestSalvageHelper:
             }
 
         m = ZeroChanceMonster.__new__(ZeroChanceMonster)
-        # No __init__ — we only need the class-level dict.
         for _ in range(50):
             assert m.get_salvage("arm") == []
 
@@ -79,102 +85,249 @@ class TestSalvageHelper:
             for item in m.get_salvage("arm"):
                 qualities[item.quality] += 1
 
-        # Strict assertions: this band shouldn't roll FINE-or-better.
         assert Qualities.JUNK in qualities
         assert Qualities.ORDINARY in qualities
         assert Qualities.FINE not in qualities
         assert Qualities.QUALITY not in qualities
-        # JUNK should dominate (band is JUNK-heavy by design).
         total = sum(qualities.values())
         assert qualities[Qualities.JUNK] > qualities[Qualities.ORDINARY]
         assert qualities[Qualities.JUNK] / total > 0.5
 
 
-class TestBanditScrapDrops:
-    """Bandit's scrap-set wiring — the seed monster for the new
-    salvage gameplay loop."""
+class TestBanditArmorLoadout:
+    """Bandit scrap-armor loadout — bandits spawn wearing a
+    random subset of the scrap set, and what they were wearing
+    is what can drop on dismemberment."""
 
-    def test_foot_drops_worn_boot(self):
+    def test_at_least_one_bracer_seen_across_many_spawns(self):
+        """Stochastic smoke test: with a 30% bracer rate per arm,
+        50 spawns × 2 arms = ~100 trials — exceedingly unlikely to
+        produce zero. Confirms ``_apply_armor_loadout`` runs at
+        ``__init__`` against real ARMOR_LOADOUT entries."""
+        Inventory.discover_items()
+        seen = False
+        for _ in range(50):
+            b = Bandit()
+            for part in b.body_parts:
+                if part.name in ("arm.left", "arm.right"):
+                    if part.placements.get("worn.lower") is not None:
+                        seen = True
+                        break
+            if seen:
+                break
+        assert seen
+
+    def test_random_zero_equips_full_loadout(self):
+        """``random() = 0.0`` forces every entry to fire — both
+        arms get a bracer AND a rerebrace (independent rolls per
+        part instance produce paired sets when forced)."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        for arm_name in ("arm.left", "arm.right"):
+            arm = next(p for p in b.body_parts if p.name == arm_name)
+            lower = arm.placements.get("worn.lower")
+            upper = arm.placements.get("worn.upper")
+            assert lower is not None and lower.name == "patchwork bracer"
+            assert upper is not None and upper.name == "rough rerebrace"
+
+    def test_random_one_skips_full_loadout(self):
+        """``random() = 1.0`` causes every roll to fail. Every
+        placement on every Equippable part stays empty."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
+        for part in b.body_parts:
+            placements = getattr(part, "placements", None) or {}
+            for slot, item in placements.items():
+                assert item is None, (
+                    f"unexpected piece on {part.name}.{slot} at random=1.0"
+                )
+
+    def test_worn_armor_boosts_part_defense(self):
+        """A bandit's arm defends better with a bracer placed than
+        without. Proves loadout pieces flow through
+        ``effective_defense_for_part``.
+
+        Compares a single bandit before-and-after manual placement
+        (rather than two separately-constructed bandits) so that
+        un-patched ``randint`` / ``choice`` calls during ``__init__``
+        don't introduce stat-noise between the two comparisons.
+        """
+        from caldanai.lib.rpg.creatures import effective_defense_for_part
+        Inventory.discover_items()
+        # random=1.0 → all spawn rolls fail; arm starts bare.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
+        arm = next(p for p in b.body_parts if p.name == "arm.left")
+        assert arm.placements.get("worn.lower") is None
+
+        bare_def = effective_defense_for_part(b, arm)
+
+        bracer = Inventory.ITEMS["patchwork_bracer"].from_plugin(
+            "patchwork_bracer", {"quality": "ORDINARY"},
+        )
+        arm.placements["worn.lower"] = bracer
+        armored_def = effective_defense_for_part(b, arm)
+
+        assert armored_def > bare_def
+
+    def test_destroyed_part_drops_worn_piece(self):
+        """A part wearing armor drops that EXACT instance on
+        successful survival roll. Quality is preserved from the
+        spawn-time roll (no fresh re-roll)."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        arm = next(p for p in b.body_parts if p.name == "arm.left")
+        bracer = arm.placements["worn.lower"]
+        original_quality = bracer.quality
+        assert bracer is not None
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            items = b.get_salvage(arm)
+
+        assert bracer in items
+        # Same instance, same quality — preserved through the drop.
+        dropped = items[items.index(bracer)]
+        assert dropped is bracer
+        assert dropped.quality == original_quality
+
+    def test_bare_part_drops_nothing(self):
+        """A part wearing nothing yields no salvage. Bandits have
+        no SALVAGE_DROPS entries (armor moved to ARMOR_LOADOUT),
+        so no items at all."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
+        arm = next(p for p in b.body_parts if p.name == "arm.left")
+        items = b.get_salvage(arm)
+        assert items == []
+
+    def test_survival_roll_filters_drops(self):
+        """When the survival roll exceeds SALVAGE_SURVIVAL_CHANCE
+        (2/3), the piece is consumed by the destruction without
+        dropping. Placements zero out either way."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        arm = next(p for p in b.body_parts if p.name == "arm.left")
+        assert arm.placements["worn.lower"] is not None
+
+        # 0.99 > 2/3 → survival fails on every slot.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.99,
+        ):
+            items = b.get_salvage(arm)
+        assert items == []
+        # Placements consumed regardless of survival outcome.
+        for v in arm.placements.values():
+            assert v is None
+
+    def test_no_double_drop_on_repeat_call(self):
+        """A second call on the same already-stripped part yields
+        nothing. Placements clear on first call so re-invocation is
+        idempotent.
+
+        Patches ``random`` across BOTH ``Bandit()`` (loadout rolls)
+        AND the ``get_salvage`` calls (survival rolls) so the test
+        is robust against test-order RNG state — without this, the
+        survival roll uses real random and can fail in suite-mode
+        when prior tests leak state.
+        """
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+            arm = next(p for p in b.body_parts if p.name == "arm.left")
+            first = b.get_salvage(arm)
+            second = b.get_salvage(arm)
+        assert first
+        assert second == []
+
+    def test_worn_armor_bypasses_empty_salvage_drops(self):
+        """Sanity: bandit's SALVAGE_DROPS is empty after the
+        ARMOR_LOADOUT migration. Pin so a future regression
+        re-adding scrap entries to SALVAGE_DROPS surfaces here."""
         b = Bandit()
+        assert b.SALVAGE_DROPS == {}
+
+
+class TestGoblinArmorLoadout:
+    """Goblins share the scrap palette but spawn fewer pieces and
+    skip the bandit-flair touches (collars, sashes)."""
+
+    def test_random_zero_equips_loadout(self):
         Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("foot")
-        assert len(items) == 1
-        assert items[0].name == "worn boot"
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            g = Goblin()
+        arm = next(p for p in g.body_parts if p.name == "arm.left")
+        lower = arm.placements.get("worn.lower")
+        assert lower is not None and lower.name == "patchwork bracer"
+        # Goblin arms get no upper rerebrace (not in their loadout).
+        assert arm.placements.get("worn.upper") is None
 
-    def test_hand_drops_ratty_glove(self):
-        b = Bandit()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("hand")
-        assert len(items) == 1
-        assert items[0].name == "ratty glove"
-
-    def test_torso_drops_jerkin_and_sash(self):
-        """Bandit torso has TWO salvage entries — a jerkin
-        (torso.worn slot) and a sash (torso.accent slot). Different
-        slots, both can drop from one part destruction."""
-        b = Bandit()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("torso")
-        names = sorted(i.name for i in items)
-        assert names == ["bandit's sash", "rough jerkin"]
-
-    def test_head_drops_cap_and_hood(self):
-        b = Bandit()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("head")
-        names = sorted(i.name for i in items)
-        assert names == ["rag hood", "rough cap"]
-
-    def test_neck_drops_collar(self):
-        b = Bandit()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("neck")
-        assert len(items) == 1
-        assert items[0].name == "scrap collar"
-
-    def test_arm_drops_bracer_and_rerebrace(self):
-        """Arm has the lower-bracer (forearm) AND upper-rerebrace
-        slots; both drop from a destroyed arm."""
-        b = Bandit()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("arm")
-        names = sorted(i.name for i in items)
-        assert names == ["patchwork bracer", "rough rerebrace"]
-
-    def test_leg_drops_greave_and_shin(self):
-        b = Bandit()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = b.get_salvage("leg")
-        names = sorted(i.name for i in items)
-        assert names == ["rough greave", "scrap shin"]
-
-
-class TestGoblinScrapDrops:
-    """Goblins share the scrap set with bandits at lower drop
-    rates — they're scrappier and the gear is in worse shape."""
-
-    def test_goblin_arm_yields_bracer(self):
-        g = Goblin()
-        Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
-            items = g.get_salvage("arm")
-        assert len(items) == 1
-        assert items[0].name == "patchwork bracer"
-
-    def test_goblin_skips_neck(self):
+    def test_no_neck_armor(self):
         """Goblins don't carry collars — neck isn't in their
-        salvage table. Differentiates the goblin scrap profile
-        from the bandit's (bandits get sashes + collars; goblins
-        skip both ornamental layers)."""
+        ARMOR_LOADOUT. Differentiates from bandits."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            g = Goblin()
+        neck = next(
+            p for p in g.body_parts if p.name == "neck"
+        )
+        for v in neck.placements.values():
+            assert v is None
+
+    def test_destroyed_part_drops_worn_piece(self):
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            g = Goblin()
+        arm = next(p for p in g.body_parts if p.name == "arm.left")
+        bracer = arm.placements["worn.lower"]
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            items = g.get_salvage(arm)
+        assert bracer in items
+
+    def test_salvage_drops_empty(self):
         g = Goblin()
-        assert g.get_salvage("neck") == []
+        assert g.SALVAGE_DROPS == {}
 
 
 class TestBearowlLeatherDrops:
@@ -207,17 +360,16 @@ class TestBearowlLeatherDrops:
 
     def test_real_part_lookup_path_works(self):
         """The actual lookup in ``Game._run_player_block`` calls
-        ``monster.get_salvage(_part_base_name(part))``. This pin-
-        tests that the keys in SALVAGE_DROPS match what
-        ``_part_base_name`` returns for each leg-part instance —
-        catches the original 2026-04-26 bug where keys were
-        ``"foreleg"``/``"hindleg"`` and never matched."""
+        ``monster.get_salvage(part)``, with the helper deriving
+        the base name internally. Pin-tests that the keys in
+        SALVAGE_DROPS match what ``_part_base_name`` returns for
+        each leg-part instance — catches the original 2026-04-26
+        bug where keys were ``"foreleg"``/``"hindleg"`` and never
+        matched."""
         from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
         from caldanai.lib.rpg.creatures import _part_base_name
         b = Bearowl()
         Inventory.discover_items()
-        # All four leg instances should resolve through the real
-        # base-name path to a non-empty drop list.
         leg_parts = [
             p for p in b.body_parts
             if p.name in (
@@ -253,10 +405,8 @@ class TestBearowlLeatherDrops:
             with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
                 for item in b.get_salvage("torso"):
                     qualities[item.quality] += 1
-        # ORDINARY should be the modal quality.
         assert qualities[Qualities.ORDINARY] > qualities[Qualities.FINE]
         assert qualities[Qualities.ORDINARY] > qualities[Qualities.JUNK]
-        # No SUPERIOR or higher — leather isn't legendary.
         assert qualities[Qualities.SUPERIOR] == 0
         assert qualities[Qualities.MASTERWORK] == 0
 

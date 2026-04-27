@@ -25,24 +25,28 @@ class Bandit(MonsterPlugin):
         DamageTypes.PIERCING:    "The point catches on a buckle, then slides past into the gap behind it.",
     }
 
-    # Salvage drops — destroying a bandit's body part yields scrap-
-    # tier armor harvested from the corpse. Quality range biases
-    # toward the JUNK/ORDINARY end of the curve via the inverted
-    # ``Qualities.from_scale`` mapping (higher randint -> lower
-    # quality). Bandit armor IS scrap; the occasional FINE roll is
-    # the lucky-break exception.
-    SALVAGE_DROPS = {
-        "head":  [("rough_cap",        0.4, (50, 95)),
-                  ("rag_hood",         0.2, (50, 95))],
-        "neck":  [("scrap_collar",     0.3, (50, 95))],
-        "torso": [("rough_jerkin",     0.4, (50, 95)),
-                  ("bandits_sash",     0.2, (50, 95))],
-        "arm":   [("patchwork_bracer", 0.5, (50, 95)),
-                  ("rough_rerebrace",  0.3, (50, 95))],
-        "hand":  [("ratty_glove",      0.4, (50, 95))],
-        "leg":   [("rough_greave",     0.4, (50, 95)),
-                  ("scrap_shin",       0.3, (50, 95))],
-        "foot":  [("worn_boot",        0.5, (50, 95))],
+    # Spawn-time armor loadout — bandits walk up wearing scrap.
+    # Each entry rolls per-part-instance, so a bandit might spawn
+    # in 0 pieces, 8 pieces, or anywhere in between (matched or
+    # mismatched left/right), with no part guaranteed to carry
+    # everything. Defense bonuses apply automatically through the
+    # ``effective_defense_for_part`` worn-armor path. On
+    # dismemberment, ``get_salvage`` rolls
+    # ``SALVAGE_SURVIVAL_CHANCE`` (2/3) for each worn piece to
+    # survive — combined with these spawn rates, the bracer
+    # ends-to-end appearance is ~20%.
+    ARMOR_LOADOUT = {
+        "head":  [("rough_cap",        0.30, "worn",        (50, 95)),
+                  ("rag_hood",         0.15, "outer",       (50, 95))],
+        "neck":  [("scrap_collar",     0.15, "accent",      (50, 95))],
+        "torso": [("rough_jerkin",     0.30, "worn",        (50, 95)),
+                  ("bandits_sash",     0.20, "accent",      (50, 95))],
+        "arm":   [("patchwork_bracer", 0.30, "worn.lower",  (50, 95)),
+                  ("rough_rerebrace",  0.20, "worn.upper",  (50, 95))],
+        "hand":  [("ratty_glove",      0.30, "worn",        (50, 95))],
+        "leg":   [("rough_greave",     0.25, "worn.upper",  (50, 95)),
+                  ("scrap_shin",       0.20, "worn.lower",  (50, 95))],
+        "foot":  [("worn_boot",        0.30, "worn",        (50, 95))],
     }
 
     def __init__(self):

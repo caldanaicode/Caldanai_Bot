@@ -1262,8 +1262,9 @@ class Creature:
     def render_body_part_status_table(self, show_hp: bool = True) -> str:
         """Render this creature's per-part status as an ansi-fenced
         table matching ``$health``'s format: dot gauge + part name +
-        (optionally) HP + color-coded status word. Returns an empty
-        string when the creature has no body parts.
+        (optionally) HP + color-coded status word + comma-separated
+        worn equipment with quality. Returns an empty string when the
+        creature has no body parts.
 
         Used by both ``$health`` (for players) and ``$look`` (for
         monsters via ``get_embed``) so the single formatting source
@@ -1281,42 +1282,88 @@ class Creature:
             return ""
 
         rows = []
+        any_worn = False
         for part in parts:
             level = part.get_injury_level()
             dot, word, color = INJURY_LEVEL_DISPLAY.get(level, ("🟢", "unharmed", "32"))
             hp_str = f"{part.health} / {part.health_max}"
-            rows.append((dot, part.name, hp_str, word, color))
+            placements = getattr(part, "placements", None) or {}
+            # Item NAME only — no inline ``(quality)``. Quality is
+            # still available per item via ``$look <item>``; cramming
+            # it into the per-row Worn cell pushed wide loadouts past
+            # Discord's 1024-char embed-field cap and clipped the
+            # bottom rows of the body-parts table.
+            worn_pieces = [
+                item.name
+                for item in placements.values()
+                if item is not None
+            ]
+            worn_str = ", ".join(worn_pieces)
+            if worn_str:
+                any_worn = True
+            rows.append((dot, part.name, hp_str, word, color, worn_str))
 
-        part_w = max(len(r[1]) for r in rows + [("", "Part", "", "", "")])
-        status_w = max(len(r[3]) for r in rows + [("", "", "", "Status", "")])
+        part_w = max(len(r[1]) for r in rows + [("", "Part", "", "", "", "")])
+        status_w = max(len(r[3]) for r in rows + [("", "", "", "Status", "", "")])
+        # No worn_w — Worn is the last column, so we don't need to
+        # pad it for the next column's alignment. Skipping the ljust
+        # avoids ~30 chars of trailing whitespace per empty row,
+        # which on a 13-part bandit was the difference between fitting
+        # and clipping Discord's 1024-char embed-field cap.
 
         lines = ["```ansi"]
         if show_hp:
-            hp_w = max(len(r[2]) for r in rows + [("", "", "HP", "", "")])
-            lines.append(
-                f"   {'Part'.ljust(part_w)} | "
+            hp_w = max(len(r[2]) for r in rows + [("", "", "HP", "", "", "")])
+            # ``⚫ `` (medium black circle + ASCII space) as the
+            # header prefix matches the exact visual width of the
+            # status-dot emoji + space on each data row, since both
+            # desktop and mobile Discord agree on emoji-cell width.
+            # Braille blanks aligned on desktop but rendered visibly
+            # off on mobile; ASCII spaces aligned roughly on mobile
+            # but were off on desktop. Same-emoji is the only thing
+            # the platforms agree on (Caels 2026-04-26).
+            header = (
+                f"⚫ {'Part'.ljust(part_w)} | "
                 f"{'HP'.ljust(hp_w)} | "
                 f"{'Status'.ljust(status_w)}"
             )
-            for dot, name, hp_str, word, color in rows:
+            if any_worn:
+                header += " | Worn"
+            lines.append(header)
+            for dot, name, hp_str, word, color, worn_str in rows:
                 padded_word = word.ljust(status_w)
                 colored_word = f"\x1b[2;{color}m{padded_word}\x1b[0m"
-                lines.append(
+                row_line = (
                     f"{dot} {name.ljust(part_w)} | "
                     f"{hp_str.ljust(hp_w)} | "
                     f"{colored_word}"
                 )
+                if any_worn:
+                    row_line += f" | {worn_str}"
+                lines.append(row_line)
         else:
-            lines.append(
-                f"   {'Part'.ljust(part_w)} | "
+            # ``⚫ `` (medium black circle + ASCII space) as the
+            # header prefix matches the exact visual width of the
+            # status-dot emoji + space on each data row, since both
+            # desktop and mobile Discord agree on emoji-cell width.
+            # Braille blanks aligned on desktop but rendered visibly
+            # off on mobile; ASCII spaces aligned roughly on mobile
+            # but were off on desktop. Same-emoji is the only thing
+            # the platforms agree on (Caels 2026-04-26).
+            header = (
+                f"⚫ {'Part'.ljust(part_w)} | "
                 f"{'Status'.ljust(status_w)}"
             )
-            for dot, name, _hp_str, word, color in rows:
+            if any_worn:
+                header += " | Worn"
+            lines.append(header)
+            for dot, name, _hp_str, word, color, worn_str in rows:
                 padded_word = word.ljust(status_w)
                 colored_word = f"\x1b[2;{color}m{padded_word}\x1b[0m"
-                lines.append(
-                    f"{dot} {name.ljust(part_w)} | {colored_word}"
-                )
+                row_line = f"{dot} {name.ljust(part_w)} | {colored_word}"
+                if any_worn:
+                    row_line += f" | {worn_str}"
+                lines.append(row_line)
         lines.append("```")
         return "\n".join(lines)
 
@@ -1398,25 +1445,14 @@ class Creature:
                 v = f"{v:,}"
             embed.add_field(name=f, value=v, inline=i)
 
-        # Per-part injury table lives below the stat row. Non-inline so
-        # the monospace table gets its full width. Embed field values
-        # cap at 1024 chars — creatures with huge anatomy (hydras with
-        # many heads, hypothetical centipedes) fall back to truncation
-        # rather than crashing the embed.
-        #
-        # ``show_hp=False`` because body HP and per-part HP are parallel
-        # accounting (Model D) — showing both numbers side-by-side in
-        # one embed invites players to try math that has no answer.
-        # The status words + dot gauge communicate relative injury
-        # without baiting the comparison.
-        parts_table = self.render_body_part_status_table(show_hp=False)
-        if parts_table:
-            if len(parts_table) > 1024:
-                # Preserve the closing fence even after truncation so
-                # the code block still renders correctly.
-                parts_table = parts_table[:1000].rstrip() + "\n...\n```"
-            embed.add_field(name="Body Parts", value=parts_table, inline=False)
-
+        # Body-parts table is NOT included in the embed — Discord
+        # renders embeds at a fixed narrower width than channel
+        # messages, which forces wide tables (especially with the
+        # ``Worn`` column) to wrap mid-row. Callers should follow up
+        # this embed dispatch with a separate plain-text dispatch of
+        # ``self.render_body_part_status_table(show_hp=False)`` so
+        # the table gets full channel width — the same path
+        # ``$health`` already uses.
         return embed, file
 
     def get_stat_modifier_total(self, stat: Stat) -> int:

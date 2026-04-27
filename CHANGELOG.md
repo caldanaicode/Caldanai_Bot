@@ -4,7 +4,44 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
-### 2026-04-26 — `tail_channel`: time-range historical scans
+### 2026-04-26 — Bandit / goblin armor loadouts; salvage from worn pieces
+
+Bandits and goblins now spawn wearing a random subset of the
+scrap set, those pieces defend the parts they cover, and on
+dismemberment the dropped armor comes from what they were
+wearing — not a generic per-monster table that rolls regardless.
+`$look` surfaces the gear pre-fight so a drop feels earned.
+
+- **`MonsterPlugin.ARMOR_LOADOUT`** — class attribute keyed like
+  `SALVAGE_DROPS`; each entry is `(stem, chance, slot, quality)`
+  and rolls per-part-instance at construction. Quadrupeds' four
+  legs roll independently for natural pair/mismatch variance.
+  Equipped items already feed `effective_defense_for_part` via
+  `BodyPart.placements`, so defense applies for free.
+- **Two-layer salvage**: `get_salvage(part)` rolls
+  `SALVAGE_SURVIVAL_CHANCE` (default 2/3) on each worn item, the
+  actual instance drops with its spawn-rolled quality preserved.
+  Generic `SALVAGE_DROPS` still rolls for non-equipment harvest
+  (leather, scale). Bracer end-to-end rate ≈ 30% × 2/3 = 20%.
+- **`$look` body-parts table gains a `Worn` column** showing each
+  part's pieces inline. Dispatched as a separate plain message
+  after the embed (embeds wrap wide tables; plain messages
+  inherit full channel width).
+- **Crash fix — `loot_expires` mid-combat race**: `loot_expires`
+  is scheduled by the previous combat's death and calls
+  `self.loot.clear()`. If it fired between rounds of the next
+  combat, the looter's bucket vanished but `self.looters` still
+  held them, so `on_monster_death` raised `KeyError`. Loot
+  bucket re-asserted via `setdefault` every round + defensively
+  in `on_monster_death`.
+- **Test-fragility fixes** picked up while shipping:
+  `_player_with_inventory` now pins `quality=ORDINARY` (a 50%
+  JUNK roll was floor-ing tier-1 dodge bonuses to 0); the
+  combat-parity `_spawn` helper re-seeds `random` after
+  construction so future spawn-time RNG additions don't shift
+  the deterministic combat sequence.
+
+
 
 Previously `tail_channel` could only fetch the last N messages
 (capped at 100) or `--follow` from a starting point. There was no

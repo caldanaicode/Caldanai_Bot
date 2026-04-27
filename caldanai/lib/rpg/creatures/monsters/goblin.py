@@ -20,17 +20,18 @@ class Goblin(MonsterPlugin):
         DamageTypes.MAGICAL:     "Arcane force slides off @1d strangely, as if @1s were already half-magical itself.",
     }
 
-    # Salvage drops — same scrap pieces as bandits (goblins steal
-    # the same kind of mismatched gear), at a lower drop chance
-    # because goblins are scrappier and the gear's been beaten up
-    # in a different way.
-    SALVAGE_DROPS = {
-        "head":  [("rough_cap",        0.3, (50, 95))],
-        "torso": [("rough_jerkin",     0.3, (50, 95))],
-        "arm":   [("patchwork_bracer", 0.4, (50, 95))],
-        "hand":  [("ratty_glove",      0.3, (50, 95))],
-        "leg":   [("rough_greave",     0.3, (50, 95))],
-        "foot":  [("worn_boot",        0.4, (50, 95))],
+    # Spawn-time armor loadout — same scrap pieces as bandits
+    # (goblins steal the same kind of mismatched gear), at lower
+    # spawn rates because goblins are scrappier and lose pieces
+    # easily. No collars / sashes / extra layers — the ornamental
+    # bandit-flair touches don't fit goblin theming.
+    ARMOR_LOADOUT = {
+        "head":  [("rough_cap",        0.20, "worn",        (50, 95))],
+        "torso": [("rough_jerkin",     0.20, "worn",        (50, 95))],
+        "arm":   [("patchwork_bracer", 0.20, "worn.lower",  (50, 95))],
+        "hand":  [("ratty_glove",      0.20, "worn",        (50, 95))],
+        "leg":   [("rough_greave",     0.15, "worn.upper",  (50, 95))],
+        "foot":  [("worn_boot",        0.20, "worn",        (50, 95))],
     }
 
     def __init__(self):

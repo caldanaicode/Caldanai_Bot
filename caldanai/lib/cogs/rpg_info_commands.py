@@ -777,6 +777,14 @@ class RpgInfoCommands(Cog):
         ):
             embed, file = game.monster.get_embed()
             Dispatcher.add(game.channel, embed=embed, file=file)
+            # Body-parts table goes out as a separate plain message
+            # so it inherits full channel width (embeds wrap wide
+            # tables; plain messages don't).
+            parts_table = game.monster.render_body_part_status_table(
+                show_hp=False,
+            )
+            if parts_table:
+                Dispatcher.add(game.channel, parts_table)
             return
 
         elif ctx.message.mentions is not None and len(ctx.message.mentions) > 0:

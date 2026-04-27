@@ -95,11 +95,24 @@ def _make_player(name, uid, health=40, health_max=40):
 
 
 def _spawn(monster_key: str):
-    """Spawn a monster by its filename stem via the registry."""
+    """Spawn a monster by its filename stem via the registry.
+
+    Re-seeds ``random`` immediately AFTER construction so each
+    monster's spawn-time random-call-count (dice rolls, choices,
+    armor loadout — anything in ``__init__``) doesn't shift the
+    deterministic combat-roll sequence the tests assert against.
+    Without the re-seed, adding a single new ``random()`` call to
+    a monster's init would silently break every parity test in
+    this file by reordering the seed-0 sequence consumed during
+    Alice's attacks, retaliation rolls, etc.
+    """
+    import random
     from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
     MonsterPlugin.load_plugins()
     cls = MonsterPlugin.get_plugin_class(monster_key)
-    return cls()
+    instance = cls()
+    random.seed(0)
+    return instance
 
 
 @pytest.fixture(autouse=True)
@@ -277,6 +290,45 @@ class TestMonsterDeathAndLoot:
             f"Expected loot-announce to fire exactly once per combat, "
             f"got {blob.count('LOOT!')} occurrences:\n{blob}"
         )
+
+    @pytest.mark.asyncio
+    async def test_on_monster_death_robust_to_loot_dict_wipe(
+        self, _patch_discord,
+    ):
+        """Regression: ``loot_expires`` is a clock routine scheduled
+        by the previous combat's death. If it fires mid-fight (between
+        rounds of the next combat), it calls ``self.loot.clear()`` and
+        wipes the bucket that ``_run_player_block`` set up at first
+        join. ``self.looters`` still has the player, so the join-time
+        branch doesn't re-init. Pre-fix, ``on_monster_death`` then did
+        ``self.loot[player.user_id].extend(...)`` and KeyErrored,
+        crashing the round mid-resolve and breaking spawn-timer
+        scheduling for the rest of the bot's life.
+
+        Reproduce by setting up a looter with no loot entry, then
+        calling ``on_monster_death`` directly — same shape as a
+        ``loot_expires``-mid-combat collision, without needing the
+        clock-routine timing dance."""
+        goblin = _spawn("goblin")
+        goblin.health = 0  # already-dead so no resolve runs
+        game = _make_game_with_monster(goblin)
+        alice = _make_player("alice", 1)
+        # Looter present, loot dict EMPTY — the wiped-mid-combat shape.
+        game.looters = [alice]
+        game.loot = {}
+        # Restore the real (non-mocked) on_monster_death for this test
+        # — the harness mocks it by default; here we want to exercise
+        # the actual implementation.
+        from caldanai.lib.rpg import Game
+        game.on_monster_death = lambda: Game.on_monster_death(game)
+
+        # Pre-fix this would raise KeyError(1) and never return.
+        msg = await game.on_monster_death()
+
+        assert isinstance(msg, str)
+        # Bucket was created defensively even though the player joined
+        # before it existed.
+        assert 1 in game.loot
 
     @pytest.mark.asyncio
     async def test_monster_death_emits_death_msg(self, _patch_discord):

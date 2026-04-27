@@ -34,7 +34,16 @@ def _player_with_inventory(*plugin_names):
     p = Player(uid=1, gid=2, cid=3)
     items = []
     for name in plugin_names:
-        item = Inventory.load_item(name=name)
+        # Pin quality to ORDINARY so item bonuses are deterministic
+        # — without this, ``Inventory.load_item`` rolls a random
+        # quality, and JUNK (50% of rolls) reduces tier-1 bonuses
+        # like mushroom_hat's ``dodge: 1`` to ``int(1 * 0.75) = 0``,
+        # which silently breaks tests that assume the bonus is
+        # non-zero. ORDINARY (multiplier 1.0) preserves declared
+        # values exactly.
+        item = Inventory.load_item(
+            data={"plugin": name, "quality": "ORDINARY"},
+        )
         p.inventory.add(item)
         items.append(item)
     return p, items

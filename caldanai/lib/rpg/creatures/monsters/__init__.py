@@ -71,6 +71,12 @@ class MonsterPlugin(Creature):
         super().__init__(
             name, atk, defense, dodge, health_max, health, gender, pronouns)
 
+        # Spawn-time armor: roll the per-part loadout into placements
+        # so wearable defense bonuses kick in via the standard
+        # ``effective_defense_for_part`` path before any combat fires.
+        # No-op when ARMOR_LOADOUT is empty (the default).
+        self._apply_armor_loadout()
+
         self.aggression = AggressionLevels.PASSIVE
         self.time_partition = TimePartitions.CATHEMERAL
         # Weather mask: which weather conditions can this monster
@@ -263,21 +269,135 @@ class MonsterPlugin(Creature):
     #     ``(60, 100)`` for JUNK-heavy spread; dragon-scale drops
     #     would use ``(1, 50)`` for FINE-up.
     #
-    # Default empty: monsters opt in by overriding the dict on the
-    # plugin class.
+    # SALVAGE_DROPS is for NON-EQUIPMENT harvest (rags, fangs,
+    # leather, scale). Items the monster was actually wearing drop
+    # via :attr:`ARMOR_LOADOUT` + the worn-armor branch in
+    # :meth:`get_salvage` instead. Default empty: monsters opt in
+    # by overriding the dict on the plugin class.
     SALVAGE_DROPS: Dict[str, List[tuple]] = {}
 
-    def get_salvage(self, part_base_name: str) -> List[Item]:
-        """Roll the salvage drops for a single destroyed body-part
-        of this monster. Called by ``Game._run_player_block`` once
-        per newly-destroyed part, with the result extending that
-        player's loot pool. Returns an empty list when the part
-        has no salvage table or every drop-chance roll fails."""
+    # Spawn-time armor loadout — chance for this monster to spawn
+    # wearing equipment on its body parts. Same key shape as
+    # SALVAGE_DROPS (part-base-name -> list of entries), but each
+    # entry is ``(item_name, spawn_chance, slot, quality_range)``:
+    #
+    # - ``item_name``: armor plugin filename stem.
+    # - ``spawn_chance``: float in [0, 1]. Rolled per-part-instance,
+    #   so a quadruped's four legs roll independently — paired or
+    #   mismatched spawns are emergent, not authored.
+    # - ``slot``: placement key on the part (e.g. ``"worn"``,
+    #   ``"worn.lower"``, ``"accent"``). Must match a key in the
+    #   target plugin's ``PLACEMENT_KEYS``.
+    # - ``quality_range``: ``(lo, hi)`` for ``Qualities.from_scale``
+    #   the same as ``SALVAGE_DROPS``.
+    #
+    # Equipped items contribute defense automatically through
+    # :func:`effective_defense_for_part` (which already reads
+    # ``BodyPart.placements``). On dismemberment, ``get_salvage``
+    # rolls a survival chance against each worn piece — see
+    # :attr:`SALVAGE_SURVIVAL_CHANCE`.
+    #
+    # Default empty: monsters opt in by overriding the dict.
+    ARMOR_LOADOUT: Dict[str, List[tuple]] = {}
+
+    # Probability that an actually-worn piece survives the
+    # destruction of its part well enough to drop as loot. Layered
+    # against the ARMOR_LOADOUT spawn chance — e.g. a 30% spawn rate
+    # combined with the default 2/3 survival yields a 20% see-the-
+    # piece end-to-end rate. Tunable per-monster (override the class
+    # attribute) for hardier or more fragile gear themes.
+    SALVAGE_SURVIVAL_CHANCE: float = 2.0 / 3.0
+
+    def _apply_armor_loadout(self) -> None:
+        """Walk this monster's body parts and roll the spawn-time
+        armor loadout. For each :class:`Equippable` part, look up
+        ``ARMOR_LOADOUT`` entries by base name; each entry rolls
+        independently. On a successful roll, build the item with a
+        quality drawn from the entry's range and place it into the
+        matching slot.
+
+        No-op when ``ARMOR_LOADOUT`` is empty.
+        """
+        if not self.ARMOR_LOADOUT:
+            return
         from random import randint
+        from caldanai.lib.rpg.creatures import _part_base_name
+        from caldanai.lib.rpg.creatures.mixins import Equippable
         from caldanai.lib.rpg.helpers.enums import Qualities
 
-        entries = self.SALVAGE_DROPS.get(part_base_name, [])
+        for part in self.body_parts:
+            if not isinstance(part, Equippable):
+                continue
+            entries = self.ARMOR_LOADOUT.get(_part_base_name(part), [])
+            for entry in entries:
+                name, freq, slot, q_range = entry
+                if random() > freq:
+                    continue
+                if slot not in part.placements:
+                    _log.warning(
+                        f"ARMOR_LOADOUT for {self.name}: part "
+                        f"{part.name!r} has no placement key {slot!r}; "
+                        f"skipping {name}."
+                    )
+                    continue
+                if name not in Inventory.ITEMS.keys():
+                    Inventory.discover_items()
+                if name not in Inventory.ITEMS.keys():
+                    _log.warning(
+                        f"No such item '{name}' found in the Inventory.ITEMS list."
+                    )
+                    continue
+                quality = Qualities.from_scale(randint(*q_range))
+                item = Inventory.ITEMS[name].from_plugin(
+                    name, {"quality": quality.name},
+                )
+                if item:
+                    part.placements[slot] = item
+
+    def get_salvage(self, part_or_name) -> List[Item]:
+        """Roll the salvage drops for a single destroyed body-part
+        of this monster. Combines two sources:
+
+        - **Worn armor** (when ``part_or_name`` is a ``BodyPart``):
+          each item in the part's ``placements`` rolls
+          :attr:`SALVAGE_SURVIVAL_CHANCE` to survive the
+          destruction. The actual worn item drops, preserving its
+          rolled-at-spawn quality. Surviving or not, the placement
+          is cleared so a re-call doesn't double-yield.
+        - **Generic SALVAGE_DROPS** (always): non-equipment harvest
+          per the legacy ``(item_name, drop_chance, quality_range)``
+          table.
+
+        Accepts either a ``BodyPart`` instance (preferred — enables
+        the worn-armor path) or a part-base-name string (legacy /
+        tests that don't have a part instance handy)."""
+        from random import randint
+        from caldanai.lib.rpg.creatures import _part_base_name
+        from caldanai.lib.rpg.helpers.enums import Qualities
+
+        if isinstance(part_or_name, str):
+            part = None
+            part_base_name = part_or_name
+        else:
+            part = part_or_name
+            part_base_name = _part_base_name(part)
+
         items: List[Item] = []
+
+        # Worn-armor branch: chance-based survival of pieces the
+        # monster was actually wearing on the destroyed part.
+        if part is not None:
+            placements = getattr(part, "placements", None) or {}
+            for slot in list(placements.keys()):
+                worn = placements.get(slot)
+                if worn is None:
+                    continue
+                if random() <= self.SALVAGE_SURVIVAL_CHANCE:
+                    items.append(worn)
+                placements[slot] = None
+
+        # Generic SALVAGE_DROPS branch: non-equipment harvest.
+        entries = self.SALVAGE_DROPS.get(part_base_name, [])
         for entry in entries:
             name, freq, q_range = entry
             if random() > freq:
