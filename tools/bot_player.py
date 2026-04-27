@@ -100,14 +100,21 @@ def _resolve_test_channel_id(guild_filter: Optional[int] = None) -> int:
     return int(docs[0]["channel_id"])
 
 
-async def _post(content: str, guild_filter: Optional[int]) -> dict:
+async def _post(
+    content: str,
+    guild_filter: Optional[int],
+    channel_id_override: Optional[int] = None,
+) -> dict:
     token = os.environ.get("CLAUDE_TESTER_TOKEN")
     if not token:
         raise SystemExit(
             "CLAUDE_TESTER_TOKEN env var not set. Drop the tester-bot "
             "token in .env under that name and try again."
         )
-    channel_id = _resolve_test_channel_id(guild_filter)
+    if channel_id_override is not None:
+        channel_id = channel_id_override
+    else:
+        channel_id = _resolve_test_channel_id(guild_filter)
     async with DiscordRestClient(token) as client:
         return await client.post_message(channel_id, content)
 
@@ -132,11 +139,17 @@ def main(argv=None) -> int:
         help="Restrict channel lookup to one guild id when "
              "multiple test guilds exist. Usually unnecessary.",
     )
+    send_p.add_argument(
+        "--channel-id", type=int, default=None,
+        help="Post to a specific channel id, skipping the DB-based "
+             "test-channel lookup. For posting to non-combat channels "
+             "(e.g. a journal channel) the tester bot has access to.",
+    )
 
     args = ap.parse_args(argv)
 
     if args.cmd == "send":
-        msg = asyncio.run(_post(args.content, args.guild))
+        msg = asyncio.run(_post(args.content, args.guild, args.channel_id))
         author = (msg.get("author") or {}).get("username", "?")
         print(
             f"posted id={msg['id']} as {author} "
