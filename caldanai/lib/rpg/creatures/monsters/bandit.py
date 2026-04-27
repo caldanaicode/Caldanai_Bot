@@ -43,7 +43,15 @@ class Bandit(MonsterPlugin):
                   ("bandits_sash",     0.20, "accent",      (50, 95))],
         "arm":   [("patchwork_bracer", 0.30, "worn.lower",  (50, 95)),
                   ("rough_rerebrace",  0.20, "worn.upper",  (50, 95))],
-        "hand":  [("ratty_glove",      0.30, "worn",        (50, 95))],
+        "hand":  [("ratty_glove",      0.30, "worn",        (50, 95)),
+                  # Phase 1 of held-weapons (project_held_weapons_via_loadout):
+                  # the bandit's shortsword now spawns into the held slot
+                  # of one or both hands, surfaces in $look's "Wearing"
+                  # field, and rolls SALVAGE_SURVIVAL_CHANCE on hand
+                  # destruction the same way worn armor does. Phase 2
+                  # (monsters actually swinging the held weapon, plus
+                  # per-spawn skill randomization) is still TBD.
+                  ("shortsword",       0.20, "held",        (50, 95))],
         "leg":   [("rough_greave",     0.25, "worn.upper",  (50, 95)),
                   ("scrap_shin",       0.20, "worn.lower",  (50, 95))],
         "foot":  [("worn_boot",        0.30, "worn",        (50, 95))],
@@ -86,7 +94,13 @@ class Bandit(MonsterPlugin):
         self.traits[DamageTypes.MAGICAL] = 1.50
         self.traits[DamageTypes.ANY - (DamageTypes.RANGED | DamageTypes.MAGICAL)] = 0.75
 
-        self.loot["shortsword"] = 0.2
+        # Shortsword moved to ARMOR_LOADOUT (held slot on hand) —
+        # the held-weapons-via-loadout path replaces the death-time
+        # loot roll with a spawn-time placement that surfaces in
+        # $look and drops via the worn-piece salvage chance. Bow
+        # is TBD per the project_held_weapons_via_loadout memo
+        # (ranged weapons need Phase 2 monster-uses-it work
+        # before they ride the same path).
         self.loot["bandanna"] = 0.2
         self.loot["bow"] = 0.15
         self.loot["cheese_sandwich"] = 0.2

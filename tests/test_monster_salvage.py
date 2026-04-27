@@ -277,6 +277,166 @@ class TestBanditArmorLoadout:
         assert b.SALVAGE_DROPS == {}
 
 
+class TestBanditHeldWeaponLoadout:
+    """Phase 1 of project_held_weapons_via_loadout — held weapons
+    ride the same ARMOR_LOADOUT plumbing as worn armor. Bandits
+    spawn with a shortsword in the ``held`` slot on either hand
+    (independent rolls), it surfaces in the body-parts ``Worn``
+    field through the existing iterate-all-placements path, and
+    it drops via the survival roll on hand destruction.
+
+    Phase 2 (monsters actually USING the weapon, plus per-spawn
+    weapon-skill randomization) is intentionally out of scope —
+    these tests only pin the carried-and-droppable invariants.
+    """
+
+    def test_held_weapon_entry_present_on_hand(self):
+        """``ARMOR_LOADOUT["hand"]`` carries a held-slot entry —
+        regression pin so a future cleanup doesn't accidentally
+        drop the shortsword (or move the slot back to ``worn``,
+        which would clash with ``ratty_glove``)."""
+        hand_entries = Bandit.ARMOR_LOADOUT["hand"]
+        held_entries = [e for e in hand_entries if e[2] == "held"]
+        assert len(held_entries) == 1, (
+            f"Expected exactly one held-slot entry on hand; "
+            f"got {hand_entries}"
+        )
+        name, freq, slot, q_range = held_entries[0]
+        assert name == "shortsword"
+        assert slot == "held"
+        assert 0.0 < freq < 1.0
+        assert q_range == (50, 95)
+
+    def test_random_zero_equips_held_weapon(self):
+        """``random() = 0.0`` forces every entry to fire — both
+        hands get a shortsword in the ``held`` slot. Confirms the
+        existing ``_apply_armor_loadout`` walks the ``"held"`` key
+        agnostically (no armor-specific code path needed)."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        for hand_name in ("hand.left", "hand.right"):
+            hand = next(p for p in b.body_parts if p.name == hand_name)
+            held = hand.placements.get("held")
+            assert held is not None and held.plugin == "shortsword", (
+                f"Expected shortsword on {hand_name}.held at random=0.0; "
+                f"got {held!r}"
+            )
+
+    def test_random_one_skips_held_weapon(self):
+        """``random() = 1.0`` causes every roll to fail — held slot
+        stays empty, same as worn slots."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
+        for hand_name in ("hand.left", "hand.right"):
+            hand = next(p for p in b.body_parts if p.name == hand_name)
+            assert hand.placements.get("held") is None
+
+    def test_destroyed_hand_drops_held_weapon(self):
+        """A hand holding a shortsword drops that EXACT instance
+        on a successful survival roll — same path the worn-armor
+        branch uses, just keyed off the ``held`` placement."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        hand = next(p for p in b.body_parts if p.name == "hand.left")
+        sword = hand.placements["held"]
+        assert sword is not None and sword.plugin == "shortsword"
+        original_quality = sword.quality
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            items = b.get_salvage(hand)
+
+        assert sword in items
+        # Same instance, same quality — preserved through the drop,
+        # so a high-quality spawn-rolled weapon stays high-quality
+        # when looted.
+        dropped = items[items.index(sword)]
+        assert dropped is sword
+        assert dropped.quality == original_quality
+
+    def test_held_survival_roll_filters(self):
+        """When the survival roll exceeds SALVAGE_SURVIVAL_CHANCE,
+        the held weapon is consumed by the destruction without
+        dropping. Held slot zeroes either way, mirroring the worn
+        invariant."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        hand = next(p for p in b.body_parts if p.name == "hand.left")
+        assert hand.placements["held"] is not None
+
+        # 0.99 > 2/3 → survival fails on every slot.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.99,
+        ):
+            items = b.get_salvage(hand)
+        assert items == []
+        assert hand.placements["held"] is None
+
+    def test_shortsword_no_longer_in_loot_dict(self):
+        """Phase 1 of held-weapons moves shortsword out of the
+        legacy ``self.loot`` dict so we don't double-roll. Bow is
+        deliberately left in ``loot`` until Phase 2 figures out
+        ranged weapons."""
+        b = Bandit()
+        assert "shortsword" not in b.loot, (
+            "shortsword should be sourced via ARMOR_LOADOUT held "
+            "slot now, not the legacy loot dict"
+        )
+        # Bow is still loot-only until ranged held is designed.
+        assert "bow" in b.loot
+
+    def test_held_weapon_does_not_boost_part_defense(self):
+        """A held shortsword has no ``bonuses`` dict (it's a Weapon,
+        not an Armor), so ``effective_defense_for_part`` reads None
+        and contributes 0 — a sword in your hand doesn't make your
+        hand harder to hit. Pin so a future weapon-bonuses field
+        doesn't silently leak into hand defense without a deliberate
+        design pass."""
+        from caldanai.lib.rpg.creatures import effective_defense_for_part
+        Inventory.discover_items()
+        # All-fail loadout → bare hand baseline.
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
+        hand = next(p for p in b.body_parts if p.name == "hand.left")
+        bare_def = effective_defense_for_part(b, hand)
+
+        sword = Inventory.ITEMS["shortsword"].from_plugin(
+            "shortsword", {"quality": "ORDINARY"},
+        )
+        # Sanity: weapon has no bonuses dict to leak.
+        assert getattr(sword, "bonuses", None) is None
+        hand.placements["held"] = sword
+        held_def = effective_defense_for_part(b, hand)
+
+        assert held_def == bare_def, (
+            f"Holding a shortsword changed hand defense "
+            f"({bare_def} -> {held_def}); weapons should not "
+            f"contribute to defense via the placements iteration."
+        )
+
+
 class TestGoblinArmorLoadout:
     """Goblins share the scrap palette but spawn fewer pieces and
     skip the bandit-flair touches (collars, sashes)."""

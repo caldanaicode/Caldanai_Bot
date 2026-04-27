@@ -235,9 +235,17 @@ class TestBanditSanityUnchanged:
 
     def test_loot_table_contains_expected_items(self):
         """Pin the pre-migration loot keys so a later refactor of the
-        body-parts block can't accidentally wipe them."""
+        body-parts block can't accidentally wipe them.
+
+        Note: ``shortsword`` migrated out of ``loot`` and into
+        ``ARMOR_LOADOUT`` (held slot on hand) under Phase 1 of
+        project_held_weapons_via_loadout. ``bow`` is still here
+        until Phase 2 designs ranged held weapons."""
         b = Bandit()
-        assert "shortsword" in b.loot
+        assert "shortsword" not in b.loot, (
+            "shortsword now sourced via ARMOR_LOADOUT held slot; "
+            "see TestBanditHeldWeaponLoadout in test_monster_salvage.py"
+        )
         assert "bandanna" in b.loot
         assert "bow" in b.loot
         assert "cheese_sandwich" in b.loot
