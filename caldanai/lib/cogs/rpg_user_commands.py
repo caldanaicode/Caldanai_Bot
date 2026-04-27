@@ -124,15 +124,35 @@ class RpgUserCommands(Cog):
 
         already_in_combat = player in game.combatants
 
+        # Peel an optional leading monster-name token off ``target``
+        # before part parsing. ``$kill werewolf`` should join combat
+        # without the misleading "no targetable part matching
+        # 'werewolf'" warning. ``$kill werewolf arm.left`` should
+        # target the left arm. Monster-name detection is FIRST-TOKEN
+        # ONLY — ``$kill arm.left werewolf`` keeps today's behavior
+        # (werewolf becomes an unknown part token and silently drops).
+        # Forward-compat for multi-monster swarms where the leading
+        # token actively picks the enemy.
+        part_input, monster_token_consumed = self._strip_leading_monster_token(
+            target, game.monster,
+        )
+
         # Parse explicit body-part targets from the command arguments.
         # Supports one target (all sources hit it) or multiple (one per source).
-        part_targets = self._parse_part_targets(target, game.monster)
+        part_targets = self._parse_part_targets(part_input, game.monster)
 
         # Warn if the player typed something but nothing resolved.
-        if target and target.strip() and not part_targets and game.monster.body_parts:
+        # If we consumed the leading monster token, ``leftover`` is
+        # the remainder; if it's empty (player typed *only* the
+        # monster name) the warning is correctly suppressed by the
+        # ``leftover`` truthiness check. If it's non-empty but has
+        # no recognized parts (e.g. ``$kill werewolf typo``), we
+        # still warn — the typo is a real problem worth surfacing.
+        leftover = (part_input or "").strip()
+        if leftover and not part_targets and game.monster.body_parts:
             Dispatcher.add(
                 game.channel,
-                f"No targetable part matching '{target.strip()}' found. Attacking randomly.",
+                f"No targetable part matching '{leftover}' found. Attacking randomly.",
             )
 
         if already_in_combat:
@@ -152,6 +172,60 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, f"{player.name} prepares to attack, targeting {label}!")
         else:
             Dispatcher.add(game.channel, f"{player.name} prepares to attack!")
+
+    @staticmethod
+    def _strip_leading_monster_token(target_str, monster):
+        """Peel an optional leading monster-name token off ``$kill``'s
+        argument string.
+
+        Returns ``(remainder, consumed)``:
+
+        - ``remainder`` is the argument string with the first token
+          removed if (and only if) it resolved to ``monster``;
+          otherwise it's the original ``target_str`` unchanged.
+        - ``consumed`` is ``True`` when the first token was consumed.
+
+        Match rule mirrors ``$look``'s
+        :meth:`_monster_matches_look_target`: case-insensitive
+        equality against ``monster.name`` OR equality against any
+        whitespace-separated word token of that name (so ``"hydra"``
+        catches a "hexed hydra"). Fuzzy / prefix matching is
+        deliberately NOT applied here — ``find_plugin_classes`` /
+        prefix lookup would consume single-letter or short tokens
+        like ``"h"`` (against Hydra) or ``"t"`` (against Toad), which
+        players actually type to target ``head`` / ``torso`` via
+        ``find_parts``. Loose matching here would silently lose
+        those part shortcuts. Multi-monster swarms will eventually
+        need a tighter disambiguation rule; today's exact / word-
+        token match is correct for the single-monster case.
+
+        First-token only — ``$kill arm.left werewolf`` keeps today's
+        behavior (the trailing ``werewolf`` becomes an unknown part
+        token and silently drops out via ``_parse_part_targets``).
+        """
+        if not target_str or monster is None:
+            return target_str, False
+        # Whitespace-aware split so tabs / multiple spaces don't
+        # leak into the remainder. Matches ``_parse_part_targets``'s
+        # ``.split()`` convention below.
+        parts = (target_str or "").split(None, 1)
+        if not parts:
+            return target_str, False
+        first = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
+
+        first_lower = first.lower()
+        name_lower = (monster.name or "").lower()
+
+        is_match = (
+            first_lower == name_lower
+            or first_lower in name_lower.split()
+        )
+
+        if not is_match:
+            return target_str, False
+
+        return rest, True
 
     def _parse_part_targets(self, target_str, monster):
         """Parse body-part names from the player's command input.
