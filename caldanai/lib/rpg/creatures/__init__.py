@@ -1723,7 +1723,7 @@ class Creature:
     def find_parts(self, name: str) -> List[BodyPart]:
         """Fuzzy, case-insensitive lookup over non-destroyed body parts.
 
-        Matches per dotted segment. The resolver runs three passes in
+        Matches per dotted segment. The resolver runs four passes in
         order and stops at the first one that returns anything:
 
         1. **Exact** — whole-name equality. ``leg.left`` → bare
@@ -1738,20 +1738,34 @@ class Creature:
            contain ``h``). The cross-segment-bleed guard is the
            segment-by-segment structure, not the prefix check
            itself.
-        3. **Per-segment substring fallback** — runs only when pass
-           2 returns nothing. Each query segment must appear as a
-           substring of the matching part segment. This lets players
-           say ``leg.l`` on a werewolf (parts ``foreleg.left`` /
-           ``hindleg.left``) and get matches rather than a "no
-           targetable part" error followed by random routing. Still
-           per-segment, so ``h`` never matches ``arm.right``.
+        3. **Per-segment substring fallback** — each query segment
+           must appear as a substring of the matching part segment.
+           Lets players say ``leg.l`` on a werewolf (parts
+           ``foreleg.left`` / ``hindleg.left``) and get matches
+           rather than a "no targetable part" error followed by
+           random routing. Still per-segment, so ``h`` never matches
+           ``arm.right``.
+        4. **Per-segment edit-distance-1 fallback** — each query
+           segment must be within one Levenshtein edit of some
+           prefix of the matching name segment (length matched or
+           one longer). Catches single-character typos: ``forl.r``
+           on a werewolf reaches ``foreleg.right`` because inserting
+           one ``'e'`` makes ``forel``, which is a prefix of
+           ``foreleg``. Min query-segment length 3, so single-char
+           noise in tiny shorthand doesn't smear matches.
 
-        The fallback keeps the prefix-wins invariant: creatures that
-        DO have a literal ``leg`` part still resolve ``leg`` to it
-        (via exact / prefix), even though ``foreleg`` would also
-        contain ``leg`` as a substring. Only when prefix fails do we
-        broaden the search.
+        The fallback chain keeps the prefix-wins invariant: creatures
+        that DO have a literal ``leg`` part still resolve ``leg`` to
+        it (via exact / prefix), even though ``foreleg`` would also
+        contain ``leg`` as a substring. Only when stricter passes
+        fail do we broaden the search.
         """
+        from caldanai.lib.rpg.helpers.fuzzy import (
+            is_prefix,
+            is_substring,
+            is_within_one_edit,
+        )
+
         q = name.lower().strip()
         if not q:
             return []
@@ -1767,23 +1781,37 @@ class Creature:
         if any(seg == "" for seg in query_segs):
             return []
 
-        def segment_prefix_match(part: BodyPart) -> bool:
+        def matches(part: BodyPart, primitive) -> bool:
             name_segs = part.name.lower().split(".")
             if len(query_segs) > len(name_segs):
                 return False
-            return all(ns.startswith(qs) for qs, ns in zip(query_segs, name_segs))
+            return all(
+                primitive(qs, ns) for qs, ns in zip(query_segs, name_segs)
+            )
 
-        prefix_matches = [p for p in candidates if segment_prefix_match(p)]
+        # Each pass uses a different per-pair primitive but the
+        # outer segment-aligned walk is the same — keeps the
+        # prefix-wins invariant intact.
+        prefix_matches = [p for p in candidates if matches(p, is_prefix)]
         if prefix_matches:
             return prefix_matches
 
-        def segment_substring_match(part: BodyPart) -> bool:
-            name_segs = part.name.lower().split(".")
-            if len(query_segs) > len(name_segs):
-                return False
-            return all(qs in ns for qs, ns in zip(query_segs, name_segs))
+        substring_matches = [p for p in candidates if matches(p, is_substring)]
+        if substring_matches:
+            return substring_matches
 
-        return [p for p in candidates if segment_substring_match(p)]
+        # Pass 4 — edit-distance-or-prefix per segment. The
+        # ``is_prefix`` fallback is what lets a short, valid segment
+        # like ``r`` (below the fuzzy primitive's min-query-len
+        # floor) still match while a longer typo segment like
+        # ``forl`` slides through via edit distance. Without the
+        # disjunction, a typo'd query whose OTHER segments are
+        # short prefixes (the common case — ``forl.r``) would never
+        # reach the fuzzy pass, defeating the point.
+        def prefix_or_fuzzy(qs: str, ns: str) -> bool:
+            return is_prefix(qs, ns) or is_within_one_edit(qs, ns)
+
+        return [p for p in candidates if matches(p, prefix_or_fuzzy)]
 
     def get_health_scale(self) -> float:
         return self.health / self.get_health_max()

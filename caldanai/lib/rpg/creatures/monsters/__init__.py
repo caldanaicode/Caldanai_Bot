@@ -633,22 +633,24 @@ class MonsterPlugin(Creature):
         def tokens(name: str) -> List[str]:
             return name.replace("_", " ").replace(".", " ").split()
 
-        def unordered_prefix_match(name: str) -> bool:
+        from caldanai.lib.rpg.helpers.fuzzy import is_prefix, is_substring
+
+        def matches_any(primitive, name: str) -> bool:
+            # Every query token must satisfy ``primitive`` against
+            # SOME name token. Ordering doesn't matter —
+            # ``"teacher flying"`` should resolve the same as
+            # ``"flying teacher"``.
             name_tokens = tokens(name)
-            # Every query token must be a prefix of SOME name token.
-            # Ordering doesn't matter — ``"teacher flying"`` should
-            # resolve the same as ``"flying teacher"``.
             return all(
-                any(nt.startswith(qt) for nt in name_tokens)
+                any(primitive(qt, nt) for nt in name_tokens)
                 for qt in q_tokens
             )
 
+        def unordered_prefix_match(name: str) -> bool:
+            return matches_any(is_prefix, name)
+
         def unordered_substring_match(name: str) -> bool:
-            name_tokens = tokens(name)
-            return all(
-                any(qt in nt for nt in name_tokens)
-                for qt in q_tokens
-            )
+            return matches_any(is_substring, name)
 
         def collect(matcher) -> "List[Type[MonsterPlugin]]":
             seen: set = set()

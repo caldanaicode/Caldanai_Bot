@@ -228,6 +228,58 @@ class TestFindParts:
         assert {fl, fr, hl, hr}.issubset(set(result))
         assert head not in result
 
+    def test_edit_distance_fallback_catches_typo(self):
+        """Pass 4: a single-character typo in a query segment
+        (``forl`` instead of ``forel``) should still reach
+        ``foreleg.right`` rather than fall through to random
+        targeting.
+
+        Spotted in LIVE playtest 2026-04-27 (a player typed
+        ``$rip&tear forl.r`` twice, got random routing each time
+        because ``forl`` is neither a prefix nor a substring of
+        ``foreleg``)."""
+        c = _make_creature()
+        fl = _make_part("foreleg.left")
+        fr = _make_part("foreleg.right")
+        torso = _make_part("torso")
+        c.body_parts = [fl, fr, torso]
+
+        result = c.find_parts("forl.r")
+        assert fr in result
+        assert fl not in result
+        assert torso not in result
+
+    def test_edit_distance_fallback_does_not_preempt_substring(self):
+        """Substring-wins invariant: when the substring pass
+        returns hits, the edit-distance pass must not run.
+        ``leg.l`` on a werewolf hits substring (foreleg.left,
+        hindleg.left); the edit-distance pass would also find them
+        but shouldn't run because the cheaper pass already did."""
+        c = _make_creature()
+        fl = _make_part("foreleg.left")
+        hl = _make_part("hindleg.left")
+        torso = _make_part("torso")
+        c.body_parts = [fl, hl, torso]
+
+        result = c.find_parts("leg.l")
+        # Both legs found via substring; torso never reached.
+        assert {fl, hl} == set(result)
+
+    def test_edit_distance_fallback_min_query_length(self):
+        """Tiny queries (``f.l``) should fall through past the
+        edit-distance pass too — single-char query segments would
+        smear too many false matches under one-edit fuzzing.
+        Returns an empty list so the caller drops to random
+        targeting rather than the wrong specific part."""
+        c = _make_creature()
+        # Note: NO foreleg.left here, so prefix/substring don't hit;
+        # 'f.l' is min-length 1 segments, edit-distance pass skips.
+        torso = _make_part("torso")
+        head = _make_part("head")
+        c.body_parts = [torso, head]
+
+        assert c.find_parts("f.l") == []
+
     def test_query_with_more_segments_than_part_does_not_match(self):
         c = _make_creature()
         c.body_parts = [_make_part("head")]

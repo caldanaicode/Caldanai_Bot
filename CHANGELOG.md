@@ -4,6 +4,38 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Typo-tolerant part lookup + shared fuzzy primitives
+
+`forl.r` on a werewolf now reaches `foreleg.right` instead of
+falling through to random targeting. Adds Pass 4 to
+`Creature.find_parts`: each query segment matches via
+`is_prefix` OR within Levenshtein distance 1 of some prefix
+of the name segment (length-matched ± 1). Catches one missing
+char, one substituted char, one extra char.
+
+The per-pair primitives moved to a new
+`caldanai/lib/rpg/helpers/fuzzy.py`:
+
+- **`is_prefix`** / **`is_substring`** — the existing cheap
+  primitives, now exposed.
+- **`is_within_one_edit`** — Levenshtein-1 against
+  prefix-of-name in {len(query)-1, len(query), len(query)+1};
+  bounded to query length ≥ 3.
+- **`_levenshtein_le_1`** — threshold-1 distance, optimized
+  for the threshold case (length diff > 1 short-circuits to
+  False; equal-length walks until 2 differences; off-by-one
+  walks until first mismatch then skips one char).
+
+`Creature.find_parts` and `MonsterPlugin.find_plugin_classes`
+both call the new primitives — the outer-walk strategy
+(segment-aligned vs unordered tokens) stays at the call site
+where the intent is clearest. Pass 4 uses prefix-OR-fuzzy per
+segment so a typo in one segment doesn't block valid short
+segments like `r` (below the fuzzy floor) from still matching.
+
+37 new tests covering the primitives + the typo recovery
+case + the prefix-wins / substring-wins invariants.
+
 ### 2026-04-27 — `$item` surfaces the dodge tax on low-quality armor
 
 Direct UX follow-up to the dodge penalty ship. Players were
