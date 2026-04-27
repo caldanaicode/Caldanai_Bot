@@ -4,6 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — `$item` surfaces the dodge tax on low-quality armor
+
+Direct UX follow-up to the dodge penalty ship. Players were
+seeing `defense: 1` on a junk rough jerkin and not understanding
+why their dodge dropped on equip. The Armor embed now adds a
+`dodge tax: <N>` field when the piece's class declares a
+`LOW_QUALITY_DODGE_PENALTY > 0` AND the instance is at quality
+multiplier ≤ 1.0 (JUNK / ORDINARY). FINE+ pieces hide the field
+because the penalty isn't paid at that quality; bare Armor
+(default penalty 0) never shows it.
+
+Named "dodge tax" rather than "dodge: -N" so it doesn't get
+confused with a piece that genuinely grants a positive dodge
+bonus — different mechanics, different label.
+
+7 new tests in `test_armor.py` covering the active-when-low,
+hidden-at-fine-plus, never-on-zero-penalty cases.
+
 ### 2026-04-27 — `tools/journal.py` checked in + `edit` subcommand on bot_player and journal
 
 `tools/journal.py` shipped earlier in the day's playtest but was

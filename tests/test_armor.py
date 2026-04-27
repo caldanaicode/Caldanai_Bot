@@ -7,6 +7,14 @@ from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 from caldanai.lib.rpg.inventory.equipment.armor import Armor
 
 
+class _PenalizedArmor(Armor):
+    """Test-only subclass that declares a non-zero
+    LOW_QUALITY_DODGE_PENALTY so the embed branch is reachable
+    without depending on the specific scrap/leather plugin
+    values, which can drift as Caels tunes them."""
+    LOW_QUALITY_DODGE_PENALTY = 2
+
+
 # ---------------------------------------------------------------------------
 # Construction with bonuses dict
 # ---------------------------------------------------------------------------
@@ -94,3 +102,58 @@ class TestQualityMultiplier:
             plugin="test",
         )
         assert armor.bonuses["defense"] == int(base_bonus * expected_mult)
+
+
+# ---------------------------------------------------------------------------
+# Embed surfaces the low-quality dodge tax (only when active)
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedDodgeTax:
+    @pytest.mark.parametrize("quality", [Qualities.JUNK, Qualities.ORDINARY])
+    def test_low_quality_shows_dodge_tax(self, quality):
+        """Pieces at or below ORDINARY should expose the penalty
+        on the item embed so players can see why their dodge
+        dropped on equip."""
+        armor = _PenalizedArmor(
+            quality=quality,
+            bonuses={"defense": 1},
+            slots=EquipmentSlots.TORSO,
+            plugin="test",
+        )
+        embed, _ = armor.get_embed()
+        names = [f.name for f in embed.fields]
+        assert "dodge tax" in names
+        tax_field = next(f for f in embed.fields if f.name == "dodge tax")
+        # Discord coerces field values to strings.
+        assert tax_field.value == "2"
+
+    @pytest.mark.parametrize(
+        "quality",
+        [Qualities.FINE, Qualities.QUALITY, Qualities.SUPERIOR, Qualities.MASTERWORK],
+    )
+    def test_high_quality_hides_dodge_tax(self, quality):
+        """Pieces at FINE+ skip the penalty in the math, so the
+        embed shouldn't show a phantom number that doesn't apply."""
+        armor = _PenalizedArmor(
+            quality=quality,
+            bonuses={"defense": 1},
+            slots=EquipmentSlots.TORSO,
+            plugin="test",
+        )
+        embed, _ = armor.get_embed()
+        names = [f.name for f in embed.fields]
+        assert "dodge tax" not in names
+
+    def test_zero_penalty_armor_never_shows_tax(self):
+        """The default (LOW_QUALITY_DODGE_PENALTY=0) on bare Armor
+        means no field is added regardless of quality."""
+        armor = Armor(
+            quality=Qualities.JUNK,
+            bonuses={"defense": 1},
+            slots=EquipmentSlots.TORSO,
+            plugin="test",
+        )
+        embed, _ = armor.get_embed()
+        names = [f.name for f in embed.fields]
+        assert "dodge tax" not in names
