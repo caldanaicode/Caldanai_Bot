@@ -4,6 +4,17 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — `tools/journal.py` checked in + `edit` subcommand on bot_player and journal
+
+`tools/journal.py` shipped earlier in the day's playtest but was
+never staged. Adding it now alongside an `edit` subcommand on
+both `bot_player` and `journal` so a tester-bot post mangled by
+shell-quoting (an unescaped `$kill` swallowed inside double-
+quotes is the canonical trip) can be patched in place instead of
+leaving a duplicate-and-retry trail in the channel. Bots can
+only edit messages they authored; trying to edit somebody else's
+message yields a 403 from Discord.
+
 ### 2026-04-27 — Low-quality armor dodge penalty
 
 Junk and ordinary armor now drag the wearer's dodge down a small

@@ -119,6 +119,33 @@ async def _post(
         return await client.post_message(channel_id, content)
 
 
+async def _edit(
+    message_id: int,
+    content: str,
+    guild_filter: Optional[int],
+    channel_id_override: Optional[int] = None,
+) -> dict:
+    """PATCH the content of a previously-posted tester-bot message.
+
+    Recovery path for posts mangled by shell-quoting (an
+    unescaped ``$kill`` inside double-quotes evaporates before
+    the tool sees it). Bots can only edit messages they
+    authored, so this only works for tester-bot posts.
+    """
+    token = os.environ.get("CLAUDE_TESTER_TOKEN")
+    if not token:
+        raise SystemExit(
+            "CLAUDE_TESTER_TOKEN env var not set. Drop the tester-bot "
+            "token in .env under that name and try again."
+        )
+    if channel_id_override is not None:
+        channel_id = channel_id_override
+    else:
+        channel_id = _resolve_test_channel_id(guild_filter)
+    async with DiscordRestClient(token) as client:
+        return await client.edit_message(channel_id, message_id, content)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
@@ -146,6 +173,33 @@ def main(argv=None) -> int:
              "(e.g. a journal channel) the tester bot has access to.",
     )
 
+    edit_p = sub.add_parser(
+        "edit",
+        help="Edit a previously-posted tester-bot message in place.",
+    )
+    edit_p.add_argument(
+        "message_id", type=int,
+        help="Discord snowflake of the message to edit. Bots can "
+             "only edit messages they authored — passing another "
+             "user's message id will yield a 403.",
+    )
+    edit_p.add_argument(
+        "content",
+        help="Replacement message content. Replaces the entire "
+             "body — there's no diff/append mode.",
+    )
+    edit_p.add_argument(
+        "--guild", type=int, default=None,
+        help="Restrict channel lookup to one guild id when "
+             "multiple test guilds exist. Usually unnecessary.",
+    )
+    edit_p.add_argument(
+        "--channel-id", type=int, default=None,
+        help="Edit a message in a specific channel id, skipping "
+             "the DB-based test-channel lookup. Required when "
+             "editing messages outside the test-combat channel.",
+    )
+
     args = ap.parse_args(argv)
 
     if args.cmd == "send":
@@ -153,6 +207,16 @@ def main(argv=None) -> int:
         author = (msg.get("author") or {}).get("username", "?")
         print(
             f"posted id={msg['id']} as {author} "
+            f"(channel={msg.get('channel_id')})"
+        )
+        return 0
+    if args.cmd == "edit":
+        msg = asyncio.run(
+            _edit(args.message_id, args.content, args.guild, args.channel_id)
+        )
+        author = (msg.get("author") or {}).get("username", "?")
+        print(
+            f"edited id={msg['id']} as {author} "
             f"(channel={msg.get('channel_id')})"
         )
         return 0
