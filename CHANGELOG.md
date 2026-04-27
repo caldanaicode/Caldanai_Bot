@@ -4,6 +4,32 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — `$pray` nat-20 heals the entire party + hidden smite
+
+The nat-20 prayer outcome now heals every injured player in the
+game, not just the most-injured one. Each injured player gets
+their own "radiant column of light" beat; uninjured players are
+skipped (a "made whole" line for someone at full HP would mean
+nothing). Mirrors the nat-1 sacrifice branch's per-player
+iteration shape so the full party feels the divine swing in
+either direction.
+
+Also adds a hidden secondary 1d6 roll on nat-20: a 6 calls down
+divine wrath on every spawned monster, one-shotting them via
+the canonical damage path so the death pipeline (corpse-scavenge
+sweep, loot pool, on_monster_death + end_combat) all fire
+correctly. Effective rate: 1/20 × 1/6 = 1/120 prayers, ≈ 0.83%.
+
+The smite is **deliberately undocumented** in patch notes — let
+players discover it. CHANGELOG entry exists for technical
+history; no player-facing announcement. Smite narration uses a
+3-line flavor pool with storm / lightning / ash / cinders /
+ozone vocabulary, inverting the nat-1 sacrifice's storm onto
+the monster instead of the praying player.
+
+The 17-19 branch (single-target partial heal + worst-part
+restore) and the nat-1 sacrifice branch are unchanged.
+
 ### 2026-04-27 — Fuzzy monster names across `$kill` / `$look` + salvage polish
 
 `$kill <monster> [<part>...]` and `$look <monster>` now accept

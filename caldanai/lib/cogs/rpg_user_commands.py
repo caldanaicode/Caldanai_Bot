@@ -523,6 +523,81 @@ class RpgUserCommands(Cog):
             if player in game.combatants:
                 game.combatants.remove(player)
 
+        elif d20.value == 20:
+            # Divine miracle: full body + full parts restore for the
+            # ENTIRE party. Every injured player gets their own
+            # radiant-column line; uninjured players are skipped (a
+            # "made whole" beat means nothing for someone already at
+            # full HP). Mirrors the nat-1 storm branch's per-player
+            # iteration shape — actors list grows as we go and the
+            # parser substitutes per-index.
+            #
+            # Includes the praying player themselves: if they're
+            # injured they get healed alongside the rest of the party,
+            # at index 1. If they aren't, they still narrate the
+            # prayer but receive nothing personally (any other
+            # injured player is what powers this branch's flavor).
+            for p in game.player_manager.players.values():
+                if not p.is_injured():
+                    continue
+                index = len(actors) + 1 if p is not player else 1
+                # apply_damage before heal_fully so the resurrection
+                # narration (only fired when healing from 0 HP)
+                # appends before heal_fully tops everything off.
+                body_heal_msg = ""
+                if p.health < p.get_health_max():
+                    body_heal_msg = p.apply_damage(-p.get_health_max())
+                p.heal_fully()
+                if body_heal_msg:
+                    msg += f"\n{body_heal_msg}"
+                msg += (
+                    f"\nA radiant column of light engulfs @{index}; "
+                    f"wounds seal and broken flesh knits whole in moments."
+                )
+                if p is not player:
+                    actors.append(p)
+
+            # Hidden 1d6 smite: a 6 vaporizes every spawned monster.
+            # Deliberately silent on non-6 rolls — no debug log, no
+            # player-facing telltale, no patch-note. Players will
+            # discover the rate (1/120 prayers ≈ 0.83%) by observation.
+            smite = Dice.quick_roll("1d6")
+            if smite == 6:
+                # Iterate in case multi-monster swarms ever land
+                # (project_multi_monster_swarms.md backlog). Today
+                # ``game.monster`` is singular, so the "loop" is a
+                # one-element list — and only fires when a monster
+                # is actually present.
+                spawned = [game.monster] if game.monster is not None else []
+                for monster in spawned:
+                    monster_index = len(actors) + 1
+                    actors.append(monster)
+                    smite_line = choice([
+                        "\nThe heavens darken with divine wrath. A pillar of "
+                        "lightning lances down upon @{i}d; when the light "
+                        "fades, only ash drifts on the wind where @{i}d stood.",
+                        "\nA peal of thunder splits the sky. Holy fire descends "
+                        "in a blinding column, and @{i}d is unmade — reduced "
+                        "to a smear of cinders before @{i}a death-cry finishes.",
+                        "\nThe clouds boil black and a shaft of radiant lightning "
+                        "spears @{i}D where @{i}s @{i}v(stands|stand). When the "
+                        "afterimage clears, nothing remains of @{i}d but soot "
+                        "and a faint scent of ozone.",
+                    ]).format(i=monster_index)
+                    msg += smite_line
+                    # Zero the monster's HP via the canonical damage
+                    # path so the death pipeline (corpse-scavenge sweep,
+                    # loot pool, on_monster_death + end_combat) all
+                    # fire correctly.
+                    monster.apply_damage(monster.health)
+                if spawned:
+                    # ``on_monster_death`` returns text that's
+                    # already pre-rendered for the monster (its
+                    # scavenge-line owner phrases are baked) — append
+                    # as plain text. The final ``parse(msg, *actors)``
+                    # below is idempotent on already-resolved text.
+                    msg += "\n" + await game.on_monster_death()
+
         elif d20.value > 16:
             # Candidate filter includes part-injured players, not
             # just body-HP-injured ones.
@@ -546,80 +621,61 @@ class RpgUserCommands(Cog):
             actors.append(heal_target)
             index = len(actors)
 
-            if d20.value == 20:
-                # Divine miracle: full body + full parts restore.
-                # apply_damage first for the resurrection narration
-                # side effect (only emitted when healing from 0 HP);
-                # heal_fully then tops body HP off and restores parts,
-                # regen, and is_dirty.
-                body_heal_msg = ""
-                if heal_target.health < heal_target.get_health_max():
-                    body_heal_msg = heal_target.apply_damage(
-                        -heal_target.get_health_max()
-                    )
-                heal_target.heal_fully()
-                if body_heal_msg:
-                    msg += f"\n{body_heal_msg}"
-                msg += (
-                    f"\nA radiant column of light engulfs @{index}; "
-                    f"wounds seal and broken flesh knits whole in moments."
-                )
+            # 17–19: computed body heal + fully restore ONE most-
+            # injured part (triage). Keeps nat 20 distinct as the
+            # "everything fixed" outcome.
+            missing_health = heal_target.get_health_max() - heal_target.health
+            quarter = math.ceil(missing_health / 4) if missing_health else 0
+
+            if quarter > 1:
+                heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
+            elif missing_health == 1:
+                heal_amount = 1
+            elif missing_health > 0:
+                heal_amount = Dice.quick_roll(f"1d{missing_health}")
             else:
-                # 17–19: computed body heal + fully restore ONE most-
-                # injured part (triage). Keeps nat 20 distinct as the
-                # "everything fixed" outcome.
-                missing_health = heal_target.get_health_max() - heal_target.health
-                quarter = math.ceil(missing_health / 4) if missing_health else 0
+                heal_amount = 0
 
-                if quarter > 1:
-                    heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
-                elif missing_health == 1:
-                    heal_amount = 1
-                elif missing_health > 0:
-                    heal_amount = Dice.quick_roll(f"1d{missing_health}")
-                else:
-                    heal_amount = 0
+            heal_amount = heal_amount or 0
 
-                heal_amount = heal_amount or 0
+            # Pick the worst-injured part BEFORE applying heals so
+            # we can fold its missing-HP contribution into the
+            # single "points of health" total. Prior implementation
+            # reported only the body-HP delta, which read as "1
+            # point of health" even when an arm missing 8 HP was
+            # being restored to full in the same beat.
+            injured_parts = [
+                part for part in (heal_target.body_parts or [])
+                if part.health < part.health_max
+            ]
+            worst = (
+                min(injured_parts, key=lambda p: p.health / p.health_max)
+                if injured_parts else None
+            )
+            part_heal_amount = (
+                worst.health_max - worst.health if worst else 0
+            )
+            total_heal = heal_amount + part_heal_amount
 
-                # Pick the worst-injured part BEFORE applying heals so
-                # we can fold its missing-HP contribution into the
-                # single "points of health" total. Prior implementation
-                # reported only the body-HP delta, which read as "1
-                # point of health" even when an arm missing 8 HP was
-                # being restored to full in the same beat.
-                injured_parts = [
-                    part for part in (heal_target.body_parts or [])
-                    if part.health < part.health_max
-                ]
-                worst = (
-                    min(injured_parts, key=lambda p: p.health / p.health_max)
-                    if injured_parts else None
+            body_heal_msg = heal_target.apply_damage(-heal_amount) if heal_amount else ""
+
+            if body_heal_msg:
+                msg += f"\n{body_heal_msg}"
+
+            msg += f"\nA warm light suffuses @{index}, "
+
+            if total_heal > 0:
+                noun = "point" if total_heal == 1 else "points"
+                msg += f"imbuing @{index}o with {total_heal} {noun} of health!"
+            else:
+                msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
+
+            if worst is not None:
+                worst.health = worst.health_max
+                heal_target.is_dirty = True
+                msg += (
+                    f"\n@{index}'s {worst.display_name} knits itself whole."
                 )
-                part_heal_amount = (
-                    worst.health_max - worst.health if worst else 0
-                )
-                total_heal = heal_amount + part_heal_amount
-
-                body_heal_msg = heal_target.apply_damage(-heal_amount) if heal_amount else ""
-
-                if body_heal_msg:
-                    msg += f"\n{body_heal_msg}"
-
-                msg += f"\nA warm light suffuses @{index}, "
-
-                if total_heal > 0:
-                    noun = "point" if total_heal == 1 else "points"
-                    msg += f"imbuing @{index}o with {total_heal} {noun} of health!"
-                else:
-                    msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
-
-                if worst is not None:
-                    worst.health = worst.health_max
-                    heal_target.is_dirty = True
-                    msg += (
-                        f"\n@{index}'s {worst.display_name} knits itself whole."
-                    )
 
         Dispatcher.add(game.channel, parse(msg, *actors))
 
