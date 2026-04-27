@@ -5,6 +5,8 @@ from caldanai.lib.rpg.inventory.equipment.armor import Armor
 
 
 class ArmorPlugin(Armor):
+    LOW_QUALITY_DODGE_PENALTY = 2
+
     def __init__(self, iid: ObjectId = None, quality: Qualities = None):
         super().__init__(
             iid=iid,

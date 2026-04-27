@@ -28,6 +28,7 @@ from caldanai.lib.rpg.creatures import (
     effective_dodge_for_part,
 )
 from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.helpers.enums import Qualities
 
 
 def _fresh_player() -> Player:
@@ -44,6 +45,13 @@ def _fresh_player() -> Player:
 def _fake_armor(defense_bonus: int = 0, dodge_bonus: int = 0):
     a = MagicMock()
     a.bonuses = {"defense": defense_bonus, "dodge": dodge_bonus}
+    # Pin a real Quality so Player.get_dodge's low-quality dodge
+    # penalty walk doesn't trip on a bare MagicMock. FINE has a
+    # multiplier > 1.0, putting the fake outside the penalty band
+    # — this fixture isn't testing that feature, just dodge
+    # aggregation, so we stay quality-neutral here.
+    a.quality = Qualities.FINE
+    a.LOW_QUALITY_DODGE_PENALTY = 0
     return a
 
 

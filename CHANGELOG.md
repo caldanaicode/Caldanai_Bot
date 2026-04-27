@@ -4,6 +4,27 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Low-quality armor dodge penalty
+
+Junk and ordinary armor now drag the wearer's dodge down a small
+amount; FINE+ quality is unaffected. Differentiates crafted-leather
+(light class) from scrap (heavy class) and sets up a future cloth
+class for magic users.
+
+- **`Armor.LOW_QUALITY_DODGE_PENALTY`** class attribute (default 0)
+  on each armor piece; heavy/structural pieces override.
+- **`Player._get_low_quality_armor_dodge_penalty()`** walks
+  equipped armor and sums penalties for items at quality
+  multiplier ≤ 1.0 (JUNK + ORDINARY).
+- **`Player.get_dodge()`** subtracts the penalty, clamped at 0.
+- **Per-piece values**: `rough_jerkin` 2, `rough_rerebrace` 1,
+  `rough_greave` 1, `scrap_shin` 1, `leather_jerkin` 1. All
+  smaller pieces stay at 0. Fully-kitted junk scrap costs
+  -5 dodge; fine+ kits stay clean.
+- Penalty applies globally (not per-part) — armor weight slows the
+  whole creature, not just the armored part. Mirrors the existing
+  `creature.get_dodge()` aggregate-armor model.
+
 ### 2026-04-27 — `bot_player --channel-id` for non-combat posting
 
 `bot_player send` previously resolved the target channel from

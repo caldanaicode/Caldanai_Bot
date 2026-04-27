@@ -13,6 +13,15 @@ _log = get_logger(__name__)
 
 
 class Armor(Equipment):
+    # Dodge cost when worn at ORDINARY quality or below. Heavy/
+    # structural pieces (chest, upper-arm plates, upper-leg greaves)
+    # set this to a small positive integer; small pieces (gloves,
+    # hoods, decorative bands) leave it at 0. FINE+ quality pieces
+    # are well-fitted and skip the penalty regardless. Override on
+    # subclasses, not via constructor — the value is structural to
+    # the piece, not per-instance.
+    LOW_QUALITY_DODGE_PENALTY: int = 0
+
     def __init__(
         self,
         iid: ObjectId = None,
