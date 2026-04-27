@@ -304,6 +304,12 @@ class Game:
         # ``game.monster`` / ``game.combatants`` / ``game.loot`` etc.
         # surface for cogs, tests, and monster hooks.
         self.combat: CombatState = CombatState()
+        # How the most recent combat ended — ``"death"`` if the
+        # monster fell, ``"flee"`` if it bolted, ``None`` before any
+        # combat. Read by ``$loot`` to branch wording (a corpse
+        # exists for "death", a fled monster for "flee"). Persists
+        # past ``end_combat``; reset only when a new combat starts.
+        self.last_combat_outcome: Optional[str] = None
         self.use_spawn_timer = use_spawn_timer
         self.spawn_duration = spawn_duration * 60
         self.loot_duration = loot_duration * 60
@@ -547,6 +553,7 @@ class Game:
         the death-loot pool simply doesn't roll when nobody died,
         and ``loot_expires`` still cleans up uncollected items
         downstream."""
+        self.last_combat_outcome = "flee"
         await self.end_combat()
         await self.set_spawn_timer()
 
@@ -570,6 +577,7 @@ class Game:
         overwriting, so a player who farmed body parts during the
         fight keeps their salvage alongside whatever the corpse
         rolls."""
+        self.last_combat_outcome = "death"
         for player in self.looters:
             # ``setdefault`` defensively — the bucket should already
             # exist from ``_run_player_block``'s per-round assertion,
@@ -787,6 +795,26 @@ class Game:
             round_output.escape_narration = parse(
                 monster.escape, *self._build_witness_args(monster),
             )
+            # Mid-combat salvage stays in the loot pool when a
+            # monster bolts. Without this prompt the player has no
+            # end-of-combat reminder to actually pick up what their
+            # dismemberment knocked loose, and the items quietly
+            # expire after ``loot_duration`` minutes. The prompt is
+            # appended to ``escape_narration`` (rather than the
+            # standalone ``loot_hint`` slot) so it renders AFTER
+            # the bandit-bolts line — ``loot_hint`` lands before
+            # ``escape_narration`` in ``RoundOutput.render``, which
+            # is the right order for death (death msg → "loot...")
+            # but reads backwards for flee.
+            has_loot = any(items for items in self.loot.values())
+            if has_loot:
+                self.game_clock.add_routine(
+                    self.loot_expires, self.loot_duration, True,
+                )
+                round_output.escape_narration += (
+                    f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\n"
+                    f"There might be something to `{self.prefix}loot`..."
+                )
             Dispatcher.add(self.channel, round_output.render())
             await self.cancel_combat()
 

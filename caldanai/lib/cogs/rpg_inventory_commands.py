@@ -392,8 +392,26 @@ class RpgInventoryCommands(Cog):
             Dispatcher.add(game.channel, "There is nothing to loot!")
             return
 
+        # Branch wording on how the previous combat ended. Pre-
+        # salvage (Phase 1) every loot pull happened over a corpse,
+        # so "pokes around the corpse" was always accurate. With
+        # mid-combat salvage in the pool, players can also $loot
+        # after a flee — and "corpse" reads as a mismatch with the
+        # narrative they just witnessed (the monster ran).
+        fled = game.last_combat_outcome == "flee"
+
         if player.user_id not in game.loot.keys():
-            Dispatcher.add(game.channel, f"{player.name} attempts to loot the corpse, but cannot interact with it.")
+            if fled:
+                emp = (
+                    f"{player.name} casts about for what the runaway "
+                    f"left behind, but finds nothing within reach."
+                )
+            else:
+                emp = (
+                    f"{player.name} attempts to loot the corpse, "
+                    f"but cannot interact with it."
+                )
+            Dispatcher.add(game.channel, emp)
             return
 
         loot = game.loot[player.user_id]
@@ -408,6 +426,11 @@ class RpgInventoryCommands(Cog):
                 txt = item_list_to_string(dropped)
                 msg += f" It appears you may have a hoarding problem, though. The following item" \
                     f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
+        elif fled:
+            msg = (
+                f"{player.name} sifts the dust where the runaway "
+                f"stood, but nothing useful was left behind."
+            )
         else:
             msg = f"{player.name} pokes around the corpse, finding nothing useful."
 

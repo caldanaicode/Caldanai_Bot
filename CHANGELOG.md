@@ -4,6 +4,34 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Post-flee loot UX: announce prompt + flee-aware $loot wording
+
+Pre-Phase-2 the only loot was death-rolled, so a fled monster
+genuinely left nothing behind. Mid-combat salvage broke that
+assumption: a player could dismember an arm, the monster could
+bolt, and `$loot` would silently work with corpse-flavored
+strings. Player report flagged the missing announce prompt; the
+"pokes around the corpse" wording was already in the backlog.
+
+- **Flee-with-loot prompt**: when `do_combat`'s escape branch
+  fires and the loot pool has anything in it, append the same
+  `"There might be something to $loot..."` mention-prompt that
+  death uses. Schedules `loot_expires` so the items don't
+  silently vanish. Prompt appended to `escape_narration` so it
+  renders AFTER the bandit-bolts line (the standalone
+  `loot_hint` slot renders before escape, which is right for
+  death but reads backwards for flee).
+- **`$loot` wording branches on combat outcome** via a new
+  `Game.last_combat_outcome` flag (`"death"` / `"flee"`):
+  - Empty pool, post-flee: "sifts the dust where the runaway
+    stood, but nothing useful was left behind." (was: "pokes
+    around the corpse, finding nothing useful.")
+  - Non-combatant trying $loot post-flee: "casts about for
+    what the runaway left behind, but finds nothing within
+    reach." (was: "attempts to loot the corpse, but cannot
+    interact with it.")
+  - Death-path strings unchanged.
+
 ### 2026-04-26 — Bandit / goblin armor loadouts; salvage from worn pieces
 
 Bandits and goblins now spawn wearing a random subset of the
