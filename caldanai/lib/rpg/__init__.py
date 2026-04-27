@@ -595,15 +595,6 @@ class Game:
             parse(self.monster.arrival, *arrival_args),
             embed=embed, file=file,
         )
-        # Body-parts table dispatched as a separate plain message so
-        # it inherits full channel width (embeds render narrower and
-        # wrap the Worn column). Caels' eye on 2026-04-26 confirmed
-        # this is necessary for visible-loadout monsters.
-        parts_table = self.monster.render_body_part_status_table(
-            show_hp=False,
-        )
-        if parts_table:
-            Dispatcher.add(self.channel, parts_table)
         # Populate the structural channel id before on_spawn so that
         # any override (or anything on_spawn dispatches to) can
         # already use the time façade. Keeps per-monster ``on_spawn``

@@ -4,6 +4,19 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Drop body-parts table from monster arrival
+
+Monster spawn used to emit two messages: the arrival flavor +
+embed, and an immediate body-parts ASCII table. Players who
+wanted to plan a target had it for free; everyone else had to
+scroll past it every spawn. Hydras and dragons (20+ parts)
+made the noise especially loud.
+
+Removed the auto-emit. The parts table is still available via
+`$look <monster>` (which renders the same table), so the
+information isn't gone — players just have to ask for it. Cuts
+~15 lines of noise off every spawn for visible-loadout monsters.
+
 ### 2026-04-27 — `$pray` nat-20 heals the entire party + hidden smite
 
 The nat-20 prayer outcome now heals every injured player in the
