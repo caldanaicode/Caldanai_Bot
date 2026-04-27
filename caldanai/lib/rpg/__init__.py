@@ -43,6 +43,92 @@ if TYPE_CHECKING:
 _log = get_logger(__name__)
 
 
+# Number-words for salvage-narration coalescing (1-10 spell out;
+# 11+ falls through to digit form). Both call sites — the inline
+# salvage in ``_run_player_block`` and the corpse-scavenge sweep in
+# ``on_monster_death`` — reuse :func:`_render_salvage_lines` so
+# count/plural/verb logic stays in one place.
+_SALVAGE_COUNT_WORDS = {
+    1: "one",
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+}
+
+
+def _pluralize_salvage_name(name: str) -> str:
+    """Append ``"s"`` to the last whitespace-separated word of an
+    item's ``name``. Covers every salvage item we ship today
+    (``leather`` → ``leathers``, ``patchwork bracer`` →
+    ``patchwork bracers``, ``rough rerebrace`` → ``rough rerebraces``,
+    ``iron scrap`` → ``iron scraps``). No inflect dependency, no
+    irregular-plural table — names that need real plurals (e.g.
+    Stackables with their own ``plural`` attribute) aren't in the
+    salvage path today."""
+    if not name:
+        return name
+    words = name.split(" ")
+    words[-1] = words[-1] + "s"
+    return " ".join(words)
+
+
+def _render_salvage_lines(
+    items: "List[Item]",
+    owner_phrase: str,
+    part_display_name: str,
+) -> "List[str]":
+    """Render a list of salvage items into one narration line per
+    distinct ``(article, name)`` group. Two ``leather`` drops on the
+    same destroyed part collapse to ``"Two leathers slip free ..."``;
+    a single drop keeps the today-shape ``"Some leather slips
+    free ..."``. Quality differences across same-name items don't
+    matter for narration — they surface in the post-combat ``$loot``
+    summary."""
+    if not items:
+        return []
+    # Group by (article, name) preserving first-seen order so the
+    # narration order tracks the salvage roll order. Track one
+    # representative item per bucket so plural-aware ``Stackable``
+    # entries can carry their explicit ``plural`` attribute through
+    # to render-time without re-deriving it from ``name``.
+    groups: "Dict[Tuple[str, str], List[Item]]" = {}
+    for it in items:
+        key = (it.article, it.name)
+        groups.setdefault(key, []).append(it)
+
+    lines: "List[str]" = []
+    for (article, name), bucket in groups.items():
+        count = len(bucket)
+        if count == 1:
+            subject = f"{article.capitalize()} {name}"
+            verb = "slips free"
+        else:
+            count_word = _SALVAGE_COUNT_WORDS.get(count, str(count))
+            # Prefer an explicit ``Stackable.plural`` over the
+            # last-word + ``s`` rule. All bucket members share
+            # ``(article, name)`` so any representative carries the
+            # right plural; future entries like ``wool`` ("tufts of
+            # wool") or ``toad slime`` ("globs of toad slime") then
+            # render correctly without touching this helper again.
+            sample = bucket[0]
+            plural_name = (
+                getattr(sample, "plural", None)
+                or _pluralize_salvage_name(name)
+            )
+            subject = f"{count_word.capitalize()} {plural_name}"
+            verb = "slip free"
+        lines.append(
+            f"   {subject} {verb} of {owner_phrase} {part_display_name}."
+        )
+    return lines
+
+
 class Game:
     # Class-level routing map: Discord channel_id -> Game instance.
     # Populated when a Game registers its primary channel (in
@@ -650,14 +736,23 @@ class Game:
             survivors = self.monster.get_corpse_scavenge()
             if survivors:
                 owner_phrase = parse("@1np", self.monster)
+                # Route each surviving instance to a looter (round-
+                # robin) item-by-item. Narration is collapsed
+                # per-part via :func:`_render_salvage_lines` so two
+                # identical drops off the same part read as one
+                # ``"Two ... slip free"`` line.
+                per_part_items: "Dict[Any, List[Item]]" = {}
                 for idx, (part, item) in enumerate(survivors):
                     recipient = self.looters[idx % len(self.looters)]
                     self.loot.setdefault(
                         recipient.user_id, [],
                     ).append(item)
-                    scavenge_lines.append(
-                        f"   {item.article.capitalize()} {item.name} "
-                        f"slips free of {owner_phrase} {part.display_name}."
+                    per_part_items.setdefault(part, []).append(item)
+                for part, items in per_part_items.items():
+                    scavenge_lines.extend(
+                        _render_salvage_lines(
+                            items, owner_phrase, part.display_name,
+                        )
                     )
 
         for player in self.looters:
@@ -787,12 +882,11 @@ class Game:
                         player.user_id, [],
                     ).extend(salvage)
                     owner_phrase = parse("@1np", monster)
-                    for item in salvage:
-                        narration = (
-                            f"   {item.article.capitalize()} {item.name} "
-                            f"slips free of {owner_phrase} {destroyed.display_name}."
+                    player_res.injury_feedback_lines.extend(
+                        _render_salvage_lines(
+                            salvage, owner_phrase, destroyed.display_name,
                         )
-                        player_res.injury_feedback_lines.append(narration)
+                    )
                 if player_res.injury_feedback_lines:
                     injury_chunk = (
                         "\n".join(player_res.injury_feedback_lines) + "\n"

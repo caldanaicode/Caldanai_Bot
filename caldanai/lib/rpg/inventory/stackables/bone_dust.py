@@ -14,6 +14,7 @@ class StackablePlugin(Stackable):
             unit_value=2,
             image=None,
             quality=quality,
+            article="some",  # uncountable mass noun
             plural="bone dust",  # uncountable noun — same singular and plural form
             count=count,
         )

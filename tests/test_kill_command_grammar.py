@@ -151,15 +151,18 @@ class TestStripLeadingMonsterToken:
         assert remainder == "arm.left"
 
     def test_short_part_prefix_does_NOT_consume(self):
-        """Regression pin: prefix-style monster matching would
-        silently consume single-letter part shortcuts. ``$kill h``
-        against a monster whose name starts with ``h`` (Hydra) MUST
-        leave the ``h`` for ``find_parts`` to resolve to ``head`` —
-        otherwise the player tries to target the head and silently
-        gets random-attack instead. Same shape for ``t`` (torso)
-        against Toad / MathTeacher, ``g`` against Goblin / Golem /
-        Giant, ``b`` against Bandit / Bearowl, ``do`` against
-        Doppelganger.
+        """Regression pin: fuzzy monster-name matching MUST NOT
+        consume single-letter part shortcuts. ``$kill h`` against a
+        monster whose name starts with ``h`` (Hydra) MUST leave the
+        ``h`` for ``find_parts`` to resolve to ``head`` — otherwise
+        the player tries to target the head and silently gets
+        random-attack instead. Same shape for ``t`` (torso) against
+        Toad / MathTeacher, ``g`` against Goblin / Golem / Giant,
+        ``b`` against Bandit / Bearowl, ``do`` against Doppelganger.
+
+        The conflict guard is the mechanism: any token that
+        ``monster.find_parts`` accepts is reserved for parts and
+        cannot be peeled as the monster name.
         """
         m = _make_monster_creature("hydra")
         remainder, consumed = _cog()._strip_leading_monster_token(
@@ -175,6 +178,68 @@ class TestStripLeadingMonsterToken:
         )
         assert consumed2 is False
         assert remainder2 == "h"
+
+    def test_fuzzy_prefix_match_against_word_in_name(self):
+        """``$kill hyd`` against a "hexed hydra" should peel via
+        prefix-of-any-word fuzzy match. ``"hyd"`` doesn't resolve to
+        any body part (no ``find_parts`` hit), so the conflict guard
+        is silent and the prefix branch fires."""
+        m = _make_monster_creature("hexed hydra")
+        remainder, consumed = _cog()._strip_leading_monster_token(
+            "hyd", m,
+        )
+        assert consumed is True
+        assert remainder == ""
+
+    def test_fuzzy_typo_match_via_difflib(self):
+        """``$kill hdra`` against a "hexed hydra" — the typo path.
+        Single dropped character gets caught by
+        ``difflib.get_close_matches`` at the chosen cutoff. No
+        body-part conflict, so the typo branch fires."""
+        m = _make_monster_creature("hexed hydra")
+        remainder, consumed = _cog()._strip_leading_monster_token(
+            "hdra", m,
+        )
+        assert consumed is True
+        assert remainder == ""
+
+    def test_fuzzy_typo_with_trailing_part(self):
+        """``$kill hdra h.1`` — fuzzy peel of the leading typo,
+        remainder flows into ``_parse_part_targets`` and resolves
+        the part. Spec example."""
+        m = _make_monster_creature("hexed hydra")
+        # Add a numbered head variant so ``h.1`` is a sensible part
+        # token to leave behind. (The helper itself doesn't care
+        # about the remainder beyond "is non-empty"; the assertion
+        # is that we hand it back unchanged.)
+        m.body_parts.append(BodyPart(name="head.1", health_max=10))
+        remainder, consumed = _cog()._strip_leading_monster_token(
+            "hdra h.1", m,
+        )
+        assert consumed is True
+        assert remainder == "h.1"
+
+    def test_fuzzy_no_plausible_match_does_not_consume(self):
+        """``$kill xyz`` against any monster — neither prefix-of-word
+        nor a close-enough typo. Stays unconsumed so the existing
+        'No targetable part' warning still fires."""
+        m = _make_monster_creature("hexed hydra")
+        remainder, consumed = _cog()._strip_leading_monster_token(
+            "xyz", m,
+        )
+        assert consumed is False
+        assert remainder == "xyz"
+
+    def test_fuzzy_prefix_match_against_simple_name(self):
+        """Pure non-conflict consume: ``"bandi"`` against a bandit.
+        No body part starts with ``"bandi"``, and ``"bandit"`` starts
+        with ``"bandi"`` — prefix-of-word peels."""
+        m = _make_monster_creature("bandit")
+        remainder, consumed = _cog()._strip_leading_monster_token(
+            "bandi", m,
+        )
+        assert consumed is True
+        assert remainder == ""
 
 
 # ---------------------------------------------------------------------------

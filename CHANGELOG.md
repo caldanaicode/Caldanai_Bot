@@ -4,6 +4,38 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Fuzzy monster names across `$kill` / `$look` + salvage polish
+
+`$kill <monster> [<part>...]` and `$look <monster>` now accept
+prefix and typo-tolerant monster-name matches. `$kill hyd h.1`,
+`$kill ske`, `$look gob`, `$kill mntaur head` all resolve to
+the spawned monster as players intend, instead of the player
+having to type the exact registered name.
+
+Resolution: exact / word-token first, then prefix-of-any-word,
+then `difflib.get_close_matches` at cutoff 0.75 (catches single-
+character drops like `hdra` → "hydra"). Stdlib only.
+
+`$kill` keeps a conflict guard — if the token also resolves to a
+body part via `find_parts`, the part wins. So `$kill h` still
+targets head/hand on every monster, even when the spawned
+creature's name starts with `h`.
+
+Both call sites delegate to a single `Creature.matches_token`
+method, so the logic lives in one place. ($haunt and any other
+spawned-monster command can be plugged into the same helper.)
+
+Inline salvage narration now collapses duplicate same-item drops
+on a destroyed part: two leathers from one bearowl foreleg read
+as "Two leathers slip free of the bearowl's left foreleg." instead
+of two identical lines. Stackable items with an explicit `plural`
+attribute (wool → "tufts of wool") are respected when they appear
+in salvage. Same collapse applies to the corpse-scavenge sweep.
+
+Also: `bone dust` loot now reads "Vael Caldanai found some bone
+dust" instead of "a bone dust" — the only Stackable that was
+missing the `article="some"` field for its mass-noun shape.
+
 ### 2026-04-27 — `tail_channel --gateway` mode (reactions + edits + presence)
 
 Adds a Gateway WebSocket mode to the channel tailer, alongside

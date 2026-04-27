@@ -428,3 +428,62 @@ class TestOnMonsterDeathScavengeIntegration:
         # No crash; nothing scavenged because there's nobody to
         # receive it. Narration path stays clean.
         assert "slips free of" not in msg
+
+    @pytest.mark.asyncio
+    async def test_scavenge_narration_collapses_same_item_on_part(self):
+        """Two identical worn pieces on the SAME part collapse to
+        one ``"Two ... slip free"`` line rather than two singular
+        ``"... slips free"`` lines. Mirrors the inline-salvage
+        collapse so the narration shape is consistent between the
+        per-round and end-of-combat sweeps. See
+        ``project_salvage_narration_collapse_dupes.md``."""
+        Inventory.discover_items()
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            b = Bandit()
+        b.loot = {}
+
+        # Force a same-render duplicate on a single part: two
+        # patchwork bracers on arm.left's lower + upper slots. Real
+        # bandit loadouts use a bracer + rerebrace there, so this is
+        # a deliberate same-item override to surface the collapse.
+        arm = next(p for p in b.body_parts if p.name == "arm.left")
+        bracer1 = Inventory.ITEMS["patchwork_bracer"].from_plugin(
+            "patchwork_bracer", {"quality": "ORDINARY"},
+        )
+        bracer2 = Inventory.ITEMS["patchwork_bracer"].from_plugin(
+            "patchwork_bracer", {"quality": "JUNK"},
+        )
+        # Clear every other placement so only this one part
+        # contributes to scavenge.
+        for part in b.body_parts:
+            placements = getattr(part, "placements", None) or {}
+            for slot in placements:
+                placements[slot] = None
+        arm.placements["worn.lower"] = bracer1
+        arm.placements["worn.upper"] = bracer2
+
+        game = self._make_game_with_monster(b)
+        alice = self._make_player("alice", 1)
+        game.looters = [alice]
+        game.loot = {1: []}
+
+        with patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=0.0,
+        ):
+            msg = await game.on_monster_death()
+
+        # Both instances landed in alice's loot bucket (round-robin
+        # routes item-by-item, narration-collapse doesn't lose
+        # items).
+        assert bracer1 in game.loot[1]
+        assert bracer2 in game.loot[1]
+        # Narration collapsed to one "Two patchwork bracers slip
+        # free of the bandit's left arm." line.
+        assert "Two patchwork bracers slip free of" in msg
+        # No singular line for the same part lurking under the
+        # collapsed line.
+        assert "A patchwork bracer slips free of" not in msg

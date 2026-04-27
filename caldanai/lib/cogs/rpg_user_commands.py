@@ -185,19 +185,14 @@ class RpgUserCommands(Cog):
           otherwise it's the original ``target_str`` unchanged.
         - ``consumed`` is ``True`` when the first token was consumed.
 
-        Match rule mirrors ``$look``'s
-        :meth:`_monster_matches_look_target`: case-insensitive
-        equality against ``monster.name`` OR equality against any
-        whitespace-separated word token of that name (so ``"hydra"``
-        catches a "hexed hydra"). Fuzzy / prefix matching is
-        deliberately NOT applied here — ``find_plugin_classes`` /
-        prefix lookup would consume single-letter or short tokens
-        like ``"h"`` (against Hydra) or ``"t"`` (against Toad), which
-        players actually type to target ``head`` / ``torso`` via
-        ``find_parts``. Loose matching here would silently lose
-        those part shortcuts. Multi-monster swarms will eventually
-        need a tighter disambiguation rule; today's exact / word-
-        token match is correct for the single-monster case.
+        The match itself is delegated to
+        :meth:`Creature.matches_token`, which centralizes the
+        exact / word / prefix / difflib resolution shared with
+        ``$look``. The ``conflict_check=monster.find_parts`` argument
+        is the ``$kill``-specific guard that keeps short part
+        shortcuts like ``h`` / ``t`` reserved for
+        ``_parse_part_targets`` even when the monster's name starts
+        with the same letter.
 
         First-token only — ``$kill arm.left werewolf`` keeps today's
         behavior (the trailing ``werewolf`` becomes an unknown part
@@ -214,18 +209,9 @@ class RpgUserCommands(Cog):
         first = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
 
-        first_lower = first.lower()
-        name_lower = (monster.name or "").lower()
-
-        is_match = (
-            first_lower == name_lower
-            or first_lower in name_lower.split()
-        )
-
-        if not is_match:
-            return target_str, False
-
-        return rest, True
+        if monster.matches_token(first, conflict_check=monster.find_parts):
+            return rest, True
+        return target_str, False
 
     def _parse_part_targets(self, target_str, monster):
         """Parse body-part names from the player's command input.

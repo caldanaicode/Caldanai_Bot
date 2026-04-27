@@ -12,6 +12,7 @@ from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
 from caldanai.db import DB
 from caldanai.lib.rpg import Game
+from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.helpers import ansi
 from caldanai.lib.rpg.helpers.enums import (
     Directions, INJURY_LEVEL_DISPLAY, InjuryLevels, Pronouns, Roles,
@@ -720,27 +721,31 @@ class RpgInfoCommands(Cog):
     @staticmethod
     def _monster_matches_look_target(monster, target: str) -> bool:
         """Match ``$look <target>`` against the active monster's
-        rendered name. Accepts the full display name OR any single
-        whitespace-separated token from it.
+        rendered name.
 
-        Variant-aware: a Hexed Hydra's ``self.name`` is "hexed
-        hydra"; players see "hydra" in spawn flavor and reach for
-        ``$look hydra``, which the prior literal-equality check
-        rejected. Word-token matching catches both "hexed" and
-        "hydra" without false-positive partials ("hex" rightly
-        fails since it isn't a full token).
+        Delegates to :meth:`Creature.matches_token` (the shared
+        spawned-monster name resolver used by ``$kill`` as well). No
+        ``conflict_check`` is passed: ``$look``'s only target is the
+        spawned monster, so the fuzzy passes match unconditionally
+        after the exact pass — unlike ``$kill``, there are no body-
+        part shortcuts to defend.
 
-        Future generalization is the ``MonsterPlugin.find_plugin_classes``
-        fuzzy resolver (already used by ``$spawn``). Today's
-        simpler word-token rule covers the immediate UX gap and
-        leaves the harder multi-monster disambiguation for the
-        time it ships.
+        Future generalization toward multi-monster disambiguation
+        belongs to the ``MonsterPlugin.find_plugin_classes`` fuzzy
+        resolver (already used by ``$spawn``); this helper stays
+        scoped to the lone spawned creature.
         """
-        target_lower = target.lower()
-        name_lower = (monster.name or "").lower()
-        if target_lower == name_lower:
-            return True
-        return target_lower in name_lower.split()
+        if monster is None:
+            return False
+        # Unbound call (`Creature.matches_token(monster, ...)` rather
+        # than `monster.matches_token(...)`) is deliberate: existing
+        # ``test_look_target_match.py`` fixtures use
+        # ``SimpleNamespace(name=...)`` duck-types that don't inherit
+        # the bound method. Threading the monster as ``self`` keeps
+        # those fixtures working without a churn-for-aesthetics
+        # rewrite. ``$kill`` always has a real Creature, so it uses
+        # the normal bound form.
+        return Creature.matches_token(monster, target)
 
     @command(name="look", brief="Displays information about the area, a direction, or a creature.")
     async def look(self, ctx: Context, *target: str):

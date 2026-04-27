@@ -1,7 +1,8 @@
 import math
 from collections import defaultdict
+from difflib import get_close_matches
 from random import choice, choices, random, sample, shuffle
-from typing import List, Tuple, Union, Optional, Dict, Set
+from typing import Callable, List, Tuple, Union, Optional, Dict, Set
 
 from discord import Embed, File
 
@@ -1719,6 +1720,77 @@ class Creature:
         the arm is no longer aimable at.
         """
         return [p for p in self.body_parts if p.is_reachable()]
+
+    def matches_token(
+        self,
+        token: str,
+        *,
+        conflict_check: Optional[Callable[[str], object]] = None,
+    ) -> bool:
+        """Fuzzy, case-insensitive name match for the spawned-monster
+        disambiguation used by ``$kill`` (leading-token peel) and
+        ``$look`` (single-target match). One helper, two callers; the
+        only asymmetry is the pre-fuzzy ``conflict_check`` guard that
+        ``$kill`` passes (its ``find_parts``) to keep single-letter
+        part shortcuts like ``h`` / ``t`` reserved for the part path.
+
+        Resolution order against ``self.name`` only (no cross-monster
+        ``find_plugin_classes`` lookup — multi-monster disambiguation
+        is a separate, larger lift):
+
+        1. **Exact / word-token equality** (case-insensitive) against
+           ``self.name`` or any whitespace-separated word of it.
+           ``"hydra"`` matches a "hexed hydra"; ``"GOBLIN"`` matches
+           ``"goblin"``. Always wins, regardless of
+           ``conflict_check`` — a token that exactly equals the name
+           (or one of its words) is unambiguous.
+        2. **(Pre-fuzzy guard)** If ``conflict_check`` is provided and
+           ``conflict_check(token)`` returns truthy, return ``False``.
+           The caller has a competing interpretation that wins on the
+           fuzzy paths only. ``$kill`` passes ``self.find_parts`` so
+           ``$kill h`` against a hydra resolves to the head shortcut
+           rather than peeling ``h`` as a fuzzy ``hydra`` prefix.
+        3. **Prefix-of-any-word**, so ``"hyd"`` matches a "hexed
+           hydra" via prefix of ``"hydra"`` and ``"bandi"`` matches
+           ``"bandit"``.
+        4. **Typo tolerance** via :func:`difflib.get_close_matches`
+           (cutoff 0.75) against the full name and each word, so
+           ``"hdra"`` matches a hydra and ``"werewlf"`` matches a
+           werewolf. Stdlib only.
+
+        Empty ``token`` or empty ``self.name`` → ``False``.
+        """
+        if not token:
+            return False
+        token_lower = token.lower()
+        name_lower = (self.name or "").lower()
+        if not name_lower:
+            return False
+        name_words = name_lower.split()
+
+        # Pass 1 — exact / word-token equality. Always wins.
+        if token_lower == name_lower or token_lower in name_words:
+            return True
+
+        # Pre-fuzzy guard. Caller-supplied competing interpretation
+        # (e.g. ``$kill``'s ``find_parts``) shadows the fuzzy passes
+        # below but never the exact pass above.
+        if conflict_check is not None and conflict_check(token):
+            return False
+
+        # Pass 2 — prefix of any word in the monster's name.
+        if any(word.startswith(token_lower) for word in name_words):
+            return True
+
+        # Pass 3 — typo tolerance. Cutoff 0.75 catches single-character
+        # drops/transpositions while rejecting outright nonsense.
+        # Match against both the full name and individual words so a
+        # typo'd multi-word name can still resolve.
+        candidates = list({name_lower, *name_words})
+        if get_close_matches(token_lower, candidates, n=1, cutoff=0.75):
+            return True
+
+        return False
 
     def find_parts(self, name: str) -> List[BodyPart]:
         """Fuzzy, case-insensitive lookup over non-destroyed body parts.

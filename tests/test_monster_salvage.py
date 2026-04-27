@@ -632,3 +632,168 @@ class TestWerewolfLeatherDrops:
         w = Werewolf()
         for part in ("head", "eye", "neck", "tail", "foot"):
             assert w.get_salvage(part) == []
+
+
+class TestSalvageNarrationCollapse:
+    """``_render_salvage_lines`` coalesces same-render salvage drops
+    into one line per ``(article, name)`` group. Two leathers off
+    the same destroyed part read as ``"Two leathers slip free ..."``;
+    a single drop keeps the today-shape ``"Some leather slips
+    free ..."``. Mixed drops (leather + bracer) keep separate lines."""
+
+    def _make_item(self, article, name, plural=None):
+        """Tiny stand-in that satisfies the ``article`` / ``name``
+        contract :func:`_render_salvage_lines` reads. Avoids
+        ``Inventory.discover_items()`` overhead and keeps tests
+        focused on the narration shape. ``plural`` is left unset
+        (no attribute) when ``None`` so ``getattr(..., "plural",
+        None)`` returns ``None`` and the helper falls back to
+        :func:`_pluralize_salvage_name`."""
+        class _StubItem:
+            pass
+        it = _StubItem()
+        it.article = article
+        it.name = name
+        if plural is not None:
+            it.plural = plural
+        return it
+
+    def test_single_drop_keeps_today_format(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [self._make_item("some", "leather")]
+        lines = _render_salvage_lines(
+            items, "the bearowl's", "left foreleg",
+        )
+        assert lines == [
+            "   Some leather slips free of the bearowl's left foreleg.",
+        ]
+
+    def test_two_same_collapses_to_count_word_plural_verb(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [
+            self._make_item("some", "leather"),
+            self._make_item("some", "leather"),
+        ]
+        lines = _render_salvage_lines(
+            items, "the bearowl's", "left foreleg",
+        )
+        assert lines == [
+            "   Two leathers slip free of the bearowl's left foreleg.",
+        ]
+
+    def test_three_same_uses_three(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [self._make_item("some", "leather") for _ in range(3)]
+        lines = _render_salvage_lines(
+            items, "the bearowl's", "torso",
+        )
+        assert lines == [
+            "   Three leathers slip free of the bearowl's torso.",
+        ]
+
+    def test_eleven_falls_through_to_digit_form(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [self._make_item("some", "leather") for _ in range(11)]
+        lines = _render_salvage_lines(
+            items, "the bearowl's", "torso",
+        )
+        assert lines == [
+            "   11 leathers slip free of the bearowl's torso.",
+        ]
+
+    def test_mixed_drops_keep_distinct_lines_singular_each(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [
+            self._make_item("a", "patchwork bracer"),
+            self._make_item("a", "rough rerebrace"),
+        ]
+        lines = _render_salvage_lines(
+            items, "the bandit's", "right arm",
+        )
+        assert lines == [
+            "   A patchwork bracer slips free of the bandit's right arm.",
+            "   A rough rerebrace slips free of the bandit's right arm.",
+        ]
+
+    def test_mixed_with_collapse_two_leathers_one_bracer(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [
+            self._make_item("some", "leather"),
+            self._make_item("some", "leather"),
+            self._make_item("a", "patchwork bracer"),
+        ]
+        lines = _render_salvage_lines(
+            items, "the bandit's", "torso",
+        )
+        assert lines == [
+            "   Two leathers slip free of the bandit's torso.",
+            "   A patchwork bracer slips free of the bandit's torso.",
+        ]
+
+    def test_three_leathers_plus_one_rerebrace(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [
+            self._make_item("some", "leather"),
+            self._make_item("some", "leather"),
+            self._make_item("some", "leather"),
+            self._make_item("a", "rough rerebrace"),
+        ]
+        lines = _render_salvage_lines(
+            items, "the bandit's", "torso",
+        )
+        assert lines == [
+            "   Three leathers slip free of the bandit's torso.",
+            "   A rough rerebrace slips free of the bandit's torso.",
+        ]
+
+    def test_empty_input_yields_empty_list(self):
+        from caldanai.lib.rpg import _render_salvage_lines
+        assert _render_salvage_lines(
+            [], "the bandit's", "torso",
+        ) == []
+
+    def test_pluralize_appends_s_to_last_word(self):
+        """Every salvage name we ship today pluralizes via
+        last-word + ``"s"``. Pin the rule so a future bone/scale
+        item that needs a different shape surfaces here."""
+        from caldanai.lib.rpg import _pluralize_salvage_name
+        assert _pluralize_salvage_name("leather") == "leathers"
+        assert _pluralize_salvage_name("patchwork bracer") == "patchwork bracers"
+        assert _pluralize_salvage_name("rough rerebrace") == "rough rerebraces"
+        assert _pluralize_salvage_name("iron scrap") == "iron scraps"
+
+    def test_explicit_plural_attribute_overrides_default_rule(self):
+        """``Stackable`` items carry an explicit ``plural`` attr.
+        A future ``wool`` drop ("tufts of wool") would silently
+        mis-render under the simple last-word + ``s`` rule
+        (``"wools"``); the helper now prefers ``getattr(item,
+        "plural", None)`` when present."""
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [
+            self._make_item("some", "wool", plural="tufts of wool"),
+            self._make_item("some", "wool", plural="tufts of wool"),
+        ]
+        lines = _render_salvage_lines(
+            items, "the sheep's", "torso",
+        )
+        assert lines == [
+            "   Two tufts of wool slip free of the sheep's torso.",
+        ]
+
+    def test_missing_plural_attribute_falls_back_to_default_rule(self):
+        """Items without a ``plural`` attribute (the SALVAGE_DROPS
+        path today — leather is materialized via ``Inventory`` so
+        only the in-place stub here lacks one) still pluralize via
+        last-word + ``s``. Pins the fallback so the explicit-plural
+        branch doesn't regress non-Stackable callers."""
+        from caldanai.lib.rpg import _render_salvage_lines
+        items = [
+            self._make_item("some", "leather"),
+            self._make_item("some", "leather"),
+        ]
+        lines = _render_salvage_lines(
+            items, "the bearowl's", "torso",
+        )
+        assert lines == [
+            "   Two leathers slip free of the bearowl's torso.",
+        ]

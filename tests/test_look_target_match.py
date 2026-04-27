@@ -8,13 +8,19 @@ species in spawn flavor and reached for ``$look hydra`` /
 "Nothing to see here" — caught live during the 2026-04-25
 hexed-hydra playtest.
 
-The helper now matches:
-- exact full-name (case-insensitive)
-- any single whitespace-separated token within the name
+The helper now matches via three passes (mirrors the ``$kill``
+leading-monster-token peeler):
 
-Partial token matches (``hex`` for ``hexed hydra``) still fail —
-those want the bigger fuzzy resolver shipped for ``$spawn`` (see
-``project_fuzzy_monster_names``).
+1. Exact full-name OR any single whitespace-separated token
+   (case-insensitive).
+2. Prefix-of-any-word — ``"hyd"`` matches "hexed hydra";
+   ``"ban"`` matches "bandit".
+3. Typo tolerance via :func:`difflib.get_close_matches` with
+   cutoff 0.75 — ``"hdra"`` matches a hydra, ``"werewlf"``
+   matches a werewolf.
+
+No body-part conflict guard is needed (unlike ``$kill``) since
+``$look``'s only target is the spawned monster.
 """
 
 from types import SimpleNamespace
@@ -57,23 +63,61 @@ class TestTokenMatch:
         assert _match(_monster("flying math teacher"), "teacher") is True
 
 
-class TestNonMatch:
-    def test_partial_substring_within_token_fails(self):
-        """``hex`` is NOT a full token in ``hexed hydra`` so it
-        shouldn't match — that level of fuzzy belongs to the
-        ``find_plugin_classes`` resolver, not this helper."""
-        assert _match(_monster("hexed hydra"), "hex") is False
+class TestPrefixMatch:
+    """Pass 2 — prefix-of-any-word. Catches abbreviated reaches
+    like ``$look hyd`` and ``$look ske`` that the prior word-token
+    rule rejected."""
 
+    def test_prefix_of_species_word_matches_variant(self):
+        """``hyd`` is a prefix of ``hydra`` in ``hexed hydra``."""
+        assert _match(_monster("hexed hydra"), "hyd") is True
+
+    def test_prefix_of_variant_word_matches_variant(self):
+        """``hex`` is a prefix of ``hexed`` in ``hexed hydra``."""
+        assert _match(_monster("hexed hydra"), "hex") is True
+
+    def test_prefix_of_single_word_monster(self):
+        """``ske`` is a prefix of ``skeleton``."""
+        assert _match(_monster("skeleton"), "ske") is True
+
+    def test_longer_prefix_of_single_word_monster(self):
+        """``skele`` is also a prefix of ``skeleton``."""
+        assert _match(_monster("skeleton"), "skele") is True
+
+    def test_prefix_of_bandit_matches(self):
+        assert _match(_monster("bandit"), "ban") is True
+
+
+class TestTypoMatch:
+    """Pass 3 — :func:`difflib.get_close_matches` with cutoff 0.75
+    against the full name and each word."""
+
+    def test_typo_dropped_letter_matches_species(self):
+        """``hdra`` (dropped ``y``) → "hydra" via difflib."""
+        assert _match(_monster("hexed hydra"), "hdra") is True
+
+    def test_typo_in_single_word_monster(self):
+        """``werewlf`` (dropped ``o``) → "werewolf" via difflib."""
+        assert _match(_monster("werewolf"), "werewlf") is True
+
+
+class TestNonMatch:
     def test_unrelated_target_fails(self):
         assert _match(_monster("hexed hydra"), "bandit") is False
 
     def test_empty_target_fails(self):
-        """Empty target is a degenerate case; ``"" in [...split()]``
-        is False because split() never produces empty strings."""
+        """Empty target is a degenerate case; the helper now
+        explicitly returns ``False`` rather than relying on
+        ``"" in [...split()]``."""
         assert _match(_monster("hexed hydra"), "") is False
 
     def test_single_word_monster_still_matches_exact(self):
         assert _match(_monster("bandit"), "bandit") is True
 
-    def test_single_word_monster_rejects_partial(self):
-        assert _match(_monster("bandit"), "ban") is False
+    def test_outright_nonsense_rejects(self):
+        """``xyz`` shares nothing with any word in the monster's
+        name, so neither prefix nor difflib (cutoff 0.75) accept
+        it."""
+        assert _match(_monster("hexed hydra"), "xyz") is False
+        assert _match(_monster("bandit"), "xyz") is False
+        assert _match(_monster("werewolf"), "xyz") is False
