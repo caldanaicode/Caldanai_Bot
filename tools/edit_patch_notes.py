@@ -31,6 +31,8 @@ worth noticing.
 
 import argparse
 import asyncio
+import datetime as _dt
+import re
 import sys
 from pathlib import Path
 
@@ -40,6 +42,30 @@ from tools._common import DiscordRestClient, get_auth, live_db, use_db_env_var
 
 _DEFAULT_FILE = Path(".patch-notes-scratch.md")
 _DISCORD_MESSAGE_LIMIT = 2000
+
+# Match a leading ``**Patch notes — YYYY-MM-DD HH:MM UTC**`` header
+# (and trailing blank line) so the existing header on the
+# previously-posted message gets replaced, not stacked. Mirrors
+# ``post_patch_notes._LEGACY_HEADER_RE`` deliberately — kept
+# duplicated rather than imported to keep the tools loosely coupled
+# (each can be invoked / understood standalone).
+_LEGACY_HEADER_RE = re.compile(
+    r"^\*\*Patch notes — \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\*\*\s*\n+",
+)
+
+
+def _prepend_current_timestamp(body: str) -> str:
+    """Prepend a fresh ``**Patch notes — YYYY-MM-DD HH:MM UTC**``
+    header to ``body``, stripping any pre-existing timestamp header
+    so the scratch file (which may already have one from a previous
+    post) doesn't double-stamp on edit.
+
+    Mirrors ``post_patch_notes._prepend_current_timestamp`` so an
+    edit produces output in the same shape as a fresh post — the
+    operator never sees a header disappear after editing."""
+    stripped = _LEGACY_HEADER_RE.sub("", body, count=1)
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"**Patch notes — {stamp}**\n\n{stripped}"
 
 
 def _read_blurb(path: Path) -> str:
@@ -239,7 +265,7 @@ def main() -> int:
     args = parser.parse_args()
 
     use_db_env_var(args.db_env_var)
-    new_content = _read_blurb(args.file)
+    new_content = _prepend_current_timestamp(_read_blurb(args.file))
     targets = _resolve_targets(args.db_env_var, args.guild, args.message_id)
 
     if not targets:
