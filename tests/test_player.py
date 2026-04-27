@@ -352,8 +352,9 @@ class TestEquipment:
         assert p.part_equipment["hand.left"]["held"] is existing_left
         assert p.part_equipment["hand.right"]["held"] is existing_right
 
-    def test_auto_equip_full_slots_does_not_displace_when_new_is_worse(self):
-        """A worse new item never displaces a better existing one."""
+    def test_auto_equip_full_slots_does_not_displace_same_type_when_new_is_worse(self):
+        """When the same-type slots are already higher quality, a
+        worse new item of the same type never displaces them."""
         from bson import ObjectId
         from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
         from caldanai.lib.rpg.inventory.equipment import Equipment
@@ -363,25 +364,115 @@ class TestEquipment:
             iid=ObjectId(), name="superior wand",
             slots=EquipmentSlots.EITHER_HELD,
             unit_weight=0.5, unit_value=2, quality=Qualities.SUPERIOR,
+            plugin="wand",
         )
         existing_right = Equipment(
             iid=ObjectId(), name="masterwork wand",
             slots=EquipmentSlots.EITHER_HELD,
             unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+            plugin="wand",
         )
         p.equip(existing_left)
         p.equip(existing_right)
 
-        # Junk wand — even the worst slot (superior, mult 1.75) is
-        # better than this; nothing displaces.
+        # Junk wand — every slot already has a better wand. No
+        # cross-type fallback needed (same plugin everywhere).
         worse = Equipment(
             iid=ObjectId(), name="junk wand",
             slots=EquipmentSlots.EITHER_HELD,
             unit_weight=0.5, unit_value=2, quality=Qualities.JUNK,
+            plugin="wand",
         )
         success, _ = p.equip(worse)
         assert success is False
         assert p.part_equipment["hand.left"]["held"] is existing_left
+        assert p.part_equipment["hand.right"]["held"] is existing_right
+
+    def test_auto_equip_cross_type_swap_ignores_quality_gate(self):
+        """Player explicitly asked for ``wand`` via ``$equip wand.best``
+        — even with both hands holding higher-quality cross-type
+        weapons (masterwork shortswords), the wand should still
+        slot in. Quality gate only applies to same-type upgrades;
+        cross-type is the player explicitly choosing to swap.
+
+        Picks the WORST cross-type occupant to minimize loss when
+        forced to trade."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        # Two shortswords — left masterwork, right superior.
+        existing_left = Equipment(
+            iid=ObjectId(), name="masterwork shortsword",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+            plugin="shortsword",
+        )
+        existing_right = Equipment(
+            iid=ObjectId(), name="superior shortsword",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.SUPERIOR,
+            plugin="shortsword",
+        )
+        p.equip(existing_left)
+        p.equip(existing_right)
+
+        # New quality wand — DIFFERENT type. Cross-type swap
+        # should displace the worst-quality cross-type occupant
+        # (the superior shortsword, mult 1.75 vs masterwork's
+        # 2.0), regardless of the new wand's lower quality.
+        new_wand = Equipment(
+            iid=ObjectId(), name="quality wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.QUALITY,
+            plugin="wand",
+        )
+        success, _ = p.equip(new_wand)
+        assert success is True
+        # The masterwork stays — it's the better of the two swords.
+        assert p.part_equipment["hand.left"]["held"] is existing_left
+        # The superior got displaced for the wand.
+        assert p.part_equipment["hand.right"]["held"] is new_wand
+
+    def test_auto_equip_same_type_upgrade_beats_cross_type_swap(self):
+        """If a same-type lower-quality slot exists, prefer that
+        over a cross-type displacement — same-type is always an
+        upgrade, cross-type is a forced trade. Player gets the
+        upgrade without losing the cross-type weapon."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        # Left: junk wand (same type as new). Right: masterwork
+        # shortsword (cross-type).
+        existing_left = Equipment(
+            iid=ObjectId(), name="junk wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.JUNK,
+            plugin="wand",
+        )
+        existing_right = Equipment(
+            iid=ObjectId(), name="masterwork shortsword",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+            plugin="shortsword",
+        )
+        p.equip(existing_left)
+        p.equip(existing_right)
+
+        # New fine wand — better than the junk wand (same type),
+        # so tier-2 displacement wins. The shortsword stays.
+        new_wand = Equipment(
+            iid=ObjectId(), name="fine wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.FINE,
+            plugin="wand",
+        )
+        success, _ = p.equip(new_wand)
+        assert success is True
+        assert p.part_equipment["hand.left"]["held"] is new_wand
         assert p.part_equipment["hand.right"]["held"] is existing_right
 
     def test_auto_equip_prefers_empty_slot_over_displace(self):

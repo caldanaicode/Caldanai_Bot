@@ -4,23 +4,32 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
-### 2026-04-27 — Auto-equip: quality-gated displace when all slots are full
+### 2026-04-27 — Auto-equip: 3-tier slot priority (empty / same-type upgrade / cross-type swap)
 
-`$equip wand.best` with both held slots full was hard-failing
-even when one of the held weapons was clearly worse than the
-new one. Now: if no compatible slot is empty, walk the
-compatible occupants, find the lowest-quality one, and
-displace it ONLY if the new item is strictly higher quality.
-Equal-or-worse new items still don't displace — that would
-churn through the canonical case where ``.best`` resolves to
-the already-equipped piece.
+Replaces the prior any-type quality-gated displace. Player
+intent matters: ``$equip wand.best`` with two masterwork
+shortswords held should still slot the wand in, since the
+player explicitly asked for a wand by typing it. The previous
+quality-gate refused that swap because the wand was lower
+quality than the swords — wrong call.
 
-Player workflow restored: drop a masterwork wand into a junk-
-wand-and-ordinary-wand loadout via a single ``$equip``,
-without specifying ``@l`` / ``@r``.
+Three-tier priority, first match wins:
 
-4 new tests pin: upgrade-displaces-worst, equal-quality-stays,
-worse-stays, empty-slot-still-wins-over-displace.
+1. **Empty compatible slot** — fill it.
+2. **Same-type lower-quality occupant** — displace (upgrade
+   in type). ``junk wand`` → ``masterwork wand`` swap without
+   ``@l`` / ``@r``. Same plugin string = same item type.
+3. **Cross-type occupant** — displace the worst-quality one
+   (no quality gate). The player explicitly asked for type X
+   by typing the item; we don't refuse based on cross-type
+   quality. Picking the worst cross-type minimizes the loss
+   when forced to trade.
+
+Equal-or-worse same-type still refuses (no upgrade, no churn).
+
+7 tests pin the priority order and edge cases (cross-type
+swap ignores quality, same-type upgrade beats cross-type
+swap, empty-slot-wins, equal-quality-stays).
 
 ### 2026-04-27 — Typo-tolerant part lookup + shared fuzzy primitives
 

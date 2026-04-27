@@ -1563,14 +1563,24 @@ class Player(Creature):
         # `$equip glove` lands on the surviving hand rather than
         # the destroyed one.
         #
-        # When no empty placement exists, fall back to a quality-
-        # gated displace: replace the worst-quality current occupant
-        # IF the new item is strictly higher quality. Lets `$equip
-        # wand.best` upgrade through a fully-handed loadout without
-        # forcing the player to specify @l/@r every time. Equal-or-
-        # worse new items don't displace — wouldn't be an upgrade.
+        # When no empty placement exists, fall back through two
+        # more tiers in priority order:
+        #
+        # 1. **Same-type upgrade** — if any compatible slot holds
+        #    a piece of the same plugin type at lower quality,
+        #    displace it. Upgrade ``junk wand`` to ``masterwork
+        #    wand`` without specifying ``@l`` / ``@r``.
+        # 2. **Cross-type swap** — if no same-type occupant is
+        #    available, displace the worst-quality cross-type
+        #    occupant. The player explicitly asked for this item
+        #    by typing ``$equip wand.best``; we don't gate that
+        #    on quality. ``wand.best`` lands even when both hands
+        #    hold masterwork shortswords — picks the worse sword
+        #    to give up so the loss is minimized.
         elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
             compatible = resolve_placements(item.slots)
+
+            # Tier 1 — empty slot wins.
             for (part_name, key) in compatible:
                 if self._placement_is_blocked(part_name):
                     continue
@@ -1583,29 +1593,66 @@ class Player(Creature):
                         break
 
             if not dirty:
-                # No empty slot — try to upgrade through the
-                # weakest current occupant. Only the new item's
-                # quality matters; ties stay put so we don't
-                # cycle a masterwork through itself when ``.best``
-                # picks the already-equipped piece.
-                worst = None
-                worst_part = None
-                worst_key = None
+                # Tier 2 — same-type lower-quality occupant.
+                # Same plugin = same item type (wand vs wand,
+                # rough_jerkin vs rough_jerkin). Quality ties
+                # stay put — replacing masterwork with masterwork
+                # is no upgrade.
+                worst_same_type = None
+                worst_same_part = None
+                worst_same_key = None
                 for (part_name, key) in compatible:
                     if self._placement_is_blocked(part_name):
                         continue
                     cur = self.part_equipment.get(part_name, {}).get(key)
-                    if cur is None:
+                    if cur is None or cur.plugin != item.plugin:
                         continue
-                    if worst is None or cur.quality.value["multiplier"] < worst.quality.value["multiplier"]:
-                        worst = cur
-                        worst_part = part_name
-                        worst_key = key
+                    if (
+                        worst_same_type is None
+                        or cur.quality.value["multiplier"]
+                        < worst_same_type.quality.value["multiplier"]
+                    ):
+                        worst_same_type = cur
+                        worst_same_part = part_name
+                        worst_same_key = key
                 if (
-                    worst is not None
-                    and item.quality.value["multiplier"] > worst.quality.value["multiplier"]
+                    worst_same_type is not None
+                    and item.quality.value["multiplier"]
+                    > worst_same_type.quality.value["multiplier"]
                 ):
-                    ok, replaced = self.replace_equipment(item, worst_part, worst_key)
+                    ok, replaced = self.replace_equipment(
+                        item, worst_same_part, worst_same_key,
+                    )
+                    if ok:
+                        dirty = True
+                        if replaced is not None:
+                            msg = replaced.get_full_name()
+
+            if not dirty:
+                # Tier 3 — cross-type swap (no quality gate).
+                # Pick the WORST-quality cross-type occupant so
+                # the player's forced trade is the cheapest one.
+                worst_cross = None
+                worst_cross_part = None
+                worst_cross_key = None
+                for (part_name, key) in compatible:
+                    if self._placement_is_blocked(part_name):
+                        continue
+                    cur = self.part_equipment.get(part_name, {}).get(key)
+                    if cur is None or cur.plugin == item.plugin:
+                        continue
+                    if (
+                        worst_cross is None
+                        or cur.quality.value["multiplier"]
+                        < worst_cross.quality.value["multiplier"]
+                    ):
+                        worst_cross = cur
+                        worst_cross_part = part_name
+                        worst_cross_key = key
+                if worst_cross is not None:
+                    ok, replaced = self.replace_equipment(
+                        item, worst_cross_part, worst_cross_key,
+                    )
                     if ok:
                         dirty = True
                         if replaced is not None:
