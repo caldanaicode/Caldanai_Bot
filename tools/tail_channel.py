@@ -516,6 +516,147 @@ def _format_initial(
     return "\n".join(lines).rstrip() + "\n"
 
 
+async def _gateway_loop(
+    token: str,
+    channel_id: int,
+    buffer: Optional["TailBuffer"] = None,
+    mention_map: Optional[dict] = None,
+) -> None:
+    """Stream message + edit + reaction events from the channel via
+    a Discord Gateway WebSocket using a tester-bot token.
+
+    Replaces ``_tail_loop``'s REST poll. Same buffer-and-stdout
+    contract — every event is appended to ``buffer`` and printed
+    using the same per-message format — but adds two event types
+    REST polling can't observe:
+
+    - **Edits.** ``MESSAGE_UPDATE`` events emit a fresh entry tagged
+      ``[edited]``. The buffer keeps both the original and the
+      edited version (no in-place mutation), so an inspector
+      reader sees the timeline as it actually played out.
+    - **Reactions.** ``MESSAGE_REACTION_ADD`` events emit a one-line
+      ``@user reacted with <emoji> to <id>`` entry, useful for
+      reading approval / acknowledgement signals that REST polling
+      strips entirely.
+
+    Requires the ``CLAUDE_TESTER_TOKEN`` bot's ``MESSAGE_CONTENT``
+    privileged intent enabled in the Discord developer portal —
+    without it, ``MESSAGE_CREATE`` / ``MESSAGE_UPDATE`` events
+    arrive with empty content fields. ``GUILD_MESSAGE_REACTIONS``
+    is non-privileged and works either way.
+    """
+    import discord  # type: ignore
+
+    intents = discord.Intents.none()
+    intents.guilds = True
+    intents.guild_messages = True
+    intents.guild_reactions = True
+    intents.message_content = True
+
+    client = discord.Client(intents=intents)
+
+    print(
+        f"[gateway streaming channel {channel_id} — Ctrl-C to stop]",
+        file=sys.stderr,
+    )
+
+    @client.event
+    async def on_ready() -> None:
+        print(
+            f"[gateway connected as {client.user}]",
+            file=sys.stderr,
+        )
+
+    @client.event
+    async def on_message(msg: "discord.Message") -> None:
+        if msg.channel.id != channel_id:
+            return
+        # Build a Discord-REST-compatible dict so the existing
+        # ``_make_buffer_entry`` and ``_format_message`` paths
+        # don't have to learn discord.py's object model.
+        raw = _discord_message_to_raw(msg)
+        if buffer is not None:
+            buffer.append(_make_buffer_entry(raw, mention_map=mention_map))
+        for line in _format_message(raw, mention_map=mention_map):
+            print(line)
+
+    @client.event
+    async def on_message_edit(
+        before: "discord.Message", after: "discord.Message",
+    ) -> None:
+        if after.channel.id != channel_id:
+            return
+        raw = _discord_message_to_raw(after)
+        # Tag the author so the reader can distinguish a new
+        # message from an edit landing chronologically later.
+        edited_author = f"{(raw.get('author') or {}).get('username', '?')} [edited]"
+        raw = dict(raw)
+        raw["author"] = {"username": edited_author}
+        if buffer is not None:
+            buffer.append(_make_buffer_entry(raw, mention_map=mention_map))
+        for line in _format_message(raw, mention_map=mention_map):
+            print(line)
+
+    @client.event
+    async def on_raw_reaction_add(
+        payload: "discord.RawReactionActionEvent",
+    ) -> None:
+        if payload.channel_id != channel_id:
+            return
+        # Resolve the user — payload.member is set when the
+        # event fires from a guild we share. Fall back to the
+        # bare user id when it isn't.
+        actor = (
+            payload.member.display_name
+            if payload.member is not None
+            else f"user:{payload.user_id}"
+        )
+        emoji = str(payload.emoji)
+        line = (
+            f"## {datetime.now(timezone.utc).isoformat()} — "
+            f"@{actor} reacted with {emoji} to msg {payload.message_id}"
+        )
+        if buffer is not None:
+            buffer.append({
+                "id": str(payload.message_id),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "author": actor,
+                "content": f"reacted with {emoji} to {payload.message_id}",
+            })
+        print(line)
+
+    try:
+        await client.start(token)
+    except KeyboardInterrupt:
+        await client.close()
+        return
+
+
+def _discord_message_to_raw(msg) -> dict:
+    """Adapt a discord.py ``Message`` into the raw dict shape the
+    REST helpers in this module already understand.
+
+    Only the fields the formatters and buffer consumers actually
+    read are populated. Embeds and attachments are passed through
+    via the discord.py serializer so embed-rendering paths still
+    work for bot replies that arrive over Gateway.
+    """
+    return {
+        "id": str(msg.id),
+        "timestamp": msg.created_at.isoformat() if msg.created_at else "",
+        "author": {
+            "username": msg.author.display_name or msg.author.name,
+            "id": str(msg.author.id),
+        },
+        "content": msg.content or "",
+        "embeds": [e.to_dict() for e in (msg.embeds or [])],
+        "attachments": [
+            {"url": a.url, "filename": a.filename}
+            for a in (msg.attachments or [])
+        ],
+    }
+
+
 async def _tail_loop(
     client: DiscordRestClient,
     channel_id: int,
@@ -832,7 +973,7 @@ async def _run(args: argparse.Namespace, token: str) -> int:
         )
         print(_format_initial(game, guild_names, messages, mention_map=mention_map))
 
-        if args.follow:
+        if args.follow or args.gateway:
             if messages:
                 last_seen_id = max(int(m["id"]) for m in messages)
             else:
@@ -854,11 +995,32 @@ async def _run(args: argparse.Namespace, token: str) -> int:
 
             runner = await _start_http_server(buffer, args.port)
             try:
-                await _tail_loop(
-                    client, game["channel_id"], last_seen_id,
-                    args.poll_seconds, buffer=buffer,
-                    mention_map=mention_map,
-                )
+                if args.gateway:
+                    # Gateway uses its own bot token (the tester
+                    # bot's, same one ``bot_player`` uses) — distinct
+                    # from the live bot whose token is in the DB.
+                    # That separation is what lets us open a second
+                    # Gateway alongside the live bot's session
+                    # without tripping Discord's one-per-shard rule.
+                    import os
+                    gateway_token = os.environ.get("CLAUDE_TESTER_TOKEN")
+                    if not gateway_token:
+                        print(
+                            "CLAUDE_TESTER_TOKEN env var not set. Set the tester-bot "
+                            "token in .env under that name to use --gateway.",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    await _gateway_loop(
+                        gateway_token, game["channel_id"],
+                        buffer=buffer, mention_map=mention_map,
+                    )
+                else:
+                    await _tail_loop(
+                        client, game["channel_id"], last_seen_id,
+                        args.poll_seconds, buffer=buffer,
+                        mention_map=mention_map,
+                    )
             finally:
                 await runner.cleanup()
     return 0
@@ -915,6 +1077,18 @@ def main() -> int:
         "--follow", "-f",
         action="store_true",
         help="After the initial fetch, poll for new messages until Ctrl-C.",
+    )
+    parser.add_argument(
+        "--gateway",
+        action="store_true",
+        help=(
+            "Stream events via Discord Gateway (WebSocket) instead of "
+            "REST polling. Requires CLAUDE_TESTER_TOKEN env var (the "
+            "tester bot's token, same one bot_player uses) and the "
+            "MESSAGE_CONTENT privileged intent enabled in the dev "
+            "portal. Adds visibility into edits and reactions that "
+            "REST polling can't see. Implies --follow."
+        ),
     )
     parser.add_argument(
         "--poll-seconds",

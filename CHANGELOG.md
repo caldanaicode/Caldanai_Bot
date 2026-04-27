@@ -4,6 +4,37 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — `tail_channel --gateway` mode (reactions + edits + presence)
+
+Adds a Gateway WebSocket mode to the channel tailer, alongside
+the existing REST poll. Streams events live via the tester
+bot's token (``CLAUDE_TESTER_TOKEN``):
+
+- **Messages** — same content the REST poll fetches, just via
+  push instead of polling. Round-trip drops from ~5s poll
+  interval to immediate.
+- **Edits** — ``MESSAGE_UPDATE`` events emit a fresh entry
+  tagged ``[edited]`` so a reader sees the timeline as it
+  played. REST poll can't observe these.
+- **Reactions** — ``MESSAGE_REACTION_ADD`` events emit a
+  one-line ``@user reacted with <emoji> to <id>`` entry.
+  Useful for picking up acknowledgement signals (👍 / ack
+  reactions) that REST poll strips entirely.
+- **Presence** — the tester bot appears online while the
+  Gateway client is connected, signaling to other players
+  that the channel is being watched.
+
+Implementation: discord.py ``Client`` with the minimal intent
+set (guilds, guild_messages, guild_reactions, message_content).
+Reuses the existing ``TailBuffer`` + HTTP inspector so
+``tail_peek`` works identically against gateway-streamed
+content. New ``_discord_message_to_raw`` adapter so the
+existing message formatter doesn't need to learn discord.py's
+object model.
+
+Requires the tester bot's MESSAGE_CONTENT privileged intent
+enabled in the Discord developer portal.
+
 ### 2026-04-27 — `$equip <name>` defaults to best-quality
 
 Bare-name equip queries (no ``.<selector>``) now auto-pick the

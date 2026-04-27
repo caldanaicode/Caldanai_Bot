@@ -1067,3 +1067,89 @@ class TestParseRelativeDelta:
     def test_unitless_number_raises(self):
         with pytest.raises(ValueError, match="not a relative"):
             tail_channel._parse_relative_delta("30")
+
+
+# ---------------------------------------------------------------------------
+# _discord_message_to_raw — adapter from discord.py Message to raw dict
+# ---------------------------------------------------------------------------
+
+
+class TestDiscordMessageToRaw:
+    def _msg(
+        self, *, mid=12345, content="hi",
+        author_name="alice", display_name=None,
+        ts=None, embeds=(), attachments=(),
+    ):
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock
+        msg = MagicMock()
+        msg.id = mid
+        msg.created_at = ts or datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        msg.author = MagicMock()
+        msg.author.id = 999
+        msg.author.name = author_name
+        msg.author.display_name = display_name or author_name
+        msg.content = content
+        msg.embeds = list(embeds)
+        msg.attachments = list(attachments)
+        return msg
+
+    def test_basic_fields(self):
+        msg = self._msg()
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["id"] == "12345"
+        assert raw["author"]["username"] == "alice"
+        assert raw["author"]["id"] == "999"
+        assert raw["content"] == "hi"
+        assert raw["embeds"] == []
+        assert raw["attachments"] == []
+
+    def test_uses_display_name_over_username(self):
+        """display_name reflects guild nicknames; preferred over the
+        global ``name`` so the channel reader sees the actual rendered
+        name in-context."""
+        msg = self._msg(author_name="bob_99", display_name="bob")
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["author"]["username"] == "bob"
+
+    def test_falls_back_to_username_when_display_name_missing(self):
+        """If display_name is None / empty, fall back to the bare
+        username so the field is never blank."""
+        msg = self._msg(author_name="alice", display_name="")
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["author"]["username"] == "alice"
+
+    def test_empty_content_normalizes_to_empty_string(self):
+        """Discord can deliver content=None for messages whose body
+        was stripped (no MESSAGE_CONTENT intent, or system-message
+        types). Adapter must produce a string so the formatter
+        doesn't blow up on ``None.split()`` later."""
+        msg = self._msg(content=None)
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["content"] == ""
+
+    def test_embeds_serialize_to_dicts(self):
+        from unittest.mock import MagicMock
+        embed = MagicMock()
+        embed.to_dict.return_value = {"title": "an embed"}
+        msg = self._msg(embeds=[embed])
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["embeds"] == [{"title": "an embed"}]
+
+    def test_attachments_extract_url_and_filename(self):
+        from unittest.mock import MagicMock
+        att = MagicMock()
+        att.url = "https://cdn.example/a.png"
+        att.filename = "a.png"
+        msg = self._msg(attachments=[att])
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["attachments"] == [
+            {"url": "https://cdn.example/a.png", "filename": "a.png"},
+        ]
+
+    def test_iso_timestamp(self):
+        from datetime import datetime, timezone
+        ts = datetime(2026, 4, 27, 17, 30, 15, tzinfo=timezone.utc)
+        msg = self._msg(ts=ts)
+        raw = tail_channel._discord_message_to_raw(msg)
+        assert raw["timestamp"].startswith("2026-04-27T17:30:15")
