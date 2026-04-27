@@ -502,9 +502,9 @@ class RpgUserCommands(Cog):
             # rain swept the whole party, but nat-20 now owns the
             # party-wide sweep — the nat-1 rain is back to single-
             # target so the "I died for you, comrade" narrative beat
-            # stays singular and poignant. Tiebreak on injured-part
-            # count so a player at full body HP but with a destroyed
-            # arm beats a fully-intact player.
+            # stays singular and poignant. Picker is the weighted
+            # body+critical-parts ratio so a player with a critically-
+            # wounded head outranks one with a stubbed toe.
             candidates = [
                 p for p in game.player_manager.players.values()
                 if p is not player and p.is_injured()
@@ -512,13 +512,7 @@ class RpgUserCommands(Cog):
             if candidates:
                 rain_target = min(
                     candidates,
-                    key=lambda p: (
-                        p.get_health_scale(),
-                        -sum(
-                            1 for part in (p.body_parts or [])
-                            if part.health < part.health_max
-                        ),
-                    ),
+                    key=lambda p: p.get_overall_health_scale(),
                 )
                 actors.append(rain_target)
                 index = len(actors)
@@ -621,18 +615,13 @@ class RpgUserCommands(Cog):
                 p for p in game.player_manager.players.values()
                 if p.is_injured()
             ] or [player]
-            # Pick the most-injured by body-HP ratio; if everyone has
-            # full body HP but some have part injuries, pick by
-            # part-injury count as a tiebreaker.
+            # Pick the most-injured by the weighted body+critical-
+            # parts ratio. Body HP and critical parts (head / torso /
+            # neck) drag the score down at 2x weight vs limbs, so a
+            # player with a wounded head outranks one with a sore foot.
             heal_target: Player = min(
                 candidates,
-                key=lambda p: (
-                    p.get_health_scale(),
-                    -sum(
-                        1 for part in (p.body_parts or [])
-                        if part.health < part.health_max
-                    ),
-                ),
+                key=lambda p: p.get_overall_health_scale(),
             )
             actors.append(heal_target)
             index = len(actors)

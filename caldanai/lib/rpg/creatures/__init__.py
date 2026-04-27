@@ -1888,6 +1888,28 @@ class Creature:
     def get_health_scale(self) -> float:
         return self.health / self.get_health_max()
 
+    def get_overall_health_scale(self, critical_weight: float = 2.0) -> float:
+        """Combined body + parts health ratio in [0, 1]; lower = more
+        injured. Body HP and any ``is_critical`` body part (head /
+        torso / neck / etc.) carry ``critical_weight``; non-critical
+        parts (limbs, eyes, peripheral) carry weight 1.
+
+        Picker for healing-target selection — preferred over raw
+        ``get_health_scale`` whenever part injuries should pull a
+        creature down the priority list. A player with a critically-
+        wounded head ranks below a player with a stubbed toe; a
+        player with a destroyed limb ranks below an intact body.
+
+        Returns 1.0 (full health) when both body and all parts are
+        at max."""
+        body = (self.health / self.get_health_max()) * critical_weight
+        weight_total = critical_weight
+        for part in (self.body_parts or []):
+            w = critical_weight if part.is_critical else 1.0
+            body += (part.health / part.health_max) * w
+            weight_total += w
+        return body / weight_total
+
     def give_clarks(self, amount: int) -> bool:
         """
         Gives (or removes, if negative amount is passed) clarks to the creature.

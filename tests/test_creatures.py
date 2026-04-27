@@ -104,6 +104,79 @@ class TestGetHealthScale:
 
 
 # ---------------------------------------------------------------------------
+# get_overall_health_scale (weighted body + parts ratio)
+# ---------------------------------------------------------------------------
+
+class TestGetOverallHealthScale:
+    """Weighted body + parts health ratio. Body HP and critical parts
+    carry 2x weight; non-critical parts (limbs, eyes) carry 1x. Used
+    by `$pray`'s nat-1 single-target rain picker and the 17-19 heal-
+    target picker so a player with a wounded head outranks one with
+    a sore foot."""
+
+    def _bp(self, name, hp, hp_max, critical=False):
+        from caldanai.lib.rpg.creatures.body_part import BodyPart
+        part = BodyPart(name=name, health_max=hp_max, is_critical=critical)
+        part.health = hp
+        return part
+
+    def test_no_parts_equals_body_scale(self):
+        """With no body parts, the helper degenerates to the bare
+        body HP ratio — same as ``get_health_scale``."""
+        c = _make_creature(health=10, health_max=20)
+        assert c.get_overall_health_scale() == pytest.approx(0.5)
+
+    def test_full_body_full_parts_is_one(self):
+        c = _make_creature(health=20, health_max=20)
+        c.body_parts = [
+            self._bp("head", 10, 10, critical=True),
+            self._bp("arm.left", 8, 8),
+        ]
+        assert c.get_overall_health_scale() == pytest.approx(1.0)
+
+    def test_critical_part_destroyed_outweighs_limb(self):
+        """A creature with a destroyed critical part (head: 0/10)
+        ranks lower than one with a destroyed limb (arm: 0/8). Both
+        bodies full, both have one other intact part for symmetry."""
+        crit_dead = _make_creature(health=20, health_max=20)
+        crit_dead.body_parts = [
+            self._bp("head", 0, 10, critical=True),
+            self._bp("arm.left", 8, 8),
+        ]
+        limb_dead = _make_creature(health=20, health_max=20)
+        limb_dead.body_parts = [
+            self._bp("head", 10, 10, critical=True),
+            self._bp("arm.left", 0, 8),
+        ]
+        assert crit_dead.get_overall_health_scale() < limb_dead.get_overall_health_scale()
+
+    def test_critical_weight_parameter_scales_effect(self):
+        """A higher ``critical_weight`` should pull the score down
+        further when a critical part is wounded."""
+        c = _make_creature(health=20, health_max=20)
+        c.body_parts = [
+            self._bp("head", 0, 10, critical=True),
+            self._bp("arm.left", 8, 8),
+        ]
+        # 3x critical weight punishes the destroyed head harder.
+        assert c.get_overall_health_scale(critical_weight=3.0) < c.get_overall_health_scale(critical_weight=2.0)
+
+    def test_wounded_body_with_intact_parts(self):
+        """Body at 10/20, all parts at full. Overall score = average
+        of body_pct (0.5, weight 2) and parts (each 1.0). Pulled
+        upward by intact parts but body still drags."""
+        c = _make_creature(health=10, health_max=20)
+        c.body_parts = [
+            self._bp("head", 10, 10, critical=True),
+            self._bp("arm.left", 8, 8),
+        ]
+        # body=0.5*2 + head=1.0*2 + arm=1.0*1 = 1.0+2.0+1.0 = 4.0
+        # weight_total = 2 + 2 + 1 = 5
+        # overall = 4.0 / 5 = 0.8
+        assert c.get_overall_health_scale() == pytest.approx(0.8)
+
+
+# ---------------------------------------------------------------------------
 # give_clarks
 # ---------------------------------------------------------------------------
 

@@ -4,6 +4,27 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Heal-target picker uses weighted body+critical-parts ratio
+
+`$pray`'s 17-19 heal target and the new nat-1 single-target rain
+picker both selected the most-injured player by raw body HP
+percentage, with injured-part *count* as a tiebreaker. That
+ranked a player with three lightly-bruised limbs above a player
+with a critically-wounded head.
+
+New `Creature.get_overall_health_scale(critical_weight=2.0)`
+folds body HP and per-part HP into one weighted ratio (0-1,
+lower = more injured). Body HP and `is_critical` parts (head /
+torso / neck / etc.) carry 2x weight; non-critical parts (limbs,
+eyes, peripheral) carry 1x. Both pickers now use it as their
+sort key, so a player with a destroyed critical part outranks
+a player with a destroyed limb, and gear-driven HP-max
+differences wash out via percentage normalization.
+
+5 new tests cover the helper directly: degenerate-no-parts case,
+full-health = 1.0, critical-part-vs-limb ranking, the
+`critical_weight` parameter scaling, and a worked-example case.
+
 ### 2026-04-27 — Drop body-parts table from monster arrival
 
 Monster spawn used to emit two messages: the arrival flavor +
