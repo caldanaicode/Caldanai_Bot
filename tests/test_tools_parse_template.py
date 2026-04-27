@@ -79,7 +79,7 @@ class TestMakeActor:
         """4th spec field becomes ``actor.member.mention`` so the
         parser's ``@Nm`` form resolves against this stub."""
         actor = parse_template._make_actor(
-            "Caels:player:male:<@!111111111111111111>"
+            "alice:player:female:<@!111111111111111111>"
         )
         assert hasattr(actor, "member")
         assert actor.member.mention == "<@!111111111111111111>"

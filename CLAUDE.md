@@ -3,6 +3,43 @@
 Guidance for any agent or assistant working in this repo. Keep
 short, focused on things that aren't obvious from the code itself.
 
+## No real Discord identities or local filesystem paths in tracked files
+
+Hard rule. Anything committed to git is public the moment it's
+pushed. Treat every tracked file (code, tests, docstrings,
+comments, CHANGELOG entries, fixture data) the same way.
+
+**Never commit:**
+
+- A real Discord username (the lowercase-handle shape) or
+  display name. The project owner's persona name "Caels" is the
+  one exception — it's the public-facing identity tied to this
+  repo's GitHub account already.
+- A real Discord user/role/channel snowflake **paired with a
+  human name in the same file**. A bare snowflake (e.g. an
+  example log channel id) is fine — it can't be reverse-mapped
+  to a person without context. The pairing is the dox.
+- A local filesystem path that contains the operator's home
+  directory, Dropbox / OneDrive folder, local notes path,
+  or anything `C:\Users\<name>\` / `E:\Dropbox\` / `~/Documents`
+  shaped. References to "the project owner's local design notes"
+  or similar generic phrasing replace specific paths.
+- Real email addresses (the bot's no-reply or the GitHub
+  privacy address are fine when they need to appear).
+
+**Use placeholder data instead.** For tests and example
+docstrings: fake snowflakes like `111111111111111111`,
+generic names like `alice` / `bob`, paths like
+`/path/to/notes/` or "a local design doc."
+
+The Discord username ↔ user-id mapping for live playtest
+participants lives in agent memory at
+`reference_test_player_ids.md`, not in any tracked file. Use
+the memory; do not embed the mapping in code or tests.
+
+If you see a violation in an existing tracked file, scrub it
+in the current commit before staging anything else.
+
 ## Prefer `tools/` over inline `python -c`
 
 **If you catch yourself writing `python -c "..."` with more than a

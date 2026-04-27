@@ -35,7 +35,7 @@ Actor spec format: ``NAME:KIND:GENDER[:MENTION]``
 - ``GENDER``: ``male`` / ``female`` / ``nonbinary`` / ``neuter``.
   Maps to the same pronoun sets ``Creature`` uses.
 - ``MENTION`` (optional, 4th field): Discord mention string like
-  ``<@!111111111111111111>``. When present, populates a
+  ``<@!user_id>``. When present, populates a
   ``member.mention`` attribute on the actor stub so the parser's
   ``@Nm`` mention form resolves to it. Omit for monsters / NPCs
   and for players whose mention isn't being tested.

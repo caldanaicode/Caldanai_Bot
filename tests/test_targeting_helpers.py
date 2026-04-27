@@ -169,7 +169,7 @@ class TestFindParts:
         / ``hindleg.left`` but no ``leg`` — ``l.l`` should resolve
         to both, not fail into random targeting.
 
-        Spotted in LIVE playtest 2026-04-21 (alice typed
+        Spotted in LIVE playtest 2026-04-21 (a player typed
         ``$attack l.l`` three times, got random routing each time)."""
         c = _make_creature()
         foreleg_left = _make_part("foreleg.left")

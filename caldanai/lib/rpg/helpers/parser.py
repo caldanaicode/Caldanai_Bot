@@ -89,7 +89,7 @@ FORM_NOUN_MODE = "n"           # @1np → "Caels's" / "the werewolf's"
 # processing. Dominant when present + available — mention tags are
 # opaque and don't compose meaningfully with articles / pronouns /
 # casing.
-FORM_MENTION = "m"             # @1m → "<@!111111111111111111>"
+FORM_MENTION = "m"             # @1m → "<@!user_id>"
 
 # Casing — applied last regardless of position in the token.
 FORM_CAPITALIZE = "c"          # first letter up, rest unchanged lower

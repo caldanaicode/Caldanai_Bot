@@ -487,11 +487,11 @@ class TestMessageContent:
         assert "unharmed" in out
 
     def test_mention_map_replaces_user_mentions(self):
-        msg = _msg("1", "ts", "Caels", "<@!111111111111111111> took damage")
+        msg = _msg("1", "ts", "alice", "<@!111111111111111111> took damage")
         out = tail_channel._message_content(
-            msg, mention_map={111111111111111111: "Caels"},
+            msg, mention_map={111111111111111111: "alice"},
         )
-        assert "@Caels took damage" in out
+        assert "@alice took damage" in out
         assert "<@!111111111111111111>" not in out
 
     def test_unknown_mention_left_as_raw(self):

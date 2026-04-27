@@ -1517,8 +1517,8 @@ holds: creatures with a literal ``leg`` part still resolve
 Cross-segment bleed is still blocked (``h`` never matches
 ``arm.right``).
 
-Surfaced by alice in LIVE playtest 2026-04-21 (three
-``$attack l.l`` attempts, random routing each time).
+Surfaced in LIVE playtest 2026-04-21 (three ``$attack l.l``
+attempts, random routing each time).
 
 **Monster name aliases + fuzzy spawn** —
 
@@ -1776,9 +1776,8 @@ the tuned LARGE/HUGE bosses.
 bearowl, golem, doppelganger, minotaur didn't close their gap
 meaningfully via body HP alone — the `defense_mod` and
 `BLEED_MOD` content levers (Q.6-shipped no-ops) are the
-natural next lever. Full pre/post comparison + analysis in
-`{local-notes}/
-{local-notes}.md`.
+natural next lever. Full pre/post comparison + analysis lives
+in the project owner's local design notes.
 
 ### 2026-04-20 — `tools/repeat` value-iteration mode (`--each`)
 
