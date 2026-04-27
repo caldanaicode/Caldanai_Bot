@@ -240,6 +240,14 @@ def _make_combat_game(mock_db, mock_gc_cls):
 
     game.player_manager.clear_combat_roles = AsyncMock()
     game.set_spawn_timer = AsyncMock()
+    # ``cancel_combat`` reads ``roles[Roles.COMBAT_MAIN].mention``
+    # to build the loot-announce prompt when there's salvage in
+    # the pool. Stub the role so flee-with-loot tests don't
+    # KeyError on the lookup.
+    from caldanai.lib.rpg.helpers.enums import Roles
+    combat_role = MagicMock()
+    combat_role.mention = "@combat"
+    game.player_manager.roles = {Roles.COMBAT_MAIN: combat_role}
     return game
 
 
@@ -306,6 +314,120 @@ class TestCancelCombat:
         assert game.loot[42] == ["pre-existing salvage item"]
         game.set_spawn_timer.assert_awaited_once()
         game.player_manager.clear_combat_roles.assert_awaited_once()
+
+
+class TestCheckTimeFlee:
+    """``check_time`` is the second flee path: a ``flees_from_time``
+    monster (werewolf at dawn, spirit at sunset) bolts when the
+    current time-of-day stops overlapping its ``time_partition``.
+    Until the 2026-04-27 consolidation, this path bypassed the
+    loot-announce + ``loot_expires`` schedule entirely — only
+    ``do_combat``'s SURVIVE/VENGEFUL escape branch had it inline.
+    Player report flagged the gap (werewolf bolted at dawn with
+    leather still in the pool, no prompt).
+
+    The fix routes both paths through ``cancel_combat`` →
+    ``_finalize_combat``, which returns the announce string for
+    the caller to append to its own narration. These tests pin
+    that contract: time-flee with salvage in pool emits the
+    prompt; time-flee with empty pool stays silent.
+    """
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_time_flee_with_salvage_emits_loot_prompt(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """A flees_from_time monster bolting with mid-combat
+        salvage in ``self.loot`` should fire the same announce
+        prompt the SURVIVE-flee branch already does."""
+        game = _make_combat_game(mock_db, mock_gc_cls)
+
+        # Configure the monster as flees_from_time, with a
+        # ``time_partition`` that DOESN'T overlap the current
+        # time-of-day → ``flee=True`` in check_time. Mock the
+        # specific attributes check_time reads.
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        # ``NIGHT`` only — a "DAY" current TOD won't overlap.
+        game.monster.flees_from_time = True
+        game.monster.dies_from_time = False
+        game.monster.time_partition = TimesOfDay.NIGHT.value
+        game.monster.time_flee = "@1d bolts for cover at sunrise."
+        game.monster.is_dead.return_value = False
+
+        # GameClock returns are read directly — flee triggers when
+        # current TOD's flag isn't in time_partition.
+        game.game_clock.get_time_of_day.return_value = "NOON"
+        game.game_clock.get_time_components.return_value = (12, 0, 0)
+        game.game_clock.get_next_time.return_value = ("AFTERNOON", 14, 0)
+        game.game_clock.remove_routine = MagicMock()
+        game.game_clock.add_routine = MagicMock()
+
+        # Seed mid-combat salvage so the announce path fires.
+        game.loot[42] = ["a leather"]
+
+        await game.check_time()
+
+        # Dispatcher.add called with a message that includes the
+        # bolt narration AND the loot prompt. The prompt fragment
+        # is stable enough across phrasing changes to assert on.
+        all_calls = [
+            str(call.args[1]) for call in mock_dispatch.add.call_args_list
+            if len(call.args) >= 2
+        ]
+        blob = "\n".join(all_calls)
+        assert "bolts for cover" in blob, (
+            f"expected the time_flee narration in dispatch; got:\n{blob}"
+        )
+        assert "There might be something to" in blob, (
+            f"expected the loot announce in dispatch; got:\n{blob}"
+        )
+        # Salvage preserved.
+        assert game.loot[42] == ["a leather"]
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_time_flee_with_empty_pool_no_loot_prompt(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Empty loot pool → time-flee narration only, no loot
+        prompt (no announce when there's nothing to claim).
+        """
+        game = _make_combat_game(mock_db, mock_gc_cls)
+
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        game.monster.flees_from_time = True
+        game.monster.dies_from_time = False
+        game.monster.time_partition = TimesOfDay.NIGHT.value
+        game.monster.time_flee = "@1d bolts for cover at sunrise."
+        game.monster.is_dead.return_value = False
+
+        game.game_clock.get_time_of_day.return_value = "NOON"
+        game.game_clock.get_time_components.return_value = (12, 0, 0)
+        game.game_clock.get_next_time.return_value = ("AFTERNOON", 14, 0)
+        game.game_clock.remove_routine = MagicMock()
+        game.game_clock.add_routine = MagicMock()
+
+        # Empty loot pool — no announce should fire.
+        game.loot.clear()
+
+        await game.check_time()
+
+        all_calls = [
+            str(call.args[1]) for call in mock_dispatch.add.call_args_list
+            if len(call.args) >= 2
+        ]
+        blob = "\n".join(all_calls)
+        assert "bolts for cover" in blob
+        assert "There might be something to" not in blob, (
+            f"unexpected loot prompt in empty-pool flee; got:\n{blob}"
+        )
 
 
 class TestKillMonster:

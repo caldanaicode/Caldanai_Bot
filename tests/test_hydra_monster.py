@@ -775,7 +775,7 @@ class TestDoCombatInvokesCheckPartDrivenDeath:
             # ``cancel_combat`` / ``end_combat`` are async — stub so
             # the escape branch (empty combatants → escape) doesn't
             # blow up.
-            game.cancel_combat = AsyncMock()
+            game.cancel_combat = AsyncMock(return_value="")
             game.end_combat = AsyncMock()
             game.set_spawn_timer = AsyncMock()
             game.on_monster_death = AsyncMock(return_value="")

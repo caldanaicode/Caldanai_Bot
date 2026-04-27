@@ -308,6 +308,16 @@ class MonsterPlugin(Creature):
     # attribute) for hardier or more fragile gear themes.
     SALVAGE_SURVIVAL_CHANCE: float = 2.0 / 3.0
 
+    # Rate for items still on UNdestroyed parts at the moment of
+    # death — lower than ``SALVAGE_SURVIVAL_CHANCE`` (2/3) because
+    # severing a part to liberate gear is more aggressive than
+    # scavenging the body that fell with it intact. The two
+    # complement: 1/3 + 2/3 = 1, so a player who destroys a part
+    # rolls the higher rate while the death-sweep over still-intact
+    # parts rolls the lower rate. See
+    # ``project_armor_drop_on_clean_kill.md`` for rationale.
+    CORPSE_SCAVENGE_CHANCE: float = 1.0 / 3.0
+
     def _apply_armor_loadout(self) -> None:
         """Walk this monster's body parts and roll the spawn-time
         armor loadout. For each :class:`Equippable` part, look up
@@ -416,6 +426,42 @@ class MonsterPlugin(Creature):
             if item:
                 items.append(item)
         return items
+
+    def get_corpse_scavenge(self) -> List[tuple]:
+        """End-of-combat death-sweep: walk every :class:`Equippable`
+        body part with non-empty ``placements`` and roll
+        :attr:`CORPSE_SCAVENGE_CHANCE` per item to see if the piece
+        survives the body falling with it intact.
+
+        Returns a list of ``(part, item)`` pairs for surviving
+        worn pieces — the part is included so callers can narrate
+        "slips free of the bandit's left foot" with the right
+        anatomy. Successful or not, every placement is set to
+        ``None`` (the worn piece is consumed by death whether or
+        not it survives), mirroring the idempotency invariant
+        :meth:`get_salvage` enforces — a second call returns an
+        empty list.
+
+        Designed to be called from ``Game.on_monster_death`` AFTER
+        the combat-time salvage path, so destroyed parts have
+        already cleared their placements via :meth:`get_salvage`
+        and won't double-roll here. Quality on surviving items is
+        the spawn-rolled quality (no fresh re-roll)."""
+        from caldanai.lib.rpg.creatures.mixins import Equippable
+
+        survivors: List[tuple] = []
+        for part in self.body_parts:
+            if not isinstance(part, Equippable):
+                continue
+            placements = getattr(part, "placements", None) or {}
+            for slot in list(placements.keys()):
+                worn = placements.get(slot)
+                if worn is None:
+                    continue
+                if random() <= self.CORPSE_SCAVENGE_CHANCE:
+                    survivors.append((part, worn))
+                placements[slot] = None
+        return survivors
 
     def attack_random(self, combatants: list, count=1) -> Optional[str]:
         """Attack ``count`` randomly chosen combatants and return the

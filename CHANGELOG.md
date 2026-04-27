@@ -4,6 +4,138 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — `bot_player --channel-id` for non-combat posting
+
+`bot_player send` previously resolved the target channel from
+the TEST DB's games collection (always the combat channel).
+Adding `--channel-id <id>` lets it post to any channel the
+tester bot has access to — e.g. the new in-character journal
+channel where Caldanai writes session entries between
+playtests. One-line API extension; default behavior
+(DB-resolved combat channel) unchanged.
+
+### 2026-04-27 — `_finalize_combat` consolidation + time-flee loot prompt
+
+Pre-consolidation, the loot-announce + `loot_expires` schedule
+was inlined in `do_combat`'s SURVIVE/VENGEFUL escape branch and
+ABSENT entirely from `Game.check_time`'s `flees_from_time` path
+— a werewolf bolting at dawn with leather still in the pool got
+no announce. Player report flagged the gap.
+
+- **`Game._finalize_combat(outcome)`** — universal end-of-combat
+  shutdown: records the outcome flag (read by `$loot` for
+  flee-vs-death wording), schedules `loot_expires` if there's
+  anything in the pool, runs `end_combat` + `set_spawn_timer`,
+  returns the loot-announce string for callers to thread into
+  their own narration.
+- **`cancel_combat` is now a one-line wrapper** with
+  `outcome="flee"`. `on_monster_death` keeps its death-specific
+  work (corpse-scavenge sweep, `get_loot` rolls, message
+  construction with the "nothing to loot" alt-text) but hands
+  the universal shutdown to `_finalize_combat`.
+- **`check_time`'s time-flee branch** now consumes
+  `cancel_combat`'s return and appends to its message — same
+  shape `do_combat`'s SURVIVE-flee branch already used. Werewolf
+  / spirit dawn-flee with salvage in pool now surfaces the
+  prompt.
+- **`Game.kill_monster` deliberately bypasses `_finalize_combat`
+  and clears loot** — admin kills aren't real combat and
+  shouldn't manufacture armor. Docstring beefed up so future
+  cleanup doesn't try to "consolidate" it back in.
+- **Test-fixture fixes**: three `cancel_combat = AsyncMock()`
+  stubs in `test_corpse_scavenge`, `test_game_do_combat_parity`,
+  `test_hydra_monster` now use `AsyncMock(return_value="")`.
+  Pre-fix, the MagicMock return silently corrupted
+  `escape_narration += announce` — covered by no assertion
+  but a real coverage hole.
+
+New `TestCheckTimeFlee` class in `tests/test_game.py` pins both
+"with-salvage-emits-prompt" and "empty-pool-stays-silent" cases
+so the time-flee branch has regression coverage without needing
+a live dawn-werewolf encounter.
+
+### 2026-04-27 — Held-weapons Phase 1: bandit shortsword via ARMOR_LOADOUT
+
+Bandits can now spawn carrying a shortsword in their hand's
+`held` placement, surfacing in `$look`'s "Wearing" column
+alongside worn armor. On hand-destruction the held weapon drops
+via the same `SALVAGE_SURVIVAL_CHANCE` (2/3) path that worn
+armor uses, with quality preserved from the spawn-time roll.
+
+- **No code changes to `_apply_armor_loadout` or `get_salvage`**
+  — both already iterate `placements` slot-agnostically. Adding
+  the `("shortsword", 0.20, "held", (50, 95))` entry to
+  `Bandit.ARMOR_LOADOUT["hand"]` was sufficient.
+- **`bandit.loot["shortsword"]` removed** to avoid double-rolls
+  (the death-loot path used to roll a fresh shortsword
+  unconditionally; now it's a held-loadout drop only when the
+  bandit was visibly carrying one).
+- **Bow stays in `bandit.loot` for now** — Phase 2 boundary,
+  ranged weapons need monster-uses-them work first.
+
+7 new tests in `tests/test_monster_salvage.py`'s
+`TestBanditHeldWeaponLoadout` covering the shape pin, both RNG
+boundaries, the drop path, survival-roll filtering, the
+loot-dict migration, and a regression pin against a future
+held-shield-bonus leaking defense via
+`effective_defense_for_part`.
+
+### 2026-04-27 — Clean-kill corpse-scavenge
+
+When a monster died via critical-part-kill (e.g. one-shot crit
+on the neck), worn pieces on parts that were never destroyed in
+combat silently vanished — punishing the cleanest, most
+efficient kills. Now those pieces get one final survival roll at
+a reduced rate.
+
+- **`MonsterPlugin.CORPSE_SCAVENGE_CHANCE = 1/3`** — lower than
+  `SALVAGE_SURVIVAL_CHANCE` (2/3), per the design memo: severing
+  a part to liberate gear is more aggressive than scavenging the
+  body that fell with it intact.
+- **`MonsterPlugin.get_corpse_scavenge()`** walks every
+  `Equippable` body part with non-empty `placements`, rolls
+  `CORPSE_SCAVENGE_CHANCE` per item, returns surviving
+  `(part, item)` pairs. Placements clear regardless of survival
+  outcome (idempotency).
+- **`Game.on_monster_death`** runs the sweep BEFORE the death-
+  loot extends so narration ordering reads cleanly: scavenge
+  lines first ("A patchwork bracer slips free of the bandit's
+  left arm."), then the loot prompt. Surviving instances
+  round-robin across `self.looters` — each piece goes to exactly
+  one player, no duplication. Pragmatic v1; killer-takes-all is
+  a natural future tightening once last-hit attribution lands.
+
+11 new tests in `tests/test_corpse_scavenge.py` covering the
+unit contract (empty body, all-success, all-fail, idempotency,
+quality preservation, the 1/3 threshold, bare-monster fallback)
+and the integration path (loot routing, narration shape,
+no-looters edge case).
+
+### 2026-04-27 — `$kill <monster> [<part>...]` argument grammar
+
+`$kill werewolf` used to emit "No targetable part matching
+'werewolf' found. Attacking randomly." — technically correct
+(every token after `$kill` was treated as a body-part
+identifier) but reads as a bug. Players naturally type the
+monster's name to engage it.
+
+- **`_strip_leading_monster_token`** peels an optional leading
+  monster-name token off the argument string before
+  `_parse_part_targets` runs. Match rule mirrors `$look`'s
+  `_monster_matches_look_target`: case-insensitive equality
+  against `monster.name` OR equality against any whitespace-
+  separated word token of that name (`"hydra"` catches "hexed
+  hydra"). Fuzzy / prefix matching is deliberately NOT applied
+  — `find_plugin_classes("h")` would otherwise consume `$kill h`
+  against a Hydra and silently lose the part shortcut to `head`.
+- **First-token only** — `$kill arm.left werewolf` keeps today's
+  behavior (the trailing `werewolf` becomes an unknown part
+  token and silently drops).
+
+15 new tests in `tests/test_kill_command_grammar.py` covering
+the four memo cases plus the ambiguity pin and the `$kill h`
+regression.
+
 ### 2026-04-27 — Post-flee loot UX: announce prompt + flee-aware $loot wording
 
 Pre-Phase-2 the only loot was death-rolled, so a fled monster

@@ -431,7 +431,13 @@ class Game:
             if flee or (next_flee and remaining < 1 / 6):
                 msg = monster.time_flee
                 self.monster_statics[f"{self.monster.name}.fled"] += 1
-                await self.cancel_combat()
+                # ``cancel_combat`` returns the loot-announce text
+                # when mid-combat salvage sits in the pool. Append
+                # it to ``msg`` so the dispatch carries the
+                # bolt-narration AND the prompt in one message —
+                # same shape ``do_combat``'s SURVIVE-flee branch
+                # uses.
+                msg += await self.cancel_combat()
 
         if msg:
             Dispatcher.add(self.channel, parse(msg, monster))
@@ -543,19 +549,59 @@ class Game:
             self.player_manager, self.game_clock, self.do_combat,
         )
 
-    async def cancel_combat(self):
-        """Monster escapes — combat ends without rolling death loot.
+    async def _finalize_combat(self, outcome: str) -> str:
+        """Universal end-of-combat shutdown: record the outcome,
+        emit a loot-announce when the pool has anything in it,
+        schedule ``loot_expires``, then run ``end_combat`` +
+        ``set_spawn_timer``.
+
+        Every code path that ends a fight calls this — flee
+        (``cancel_combat`` from ``do_combat``'s escape branch or
+        ``check_time``'s ``flees_from_time`` arm), death
+        (``on_monster_death``), and any future trigger
+        (surrender, magical disarmament, KO). Path-specific
+        work (rolling death loot, corpse-scavenge sweep,
+        path-specific narration / alt-text) stays in the caller;
+        only the bits that are TRULY universal across every
+        end-of-combat surface live here.
+
+        Returns the loot-announce string (or empty string when
+        there's nothing to announce). Callers decide where to
+        render it relative to their own narration.
+
+        :param outcome: ``"flee"`` or ``"death"``. Stored on
+            ``self.last_combat_outcome`` so ``$loot`` can branch
+            its wording (corpse vs. runaway).
+        """
+        self.last_combat_outcome = outcome
+        has_loot = any(items for items in self.loot.values())
+        announce = ""
+        if has_loot:
+            self.game_clock.add_routine(
+                self.loot_expires, self.loot_duration, True,
+            )
+            announce = (
+                f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\n"
+                f"There might be something to `{self.prefix}loot`..."
+            )
+        await self.end_combat()
+        await self.set_spawn_timer()
+        return announce
+
+    async def cancel_combat(self) -> str:
+        """Monster escapes — thin wrapper over
+        :meth:`_finalize_combat` with ``outcome="flee"``.
 
         Mid-combat salvage that landed in ``self.loot`` (parts the
         players cleaved off before the monster bolted) stays —
-        players keep what they earned. The pre-Phase-2 ``loot.clear()``
-        here predates salvage and would now erase legitimate work;
-        the death-loot pool simply doesn't roll when nobody died,
-        and ``loot_expires`` still cleans up uncollected items
-        downstream."""
-        self.last_combat_outcome = "flee"
-        await self.end_combat()
-        await self.set_spawn_timer()
+        players keep what they earned. No fresh death-loot rolls
+        here (nobody died); the death-loot pool simply doesn't
+        roll, ``loot_expires`` cleans up uncollected items
+        downstream, and the announce-string return lets callers
+        thread the prompt into their own escape narration in the
+        right rendering order.
+        """
+        return await self._finalize_combat(outcome="flee")
 
     async def loot_expires(self):
         """Cleans up uncollected loot and restarts spawning after loot expiration and minimum spawn time."""
@@ -567,8 +613,11 @@ class Game:
         self.loot.clear()
 
     async def on_monster_death(self) -> str:
-        """Append death-time creature loot for each looter, end
-        combat, and set up respawn.
+        """Death-end of the combat lifecycle: roll fresh death
+        loot, sweep undestroyed-part placements for corpse
+        scavenge, then hand the universal shutdown sequence
+        (announce + schedule + end + respawn) to
+        :meth:`_finalize_combat`.
 
         ``self.loot[user_id]`` is initialized empty when a player
         joins combat (in ``_run_player_block``) and may already
@@ -576,8 +625,41 @@ class Game:
         rolls. Death loot extends the same list rather than
         overwriting, so a player who farmed body parts during the
         fight keeps their salvage alongside whatever the corpse
-        rolls."""
-        self.last_combat_outcome = "death"
+        rolls.
+
+        Corpse-scavenge: worn pieces on parts that were NEVER
+        destroyed in combat get one final ``CORPSE_SCAVENGE_CHANCE``
+        roll each (lower than per-part-destruction
+        ``SALVAGE_SURVIVAL_CHANCE``). Without this, a clean
+        one-hit-kill silently eats the visible "Wearing" gear from
+        ``$look``. See ``project_armor_drop_on_clean_kill.md``."""
+
+        # Corpse-scavenge sweep BEFORE the death-loot extends so the
+        # narration ordering reads cleanly: scavenge lines first,
+        # then the loot prompt. Pieces here are SPECIFIC INSTANCES
+        # (not from a per-player fresh roll like ``get_loot``), so
+        # we round-robin them across ``self.looters`` — every
+        # surviving worn piece goes to exactly one looter, no
+        # duplication. Pragmatic v1: ``on_monster_death`` doesn't
+        # know which player landed the killing blow today, so
+        # round-robin is the fair-distribution placeholder until a
+        # last-hit-attribution channel exists. Killer-takes-all is a
+        # natural future tightening.
+        scavenge_lines: List[str] = []
+        if self.monster is not None and self.looters:
+            survivors = self.monster.get_corpse_scavenge()
+            if survivors:
+                owner_phrase = parse("@1np", self.monster)
+                for idx, (part, item) in enumerate(survivors):
+                    recipient = self.looters[idx % len(self.looters)]
+                    self.loot.setdefault(
+                        recipient.user_id, [],
+                    ).append(item)
+                    scavenge_lines.append(
+                        f"   {item.article.capitalize()} {item.name} "
+                        f"slips free of {owner_phrase} {part.display_name}."
+                    )
+
         for player in self.looters:
             # ``setdefault`` defensively — the bucket should already
             # exist from ``_run_player_block``'s per-round assertion,
@@ -588,25 +670,19 @@ class Game:
                 self.monster.get_loot()
             )
 
-        # Compute has_loot BEFORE end_combat — that call clears
-        # ``self.looters``, after which any "iterate looters and
-        # check their loot" reads an empty list and false-negatives
-        # the prompt. Read straight from ``self.loot.values()`` so
-        # salvage-only / death-loot-only / both paths all surface
-        # the prompt correctly.
-        has_loot = any(items for items in self.loot.values())
+        # Universal shutdown — outcome flag, has_loot announce
+        # (computed BEFORE ``end_combat`` clears looters), schedule
+        # ``loot_expires``, end_combat, set_spawn_timer.
+        announce = await self._finalize_combat(outcome="death")
 
-        await self.end_combat()
-        await self.set_spawn_timer()
-
-        if has_loot:
-            self.game_clock.add_routine(self.loot_expires, self.loot_duration, True)
-            msg = (
-                f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\nThere might be something to "
-                f"`{self.prefix}loot`..."
-            )
-        else:
-            msg = "\nThere does not appear to be anything to loot, this time."
+        # Death-specific message construction: announce when there's
+        # loot, "nothing to loot" alt-text otherwise. Scavenge
+        # narration prepends so the player sees what the death sweep
+        # yielded above the loot prompt — same shape as the inline
+        # salvage narration in ``_run_player_block``.
+        msg = announce or "\nThere does not appear to be anything to loot, this time."
+        if scavenge_lines:
+            msg = "\n" + "\n".join(scavenge_lines) + msg
         return msg
 
     async def do_combat(self):
@@ -795,28 +871,16 @@ class Game:
             round_output.escape_narration = parse(
                 monster.escape, *self._build_witness_args(monster),
             )
-            # Mid-combat salvage stays in the loot pool when a
-            # monster bolts. Without this prompt the player has no
-            # end-of-combat reminder to actually pick up what their
-            # dismemberment knocked loose, and the items quietly
-            # expire after ``loot_duration`` minutes. The prompt is
-            # appended to ``escape_narration`` (rather than the
-            # standalone ``loot_hint`` slot) so it renders AFTER
-            # the bandit-bolts line — ``loot_hint`` lands before
-            # ``escape_narration`` in ``RoundOutput.render``, which
-            # is the right order for death (death msg → "loot...")
-            # but reads backwards for flee.
-            has_loot = any(items for items in self.loot.values())
-            if has_loot:
-                self.game_clock.add_routine(
-                    self.loot_expires, self.loot_duration, True,
-                )
-                round_output.escape_narration += (
-                    f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\n"
-                    f"There might be something to `{self.prefix}loot`..."
-                )
+            # ``cancel_combat`` returns the loot-announce text when
+            # there's mid-combat salvage in the pool; append it to
+            # the escape narration so it renders AFTER the bolt
+            # line (``loot_hint`` slot lands before
+            # ``escape_narration`` in ``RoundOutput.render`` —
+            # right order for death, backwards for flee).
+            announce = await self.cancel_combat()
+            if announce:
+                round_output.escape_narration += announce
             Dispatcher.add(self.channel, round_output.render())
-            await self.cancel_combat()
 
     async def _run_player_block(
         self,
@@ -1066,7 +1130,29 @@ class Game:
                 await self.cancel_combat()
 
     async def kill_monster(self):
-        """Admin kill — forces monster death with no loot."""
+        """Admin kill — forces monster death with NO loot reward.
+
+        Deliberately bypasses :meth:`_finalize_combat` and the
+        whole loot pipeline (death-loot rolls, corpse-scavenge,
+        the announce + ``loot_expires`` schedule). Admin kills
+        aren't real combat — letting them drop loot would let
+        operators manufacture armor by spamming ``$spawn kill``,
+        and the announce prompt would be a confusing UI artifact
+        for what is mechanically just "make this monster go away."
+
+        ``self.loot.clear()`` wipes any mid-combat salvage that
+        landed before the admin kill — players who chopped a leg
+        off the bandit before the operator killed it lose that
+        salvage. Acceptable trade for "admin kill is a clean
+        despawn"; if a future operator workflow wants the loot
+        preserved, that's a deliberate design decision worth a
+        memo before changing this. (Caels confirmed 2026-04-27.)
+
+        ``$spawn destroy`` is a separate admin path that DOES
+        let drops happen — it's the testing path for verifying
+        salvage / loadout / scavenge mechanics work end-to-end.
+        Don't conflate the two.
+        """
         monster = self.monster
         self.loot.clear()
         await self.end_combat()

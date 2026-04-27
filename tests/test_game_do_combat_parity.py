@@ -52,7 +52,7 @@ def _make_game_with_monster(monster):
     game.monster_statics = defaultdict(int)
 
     # Async calls inside do_combat that aren't under test here.
-    game.cancel_combat = AsyncMock()
+    game.cancel_combat = AsyncMock(return_value="")
     game.end_combat = AsyncMock()
     game.set_spawn_timer = AsyncMock()
     game.on_monster_death = AsyncMock(return_value="")
@@ -316,6 +316,13 @@ class TestMonsterDeathAndLoot:
         # Looter present, loot dict EMPTY — the wiped-mid-combat shape.
         game.looters = [alice]
         game.loot = {}
+        # ``on_monster_death`` reads ``roles[Roles.COMBAT_MAIN].mention``
+        # for the prompt text — give it a stub role so the prompt
+        # rendering doesn't KeyError.
+        from caldanai.lib.rpg.helpers.enums import Roles
+        combat_role = MagicMock()
+        combat_role.mention = "@combat"
+        game.player_manager.roles = {Roles.COMBAT_MAIN: combat_role}
         # Restore the real (non-mocked) on_monster_death for this test
         # — the harness mocks it by default; here we want to exercise
         # the actual implementation.
