@@ -93,7 +93,7 @@ Shape to follow when adding a new tool:
    inline usage it replaces), not just what it does.
 2. `argparse` CLI with `--help` that reads clearly.
 3. Matching test file `tests/test_tools_<name>.py` — every tool
-   under `tools/` except `render_flavor` currently has one.
+   under `tools/` currently has one.
 4. `python -m tools.<name>` invocation works from the repo root.
 
 ## Parse-token cheat-sheet
