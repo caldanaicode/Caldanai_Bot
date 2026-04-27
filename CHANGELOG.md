@@ -4,6 +4,24 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Auto-equip: quality-gated displace when all slots are full
+
+`$equip wand.best` with both held slots full was hard-failing
+even when one of the held weapons was clearly worse than the
+new one. Now: if no compatible slot is empty, walk the
+compatible occupants, find the lowest-quality one, and
+displace it ONLY if the new item is strictly higher quality.
+Equal-or-worse new items still don't displace — that would
+churn through the canonical case where ``.best`` resolves to
+the already-equipped piece.
+
+Player workflow restored: drop a masterwork wand into a junk-
+wand-and-ordinary-wand loadout via a single ``$equip``,
+without specifying ``@l`` / ``@r``.
+
+4 new tests pin: upgrade-displaces-worst, equal-quality-stays,
+worse-stays, empty-slot-still-wins-over-displace.
+
 ### 2026-04-27 — Typo-tolerant part lookup + shared fuzzy primitives
 
 `forl.r` on a werewolf now reaches `foreleg.right` instead of

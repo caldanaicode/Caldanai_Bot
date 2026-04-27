@@ -277,6 +277,145 @@ class TestEquipment:
         assert p.part_equipment["hand.right"]["worn"] is glove
         assert p.part_equipment["hand.left"]["worn"] is None
 
+    def test_auto_equip_full_slots_upgrades_worst_when_new_is_better(self):
+        """Playtest UX 2026-04-27: ``$equip wand.best`` with both
+        hands full would fail when the player just wanted the
+        new item to displace whichever side held the weakest
+        existing piece. Auto-equip now falls back to a quality-
+        gated displace: replace the worst-quality current
+        occupant if the new item is strictly better."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        # Pre-populate both held slots with low-tier wands.
+        old_left = Equipment(
+            iid=ObjectId(), name="junk wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.JUNK,
+        )
+        old_right = Equipment(
+            iid=ObjectId(), name="ordinary wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.ORDINARY,
+        )
+        p.equip(old_left)
+        p.equip(old_right)
+        assert p.part_equipment["hand.left"]["held"] is old_left
+        assert p.part_equipment["hand.right"]["held"] is old_right
+
+        # New masterwork wand should displace the JUNK (worst) one.
+        new_wand = Equipment(
+            iid=ObjectId(), name="masterwork wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+        )
+        success, _ = p.equip(new_wand)
+        assert success is True
+        assert p.part_equipment["hand.left"]["held"] is new_wand
+        assert p.part_equipment["hand.right"]["held"] is old_right
+
+    def test_auto_equip_full_slots_does_not_displace_equal_quality(self):
+        """Equal-quality new items don't displace anything — the
+        player isn't getting an upgrade, so churn would be
+        wasteful (and the canonical case where ``.best`` resolves
+        to the already-equipped piece would otherwise replace it
+        with itself)."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        existing_left = Equipment(
+            iid=ObjectId(), name="masterwork wand A",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+        )
+        existing_right = Equipment(
+            iid=ObjectId(), name="masterwork wand B",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+        )
+        p.equip(existing_left)
+        p.equip(existing_right)
+
+        # Same masterwork tier — no upgrade, no displace.
+        new_wand = Equipment(
+            iid=ObjectId(), name="masterwork wand C",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+        )
+        success, msg = p.equip(new_wand)
+        assert success is False
+        assert "auto-equip" in msg.lower() or "slot" in msg.lower()
+        assert p.part_equipment["hand.left"]["held"] is existing_left
+        assert p.part_equipment["hand.right"]["held"] is existing_right
+
+    def test_auto_equip_full_slots_does_not_displace_when_new_is_worse(self):
+        """A worse new item never displaces a better existing one."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        existing_left = Equipment(
+            iid=ObjectId(), name="superior wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.SUPERIOR,
+        )
+        existing_right = Equipment(
+            iid=ObjectId(), name="masterwork wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+        )
+        p.equip(existing_left)
+        p.equip(existing_right)
+
+        # Junk wand — even the worst slot (superior, mult 1.75) is
+        # better than this; nothing displaces.
+        worse = Equipment(
+            iid=ObjectId(), name="junk wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.JUNK,
+        )
+        success, _ = p.equip(worse)
+        assert success is False
+        assert p.part_equipment["hand.left"]["held"] is existing_left
+        assert p.part_equipment["hand.right"]["held"] is existing_right
+
+    def test_auto_equip_prefers_empty_slot_over_displace(self):
+        """When one slot is empty and one is full, fill the empty
+        — displace logic only kicks in when ALL slots are taken.
+        Pins existing empty-first behavior so it doesn't regress."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        # Only left held filled; right is empty.
+        existing_left = Equipment(
+            iid=ObjectId(), name="junk wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.JUNK,
+        )
+        p.equip(existing_left)
+        assert p.part_equipment["hand.left"]["held"] is existing_left
+        assert p.part_equipment["hand.right"]["held"] is None
+
+        # New masterwork — even though it's better than the junk
+        # already there, the empty right slot wins (displace logic
+        # only runs when both are full).
+        new_wand = Equipment(
+            iid=ObjectId(), name="masterwork wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+        )
+        success, _ = p.equip(new_wand)
+        assert success is True
+        assert p.part_equipment["hand.left"]["held"] is existing_left  # unchanged
+        assert p.part_equipment["hand.right"]["held"] is new_wand  # filled the empty
+
     def test_equip_multi_slot_refuses_when_any_part_destroyed(self):
         """Two-handed weapons need every required placement
         intact — equipping a bow with one severed arm would

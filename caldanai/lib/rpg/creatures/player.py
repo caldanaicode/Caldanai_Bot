@@ -1562,6 +1562,13 @@ class Player(Creature):
         # placements (severed arm, crushed hand) are skipped so a
         # `$equip glove` lands on the surviving hand rather than
         # the destroyed one.
+        #
+        # When no empty placement exists, fall back to a quality-
+        # gated displace: replace the worst-quality current occupant
+        # IF the new item is strictly higher quality. Lets `$equip
+        # wand.best` upgrade through a fully-handed loadout without
+        # forcing the player to specify @l/@r every time. Equal-or-
+        # worse new items don't displace — wouldn't be an upgrade.
         elif slot is None or (slot.name and EquipmentSlots.exclude_from_output(slot.name)):
             compatible = resolve_placements(item.slots)
             for (part_name, key) in compatible:
@@ -1574,6 +1581,36 @@ class Player(Creature):
                         if replaced is not None:
                             msg = replaced.get_full_name()
                         break
+
+            if not dirty:
+                # No empty slot — try to upgrade through the
+                # weakest current occupant. Only the new item's
+                # quality matters; ties stay put so we don't
+                # cycle a masterwork through itself when ``.best``
+                # picks the already-equipped piece.
+                worst = None
+                worst_part = None
+                worst_key = None
+                for (part_name, key) in compatible:
+                    if self._placement_is_blocked(part_name):
+                        continue
+                    cur = self.part_equipment.get(part_name, {}).get(key)
+                    if cur is None:
+                        continue
+                    if worst is None or cur.quality.value["multiplier"] < worst.quality.value["multiplier"]:
+                        worst = cur
+                        worst_part = part_name
+                        worst_key = key
+                if (
+                    worst is not None
+                    and item.quality.value["multiplier"] > worst.quality.value["multiplier"]
+                ):
+                    ok, replaced = self.replace_equipment(item, worst_part, worst_key)
+                    if ok:
+                        dirty = True
+                        if replaced is not None:
+                            msg = replaced.get_full_name()
+
             if not dirty:
                 msg = (
                     "Unable to auto-equip: None of the slots that the item could fill are empty. Either specify "
