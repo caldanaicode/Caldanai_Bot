@@ -12,3 +12,4 @@ tools/.last_posted.*.json
 # Harness playtest sweep outputs; tuning artifacts, not code.
 sweeps/
 .scrub-replacements.txt
+balance-chart.png
