@@ -497,28 +497,44 @@ class RpgUserCommands(Cog):
 
             msg += f"\n\n{player.apply_damage(player.health)}\n\nThe storm calms to a gentle rain..."
 
-            index = 2
-            for p in game.player_manager.players.values():
-                if p == player:
-                    continue
-                # "Needs healing" includes part injuries — a player
-                # with a destroyed arm but full body HP should still
-                # be caught in the rain.
-                if not p.is_injured():
-                    continue
+            # Single-target rain heal: the most-injured ally (NOT
+            # the praying player) is fully restored. Pre-smite, the
+            # rain swept the whole party, but nat-20 now owns the
+            # party-wide sweep — the nat-1 rain is back to single-
+            # target so the "I died for you, comrade" narrative beat
+            # stays singular and poignant. Tiebreak on injured-part
+            # count so a player at full body HP but with a destroyed
+            # arm beats a fully-intact player.
+            candidates = [
+                p for p in game.player_manager.players.values()
+                if p is not player and p.is_injured()
+            ]
+            if candidates:
+                rain_target = min(
+                    candidates,
+                    key=lambda p: (
+                        p.get_health_scale(),
+                        -sum(
+                            1 for part in (p.body_parts or [])
+                            if part.health < part.health_max
+                        ),
+                    ),
+                )
+                actors.append(rain_target)
+                index = len(actors)
                 msg += f"\n@{index}'s skin glows softly under the touch of the rain. "
                 # apply_damage before heal_fully so the resurrection
                 # narration (only fired when the player was at 0 HP)
                 # still gets appended before heal_fully tops everything
                 # off. heal_fully handles parts, regen, and is_dirty.
-                if p.health < p.get_health_max():
-                    heal_msg = p.apply_damage(p.health - p.get_health_max())
+                if rain_target.health < rain_target.get_health_max():
+                    heal_msg = rain_target.apply_damage(
+                        rain_target.health - rain_target.get_health_max()
+                    )
                     if heal_msg:
                         msg += f"{heal_msg} "
-                p.heal_fully()
+                rain_target.heal_fully()
                 msg += f"@{index} is made whole!"
-                actors.append(p)
-                index += 1
 
             if player in game.combatants:
                 game.combatants.remove(player)

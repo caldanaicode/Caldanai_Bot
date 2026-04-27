@@ -41,7 +41,18 @@ ozone vocabulary, inverting the nat-1 sacrifice's storm onto
 the monster instead of the praying player.
 
 The 17-19 branch (single-target partial heal + worst-part
-restore) and the nat-1 sacrifice branch are unchanged.
+restore) is unchanged.
+
+**Coordinated nat-1 narrowing:** the nat-1 sacrifice's rain
+used to fully heal the *entire* surviving party. With nat-20
+now owning the party-wide sweep, the rain would have been a
+free second copy of the same effect — and would have flattened
+the "I died for you, comrade" beat into an everyone-gets-a-
+prize sweep. The nat-1 rain now heals exactly **one** ally
+(the most-injured non-praying player, fully), so the dramatic
+moments stay singular and poignant. If no ally is injured, the
+storm fires but no rain heal — the praying player's death
+isn't paid back at all.
 
 ### 2026-04-27 — Fuzzy monster names across `$kill` / `$look` + salvage polish
 

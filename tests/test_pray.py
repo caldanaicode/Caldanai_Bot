@@ -463,12 +463,15 @@ class TestNat17To19SingleTargetUnchanged:
 # ---------------------------------------------------------------------------
 
 
-class TestNat1SacrificeUnchanged:
-    """Nat-1 sacrifices the praying player and rains heal on the
-    rest of the party. Untouched by the nat-20 refactor."""
+class TestNat1SacrificeSingleTargetRain:
+    """Nat-1 sacrifices the praying player and rains a full heal on
+    the SINGLE most-injured ally (not the praying player). The pre-
+    smite-era full-party rain was retired when nat-20 took over the
+    party-wide sweep — nat-1's rain is back to single-target so the
+    "I died for you, comrade" narrative beat stays singular."""
 
     @pytest.mark.asyncio
-    async def test_praying_player_dies_others_healed(self):
+    async def test_praying_player_dies_one_ally_healed(self):
         cog = _cog()
         alice = _make_player("Alice", health=20, health_max=20, uid=1)
         bob = _make_player("Bob", health=5, health_max=20, uid=2)
@@ -478,7 +481,7 @@ class TestNat1SacrificeUnchanged:
 
         # Alice was struck down by lightning.
         assert alice.health == 0
-        # Bob was healed by the rain.
+        # Bob (only injured ally) was healed by the rain.
         assert bob.health == bob.get_health_max()
 
         sent = "\n".join(_dispatched_strings(game._dispatcher))
@@ -487,3 +490,48 @@ class TestNat1SacrificeUnchanged:
         # "ash drifts" / "cinders" lines, but uses some shared
         # storm vocabulary. The presence of "Sacrifice is demanded"
         # is the unambiguous tell that this is the nat-1 branch.
+
+    @pytest.mark.asyncio
+    async def test_only_weakest_ally_healed_when_multiple_injured(self):
+        """With Bob at 5/20 and Carol at 10/20 (both injured non-
+        praying allies), only Bob (weakest) should be healed. Carol
+        stays at her current HP — single-target rain, not a sweep."""
+        cog = _cog()
+        alice = _make_player("Alice", health=20, health_max=20, uid=1)
+        bob = _make_player("Bob", health=5, health_max=20, uid=2)
+        carol = _make_player("Carol", health=10, health_max=20, uid=3)
+        game = _make_game(monster=None, players=[alice, bob, carol])
+
+        await _invoke_pray(cog, game, alice, d20_value=1, d6_value=6)
+
+        assert alice.health == 0
+        # Bob is the weakest non-praying ally — fully healed.
+        assert bob.health == bob.get_health_max()
+        # Carol stays at her pre-rain HP — not the weakest, no heal.
+        assert carol.health == 10
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        # Exactly ONE "made whole" line — Bob's. Carol gets nothing.
+        assert sent.count("is made whole!") == 1
+
+    @pytest.mark.asyncio
+    async def test_no_injured_allies_storm_fires_but_no_rain_heal(self):
+        """When the praying player is the only injured one (or only
+        player), the storm still kills them but no rain heal
+        narration appears — there's no candidate."""
+        cog = _cog()
+        alice = _make_player("Alice", health=20, health_max=20, uid=1)
+        bob = _make_player("Bob", health=20, health_max=20, uid=2)
+        game = _make_game(monster=None, players=[alice, bob])
+
+        await _invoke_pray(cog, game, alice, d20_value=1, d6_value=6)
+
+        assert alice.health == 0
+        # Bob untouched — already at full HP, not a candidate.
+        assert bob.health == bob.get_health_max()
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        # Storm sacrifice + rain calm narration — no "made whole"
+        # line because no one was eligible.
+        assert "Sacrifice is demanded" in sent
+        assert "is made whole!" not in sent
