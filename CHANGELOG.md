@@ -4,6 +4,22 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — `$equip <name>` defaults to best-quality
+
+Bare-name equip queries (no ``.<selector>``) now auto-pick the
+highest-quality match. ``$equip wand`` with three wands in
+inventory used to surface an ambiguity prompt; now it picks
+the best one — same as ``$equip wand.best``.
+
+Players asking for "a wand" generally mean their best wand.
+The ambiguity prompt only kicks in when an explicit selector
+fails to narrow (e.g. ``$equip wand.fine`` with two fine
+wands — the selector itself didn't disambiguate, so the
+player needs to retry).
+
+Strict matching is preserved for index selectors (``wand.2``)
+and quality selectors (``wand.fine``, ``wand.b`` → ``wand.best``).
+
 ### 2026-04-27 — Auto-equip: 3-tier slot priority (empty / same-type upgrade / cross-type swap)
 
 Replaces the prior any-type quality-gated displace. Player

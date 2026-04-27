@@ -55,13 +55,51 @@ class TestEquipMode:
         assert res.items == [hat]
         assert res.ambiguity_candidates == []
 
-    def test_multiple_same_name_items_surface_ambiguity(self):
+    def test_bare_name_with_multiple_items_picks_best_quality(self):
+        """Bare ``$equip wand`` with multiple wands defaults to the
+        best-quality match — same as ``$equip wand.best`` would.
+        Players asking for "a wand" mean "my best wand"; surfacing
+        an ambiguity prompt is annoying for the common case.
+
+        Explicit selectors (``wand.fine``, ``wand.2``) keep the
+        strict matching — if the player typed a selector, the
+        intent is specific, and a no-match should error rather
+        than silently pick a different item."""
+        from caldanai.lib.rpg.helpers.enums import Qualities
+
         p = _player()
-        _give(p, "wand")
-        _give(p, "wand")
+        # Pin qualities so the "best" pick is deterministic.
+        junk_wand = Inventory.load_item(
+            data={"plugin": "wand", "quality": "JUNK"},
+        )
+        masterwork_wand = Inventory.load_item(
+            data={"plugin": "wand", "quality": "MASTERWORK"},
+        )
+        p.inventory.add(junk_wand)
+        p.inventory.add(masterwork_wand)
+
         res = p.resolve_item_query("wand", "equip")
+        assert res.items == [masterwork_wand]
+        assert res.ambiguity_candidates == []
+
+    def test_explicit_quality_with_multiple_matches_still_ambiguates(self):
+        """``$equip wand.fine`` with two fine wands still triggers
+        ambiguity — explicit selector means the player has a
+        specific item in mind, and we shouldn't auto-pick when
+        the selector itself doesn't disambiguate."""
+        p = _player()
+        wand_a = Inventory.load_item(
+            data={"plugin": "wand", "quality": "FINE"},
+        )
+        wand_b = Inventory.load_item(
+            data={"plugin": "wand", "quality": "FINE"},
+        )
+        p.inventory.add(wand_a)
+        p.inventory.add(wand_b)
+
+        res = p.resolve_item_query("wand.fine", "equip")
         assert res.items == []
-        assert res.ambiguity_candidates  # some candidate hints
+        assert res.ambiguity_candidates  # surfaces both
 
     def test_best_selector_picks_highest_quality(self):
         """``.best`` collapses multi-match ambiguity by picking the

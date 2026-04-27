@@ -132,12 +132,27 @@ class TestEquipMode:
 
     @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
     def test_ambiguity_dispatches_candidates(self, mock_dispatch):
+        """Bare-name multi-match defaults to best-quality auto-pick
+        (same as ``wand.best``); only EXPLICIT selectors that fail
+        to disambiguate (``wand.fine`` with two fine wands) trigger
+        the ambiguity prompt now."""
+        from caldanai.lib.rpg.inventory import Inventory
+
         p = _player()
-        _give(p, "wand")
-        _give(p, "wand")
+        # Two FINE wands — the explicit selector ``.fine`` matches
+        # both, can't pick between them, surfaces ambiguity.
+        wand_a = Inventory.load_item(
+            data={"plugin": "wand", "quality": "FINE"},
+        )
+        wand_b = Inventory.load_item(
+            data={"plugin": "wand", "quality": "FINE"},
+        )
+        p.inventory.add(wand_a)
+        p.inventory.add(wand_b)
+
         channel = MagicMock()
         result = RpgUtilities.resolve_items_or_notify(
-            channel, p, ["wand"], mode="equip",
+            channel, p, ["wand.fine"], mode="equip",
         )
         assert result == []
         mock_dispatch.add.assert_called_once()

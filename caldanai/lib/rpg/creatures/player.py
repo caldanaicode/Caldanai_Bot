@@ -1407,6 +1407,20 @@ class Player(Creature):
             if len(candidates) == 1:
                 return ItemResolution(items=candidates)
             if len(candidates) > 1:
+                # Bare-name query (no ``.<selector>``) auto-picks
+                # the best-quality match. ``$equip wand`` means
+                # "give me my best wand" the same way ``$equip
+                # wand.best`` does — no ambiguity prompt for the
+                # common case where the player just wants the
+                # upgrade. Queries with explicit selectors
+                # (``wand.fine``, ``wand.2``) keep the strict
+                # single-match behavior.
+                if "." not in str(q):
+                    best = max(
+                        candidates,
+                        key=lambda i: i.quality.value["multiplier"],
+                    )
+                    return ItemResolution(items=[best])
                 return ItemResolution(
                     ambiguity_candidates=_candidate_labels(candidates),
                 )
