@@ -46,20 +46,21 @@ class Armor(Equipment):
         embed, file = super().get_embed()
         for k, v in self.bonuses.items():
             embed.insert_field_at(0, name=k, value=v, inline=True)
-        # Surface the low-quality dodge tax only when it's currently
-        # active (quality at or below ORDINARY). Hidden on FINE+ even
-        # if the piece's class declares a penalty — the player isn't
-        # paying it, so showing it as a number is misleading. Named
-        # "dodge tax" rather than "dodge: -N" so it doesn't get
-        # confused with a piece that genuinely grants a dodge bonus.
+        # Surface the low-quality dodge penalty only when it's
+        # currently active (quality at or below ORDINARY). Hidden on
+        # FINE+ even if the piece's class declares a penalty — the
+        # player isn't paying it, so showing it as a number is
+        # misleading. Field name is plain "dodge" with the value
+        # negated so the penalty reads in the same column as any
+        # positive dodge bonus a future armor piece confers.
         if (
             self.LOW_QUALITY_DODGE_PENALTY > 0
             and self.quality.value["multiplier"] <= 1.0
         ):
             embed.insert_field_at(
                 0,
-                name="dodge tax",
-                value=self.LOW_QUALITY_DODGE_PENALTY,
+                name="dodge",
+                value=-self.LOW_QUALITY_DODGE_PENALTY,
                 inline=True,
             )
         return embed, file

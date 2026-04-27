@@ -105,16 +105,18 @@ class TestQualityMultiplier:
 
 
 # ---------------------------------------------------------------------------
-# Embed surfaces the low-quality dodge tax (only when active)
+# Embed surfaces the low-quality dodge penalty (only when active)
 # ---------------------------------------------------------------------------
 
 
-class TestEmbedDodgeTax:
+class TestEmbedDodgePenalty:
     @pytest.mark.parametrize("quality", [Qualities.JUNK, Qualities.ORDINARY])
-    def test_low_quality_shows_dodge_tax(self, quality):
+    def test_low_quality_shows_negative_dodge(self, quality):
         """Pieces at or below ORDINARY should expose the penalty
         on the item embed so players can see why their dodge
-        dropped on equip."""
+        dropped on equip. Rendered as a negative ``dodge`` field so
+        it reads in the same column as any positive dodge bonus a
+        future piece might confer."""
         armor = _PenalizedArmor(
             quality=quality,
             bonuses={"defense": 1},
@@ -123,16 +125,16 @@ class TestEmbedDodgeTax:
         )
         embed, _ = armor.get_embed()
         names = [f.name for f in embed.fields]
-        assert "dodge tax" in names
-        tax_field = next(f for f in embed.fields if f.name == "dodge tax")
-        # Discord coerces field values to strings.
-        assert tax_field.value == "2"
+        assert "dodge" in names
+        dodge_field = next(f for f in embed.fields if f.name == "dodge")
+        # Discord coerces field values to strings; negated penalty.
+        assert dodge_field.value == "-2"
 
     @pytest.mark.parametrize(
         "quality",
         [Qualities.FINE, Qualities.QUALITY, Qualities.SUPERIOR, Qualities.MASTERWORK],
     )
-    def test_high_quality_hides_dodge_tax(self, quality):
+    def test_high_quality_hides_dodge_field(self, quality):
         """Pieces at FINE+ skip the penalty in the math, so the
         embed shouldn't show a phantom number that doesn't apply."""
         armor = _PenalizedArmor(
@@ -143,9 +145,9 @@ class TestEmbedDodgeTax:
         )
         embed, _ = armor.get_embed()
         names = [f.name for f in embed.fields]
-        assert "dodge tax" not in names
+        assert "dodge" not in names
 
-    def test_zero_penalty_armor_never_shows_tax(self):
+    def test_zero_penalty_armor_never_shows_dodge_field(self):
         """The default (LOW_QUALITY_DODGE_PENALTY=0) on bare Armor
         means no field is added regardless of quality."""
         armor = Armor(
@@ -156,4 +158,4 @@ class TestEmbedDodgeTax:
         )
         embed, _ = armor.get_embed()
         names = [f.name for f in embed.fields]
-        assert "dodge tax" not in names
+        assert "dodge" not in names
