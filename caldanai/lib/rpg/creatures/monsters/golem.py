@@ -69,8 +69,8 @@ class Golem(MonsterPlugin):
         super().__init__(
             name="golem",
             atk="2d6",        # heavy slam, nothing fancy
-            defense="3d6",    # heavy stone armor; Q.6.3 tank +4 on torso/head does the rest
-            dodge="1d4",      # almost never dodges anything
+            defense="5d3",    # signature humanoid; LARGE size_mod + Q.6.3 tank +4 on torso/head do the rest
+            dodge="5d3",      # signature humanoid; LARGE size_mod nudges this down naturally
             health_max="25d12",
         )
 

@@ -82,8 +82,8 @@ class Doppelganger(MonsterPlugin):
         super().__init__(
             name="???",
             atk="2d10",
-            defense="5d4",
-            dodge="5d4",
+            defense="5d3",
+            dodge="5d3",
             health_max="20d10"
         )
 

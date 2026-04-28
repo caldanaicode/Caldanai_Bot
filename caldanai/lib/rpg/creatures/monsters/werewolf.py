@@ -111,7 +111,7 @@ class Werewolf(MonsterPlugin):
         super().__init__(
             name="werewolf",
             atk="2d8",       # bite + claw
-            defense="1d6",
+            defense="3d3+1",  # bumped from 1d6 — LARGE was reading weaker than a fresh player; floor of 4 + LARGE size_mod gives ~8.75 effective, real threat without crowding into golem/minotaur tank territory
             dodge="2d8",
             health_max="8d10",
         )

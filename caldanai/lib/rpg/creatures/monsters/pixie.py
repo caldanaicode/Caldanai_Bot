@@ -91,8 +91,8 @@ class Pixie(MonsterPlugin):
         super().__init__(
             name="pixie",
             atk="1d4",           # tiny sting / dart / thrown pebble
-            defense="1d2",
-            dodge="3d8",         # very agile before size_mod (which buffs it)
+            defense="2d3",       # bumped from 1d2 so TINY def_mod doesn't truncate her torso to 0 defense
+            dodge="5d3",         # signature humanoid dodge; TINY dodge_mod buffs to ~15, sits her squarely with math_teacher in the agile-cluster while staying landable for skilled players (skill-20 hit bonus ~+5 vs dodge 15 = ~50%)
             health_max="2d4",    # glass cannon
         )
 

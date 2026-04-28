@@ -61,8 +61,8 @@ class Bandit(MonsterPlugin):
         super().__init__(
             name="bandit",
             atk="1d8",
-            defense="1d12",
-            dodge="1d12",
+            defense="4d2",
+            dodge="4d2",
             health_max="4d12"
         )
 

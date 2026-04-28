@@ -23,8 +23,8 @@ class Giant(MonsterPlugin):
         super().__init__(
             name="giant",
             atk="2d10",
-            defense="2d8",
-            dodge="1d4",
+            defense="5d3",
+            dodge="5d3",
             health_max="25d12"
         )
 

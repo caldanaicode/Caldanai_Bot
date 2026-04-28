@@ -388,7 +388,7 @@ def _run_sweep_scenarios(
     for th in two_h:
         pairs.append((th, None))
 
-    skills = [0, 10, 20]
+    skills = [0, 5, 10, 20]
     strategies = [None, "head", "torso"]
     results: List[dict] = []
 
@@ -954,15 +954,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"def={args.player_defense} dodge={args.player_dodge})\n"
             )
             print(
-                f"  {'monster':<14} | {'skill-20 no-tgt':<16} | "
-                f"{'skill-20 head':<14} | {'skill-20 torso':<15} | "
-                f"{'exploit gap':<12}"
+                f"  {'monster':<14} | "
+                f"{'sk0 no-t':<8} | {'sk5 no-t':<8} | "
+                f"{'sk10 no-t':<9} | {'sk20 no-t':<9} | "
+                f"{'sk20 torso':<10} | {'exploit gap':<12}"
             )
-            print("  " + "-" * 80)
+            print("  " + "-" * 86)
             for stem, s in summaries:
-                ps20 = s["per_skill"].get(20, {})
-                def _b(k):
-                    return f"{ps20.get(k, {}).get('best', 0):>5.0%}"
+                def _b(skill, k):
+                    return f"{s['per_skill'].get(skill, {}).get(k, {}).get('best', 0):>5.0%}"
                 gap = s["max_exploit_gap"]
                 tag = (
                     "TRIVIAL" if gap >= 0.80
@@ -971,10 +971,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                     else "OK"
                 )
                 print(
-                    f"  {stem:<14} | best={_b('none'):<11} "
-                    f"| best={_b('head'):<9} "
-                    f"| best={_b('torso'):<10} "
-                    f"| {gap:>5.0%} [{tag}]"
+                    f"  {stem:<14} | "
+                    f"{_b(0, 'none'):<8} | {_b(5, 'none'):<8} | "
+                    f"{_b(10, 'none'):<9} | {_b(20, 'none'):<9} | "
+                    f"{_b(20, 'torso'):<10} | {gap:>5.0%} [{tag}]"
                 )
             return 0
 

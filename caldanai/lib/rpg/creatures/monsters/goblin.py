@@ -38,8 +38,8 @@ class Goblin(MonsterPlugin):
         super().__init__(
             name="goblin",
             atk="1d8",
-            defense="1d10",
-            dodge="1d10",
+            defense="4d2",
+            dodge="4d2",
             health_max="3d10"
         )
 

@@ -54,8 +54,8 @@ class Skeleton(Undead, MonsterPlugin):
         super().__init__(
             name="skeleton",
             atk="1d8",
-            defense="1d4",   # brittle — not much armor between the bones
-            dodge="1d10",
+            defense="5d3",   # signature humanoid; bumped from 4d2 baseline so it doesn't blob with bandit on the dodge×defense chart
+            dodge="5d3",
             health_max="3d10",
         )
 

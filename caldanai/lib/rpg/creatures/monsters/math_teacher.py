@@ -23,8 +23,8 @@ class MathTeacher(MonsterPlugin):
         super().__init__(
             name="flying math teacher",
             atk="3d14",
-            defense="3d6",
-            dodge="3d6",
+            defense="5d3",
+            dodge="5d3",
             health_max="6d14"
         )
 

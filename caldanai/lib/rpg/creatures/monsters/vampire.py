@@ -42,8 +42,8 @@ class Vampire(MonsterPlugin):
         super().__init__(
             name="vampire",
             atk="8d4",
-            defense="1d4",
-            dodge="3d10",
+            defense="5d3",
+            dodge="5d3",
             health_max="18d12"
         )
 

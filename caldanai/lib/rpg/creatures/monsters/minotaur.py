@@ -51,8 +51,8 @@ class Minotaur(MonsterPlugin):
         super().__init__(
             name="minotaur",
             atk="2d8",
-            defense="2d6",
-            dodge="1d8",
+            defense="5d3",
+            dodge="5d3",
             health_max="14d12",
         )
 

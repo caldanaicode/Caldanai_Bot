@@ -4,6 +4,41 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-28 — Humanoid base-stat rebalance + sweep harness skill ladder
+
+Defense/dodge values across humanoid monsters collapse onto a
+shared baseline so the bestiary chart stops scattering by
+historical accident and starts reading as a coherent power
+curve. Size scaling carries differentiation between the small
+goblins and the huge giants instead of bespoke die strings on
+every plugin.
+
+- **Baseline humanoids** (bandit, goblin) → `4d2 / 4d2`. Mean 6
+  matches the player default; per-spawn variance ±2. Bandits
+  and goblins also wear scrap armor for additional texture, so
+  the modest base stays out of the way.
+- **Signature humanoids** (skeleton, vampire, doppelganger,
+  math_teacher, minotaur, giant, golem) → `5d3 / 5d3`. Mean 10;
+  size_mod handles the LARGE / HUGE bumps. Restores meaningful
+  threat to LARGE+ creatures (giant 94% → 71% beat-rate at
+  skill-20, golem 100% → 91%, minotaur 100% → 92%).
+- **Pixie** → `2d3 defense / 5d3 dodge`. The defense bump fixes
+  TINY size_mod truncating her torso to 0; the dodge tightens
+  to keep her landable for skilled players.
+- **Werewolf** → `3d3+1 defense`. Bumped from `1d6` because
+  LARGE size_mod still left her reading weaker than a fresh
+  player. Floor-of-4 + LARGE = real threat without crowding the
+  golem/minotaur tank tier.
+- Skill progression sweep at QUALITY mace, 200 trials/scenario:
+  bandit/goblin/skeleton stay 100% at all skills (mooks);
+  vampire 3% → 40% across skill 0→20 (brutal early);
+  giant 6% → 71%; golem 21% → 91%; cyclops 9% → 36%
+  (never trivial); dragon 0% → 1% (apex preserved).
+- `tools/playtest_combat_harness` cross-monster summary now
+  renders win-rates at skill 0 / 5 / 10 / 20 instead of skill-20
+  only — the progression line surfaces early-game balance the
+  endpoint-only view was hiding.
+
 ### 2026-04-28 — Armor / dodge / loadout lift to `Creature`
 
 Worn-armor aggregation, the spawn-time loadout pipeline, and the
