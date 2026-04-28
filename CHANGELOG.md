@@ -4,6 +4,27 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-28 — Body-parts table: per-part Def column with breakdown
+
+Player-facing visibility for the per-part absorption pool. Both
+`$look <monster>` and `$health <player>` (same renderer) now carry
+a `Def` column showing `d{N} ({base}{±part_bonus}{±armor}{±drain})`
+so the mechanic stops being invisible: torso-injury drain and worn-
+armor bonuses are explicit, not just inferred from a degraded-part
+emoji on the embed.
+
+- New `effective_defense_breakdown(creature, part)` decomposes
+  `effective_defense_for_part` into its four additive components
+  (full-health base, part-specific bonus, local armor, torso-damage
+  drain). Same arithmetic — components just survive to the renderer.
+- New `_format_defense_cell(breakdown)` produces the cell string;
+  zero components are omitted (`d20 (20)` not `d20 (20+0+0)`),
+  totals ≤ 0 collapse to em-dash (matches the absorption helper's
+  short-circuit on soft parts that floor to zero).
+- `Creature.render_body_part_status_table` adds the `Def` column
+  between `Status` and `Worn`. Body-less creatures still emit no
+  table; format works identically for monsters and players.
+
 ### 2026-04-28 — Spawn embed: Defense re-anchored to TORSO-effective
 
 Bare creature-level `get_defense()` hid per-part bonuses on the

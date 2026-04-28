@@ -1336,6 +1336,17 @@ class Creature:
             level = part.get_injury_level()
             dot, word, color = INJURY_LEVEL_DISPLAY.get(level, ("🟢", "unharmed", "32"))
             hp_str = f"{part.health} / {part.health_max}"
+            # Per-part defense pool with full component breakdown:
+            # ``d{N} ({base}{±part_bonus}{±armor}{±drain})``. Surfaces
+            # the absorption pool a part-aimed swing actually rolls
+            # against AND why it's that number, so torso damage drain
+            # and worn-armor bonuses stop being invisible. Resolves to
+            # ``—`` for soft parts (eyes / bare extremities) whose
+            # pool floors to 0 — the absorption helper short-circuits
+            # there anyway. See :func:`effective_defense_breakdown`.
+            def_str = _format_defense_cell(
+                effective_defense_breakdown(self, part),
+            )
             placements = getattr(part, "placements", None) or {}
             # Item NAME only — no inline ``(quality)``. Quality is
             # still available per item via ``$look <item>``; cramming
@@ -1350,10 +1361,11 @@ class Creature:
             worn_str = ", ".join(worn_pieces)
             if worn_str:
                 any_worn = True
-            rows.append((dot, part.name, hp_str, word, color, worn_str))
+            rows.append((dot, part.name, hp_str, word, color, def_str, worn_str))
 
-        part_w = max(len(r[1]) for r in rows + [("", "Part", "", "", "", "")])
-        status_w = max(len(r[3]) for r in rows + [("", "", "", "Status", "", "")])
+        part_w = max(len(r[1]) for r in rows + [("", "Part", "", "", "", "", "")])
+        status_w = max(len(r[3]) for r in rows + [("", "", "", "Status", "", "", "")])
+        def_w = max(len(r[5]) for r in rows + [("", "", "", "", "", "Def", "")])
         # No worn_w — Worn is the last column, so we don't need to
         # pad it for the next column's alignment. Skipping the ljust
         # avoids ~30 chars of trailing whitespace per empty row,
@@ -1362,7 +1374,7 @@ class Creature:
 
         lines = ["```ansi"]
         if show_hp:
-            hp_w = max(len(r[2]) for r in rows + [("", "", "HP", "", "", "")])
+            hp_w = max(len(r[2]) for r in rows + [("", "", "HP", "", "", "", "")])
             # ``⚫ `` (medium black circle + ASCII space) as the
             # header prefix matches the exact visual width of the
             # status-dot emoji + space on each data row, since both
@@ -1374,18 +1386,20 @@ class Creature:
             header = (
                 f"⚫ {'Part'.ljust(part_w)} | "
                 f"{'HP'.ljust(hp_w)} | "
-                f"{'Status'.ljust(status_w)}"
+                f"{'Status'.ljust(status_w)} | "
+                f"{'Def'.ljust(def_w)}"
             )
             if any_worn:
                 header += " | Worn"
             lines.append(header)
-            for dot, name, hp_str, word, color, worn_str in rows:
+            for dot, name, hp_str, word, color, def_str, worn_str in rows:
                 padded_word = word.ljust(status_w)
                 colored_word = f"\x1b[2;{color}m{padded_word}\x1b[0m"
                 row_line = (
                     f"{dot} {name.ljust(part_w)} | "
                     f"{hp_str.ljust(hp_w)} | "
-                    f"{colored_word}"
+                    f"{colored_word} | "
+                    f"{def_str.ljust(def_w)}"
                 )
                 if any_worn:
                     row_line += f" | {worn_str}"
@@ -1401,15 +1415,19 @@ class Creature:
             # the platforms agree on (Caels 2026-04-26).
             header = (
                 f"⚫ {'Part'.ljust(part_w)} | "
-                f"{'Status'.ljust(status_w)}"
+                f"{'Status'.ljust(status_w)} | "
+                f"{'Def'.ljust(def_w)}"
             )
             if any_worn:
                 header += " | Worn"
             lines.append(header)
-            for dot, name, _hp_str, word, color, worn_str in rows:
+            for dot, name, _hp_str, word, color, def_str, worn_str in rows:
                 padded_word = word.ljust(status_w)
                 colored_word = f"\x1b[2;{color}m{padded_word}\x1b[0m"
-                row_line = f"{dot} {name.ljust(part_w)} | {colored_word}"
+                row_line = (
+                    f"{dot} {name.ljust(part_w)} | {colored_word} | "
+                    f"{def_str.ljust(def_w)}"
+                )
                 if any_worn:
                     row_line += f" | {worn_str}"
                 lines.append(row_line)
@@ -2538,6 +2556,117 @@ def effective_defense_for_part(creature, part) -> int:
     natural = base + offset + intrinsic - depth_penalty
     floor = max(0, natural // 2)
     return max(floor, natural + local_armor)
+
+
+def effective_defense_breakdown(creature, part) -> dict:
+    """Decompose :func:`effective_defense_for_part` into the four
+    additive components rendered in the body-parts table's ``Def``
+    column: full-health base, part-specific bonus, local armor,
+    and torso-damage drain.
+
+    Returns a dict with keys::
+
+        base       — full-health Creature.get_defense(creature)
+        part_bonus — fixed per-part shift (offset + intrinsic -
+                     depth_penalty for plated parts; offset only
+                     for SOFT_PART parts)
+        armor      — sum of equipped armor's defense bonuses on
+                     this part's placements
+        drain      — live Creature.get_defense - base, signed
+                     (zero at full health, negative when torso
+                     functionality is reduced)
+        total      — same value :func:`effective_defense_for_part`
+                     returns; equals
+                     ``max(floor, base + part_bonus + drain +
+                     armor)``. Components sum to ``total`` except
+                     in the rare floor-binding case (negative
+                     ``armor`` so hostile it'd push the part below
+                     half its natural baseline — the floor clamps
+                     and breakdown components stay nominal).
+
+    For SOFT_PART parts (eye, wing, bare extremity) the ``base``
+    field is the fractional ``int(creature_base ×
+    SOFT_PART_FRACTION)`` rather than the raw creature base —
+    that's the value SOFT_PART arithmetic actually layers on top
+    of, so the breakdown stays additive. ``drain`` for SOFT_PART
+    parts is the analogous fractional difference and is usually
+    0 thanks to ``int()`` truncation at low base values.
+    """
+    from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+    from caldanai.lib.rpg.creatures.mixins import Equippable
+
+    intrinsic_raw = getattr(part, "defense_bonus", 0)
+    offset = getattr(part, "defense_offset", 0)
+
+    # Live base (current torso state) and full-health base.
+    # ``drain`` is the difference: zero at full health, negative
+    # when injury degrades the Defensive aggregation.
+    base_live = Creature.get_defense(creature)
+    if not creature.body_parts:
+        base_full = base_live
+    else:
+        snapshot = [(p, p.health) for p in creature.body_parts]
+        try:
+            for p, _ in snapshot:
+                p.health = p.health_max
+            base_full = Creature.get_defense(creature)
+        finally:
+            for p, h in snapshot:
+                p.health = h
+
+    local_armor = 0
+    if isinstance(part, Equippable):
+        placements = getattr(part, "placements", None) or {}
+        for item in placements.values():
+            if item is None:
+                continue
+            bonuses = getattr(item, "bonuses", None)
+            if bonuses:
+                local_armor += bonuses.get("defense", 0)
+
+    if intrinsic_raw == BodyPartPlugin.SOFT_PART:
+        soft_full = int(base_full * SOFT_PART_FRACTION)
+        soft_live = int(base_live * SOFT_PART_FRACTION)
+        return {
+            "base": soft_full,
+            "part_bonus": offset,
+            "armor": local_armor,
+            "drain": soft_live - soft_full,
+            "total": effective_defense_for_part(creature, part),
+        }
+
+    depth_penalty = part.depth * DEPTH_COEFFICIENT
+    intrinsic = max(0, intrinsic_raw)
+    return {
+        "base": base_full,
+        "part_bonus": offset + intrinsic - depth_penalty,
+        "armor": local_armor,
+        "drain": base_live - base_full,
+        "total": effective_defense_for_part(creature, part),
+    }
+
+
+def _format_defense_cell(breakdown: dict) -> str:
+    """Render a per-part defense breakdown as the ``Def`` cell
+    string used by :meth:`Creature.render_body_part_status_table`.
+
+    Format: ``d{total} ({base}{±part_bonus}{±armor}{±drain})``.
+    Zero components are omitted from the parens. When
+    ``total <= 0`` the cell collapses to ``—`` (em dash) since
+    the absorption helper short-circuits there and the breakdown
+    becomes meaningless.
+    """
+    total = breakdown["total"]
+    if total <= 0:
+        return "—"
+    parts = [str(breakdown["base"])]
+    for key in ("part_bonus", "armor", "drain"):
+        value = breakdown[key]
+        if value > 0:
+            parts.append(f"+{value}")
+        elif value < 0:
+            parts.append(f"{value}")
+    return f"d{total} ({''.join(parts)})"
 
 
 def _attack_scale_of(creature) -> float:
