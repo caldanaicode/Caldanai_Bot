@@ -83,12 +83,21 @@ def _make_result(
         forced_damage=forced_damage,
         dodge=dodge,
     )
+    # Q.7: ``absorbed`` is the rolled ``1d{defense}`` outcome. The
+    # render tool builds synthetic AttackResults so we infer absorbed
+    # from sub_damage - final_damage; that matches what
+    # ``Creature.resolve_attack`` would have stored after the roll.
+    sub_damage = max(0, int(forced_damage * multiplier))
+    if is_miss:
+        sub_damage = 0
+    inferred_absorbed = max(0, sub_damage - damage) if defense > 0 else 0
     r = AttackResult(
         source=_make_source(label, dmg_type),
         combined=combined,
         damage=damage,
         multiplier=multiplier,
         defense=defense,
+        absorbed=inferred_absorbed,
         dodge=dodge,
         dmg_type=dmg_type,
     )

@@ -18,7 +18,7 @@ from caldanai.lib.rpg.helpers.dice import Dice
 from caldanai.lib.rpg.helpers.enums import (
     AggressionLevels, TimePartitions, DamageTypes, Reach, Size)
 from caldanai.lib.rpg.helpers.roll_data import AttackRoll, CombinedRoll, DamageRoll
-from caldanai.lib.rpg.creatures import Creature
+from caldanai.lib.rpg.creatures import Creature, _roll_absorption
 
 
 class Dragon(MonsterPlugin):
@@ -197,7 +197,9 @@ class Dragon(MonsterPlugin):
 
         # Build an AttackSequence with one result per victim. Breath
         # auto-hits (no dodge roll), applies the victim's FIRE trait
-        # multiplier, then subtracts defense once per victim.
+        # multiplier, then rolls 1d{defense} for absorbed damage per
+        # victim (Q.7 trial — same dice-absorption regime as the
+        # generic ``Creature.resolve_attack`` path).
         # Q.6.2: ``AttackResult.damage`` stores the post-defense value
         # (matching the shared resolve_attack convention); the compact
         # table's footer surfaces the raw → post-defense divergence.
@@ -209,7 +211,8 @@ class Dragon(MonsterPlugin):
             df = victim.get_defense()
             multiplier = victim.get_trait_multiplier(DamageTypes.FIRE)
             sub_dmg = max(0, int(raw * multiplier))
-            dmg = max(0, sub_dmg - df)
+            absorbed = _roll_absorption(df, sub_dmg)
+            dmg = max(0, sub_dmg - absorbed)
 
             # Construct a no-miss CombinedRoll using the actual damage dice.
             # The attack roll is a dummy — auto_hit=True will hide it.
@@ -232,6 +235,7 @@ class Dragon(MonsterPlugin):
                     damage=dmg,
                     multiplier=multiplier,
                     defense=df,
+                    absorbed=absorbed,
                     dodge=0,
                     dmg_type=DamageTypes.FIRE,
                     auto_hit=True,

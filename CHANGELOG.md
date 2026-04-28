@@ -4,6 +4,43 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-27 — Per-hit absorption rolls 1d{defense} (trial)
+
+Pre-trial: a hit doing 10 raw against a defense-7 part deterministically
+absorbed 7 — flat-subtract, no variance. The same exchange always
+produced the same post-armor number.
+
+Trial: each per-hit absorption now rolls `1d{defense}` and clamps
+that against the incoming raw damage. defense 7 still caps the
+absorption at 7 (max roll), but the average drops to 4 — same dice
+shape as a 40k save. The dopamine moments cut both ways: a low roll
+is a "breach" (full hit punches through), a high roll is a "block"
+(armor catches almost everything), and the mid rolls are the 60%
+case that used to be the deterministic floor.
+
+The rebalance is **deliberately deferred**. Defense values are
+unchanged — this trial accepts halved expected absorption to feel
+out whether the variance is fun before re-tuning. Iteration lands
+after a playtest feel-check.
+
+The Def column in the combat table renders the rolled value AND
+the underlying pool: `-4(d7)` reads as "4 absorbed against a d7
+pool." Misses still render `-`; zero-defense parts still render
+`0` (no roll fires for `1d0`).
+
+Edge cases: `defense == 0` skips the roll entirely (no `1d0`),
+`defense == 1` shortcuts past `Dice.from_ndn`'s `sides < 2`
+rejection. Absorption is bounded above by the raw hit so armor
+can't absorb more than the attack landed. The pre-trial
+`max(1, sub_dmg - defense)` floor is gone — a lucky max-roll
+absorption against a low hit can now zero the damage entirely.
+
+23 new tests pin the helper, the `resolve_attack` integration, the
+`absorbed` field on `AttackResult`, and the Def column format.
+A handful of pre-trial tests that pinned exact post-defense
+damage values were updated to mock the absorption roll to its max
+face — same expected damage, just no longer implicit.
+
 ### 2026-04-27 — Heal-target picker uses weighted body+critical-parts ratio
 
 `$pray`'s 17-19 heal target and the new nat-1 single-target rain

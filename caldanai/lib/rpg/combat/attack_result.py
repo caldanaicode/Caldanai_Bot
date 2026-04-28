@@ -103,8 +103,16 @@ class AttackResult:
     combined: CombinedRoll
     damage: int                    # final damage after defense subtraction
     multiplier: float              # trait multiplier that was applied
-    defense: int                   # target's defense value at resolution time
+    defense: int                   # target's defense pool at resolution time (the d{N})
     dodge: int                     # target's dodge value at resolution time
+    # Q.7 trial: rolled absorption from ``1d{defense}``. The absorption
+    # roll is bounded above by ``sub_damage`` (can't absorb more than
+    # the hit) and below by 0 — see ``Creature.resolve_attack``. Stored
+    # so the renderer can show ``-{absorbed}(d{defense})`` in the Def
+    # column without recomputing it from ``sub_damage - damage`` (which
+    # silently misreads downstream mutations like math-teacher's prime
+    # halving as "extra absorption").
+    absorbed: int = 0
     dmg_type: Optional[DamageTypes] = None
     extra_text: str = ""           # optional flavor text appended by subclasses
     auto_hit: bool = False         # True for attacks that bypass dodge (e.g., dragon breath)
@@ -172,6 +180,7 @@ class AttackResult:
             "multiplier": self.multiplier,
             "final_damage": self.damage,
             "defense": self.defense,
+            "absorbed": self.absorbed,
             "dodge": self.dodge,
             "extra_text": self.extra_text,
         }
@@ -301,16 +310,17 @@ class AttackSequence:
         ]
         dmg_col_list = [self._build_damage_column(p) for p in parts_list]
         mult_col_list = [self._build_mult_column(p) for p in parts_list]
-        # Per-row Def column shows what the target part's defense
-        # absorbed from this hit (``sub_damage - final_damage``).
-        # Phase C localized defense per-part, so each row's hit
-        # passes through a different absorber. Misses render ``-``
-        # (no contact, no absorption math). Hits with no absorption
-        # still render ``0`` so the column shape is consistent and
-        # the player can see at a glance that defense didn't matter
-        # for this hit.
+        # Per-row Def column shows the rolled absorption + the
+        # underlying defense pool: ``-4(d7)`` reads as "rolled 4
+        # absorbed against a d7 defense pool." Q.7 trial: absorption
+        # is now ``1d{defense}`` rather than a flat subtract, so the
+        # player sees both the dice outcome AND the pool that
+        # produced it. Misses render ``-`` (no contact, no roll).
+        # Hits against a 0-defense part render ``0`` (no roll fired).
         def_col_list = [
-            "-" if p["is_miss"] else f"-{p['sub_damage'] - p['final_damage']}"
+            "-" if p["is_miss"]
+            else "0" if p["defense"] <= 0
+            else f"-{p['absorbed']}(d{p['defense']})"
             for p in parts_list
         ]
         # Q.6.2: Final column shows post-defense damage

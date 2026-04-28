@@ -89,6 +89,37 @@ _SIZE_SENSITIVITY: float = 2.0
 _REGION_COLLAPSE_THRESHOLD: float = 2.0
 
 
+def _roll_absorption(defense: int, raw: int) -> int:
+    """Q.7 trial: roll ``1d{defense}`` for absorbed damage.
+
+    The flat-defense subtraction era used a deterministic ``raw -
+    defense`` clamp; this trial swaps in a ``1d{defense}`` roll so the
+    same hit produces variance — full-block on a max roll (matches the
+    old behavior), full-breach on a low roll. Same intent as a 40k
+    save throw: each absorption is a discrete dice event the player
+    can feel.
+
+    Bounded above by ``raw`` (can't absorb more than the hit landed)
+    and below by 0. ``defense <= 0`` skips the roll entirely (no
+    ``1d0``); ``defense == 1`` shortcuts to 1 because :func:`Dice.from_ndn`
+    rejects ``sides < 2``.
+    """
+    if defense <= 0 or raw <= 0:
+        return 0
+    if defense == 1:
+        # ``1d1`` is rejected by Dice.from_ndn (sides < 2). The roll
+        # is deterministically 1 anyway — shortcut so the helper
+        # still returns the absorbed amount.
+        return min(1, raw)
+    rolled = Dice.quick_roll(f"1d{defense}")
+    if rolled is None:
+        # Defensive: shouldn't happen for positive integer defense,
+        # but a malformed spec is treated as no absorption rather
+        # than crashing combat.
+        return 0
+    return min(rolled, raw)
+
+
 class Creature:
     """
     An instance of a creature object.
@@ -1233,17 +1264,26 @@ class Creature:
         combined = CombinedRoll(atk_roll, dmg_roll, dodge)
         multiplier = self.get_trait_multiplier(source.damage_type)
         sub_dmg = int(multiplier * combined.result)
+        # Q.7 trial: absorption rolls 1d{defense} instead of subtracting
+        # the flat defense pool. Same intent as a 40k save — variance
+        # creates dopamine moments (full breach on a low roll, full
+        # block on the max). Halves expected absorbed value vs the
+        # flat-subtract era; defense values are unchanged for the trial
+        # and rebalance lands later if the feel-check confirms.
+        absorbed = 0
         if combined.isMiss or multiplier == 0:
             damage = 0
         else:
             sub_dmg = max(1, sub_dmg)
-            damage = max(1, sub_dmg - defense)
+            absorbed = _roll_absorption(defense, sub_dmg)
+            damage = max(0, sub_dmg - absorbed)
         result = AttackResult(
             source=source,
             combined=combined,
             damage=damage,
             multiplier=multiplier,
             defense=defense,
+            absorbed=absorbed,
             dodge=dodge,
             dmg_type=source.damage_type,
         )

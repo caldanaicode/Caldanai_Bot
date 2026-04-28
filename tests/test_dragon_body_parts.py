@@ -440,14 +440,29 @@ class TestDragonBreathDamageMath:
             return_value=fake_dice,
         )
 
+    def _force_max_absorption(self):
+        """Patch ``_roll_absorption`` in the creatures module so the
+        Q.7 ``1d{defense}`` breath-absorption roll deterministically
+        returns the max face — the pre-Q.7 flat-defense behaviour.
+        Tests below pin specific post-defense damage values; the
+        absorption-variance contract is covered by the dedicated
+        Q.7 dice-absorption test module."""
+        return patch(
+            "caldanai.lib.rpg.creatures.monsters.dragon._roll_absorption",
+            side_effect=lambda defense, raw: min(defense, raw)
+            if defense > 0 and raw > 0 else 0,
+        )
+
     def test_attack_result_damage_is_pre_defense(self):
         """AttackResult.damage mirrors the shared renderer's convention:
-        pre-defense, post-multiplier. Fire-neutral: sub_dmg == raw."""
+        pre-defense, post-multiplier. Fire-neutral: sub_dmg == raw.
+        Absorption mocked to its max so the Q.7 ``1d6`` doesn't add
+        variance to the deterministic damage assertion."""
         with _force_variant(False):
             d = Dragon()
         target = self._make_target(defense=6, health=1000)
 
-        with self._force_raw_roll(26):
+        with self._force_raw_roll(26), self._force_max_absorption():
             d.breath_attack([target])
 
         # breath_attack mutates the sequence mid-call and returns a
@@ -457,25 +472,27 @@ class TestDragonBreathDamageMath:
         assert target.health == 1000 - (26 - 6)
 
     def test_trait_multiplier_reduces_damage_for_fire_resistant(self):
-        """A victim with FIRE multiplier 0.5 should take half the damage."""
+        """A victim with FIRE multiplier 0.5 should take half the damage.
+        Absorption mocked to its max for deterministic assertions."""
         with _force_variant(False):
             d = Dragon()
         # 0.5 * 26 = 13 pre-defense, - 6 defense = 7 post-defense
         target = self._make_target(defense=6, health=1000, fire_multiplier=0.5)
 
-        with self._force_raw_roll(26):
+        with self._force_raw_roll(26), self._force_max_absorption():
             d.breath_attack([target])
 
         assert target.health == 1000 - 7
 
     def test_trait_multiplier_amplifies_damage_for_fire_weak(self):
-        """A victim with FIRE multiplier 2.0 should take double damage."""
+        """A victim with FIRE multiplier 2.0 should take double damage.
+        Absorption mocked to its max for deterministic assertions."""
         with _force_variant(False):
             d = Dragon()
         # 2.0 * 26 = 52 pre-defense, - 6 defense = 46 post-defense
         target = self._make_target(defense=6, health=1000, fire_multiplier=2.0)
 
-        with self._force_raw_roll(26):
+        with self._force_raw_roll(26), self._force_max_absorption():
             d.breath_attack([target])
 
         assert target.health == 1000 - 46
@@ -487,7 +504,7 @@ class TestDragonBreathDamageMath:
             d = Dragon()
         target = self._make_target(defense=100, health=1000)
 
-        with self._force_raw_roll(26):
+        with self._force_raw_roll(26), self._force_max_absorption():
             d.breath_attack([target])
 
         assert target.health == 1000
@@ -495,12 +512,13 @@ class TestDragonBreathDamageMath:
     def test_rendered_total_subtracts_defense_exactly_once(self):
         """Q.6.2: defense is applied per-hit inside resolve_attack, so
         ``r.damage`` is already post-defense. The compact-table footer
-        shows raw (sub_damage) → damage when the two diverge."""
+        shows raw (sub_damage) → damage when the two diverge.
+        Absorption mocked to its max for deterministic assertions."""
         with _force_variant(False):
             d = Dragon()
         target = self._make_target(defense=6, health=1000)
 
-        with self._force_raw_roll(26):
+        with self._force_raw_roll(26), self._force_max_absorption():
             rendered = d.breath_attack([target])
 
         # 26 raw, 6 defense → 20 damage. The footer surfaces the

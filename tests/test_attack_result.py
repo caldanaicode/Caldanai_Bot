@@ -42,12 +42,19 @@ def _make_result(damage=5, is_miss=False, is_critical=False, multiplier=1.0,
     forced_attack = 20 if is_critical else (1 if is_miss else 15)
     combined = _make_combined(forced_attack=forced_attack, forced_damage=6, dodge=dodge)
     source = _make_source(label=label, dmg_type=dmg_type)
+    # Q.7: ``absorbed`` is the rolled 1d{defense} outcome stored
+    # alongside ``defense``. Synthetic results infer absorbed from
+    # sub_damage - final_damage so the renderer's Def column reads
+    # correctly across mocked fixtures.
+    sub = 0 if is_miss else max(1, int(6 * multiplier)) if multiplier > 0 else 0
+    absorbed = max(0, sub - damage) if defense > 0 and not is_miss else 0
     return AttackResult(
         source=source,
         combined=combined,
         damage=damage,
         multiplier=multiplier,
         defense=defense,
+        absorbed=absorbed,
         dodge=dodge,
         dmg_type=dmg_type,
     )

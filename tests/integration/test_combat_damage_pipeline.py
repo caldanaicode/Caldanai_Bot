@@ -10,7 +10,15 @@ in isolation, but the double-multiplier bug (creature traits applied
 in BOTH methods) was only visible when the two were chained together
 with a non-trivial trait multiplier. These integration tests exist
 specifically to catch that class of bug.
+
+Q.7 trial: absorption rolls ``1d{defense}`` per hit. These tests
+pin the defense-was-applied behaviour by mocking the absorption
+roll so the expected post-defense damage stays deterministic; the
+absorption-variance contract itself is pinned in
+``tests/test_q7_dice_absorption.py``.
 """
+
+from unittest.mock import patch
 
 import pytest
 
@@ -21,6 +29,18 @@ from caldanai.lib.rpg.creatures.body_parts.head import HeadPlugin
 from caldanai.lib.rpg.combat.attack_source import NaturalAttackSource
 from caldanai.lib.rpg.helpers.enums import DamageTypes, Reach, Stat
 from caldanai.lib.rpg.helpers.roll_data import AttackRoll, DamageRoll
+
+
+def _max_absorb_patch():
+    """Patch ``Dice.quick_roll`` inside the creatures module so the
+    ``1d{defense}`` absorption roll always returns the max face — the
+    pre-Q.7 flat-defense behaviour. Tests that pinned specific post-
+    defense damage values use this so the absorption variance doesn't
+    break their arithmetic; Q.7 variance is covered separately."""
+    return patch(
+        "caldanai.lib.rpg.creatures.Dice.quick_roll",
+        side_effect=lambda spec, **kw: int(spec.split("d")[1]),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +87,8 @@ class TestTraitMultiplierAppliedOnce:
     def test_half_resistance_halves_damage_once(self):
         """Creature with 0.5x FIRE resistance, defense=2. Raw 20.
         Q.6.2: multiplier + defense applied per-hit inside resolve_attack.
-        sub_damage = int(20 * 0.5) = 10; damage = max(1, 10 - 2) = 8.
+        sub_damage = int(20 * 0.5) = 10; with the absorption roll mocked
+        to its max (2), damage = max(0, 10 - 2) = 8.
         apply_damage routes 8 to arm."""
         target = _make_creature(defense=2, dodge=1, traits={DamageTypes.FIRE: 0.5})
         torso = BodyPart.make("torso", name="torso", health_max=500)
@@ -82,8 +103,9 @@ class TestTraitMultiplierAppliedOnce:
         atk_roll = AttackRoll(skill_bonus=0)
         atk_roll, dmg_roll = _force_hit_rolls(atk_roll, 20)
 
-        result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
-        # int(20 * 0.5) = 10 sub_damage; 10 - 2 defense = 8 post-defense damage.
+        with _max_absorb_patch():
+            result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
+        # int(20 * 0.5) = 10 sub_damage; max-roll absorbs 2 → 8 post-defense.
         assert result.sub_damage == 10
         assert result.damage == 8
 
@@ -95,7 +117,8 @@ class TestTraitMultiplierAppliedOnce:
 
     def test_double_vulnerability_doubles_damage_once(self):
         """Creature with 2.0x FIRE vulnerability, defense=2. Raw 10.
-        Q.6.2: int(10 * 2.0) = 20 sub_damage; 20 - 2 = 18 post-defense."""
+        Q.6.2: int(10 * 2.0) = 20 sub_damage; with absorption mocked
+        to its max (2), 20 - 2 = 18 post-defense."""
         target = _make_creature(defense=2, dodge=1, traits={DamageTypes.FIRE: 2.0})
         torso = BodyPart.make("torso", name="torso", health_max=500)
         arm = BodyPart.make("arm", name="arm.left", health_max=500)
@@ -109,7 +132,8 @@ class TestTraitMultiplierAppliedOnce:
         atk_roll = AttackRoll(skill_bonus=0)
         atk_roll, dmg_roll = _force_hit_rolls(atk_roll, 10)
 
-        result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
+        with _max_absorb_patch():
+            result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
         assert result.sub_damage == 20
         assert result.damage == 18
 
@@ -121,7 +145,8 @@ class TestTraitMultiplierAppliedOnce:
     def test_creature_and_part_multipliers_combine_correctly(self):
         """Creature 0.5x FIRE, part 2.0x FIRE, defense=2. Raw 20.
         Q.6.2: creature-multiplier + defense apply in resolve_attack.
-        sub_damage = int(20 * 0.5) = 10; damage = max(1, 10-2) = 8.
+        sub_damage = int(20 * 0.5) = 10; with absorption mocked to its
+        max (2), damage = max(0, 10-2) = 8.
         apply_damage then applies part 2.0x: int(8 * 2.0) = 16 to head."""
         target = _make_creature(defense=2, dodge=1, traits={DamageTypes.FIRE: 0.5})
         torso = BodyPart.make("torso", name="torso", health_max=500)
@@ -137,7 +162,8 @@ class TestTraitMultiplierAppliedOnce:
         atk_roll = AttackRoll(skill_bonus=0)
         atk_roll, dmg_roll = _force_hit_rolls(atk_roll, 20)
 
-        result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
+        with _max_absorb_patch():
+            result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
         assert result.sub_damage == 10
         assert result.damage == 8
 
@@ -150,7 +176,8 @@ class TestTraitMultiplierAppliedOnce:
 
     def test_no_trait_full_damage(self):
         """No traits, defense=2. Raw 20.
-        Q.6.2: sub_damage = 20; damage = max(1, 20-2) = 18."""
+        Q.6.2: sub_damage = 20; with absorption mocked to its max (2),
+        damage = max(0, 20-2) = 18."""
         target = _make_creature(defense=2, dodge=1)
         torso = BodyPart.make("torso", name="torso", health_max=500)
         arm = BodyPart.make("arm", name="arm.left", health_max=500)
@@ -162,7 +189,8 @@ class TestTraitMultiplierAppliedOnce:
         atk_roll = AttackRoll(skill_bonus=0)
         atk_roll, dmg_roll = _force_hit_rolls(atk_roll, 20)
 
-        result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
+        with _max_absorb_patch():
+            result = target.resolve_attack(attacker, source, atk_roll, dmg_roll)
         assert result.sub_damage == 20
         assert result.damage == 18
 
