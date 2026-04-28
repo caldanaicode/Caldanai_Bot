@@ -498,8 +498,12 @@ class TestDragonBreathDamageMath:
         assert target.health == 1000 - 46
 
     def test_defense_cannot_push_damage_negative(self):
-        """When defense exceeds the post-multiplier damage, the victim
-        still takes 0 (not negative) damage from this breath."""
+        """When defense exceeds the post-multiplier damage, a landed
+        breath still registers the min-1 floor — only damage-type
+        immunity (multiplier 0) reaches a true 0. Pre-trial behavior
+        guaranteed at least 1; the dN absorption keeps that floor on
+        non-immune hits so full-block landings stay visible to the
+        ``num_hits > 0`` / ``damage > 0`` retaliation guards."""
         with _force_variant(False):
             d = Dragon()
         target = self._make_target(defense=100, health=1000)
@@ -507,7 +511,7 @@ class TestDragonBreathDamageMath:
         with self._force_raw_roll(26), self._force_max_absorption():
             d.breath_attack([target])
 
-        assert target.health == 1000
+        assert target.health == 1000 - 1
 
     def test_rendered_total_subtracts_defense_exactly_once(self):
         """Q.6.2: defense is applied per-hit inside resolve_attack, so

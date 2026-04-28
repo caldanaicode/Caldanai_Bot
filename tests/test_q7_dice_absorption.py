@@ -220,8 +220,10 @@ class TestResolveAttackUsesDiceAbsorption:
         assert result.damage == 3
 
     def test_overabsorb_clamps_to_raw(self):
-        """defense 7, raw 3. Mocked d7=5 → absorbed min(5, 3) = 3,
-        final 0. Armor can't absorb more than the hit landed."""
+        """defense 7, raw 3. Mocked d7=5 → absorbed min(5, 3) = 3.
+        Final damage floors at 1 (min-1 floor on landed hits, even
+        on full-absorption — only damage-type immunity reaches a
+        true 0). Armor can't absorb more than the hit landed."""
         target = _make_target(defense=7)
         attacker = _make_attacker()
         atk, dmg = _force_hit_rolls(3)
@@ -233,7 +235,7 @@ class TestResolveAttackUsesDiceAbsorption:
             result = target.resolve_attack(attacker, source, atk, dmg)
 
         assert result.absorbed == 3
-        assert result.damage == 0
+        assert result.damage == 1
 
     def test_zero_defense_no_roll_no_absorption(self):
         """defense 0, raw 10. No roll fires; absorbed=0, damage=10.

@@ -32,8 +32,14 @@ Edge cases: `defense == 0` skips the roll entirely (no `1d0`),
 `defense == 1` shortcuts past `Dice.from_ndn`'s `sides < 2`
 rejection. Absorption is bounded above by the raw hit so armor
 can't absorb more than the attack landed. The pre-trial
-`max(1, sub_dmg - defense)` floor is gone — a lucky max-roll
-absorption against a low hit can now zero the damage entirely.
+`max(1, sub_dmg - defense)` floor is **preserved** — a connecting
+hit always registers at least 1 body-HP, even on a max-roll
+absorption. Damage-type immunity (`multiplier == 0`) is the only
+path to a true 0; that's gated upstream and untouched. Keeps
+full-block hits visible to the downstream `damage > 0` /
+`num_hits > 0` accounting (retaliation, injury feedback,
+num_hits floor) — a hit that connects narratively shouldn't
+vanish from the bookkeeping.
 
 23 new tests pin the helper, the `resolve_attack` integration, the
 `absorbed` field on `AttackResult`, and the Def column format.

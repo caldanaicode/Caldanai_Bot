@@ -1276,7 +1276,15 @@ class Creature:
         else:
             sub_dmg = max(1, sub_dmg)
             absorbed = _roll_absorption(defense, sub_dmg)
-            damage = max(0, sub_dmg - absorbed)
+            # Min-1 floor on landed hits: a connecting blow always
+            # registers at least 1 body-HP, even on a max-roll
+            # absorption. Keeps full-block hits visible to the
+            # downstream ``damage > 0`` / ``num_hits > 0`` filters
+            # (retaliation triggers, injury feedback, num_hits floor)
+            # — a hit that connects narratively shouldn't vanish from
+            # the bookkeeping. Damage-type immunity is the only path
+            # to a true 0; that's gated above on ``multiplier == 0``.
+            damage = max(1, sub_dmg - absorbed)
         result = AttackResult(
             source=source,
             combined=combined,

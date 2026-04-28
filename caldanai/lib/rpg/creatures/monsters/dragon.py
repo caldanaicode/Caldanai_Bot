@@ -212,7 +212,13 @@ class Dragon(MonsterPlugin):
             multiplier = victim.get_trait_multiplier(DamageTypes.FIRE)
             sub_dmg = max(0, int(raw * multiplier))
             absorbed = _roll_absorption(df, sub_dmg)
-            dmg = max(0, sub_dmg - absorbed)
+            # Min-1 floor on landed breath: a hit that connects to a
+            # non-immune target always registers at least 1, even on
+            # max-roll absorption. Damage-type immunity (multiplier 0
+            # → sub_dmg 0) is the only path to a true 0; the floor
+            # only kicks in when sub_dmg > 0. Mirrors the
+            # ``Creature.resolve_attack`` policy.
+            dmg = max(1, sub_dmg - absorbed) if sub_dmg > 0 else 0
 
             # Construct a no-miss CombinedRoll using the actual damage dice.
             # The attack roll is a dummy — auto_hit=True will hide it.
