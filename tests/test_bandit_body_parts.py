@@ -18,6 +18,8 @@ identically at full health to its pre-migration self:
   cleanly with a parts-equipped bandit.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from caldanai.lib.rpg.creatures import Creature
@@ -159,14 +161,31 @@ class TestBanditFullHealthBackwardsCompat:
     the ``debuffs`` table lookup returns 0 for every stat. Therefore
     ``get_defense`` / ``get_dodge`` must return exactly the base
     attribute values they would have returned before the migration.
+
+    Loadout is suppressed (``random() = 1.0`` → every spawn roll
+    fails) so the worn-armor pool stays empty and these tests pin
+    the emergence-only baseline. When the lift folded
+    ``get_defense`` / ``get_dodge`` into a unified emergence-plus-
+    armor pipeline, an unsuppressed bandit would carry worn-piece
+    bonuses that diverge from the bare ``self.defense`` /
+    ``self.dodge`` attributes — those bonuses are correct, just
+    not what these tests are pinning.
     """
 
     def test_get_defense_matches_base_attribute(self):
-        b = Bandit()
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
         assert b.get_defense() == b.defense
 
     def test_get_dodge_matches_base_attribute(self):
-        b = Bandit()
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=1.0,
+        ):
+            b = Bandit()
         assert b.get_dodge() == b.dodge
 
     def test_stat_modifier_total_is_zero_at_full_health(self):
@@ -238,12 +257,12 @@ class TestBanditSanityUnchanged:
         body-parts block can't accidentally wipe them.
 
         Note: ``shortsword`` migrated out of ``loot`` and into
-        ``ARMOR_LOADOUT`` (held slot on hand) under Phase 1 of
+        ``SPAWN_LOADOUT`` (held slot on hand) under Phase 1 of
         project_held_weapons_via_loadout. ``bow`` is still here
         until Phase 2 designs ranged held weapons."""
         b = Bandit()
         assert "shortsword" not in b.loot, (
-            "shortsword now sourced via ARMOR_LOADOUT held slot; "
+            "shortsword now sourced via SPAWN_LOADOUT held slot; "
             "see TestBanditHeldWeaponLoadout in test_monster_salvage.py"
         )
         assert "bandanna" in b.loot

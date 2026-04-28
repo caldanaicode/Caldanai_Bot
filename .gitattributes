@@ -1,0 +1,5 @@
+# Enforce LF line endings for all text files. VS Code on Windows
+# handles LF natively, and our repo is cross-platform — the CRLF
+# default has caused tool-driven re-saves to flip whole files,
+# bloating diffs with line-ending noise.
+* text=auto eol=lf

@@ -243,6 +243,13 @@ class PlayerManager:
 
             player.member = ctx.author
             player.name = ctx.author.display_name
+            # Fresh-creation path only: roll any class-level
+            # ``SPAWN_LOADOUT`` into placements. Default
+            # ``Player.SPAWN_LOADOUT = {}`` makes this a no-op
+            # today; pinning the call now locks the contract for
+            # future starter-kit work without re-rolling DB-
+            # hydrated returners into fresh gear.
+            player._apply_loadout()
             player.is_dirty = True
             # Register in the live players dict immediately.
             # Without this, the Player only shows up after the next

@@ -18,6 +18,7 @@ that dies without dismembered parts yields its worn pieces to
 """
 
 from collections import defaultdict
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,6 +26,28 @@ import pytest
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.monsters.bandit import Bandit
 from caldanai.lib.rpg.inventory import Inventory
+
+
+@contextmanager
+def _patch_random(return_value):
+    """Patch ``random()`` at BOTH modules the test paths reach for
+    it. The :class:`Creature`-level ``_apply_loadout`` (lifted from
+    the old ``MonsterPlugin._apply_armor_loadout`` 2026-04-28) calls
+    ``random()`` from :mod:`caldanai.lib.rpg.creatures`; the
+    corpse-scavenge sweep itself still calls from
+    :mod:`caldanai.lib.rpg.creatures.monsters`. Tests want one
+    uniform return value across construction + scavenge — patch
+    both so the controlled value sticks regardless of order."""
+    with ExitStack() as stack:
+        stack.enter_context(patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=return_value,
+        ))
+        stack.enter_context(patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=return_value,
+        ))
+        yield
 
 
 class TestGetCorpseScavengeUnit:
@@ -36,10 +59,7 @@ class TestGetCorpseScavengeUnit:
         failed) yields nothing on the death sweep — no false
         drops from the empty-slot path."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             b = Bandit()
         # Confirm the loadout ran-and-failed — every placement
         # is None, but the placement KEYS still exist on each
@@ -48,10 +68,7 @@ class TestGetCorpseScavengeUnit:
             placements = getattr(part, "placements", None) or {}
             for v in placements.values():
                 assert v is None
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             assert b.get_corpse_scavenge() == []
 
     def test_random_zero_returns_all_worn_items(self):
@@ -59,10 +76,7 @@ class TestGetCorpseScavengeUnit:
         every worn piece survives and lands in the result, paired
         with the part it came off."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
             # Snapshot the pre-sweep worn pieces so we can verify
             # all of them survived the 0.0 roll.
@@ -84,10 +98,7 @@ class TestGetCorpseScavengeUnit:
         no piece survives. Every placement still clears (the
         idempotency invariant)."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         # Confirm pre-sweep state has worn pieces.
         had_worn = False
@@ -98,10 +109,7 @@ class TestGetCorpseScavengeUnit:
                 break
         assert had_worn, "test setup failed: bandit has no worn pieces"
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             survivors = b.get_corpse_scavenge()
         assert survivors == []
         # Placements still cleared — death consumes the gear
@@ -116,10 +124,7 @@ class TestGetCorpseScavengeUnit:
         first call clears every placement; the second walks past
         the now-empty slots."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
             first = b.get_corpse_scavenge()
             second = b.get_corpse_scavenge()
@@ -130,10 +135,7 @@ class TestGetCorpseScavengeUnit:
         """The exact worn instance (with its rolled-at-spawn
         quality) drops on success — no fresh quality reroll."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
             # Snapshot the exact items + their qualities.
             originals = []
@@ -163,30 +165,18 @@ class TestGetCorpseScavengeUnit:
         )
 
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         # 0.30 < 1/3 → success; 0.40 > 1/3 → fail.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.30,
-        ):
+        with _patch_random(0.30):
             survivors = b.get_corpse_scavenge()
         assert survivors  # at least one piece survived
 
         # Re-spawn for the failing-roll case (sweep is
         # destructive — placements cleared above).
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b2 = Bandit()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.40,
-        ):
+        with _patch_random(0.40):
             survivors2 = b2.get_corpse_scavenge()
         assert survivors2 == []
 
@@ -298,10 +288,7 @@ class TestOnMonsterDeathScavengeIntegration:
         Inventory.discover_items()
         # Spawn fully-loaded bandit (random=0.0 fires every loadout
         # entry); kill cleanly without pre-clearing placements.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         # Force ``get_loot`` to be empty so we can isolate the
         # corpse-scavenge contribution to ``self.loot``.
@@ -312,14 +299,11 @@ class TestOnMonsterDeathScavengeIntegration:
         game.looters = [alice]
         game.loot = {1: []}
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             msg = await game.on_monster_death()
 
         # Alice received at least one worn piece. Every Bandit
-        # body_part that had ARMOR_LOADOUT entries fired at
+        # body_part that had SPAWN_LOADOUT entries fired at
         # random=0.0, so her loot is non-empty.
         assert game.loot[1], (
             "expected corpse-scavenge pieces in alice's loot, got empty"
@@ -334,10 +318,7 @@ class TestOnMonsterDeathScavengeIntegration:
         land in loot and no narration appears. Sanity check that
         the narration path is gated on actual drops."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         b.loot = {}
 
@@ -346,10 +327,7 @@ class TestOnMonsterDeathScavengeIntegration:
         game.looters = [alice]
         game.loot = {1: []}
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             msg = await game.on_monster_death()
 
         assert game.loot[1] == []
@@ -365,10 +343,7 @@ class TestOnMonsterDeathScavengeIntegration:
         switch to killer-takes-all is a deliberate, test-failing
         decision."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         b.loot = {}
 
@@ -382,10 +357,7 @@ class TestOnMonsterDeathScavengeIntegration:
         # Snapshot the surviving items pre-call so we know how many
         # to expect across the three buckets — same RNG state
         # under random=0.0 makes this deterministic.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             await game.on_monster_death()
 
         all_loot = game.loot[1] + game.loot[2] + game.loot[3]
@@ -408,10 +380,7 @@ class TestOnMonsterDeathScavengeIntegration:
         somehow). The sweep skips silently — no
         IndexError on ``self.looters[0]``."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         b.loot = {}
 
@@ -419,10 +388,7 @@ class TestOnMonsterDeathScavengeIntegration:
         game.looters = []
         game.loot = {}
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             msg = await game.on_monster_death()
 
         # No crash; nothing scavenged because there's nobody to
@@ -438,10 +404,7 @@ class TestOnMonsterDeathScavengeIntegration:
         per-round and end-of-combat sweeps. See
         ``project_salvage_narration_collapse_dupes.md``."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         b.loot = {}
 
@@ -470,10 +433,7 @@ class TestOnMonsterDeathScavengeIntegration:
         game.looters = [alice]
         game.loot = {1: []}
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             msg = await game.on_monster_death()
 
         # Both instances landed in alice's loot bucket (round-robin

@@ -134,6 +134,39 @@ class Creature:
     # and return a pre-built :class:`Node` tree directly.
     BODY_TREE = None
 
+    # Spawn-time loadout: chance for this creature to spawn with
+    # equipment placed on its body parts. Same key shape as
+    # :attr:`MonsterPlugin.SALVAGE_DROPS` (part-base-name -> list
+    # of entries), but each entry is
+    # ``(item_name, spawn_chance, slot, quality_range)``:
+    #
+    # - ``item_name``: equipment plugin filename stem.
+    # - ``spawn_chance``: float in [0, 1]. Rolled per-part-instance,
+    #   so a quadruped's four legs roll independently — paired or
+    #   mismatched spawns are emergent, not authored.
+    # - ``slot``: placement key on the part (e.g. ``"worn"``,
+    #   ``"worn.lower"``, ``"accent"``). Must match a key in the
+    #   target plugin's ``PLACEMENT_KEYS``.
+    # - ``quality_range``: ``(lo, hi)`` for ``Qualities.from_scale``.
+    #
+    # Equipped items contribute defense automatically through
+    # :func:`effective_defense_for_part` and creature-wide armor
+    # bonuses through :meth:`get_defense` / :meth:`get_dodge`. On
+    # dismemberment, monster ``get_salvage`` rolls a survival
+    # chance against each worn piece.
+    #
+    # Default empty: subclasses (monsters today; players in a
+    # future "starter kit" enhancement) opt in by overriding the
+    # dict on the plugin class.
+    #
+    # Symmetry note: this attribute lives on :class:`Creature` so
+    # monsters and players use the same spawn-loadout pipeline.
+    # Player creation does not auto-fire :meth:`_apply_loadout` —
+    # the cog responsible for fresh Player creation calls it
+    # explicitly so the DB-hydration path doesn't re-roll a
+    # returning player into fresh gear.
+    SPAWN_LOADOUT: Dict[str, List[tuple]] = {}
+
     def __init__(
         self,
         name: Optional[str],
@@ -1617,9 +1650,109 @@ class Creature:
             total += part.get_stat_modifier(stat, owner=self)
         return total
 
-    def get_defense(self) -> int:
-        """Defense emerges from Defensive-mixin functionality scaled
-        by size. Phase B4 uses the weighted tree reduction helper so
+    def _iter_equipped_armor(self):
+        """Yield every :class:`Armor` instance worn anywhere on this
+        creature, deduped by identity. Walks ``body_parts`` →
+        ``part.placements``, so it works for both monsters
+        (spawn-loadout placements) and players (the ``part_equipment``
+        view is a live read of node placements). Multi-placement
+        armor (paired pieces sharing a single ``Item`` reference)
+        emits once.
+
+        Lifted from :meth:`Player._iter_equipped_items`'s shape but
+        narrowed to ``Armor`` only — the defense / dodge / bonus
+        plumbing only ever cares about armor, not weapons or other
+        held equipment. Player code that wants "everything equipped
+        including weapons" still uses :meth:`Player._iter_equipped_items`.
+        """
+        from caldanai.lib.rpg.inventory import Armor
+        seen = []
+        for part in self.body_parts:
+            placements = getattr(part, "placements", None) or {}
+            for item in placements.values():
+                if item is None:
+                    continue
+                if not isinstance(item, Armor):
+                    continue
+                if any(s is item for s in seen):
+                    continue
+                seen.append(item)
+                yield item
+
+    def _sum_worn_bonus(self, name: str) -> int:
+        """Sum the named bonus across all worn armor on this creature,
+        identity-deduped. Returns 0 when nothing is worn or no piece
+        contributes the named bonus."""
+        total = 0
+        for item in self._iter_equipped_armor():
+            bonuses = getattr(item, "bonuses", None) or {}
+            total += bonuses.get(name, 0)
+        return total
+
+    def get_armor_bonuses(self, *names: str) -> Dict[str, int]:
+        """
+        Returns a dictionary containing the sums of all bonuses granted
+        by equipped armor.
+
+        :param names: If you wish to retrieve specific bonuses, provide
+            their names.
+        :return: A dictionary containing the sum of bonuses from all
+            armor worn on this creature's body parts.
+
+        Lifted from ``Player.get_armor_bonuses`` so monsters and
+        players share a single canonical accessor — both walk
+        ``_iter_equipped_armor`` (Phase D unified placements). Multi-
+        placement items are identity-deduped by the iterator itself,
+        so callers that previously kept their own ``items_checked``
+        list can drop it.
+        """
+        result: Dict[str, int] = {}
+        for item in self._iter_equipped_armor():
+            for bonus, value in item.bonuses.items():
+                if names and bonus not in names:
+                    continue
+                if bonus not in result:
+                    result[bonus] = value
+                else:
+                    result[bonus] += value
+        return result
+
+    def _low_quality_dodge_penalty(self) -> int:
+        """Sum of dodge penalties imposed by worn ORDINARY-or-lower armor.
+
+        Pieces above ORDINARY quality are fitted well enough that
+        their bulk doesn't cost mobility; junk and ordinary pieces
+        are stiff or ill-shaped enough to drag the wearer's dodge
+        down. The per-piece value lives on each Armor subclass as
+        :attr:`Armor.LOW_QUALITY_DODGE_PENALTY` — heavier shells
+        (jerkin, rerebrace, greave) take the real hit while small
+        pieces (gloves, hoods, decorative bands) stay at 0.
+        Multi-placement items are deduped by the
+        ``_iter_equipped_armor`` walker.
+        """
+        penalty = 0
+        for item in self._iter_equipped_armor():
+            if item.quality.value["multiplier"] <= 1.0:
+                penalty += item.LOW_QUALITY_DODGE_PENALTY
+        return penalty
+
+    def _emergent_defense(self) -> int:
+        """Emergence-only defense: the body-part Defensive-mixin
+        contribution scaled by size, with NO worn-armor bonus added.
+
+        This is the value the per-part decomposition path
+        (:func:`effective_defense_for_part`) wants as its baseline —
+        layering local worn armor on top of an already-armor-included
+        base would double-count. It's also what construction-time
+        per-part HP scaling (:meth:`_scale_part_hp` and Hydra head
+        regrowth) wants: a creature's intrinsic resilience, not the
+        luck-of-the-roll spawn loadout.
+
+        Public callers that want "what the creature actually rolls
+        against in combat" use :meth:`get_defense`, which adds worn
+        armor on top.
+
+        Phase B4 uses the weighted tree reduction helper so
         reachability is honored (destroyed middle nodes zero out
         their subtree) and per-plugin :attr:`WEIGHTS` can tune
         multi-torso creatures.
@@ -1643,9 +1776,13 @@ class Creature:
         floor = 1 if ratio > 0 else 0
         return max(floor, emergent)
 
-    def get_dodge(self) -> int:
-        """Dodge emerges from Mobility-mixin functionality scaled by
-        size. Phase B4 weighted tree reduction, mode-gated: airborne
+    def _emergent_dodge(self) -> int:
+        """Emergence-only dodge: the Mobility-mixin contribution scaled
+        by size and gated by air/ground mode, with NO worn-armor
+        bonus or low-quality-armor penalty applied. Mirrors
+        :meth:`_emergent_defense` for symmetry.
+
+        Phase B4 weighted tree reduction, mode-gated: airborne
         Mobility (wings) while flying, grounded Mobility (legs) while
         on the ground.
 
@@ -1657,7 +1794,6 @@ class Creature:
         mode-relevant mobility parts destroyed) still yields 0.
         """
         if not self.body_parts:
-            # Legacy path: no body parts, use flat stat
             return max(0, self.dodge)
 
         mode = "airborne" if self.is_flying() else "grounded"
@@ -1679,6 +1815,36 @@ class Creature:
         emergent = int(self.dodge * ratio * size_mod) + self.core_agility
         floor = 1 if ratio > 0 else 0
         return max(floor, emergent)
+
+    def get_defense(self) -> int:
+        """Total creature-wide defense: emergence baseline plus the
+        sum of worn armor's defense bonuses. Clamped at 0.
+
+        Symmetric for monsters and players: both paths run through
+        ``SPAWN_LOADOUT`` placements (monster) or player-equip
+        placements, both contribute to this creature-wide pool the
+        same way. Per-part decomposition still treats armor as
+        local-to-the-part — see :func:`effective_defense_for_part`,
+        which intentionally calls :meth:`_emergent_defense` to avoid
+        double-counting.
+        """
+        return max(0, self._emergent_defense() + self._sum_worn_bonus("defense"))
+
+    def get_dodge(self) -> int:
+        """Total creature-wide dodge: emergence baseline plus armor
+        dodge bonuses, minus the low-quality-armor mobility tax.
+        Clamped at 0.
+
+        Symmetric for monsters and players. Low-quality pieces
+        (jerkin, rerebrace, greave at ORDINARY-or-below) drag dodge
+        down regardless of who's wearing them.
+        """
+        return max(
+            0,
+            self._emergent_dodge()
+            + self._sum_worn_bonus("dodge")
+            - self._low_quality_dodge_penalty(),
+        )
 
     def get_health_max(self) -> int:
         return self.health_max
@@ -1720,8 +1886,15 @@ class Creature:
         left/right HP matches after scaling. The Player path doesn't
         invoke this method — it calls ``_symmetrize_paired_parts``
         directly after anatomy setup.
+
+        Reads :meth:`_emergent_defense` (intrinsic resilience), NOT
+        :meth:`get_defense` (which now folds in worn armor). The
+        scaling factor must be the creature's natural toughness so
+        a lucky :attr:`SPAWN_LOADOUT` roll doesn't inflate a fresh
+        spawn's per-part HP — same monster, same HP per part, every
+        spawn.
         """
-        defense = self.get_defense()
+        defense = self._emergent_defense()
         for part in self.body_parts:
             part.health_max = _compute_scaled_part_hp(
                 part, self.health_max, self.size, defense,
@@ -1825,6 +1998,60 @@ class Creature:
             attach_to.add_child(part)
         self.body_parts.append(part)
         return part
+
+    def _apply_loadout(self) -> None:
+        """Walk this creature's body parts and roll the spawn-time
+        loadout. For each :class:`Equippable` part, look up
+        :attr:`SPAWN_LOADOUT` entries by base name; each entry
+        rolls independently. On a successful roll, build the item
+        with a quality drawn from the entry's range and place it
+        into the matching slot.
+
+        No-op when ``SPAWN_LOADOUT`` is empty (the default).
+
+        Lifted from ``MonsterPlugin._apply_armor_loadout`` so
+        creature-shaped subclasses (monsters today, players in a
+        future starter-kit pass) share one canonical entry point.
+        Monsters fire this from their ``__init__``; the Player
+        constructor does NOT — fresh-creation cog code calls
+        :meth:`_apply_loadout` explicitly so DB hydration can't
+        accidentally re-roll a returning player into fresh gear.
+        """
+        if not self.SPAWN_LOADOUT:
+            return
+        from random import randint
+        from caldanai.lib.rpg.creatures.mixins import Equippable
+        from caldanai.lib.rpg.helpers.enums import Qualities
+        from caldanai.lib.rpg.inventory import Inventory
+
+        for part in self.body_parts:
+            if not isinstance(part, Equippable):
+                continue
+            entries = self.SPAWN_LOADOUT.get(_part_base_name(part), [])
+            for entry in entries:
+                name, freq, slot, q_range = entry
+                if random() > freq:
+                    continue
+                if slot not in part.placements:
+                    _log.warning(
+                        f"SPAWN_LOADOUT for {self.name}: part "
+                        f"{part.name!r} has no placement key {slot!r}; "
+                        f"skipping {name}."
+                    )
+                    continue
+                if name not in Inventory.ITEMS.keys():
+                    Inventory.discover_items()
+                if name not in Inventory.ITEMS.keys():
+                    _log.warning(
+                        f"No such item '{name}' found in the Inventory.ITEMS list."
+                    )
+                    continue
+                quality = Qualities.from_scale(randint(*q_range))
+                item = Inventory.ITEMS[name].from_plugin(
+                    name, {"quality": quality.name},
+                )
+                if item:
+                    part.placements[slot] = item
 
     def get_targetable_parts(self) -> List[BodyPart]:
         """Return the list of reachable, non-destroyed body parts.
@@ -2510,10 +2737,12 @@ def effective_defense_for_part(creature, part) -> int:
     from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
     from caldanai.lib.rpg.creatures.mixins import Equippable
 
-    # Bypass Player.get_defense which aggregates armor; we want
-    # the emergence-only base so the per-part path doesn't
-    # double-count worn armor.
-    base = Creature.get_defense(creature)
+    # Use the emergence-only baseline so the per-part path
+    # doesn't double-count: worn armor on this part is folded
+    # in below as ``local_armor``, while creature-wide armor
+    # (other parts) belongs in :meth:`Creature.get_defense`,
+    # not in the per-part decomposition.
+    base = creature._emergent_defense()
     offset = getattr(part, "defense_offset", 0)
 
     local_armor = 0
@@ -2566,15 +2795,22 @@ def effective_defense_breakdown(creature, part) -> dict:
 
     Returns a dict with keys::
 
-        base       — full-health Creature.get_defense(creature)
+        base       — full-health emergence-only defense
+                     (``_emergent_defense`` against a body with
+                     every part at full HP). Worn-armor bonuses
+                     are NOT included here — they belong to the
+                     ``armor`` component instead, so summing the
+                     four pieces stays additive without double-
+                     counting.
         part_bonus — fixed per-part shift (offset + intrinsic -
                      depth_penalty for plated parts; offset only
                      for SOFT_PART parts)
         armor      — sum of equipped armor's defense bonuses on
                      this part's placements
-        drain      — live Creature.get_defense - base, signed
-                     (zero at full health, negative when torso
-                     functionality is reduced)
+        drain      — live ``_emergent_defense`` minus full-health
+                     ``_emergent_defense``, signed (zero at full
+                     health, negative when torso functionality is
+                     reduced)
         total      — same value :func:`effective_defense_for_part`
                      returns; equals
                      ``max(floor, base + part_bonus + drain +
@@ -2601,7 +2837,7 @@ def effective_defense_breakdown(creature, part) -> dict:
     # Live base (current torso state) and full-health base.
     # ``drain`` is the difference: zero at full health, negative
     # when injury degrades the Defensive aggregation.
-    base_live = Creature.get_defense(creature)
+    base_live = creature._emergent_defense()
     if not creature.body_parts:
         base_full = base_live
     else:
@@ -2609,7 +2845,7 @@ def effective_defense_breakdown(creature, part) -> dict:
         try:
             for p, _ in snapshot:
                 p.health = p.health_max
-            base_full = Creature.get_defense(creature)
+            base_full = creature._emergent_defense()
         finally:
             for p, h in snapshot:
                 p.health = h

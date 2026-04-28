@@ -98,7 +98,7 @@ class TestArmorDodgePenaltyClassAttr:
 class TestPlayerDodgePenaltyApplication:
     def test_no_armor_no_penalty(self):
         p, _ = _player_with()
-        assert p._get_low_quality_armor_dodge_penalty() == 0
+        assert p._low_quality_dodge_penalty() == 0
 
     def test_junk_jerkin_subtracts_two(self):
         p, (jerkin,) = _player_with(("rough_jerkin", "JUNK"))
@@ -137,7 +137,7 @@ class TestPlayerDodgePenaltyApplication:
         baseline = p.get_dodge()
         for item in items:
             p.equip(item)
-        assert p._get_low_quality_armor_dodge_penalty() == 5
+        assert p._low_quality_dodge_penalty() == 5
         assert p.get_dodge() == max(0, baseline - 5)
 
     def test_dodge_clamped_at_zero(self):
@@ -169,7 +169,7 @@ class TestPlayerDodgePenaltyApplication:
         p.equip(jerkin)
         p.equip(greave)
         # Only the junk jerkin (penalty 2) counts; fine greave skips.
-        assert p._get_low_quality_armor_dodge_penalty() == 2
+        assert p._low_quality_dodge_penalty() == 2
         assert p.get_dodge() == baseline - 2
 
     def test_leather_jerkin_low_quality_penalizes(self):

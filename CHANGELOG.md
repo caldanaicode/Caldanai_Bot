@@ -4,6 +4,29 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-28 — Armor / dodge / loadout lift to `Creature`
+
+Worn-armor aggregation, the spawn-time loadout pipeline, and the
+low-quality dodge tax move from `Player` / `MonsterPlugin` down to
+`Creature`. Monsters and players now share one defense / dodge /
+loadout pipeline; the per-part decomposition no longer needs its
+"Bypass Player.get_defense" workaround.
+
+- `get_defense = _emergent_defense + worn`. `get_dodge = _emergent
+  + worn - low-quality penalty`. Player overrides delete entirely.
+  Monster `SPAWN_LOADOUT` armor now bumps creature-wide defense
+  (matters for breath weapons / hydra body pool), not just per-part.
+- `ARMOR_LOADOUT` → `SPAWN_LOADOUT`, `_apply_armor_loadout` →
+  `_apply_loadout`, both lifted to `Creature`. Players fire it
+  explicitly from `PlayerManager.add_player` so DB-hydrated
+  returners don't re-roll fresh gear; `Player.SPAWN_LOADOUT = {}`
+  for now (starter kits via this path is a future enhancement).
+- Construction-order fix: `_scale_part_hp` and hydra head regrowth
+  read `_emergent_defense` (intrinsic resilience), not `get_defense`,
+  so a lucky loadout roll doesn't inflate per-part HP at spawn.
+- LF line endings enforced via new `.gitattributes` so tool-driven
+  re-saves on Windows stop flipping whole files into diff noise.
+
 ### 2026-04-28 — Body-parts table: per-part Def column with breakdown
 
 Player-facing visibility for the per-part absorption pool. Both

@@ -25,7 +25,7 @@ class Goblin(MonsterPlugin):
     # spawn rates because goblins are scrappier and lose pieces
     # easily. No collars / sashes / extra layers — the ornamental
     # bandit-flair touches don't fit goblin theming.
-    ARMOR_LOADOUT = {
+    SPAWN_LOADOUT = {
         "head":  [("rough_cap",        0.20, "worn",        (50, 95))],
         "torso": [("rough_jerkin",     0.20, "worn",        (50, 95))],
         "arm":   [("patchwork_bracer", 0.20, "worn.lower",  (50, 95))],

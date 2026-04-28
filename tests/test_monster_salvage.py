@@ -3,7 +3,7 @@ dismemberment-yields-armor-or-materials gameplay loop.
 
 Two independent sources feed ``get_salvage(part)``:
 
-1. **Worn-armor branch** — ``ARMOR_LOADOUT`` populates spawn-time
+1. **Worn-armor branch** — ``SPAWN_LOADOUT`` populates spawn-time
    placements at ``__init__``; ``get_salvage`` then rolls
    ``SALVAGE_SURVIVAL_CHANCE`` on each worn piece. The actual
    worn item drops with its rolled-at-spawn quality preserved.
@@ -18,6 +18,7 @@ Two independent sources feed ``get_salvage(part)``:
 """
 
 from collections import Counter
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
 from caldanai.lib.rpg.creatures.monsters.bandit import Bandit
@@ -25,6 +26,28 @@ from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import Qualities
 from caldanai.lib.rpg.inventory import Inventory
+
+
+@contextmanager
+def _patch_random(return_value):
+    """Patch ``random()`` at BOTH modules monster code reaches for
+    it. The :class:`Creature`-level ``_apply_loadout`` calls
+    ``random()`` from :mod:`caldanai.lib.rpg.creatures`, while
+    monster-only paths (``get_salvage``, ``get_corpse_scavenge``,
+    ``get_loot``) still call from :mod:`caldanai.lib.rpg.creatures.monsters`.
+    Tests want a single uniform return value across construction +
+    salvage / scavenge calls — patch both so the controlled value
+    sticks regardless of which path runs first."""
+    with ExitStack() as stack:
+        stack.enter_context(patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=return_value,
+        ))
+        stack.enter_context(patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=return_value,
+        ))
+        yield
 
 
 class TestSalvageHelperGenericPath:
@@ -37,7 +60,7 @@ class TestSalvageHelperGenericPath:
         nothing for it."""
         b = Bandit()
         # Bandit's SALVAGE_DROPS is empty — armor moved to
-        # ARMOR_LOADOUT — so any base-name string returns [].
+        # SPAWN_LOADOUT — so any base-name string returns [].
         assert b.get_salvage("eye") == []
 
     def test_drop_chance_zero_never_fires(self):
@@ -102,8 +125,8 @@ class TestBanditArmorLoadout:
     def test_at_least_one_bracer_seen_across_many_spawns(self):
         """Stochastic smoke test: with a 30% bracer rate per arm,
         50 spawns × 2 arms = ~100 trials — exceedingly unlikely to
-        produce zero. Confirms ``_apply_armor_loadout`` runs at
-        ``__init__`` against real ARMOR_LOADOUT entries."""
+        produce zero. Confirms ``_apply_loadout`` runs at
+        ``__init__`` against real SPAWN_LOADOUT entries."""
         Inventory.discover_items()
         seen = False
         for _ in range(50):
@@ -122,10 +145,7 @@ class TestBanditArmorLoadout:
         arms get a bracer AND a rerebrace (independent rolls per
         part instance produce paired sets when forced)."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         for arm_name in ("arm.left", "arm.right"):
             arm = next(p for p in b.body_parts if p.name == arm_name)
@@ -138,10 +158,7 @@ class TestBanditArmorLoadout:
         """``random() = 1.0`` causes every roll to fail. Every
         placement on every Equippable part stays empty."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             b = Bandit()
         for part in b.body_parts:
             placements = getattr(part, "placements", None) or {}
@@ -163,10 +180,7 @@ class TestBanditArmorLoadout:
         from caldanai.lib.rpg.creatures import effective_defense_for_part
         Inventory.discover_items()
         # random=1.0 → all spawn rolls fail; arm starts bare.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             b = Bandit()
         arm = next(p for p in b.body_parts if p.name == "arm.left")
         assert arm.placements.get("worn.lower") is None
@@ -186,20 +200,14 @@ class TestBanditArmorLoadout:
         successful survival roll. Quality is preserved from the
         spawn-time roll (no fresh re-roll)."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         arm = next(p for p in b.body_parts if p.name == "arm.left")
         bracer = arm.placements["worn.lower"]
         original_quality = bracer.quality
         assert bracer is not None
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             items = b.get_salvage(arm)
 
         assert bracer in items
@@ -210,13 +218,10 @@ class TestBanditArmorLoadout:
 
     def test_bare_part_drops_nothing(self):
         """A part wearing nothing yields no salvage. Bandits have
-        no SALVAGE_DROPS entries (armor moved to ARMOR_LOADOUT),
+        no SALVAGE_DROPS entries (armor moved to SPAWN_LOADOUT),
         so no items at all."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             b = Bandit()
         arm = next(p for p in b.body_parts if p.name == "arm.left")
         items = b.get_salvage(arm)
@@ -227,19 +232,13 @@ class TestBanditArmorLoadout:
         (2/3), the piece is consumed by the destruction without
         dropping. Placements zero out either way."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         arm = next(p for p in b.body_parts if p.name == "arm.left")
         assert arm.placements["worn.lower"] is not None
 
         # 0.99 > 2/3 → survival fails on every slot.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.99,
-        ):
+        with _patch_random(0.99):
             items = b.get_salvage(arm)
         assert items == []
         # Placements consumed regardless of survival outcome.
@@ -258,10 +257,7 @@ class TestBanditArmorLoadout:
         when prior tests leak state.
         """
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
             arm = next(p for p in b.body_parts if p.name == "arm.left")
             first = b.get_salvage(arm)
@@ -271,7 +267,7 @@ class TestBanditArmorLoadout:
 
     def test_worn_armor_bypasses_empty_salvage_drops(self):
         """Sanity: bandit's SALVAGE_DROPS is empty after the
-        ARMOR_LOADOUT migration. Pin so a future regression
+        SPAWN_LOADOUT migration. Pin so a future regression
         re-adding scrap entries to SALVAGE_DROPS surfaces here."""
         b = Bandit()
         assert b.SALVAGE_DROPS == {}
@@ -279,7 +275,7 @@ class TestBanditArmorLoadout:
 
 class TestBanditHeldWeaponLoadout:
     """Phase 1 of project_held_weapons_via_loadout — held weapons
-    ride the same ARMOR_LOADOUT plumbing as worn armor. Bandits
+    ride the same SPAWN_LOADOUT plumbing as worn armor. Bandits
     spawn with a shortsword in the ``held`` slot on either hand
     (independent rolls), it surfaces in the body-parts ``Worn``
     field through the existing iterate-all-placements path, and
@@ -291,11 +287,11 @@ class TestBanditHeldWeaponLoadout:
     """
 
     def test_held_weapon_entry_present_on_hand(self):
-        """``ARMOR_LOADOUT["hand"]`` carries a held-slot entry —
+        """``SPAWN_LOADOUT["hand"]`` carries a held-slot entry —
         regression pin so a future cleanup doesn't accidentally
         drop the shortsword (or move the slot back to ``worn``,
         which would clash with ``ratty_glove``)."""
-        hand_entries = Bandit.ARMOR_LOADOUT["hand"]
+        hand_entries = Bandit.SPAWN_LOADOUT["hand"]
         held_entries = [e for e in hand_entries if e[2] == "held"]
         assert len(held_entries) == 1, (
             f"Expected exactly one held-slot entry on hand; "
@@ -310,13 +306,10 @@ class TestBanditHeldWeaponLoadout:
     def test_random_zero_equips_held_weapon(self):
         """``random() = 0.0`` forces every entry to fire — both
         hands get a shortsword in the ``held`` slot. Confirms the
-        existing ``_apply_armor_loadout`` walks the ``"held"`` key
+        existing ``_apply_loadout`` walks the ``"held"`` key
         agnostically (no armor-specific code path needed)."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         for hand_name in ("hand.left", "hand.right"):
             hand = next(p for p in b.body_parts if p.name == hand_name)
@@ -330,10 +323,7 @@ class TestBanditHeldWeaponLoadout:
         """``random() = 1.0`` causes every roll to fail — held slot
         stays empty, same as worn slots."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             b = Bandit()
         for hand_name in ("hand.left", "hand.right"):
             hand = next(p for p in b.body_parts if p.name == hand_name)
@@ -344,20 +334,14 @@ class TestBanditHeldWeaponLoadout:
         on a successful survival roll — same path the worn-armor
         branch uses, just keyed off the ``held`` placement."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         hand = next(p for p in b.body_parts if p.name == "hand.left")
         sword = hand.placements["held"]
         assert sword is not None and sword.plugin == "shortsword"
         original_quality = sword.quality
 
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             items = b.get_salvage(hand)
 
         assert sword in items
@@ -374,19 +358,13 @@ class TestBanditHeldWeaponLoadout:
         dropping. Held slot zeroes either way, mirroring the worn
         invariant."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             b = Bandit()
         hand = next(p for p in b.body_parts if p.name == "hand.left")
         assert hand.placements["held"] is not None
 
         # 0.99 > 2/3 → survival fails on every slot.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.99,
-        ):
+        with _patch_random(0.99):
             items = b.get_salvage(hand)
         assert items == []
         assert hand.placements["held"] is None
@@ -398,7 +376,7 @@ class TestBanditHeldWeaponLoadout:
         ranged weapons."""
         b = Bandit()
         assert "shortsword" not in b.loot, (
-            "shortsword should be sourced via ARMOR_LOADOUT held "
+            "shortsword should be sourced via SPAWN_LOADOUT held "
             "slot now, not the legacy loot dict"
         )
         # Bow is still loot-only until ranged held is designed.
@@ -414,10 +392,7 @@ class TestBanditHeldWeaponLoadout:
         from caldanai.lib.rpg.creatures import effective_defense_for_part
         Inventory.discover_items()
         # All-fail loadout → bare hand baseline.
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=1.0,
-        ):
+        with _patch_random(1.0):
             b = Bandit()
         hand = next(p for p in b.body_parts if p.name == "hand.left")
         bare_def = effective_defense_for_part(b, hand)
@@ -443,10 +418,7 @@ class TestGoblinArmorLoadout:
 
     def test_random_zero_equips_loadout(self):
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             g = Goblin()
         arm = next(p for p in g.body_parts if p.name == "arm.left")
         lower = arm.placements.get("worn.lower")
@@ -456,12 +428,9 @@ class TestGoblinArmorLoadout:
 
     def test_no_neck_armor(self):
         """Goblins don't carry collars — neck isn't in their
-        ARMOR_LOADOUT. Differentiates from bandits."""
+        SPAWN_LOADOUT. Differentiates from bandits."""
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             g = Goblin()
         neck = next(
             p for p in g.body_parts if p.name == "neck"
@@ -471,17 +440,11 @@ class TestGoblinArmorLoadout:
 
     def test_destroyed_part_drops_worn_piece(self):
         Inventory.discover_items()
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             g = Goblin()
         arm = next(p for p in g.body_parts if p.name == "arm.left")
         bracer = arm.placements["worn.lower"]
-        with patch(
-            "caldanai.lib.rpg.creatures.monsters.random",
-            return_value=0.0,
-        ):
+        with _patch_random(0.0):
             items = g.get_salvage(arm)
         assert bracer in items
 
@@ -504,7 +467,7 @@ class TestBearowlLeatherDrops:
         from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
         b = Bearowl()
         Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+        with _patch_random(0.0):
             items = b.get_salvage("torso")
         assert len(items) == 3
         assert all(i.plugin == "leather" for i in items)
@@ -513,7 +476,7 @@ class TestBearowlLeatherDrops:
         from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
         b = Bearowl()
         Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+        with _patch_random(0.0):
             items = b.get_salvage("leg")
         assert len(items) == 2
         assert all(i.plugin == "leather" for i in items)
@@ -562,7 +525,7 @@ class TestBearowlLeatherDrops:
         Inventory.discover_items()
         qualities = Counter()
         for _ in range(500):
-            with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+            with _patch_random(0.0):
                 for item in b.get_salvage("torso"):
                     qualities[item.quality] += 1
         assert qualities[Qualities.ORDINARY] > qualities[Qualities.FINE]
@@ -591,7 +554,7 @@ class TestWerewolfLeatherDrops:
         from caldanai.lib.rpg.creatures.monsters.werewolf import Werewolf
         w = Werewolf()
         Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+        with _patch_random(0.0):
             items = w.get_salvage("torso")
         assert len(items) == 3
         assert all(i.plugin == "leather" for i in items)
@@ -600,7 +563,7 @@ class TestWerewolfLeatherDrops:
         from caldanai.lib.rpg.creatures.monsters.werewolf import Werewolf
         w = Werewolf()
         Inventory.discover_items()
-        with patch("caldanai.lib.rpg.creatures.monsters.random", return_value=0.0):
+        with _patch_random(0.0):
             items = w.get_salvage("leg")
         assert len(items) == 2
         assert all(i.plugin == "leather" for i in items)

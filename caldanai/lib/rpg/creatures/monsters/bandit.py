@@ -35,7 +35,7 @@ class Bandit(MonsterPlugin):
     # ``SALVAGE_SURVIVAL_CHANCE`` (2/3) for each worn piece to
     # survive — combined with these spawn rates, the bracer
     # ends-to-end appearance is ~20%.
-    ARMOR_LOADOUT = {
+    SPAWN_LOADOUT = {
         "head":  [("rough_cap",        0.30, "worn",        (50, 95)),
                   ("rag_hood",         0.15, "outer",       (50, 95))],
         "neck":  [("scrap_collar",     0.15, "accent",      (50, 95))],
@@ -94,7 +94,7 @@ class Bandit(MonsterPlugin):
         self.traits[DamageTypes.MAGICAL] = 1.50
         self.traits[DamageTypes.ANY - (DamageTypes.RANGED | DamageTypes.MAGICAL)] = 0.75
 
-        # Shortsword moved to ARMOR_LOADOUT (held slot on hand) —
+        # Shortsword moved to SPAWN_LOADOUT (held slot on hand) —
         # the held-weapons-via-loadout path replaces the death-time
         # loot roll with a spawn-time placement that surfaces in
         # $look and drops via the worn-piece salvage chance. Bow

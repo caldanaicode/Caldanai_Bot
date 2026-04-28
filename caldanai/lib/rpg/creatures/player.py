@@ -1790,36 +1790,6 @@ class Player(Creature):
         self.skills[skill] += amt
         self.is_dirty = True
 
-    def get_armor_bonuses(self, *names: str) -> Dict[str, int]:
-        """
-        Returns a dictionary containing the sums of all bonuses granted by equipment.
-        :param names: If you wish to retrieve specific bonuses, provide their names.
-        :return: A dictionary containing the sum of bonuses from all equipment worn.
-        """
-
-        result: Dict[str, int] = {}
-        items_checked = []
-        # Walk every ``(part, key)`` placement. Multi-placement
-        # items (two-handed weapons, pair items) appear multiple
-        # times because their references are shared — the
-        # ``items_checked`` identity-list dedupes so bonuses aren't
-        # double-counted.
-        for item in self._iter_equipped_items():
-            if isinstance(item, Armor) and not any(
-                checked is item for checked in items_checked
-            ):
-                items_checked.append(item)
-                for bonus, value in item.bonuses.items():
-                    if names and bonus not in names:
-                        continue
-
-                    if bonus not in result.keys():
-                        result[bonus] = value
-                    else:
-                        result[bonus] += value
-
-        return result
-
     def get_chart_attacks(self) -> Tuple[Embed, File]:
         """Returns a discord Embed and File for the player's natural rolls."""
 
@@ -1847,56 +1817,6 @@ class Player(Creature):
         embed.set_image(url="attachment://plot.png")
 
         return embed, file
-
-    def get_defense(self) -> int:
-        """Total defense: body-part emergence (torso functionality) plus armor bonuses.
-
-        Defers to :meth:`Creature.get_defense` so torso injuries scale
-        defense the same way they do for monsters, then adds any bonuses
-        from equipped armor. Clamped at 0.
-        """
-        base = Creature.get_defense(self)
-        armor = self.get_armor_bonuses("defense").get("defense", 0)
-        return max(0, base + armor)
-
-    def get_dodge(self) -> int:
-        """Total dodge: body-part emergence (leg/wing mobility) plus armor
-        bonuses, minus penalties from low-quality armor.
-
-        Defers to :meth:`Creature.get_dodge` so leg injuries degrade
-        dodge the same way they do for monsters, adds any positive
-        bonuses from equipped armor, then subtracts the low-quality
-        dodge tax from junk/ordinary pieces (see
-        :meth:`_get_low_quality_armor_dodge_penalty`). Clamped at 0.
-        """
-        base = Creature.get_dodge(self)
-        armor = self.get_armor_bonuses("dodge").get("dodge", 0)
-        penalty = self._get_low_quality_armor_dodge_penalty()
-        return max(0, base + armor - penalty)
-
-    def _get_low_quality_armor_dodge_penalty(self) -> int:
-        """Sum of dodge penalties imposed by worn ORDINARY-or-lower armor.
-
-        Pieces above ORDINARY quality are fitted well enough that
-        their bulk doesn't cost mobility; junk and ordinary pieces
-        are stiff or ill-shaped enough to drag the wearer's dodge
-        down. The per-piece value lives on each Armor subclass as
-        :attr:`Armor.LOW_QUALITY_DODGE_PENALTY` — heavier shells
-        (jerkin, rerebrace, greave) take the real hit while small
-        pieces (gloves, hoods, decorative bands) stay at 0.
-        Multi-placement items are deduped by identity.
-        """
-        penalty = 0
-        items_checked = []
-        for item in self._iter_equipped_items():
-            if not isinstance(item, Armor):
-                continue
-            if any(checked is item for checked in items_checked):
-                continue
-            items_checked.append(item)
-            if item.quality.value["multiplier"] <= 1.0:
-                penalty += item.LOW_QUALITY_DODGE_PENALTY
-        return penalty
 
     def get_health_max(self) -> int:
         """Tallies the total max health value for the given creature."""

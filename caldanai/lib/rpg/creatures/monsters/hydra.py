@@ -573,10 +573,14 @@ class Hydra(MonsterPlugin):
         head.dmg_type = dmg_type
         if scale:
             # Q.6: regrown heads share the body-HP-relative scaling
-            # the initial heads got from ``_scale_part_hp``.
+            # the initial heads got from ``_scale_part_hp``. Reads
+            # ``_emergent_defense`` (intrinsic resilience) — not
+            # ``get_defense`` — so a worn-armor pool doesn't inflate
+            # regrown-head HP. Hydras don't wear armor today, but
+            # the contract is now consistent with ``_scale_part_hp``.
             from caldanai.lib.rpg.creatures import _compute_scaled_part_hp
             head.health_max = _compute_scaled_part_hp(
-                head, self.health_max, self.size, self.get_defense(),
+                head, self.health_max, self.size, self._emergent_defense(),
             )
             head.health = head.health_max
         return head

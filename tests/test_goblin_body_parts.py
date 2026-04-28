@@ -20,6 +20,8 @@ shape, so items 4.2 (Bandit) and 4.3 (Giant) can reuse the same
 humanoid-layout pattern with confidence.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
@@ -157,10 +159,21 @@ class TestGoblinPartNames:
 class TestGoblinFullHealthBackwardsCompat:
     """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
     Goblin is SMALL: dodge_mod=1.25, defense_mod=0.75.
+
+    Loadout suppressed (``random() = 1.0`` → every spawn roll
+    fails) so the worn-armor pool stays empty and these tests pin
+    the emergence-only baseline. The 2026-04-28 lift folded
+    ``get_defense`` / ``get_dodge`` into a unified emergence-plus-
+    armor pipeline; an unsuppressed goblin can carry low-quality
+    pieces that drag dodge below the bare ``self.dodge`` baseline.
     """
 
     def test_get_defense_matches_size_scaled(self):
-        g = Goblin()
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=1.0,
+        ):
+            g = Goblin()
         # SMALL defense_mod=0.75; ``get_defense`` floors at 1 when
         # torso remains, so mirror the clamp — a low defense roll
         # × 0.75 can ``int``-truncate to 0 otherwise.
@@ -168,7 +181,11 @@ class TestGoblinFullHealthBackwardsCompat:
         assert g.get_defense() == expected
 
     def test_get_dodge_matches_size_scaled(self):
-        g = Goblin()
+        with patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=1.0,
+        ):
+            g = Goblin()
         expected = int(g.dodge * 1.0 * 1.25)
         assert g.get_dodge() == expected
 

@@ -74,8 +74,11 @@ class MonsterPlugin(Creature):
         # Spawn-time armor: roll the per-part loadout into placements
         # so wearable defense bonuses kick in via the standard
         # ``effective_defense_for_part`` path before any combat fires.
-        # No-op when ARMOR_LOADOUT is empty (the default).
-        self._apply_armor_loadout()
+        # No-op when SPAWN_LOADOUT is empty (the default). Lifted
+        # to :class:`Creature` so monsters and players share one
+        # pipeline; players don't auto-fire it (their fresh-create
+        # cog calls :meth:`_apply_loadout` explicitly).
+        self._apply_loadout()
 
         self.aggression = AggressionLevels.PASSIVE
         self.time_partition = TimePartitions.CATHEMERAL
@@ -271,38 +274,14 @@ class MonsterPlugin(Creature):
     #
     # SALVAGE_DROPS is for NON-EQUIPMENT harvest (rags, fangs,
     # leather, scale). Items the monster was actually wearing drop
-    # via :attr:`ARMOR_LOADOUT` + the worn-armor branch in
+    # via :attr:`Creature.SPAWN_LOADOUT` + the worn-armor branch in
     # :meth:`get_salvage` instead. Default empty: monsters opt in
     # by overriding the dict on the plugin class.
     SALVAGE_DROPS: Dict[str, List[tuple]] = {}
 
-    # Spawn-time armor loadout — chance for this monster to spawn
-    # wearing equipment on its body parts. Same key shape as
-    # SALVAGE_DROPS (part-base-name -> list of entries), but each
-    # entry is ``(item_name, spawn_chance, slot, quality_range)``:
-    #
-    # - ``item_name``: armor plugin filename stem.
-    # - ``spawn_chance``: float in [0, 1]. Rolled per-part-instance,
-    #   so a quadruped's four legs roll independently — paired or
-    #   mismatched spawns are emergent, not authored.
-    # - ``slot``: placement key on the part (e.g. ``"worn"``,
-    #   ``"worn.lower"``, ``"accent"``). Must match a key in the
-    #   target plugin's ``PLACEMENT_KEYS``.
-    # - ``quality_range``: ``(lo, hi)`` for ``Qualities.from_scale``
-    #   the same as ``SALVAGE_DROPS``.
-    #
-    # Equipped items contribute defense automatically through
-    # :func:`effective_defense_for_part` (which already reads
-    # ``BodyPart.placements``). On dismemberment, ``get_salvage``
-    # rolls a survival chance against each worn piece — see
-    # :attr:`SALVAGE_SURVIVAL_CHANCE`.
-    #
-    # Default empty: monsters opt in by overriding the dict.
-    ARMOR_LOADOUT: Dict[str, List[tuple]] = {}
-
     # Probability that an actually-worn piece survives the
     # destruction of its part well enough to drop as loot. Layered
-    # against the ARMOR_LOADOUT spawn chance — e.g. a 30% spawn rate
+    # against the SPAWN_LOADOUT spawn chance — e.g. a 30% spawn rate
     # combined with the default 2/3 survival yields a 20% see-the-
     # piece end-to-end rate. Tunable per-monster (override the class
     # attribute) for hardier or more fragile gear themes.
@@ -317,52 +296,6 @@ class MonsterPlugin(Creature):
     # parts rolls the lower rate. See
     # ``project_armor_drop_on_clean_kill.md`` for rationale.
     CORPSE_SCAVENGE_CHANCE: float = 1.0 / 3.0
-
-    def _apply_armor_loadout(self) -> None:
-        """Walk this monster's body parts and roll the spawn-time
-        armor loadout. For each :class:`Equippable` part, look up
-        ``ARMOR_LOADOUT`` entries by base name; each entry rolls
-        independently. On a successful roll, build the item with a
-        quality drawn from the entry's range and place it into the
-        matching slot.
-
-        No-op when ``ARMOR_LOADOUT`` is empty.
-        """
-        if not self.ARMOR_LOADOUT:
-            return
-        from random import randint
-        from caldanai.lib.rpg.creatures import _part_base_name
-        from caldanai.lib.rpg.creatures.mixins import Equippable
-        from caldanai.lib.rpg.helpers.enums import Qualities
-
-        for part in self.body_parts:
-            if not isinstance(part, Equippable):
-                continue
-            entries = self.ARMOR_LOADOUT.get(_part_base_name(part), [])
-            for entry in entries:
-                name, freq, slot, q_range = entry
-                if random() > freq:
-                    continue
-                if slot not in part.placements:
-                    _log.warning(
-                        f"ARMOR_LOADOUT for {self.name}: part "
-                        f"{part.name!r} has no placement key {slot!r}; "
-                        f"skipping {name}."
-                    )
-                    continue
-                if name not in Inventory.ITEMS.keys():
-                    Inventory.discover_items()
-                if name not in Inventory.ITEMS.keys():
-                    _log.warning(
-                        f"No such item '{name}' found in the Inventory.ITEMS list."
-                    )
-                    continue
-                quality = Qualities.from_scale(randint(*q_range))
-                item = Inventory.ITEMS[name].from_plugin(
-                    name, {"quality": quality.name},
-                )
-                if item:
-                    part.placements[slot] = item
 
     def get_salvage(self, part_or_name) -> List[Item]:
         """Roll the salvage drops for a single destroyed body-part

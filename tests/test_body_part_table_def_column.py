@@ -17,6 +17,7 @@ component arithmetic against future drift.
 from __future__ import annotations
 
 import re
+from contextlib import ExitStack, contextmanager
 from random import seed
 from unittest.mock import patch
 
@@ -41,6 +42,27 @@ MonsterPlugin.load_plugins()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _patch_random(return_value):
+    """Patch ``random()`` at BOTH modules monster code reaches for
+    it. The :class:`Creature`-level ``_apply_loadout`` (lifted from
+    the old ``MonsterPlugin._apply_armor_loadout`` 2026-04-28) calls
+    ``random()`` from :mod:`caldanai.lib.rpg.creatures`; monster-only
+    paths still call from :mod:`caldanai.lib.rpg.creatures.monsters`.
+    Patches both so a single uniform value sticks regardless of
+    order."""
+    with ExitStack() as stack:
+        stack.enter_context(patch(
+            "caldanai.lib.rpg.creatures.random",
+            return_value=return_value,
+        ))
+        stack.enter_context(patch(
+            "caldanai.lib.rpg.creatures.monsters.random",
+            return_value=return_value,
+        ))
+        yield
 
 
 def _strip_ansi(text: str) -> str:
@@ -87,10 +109,7 @@ def _bandit_with_one_glove() -> Bandit:
     breakdown surfaces a single armor contribution.
     """
     Inventory.discover_items()
-    with patch(
-        "caldanai.lib.rpg.creatures.monsters.random",
-        return_value=1.0,
-    ):
+    with _patch_random(1.0):
         # Every loadout entry rolls > freq → no spawn-time armor.
         b = Bandit()
     # Now place one ratty_glove on hand.right under our control.
