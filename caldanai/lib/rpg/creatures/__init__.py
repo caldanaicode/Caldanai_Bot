@@ -1416,6 +1416,40 @@ class Creature:
         lines.append("```")
         return "\n".join(lines)
 
+    def _embed_torso_part(self) -> Optional[BodyPart]:
+        """Pick the part used to anchor the spawn embed's Defense
+        field. Default is the part literally named ``"torso"`` (every
+        current monster). Falls back to the first critical part for
+        anatomies that don't have one (a future skull-only or sphere
+        monster). Returns ``None`` for body-less creatures so callers
+        can route to creature-level :meth:`get_defense`.
+        """
+        if not self.body_parts:
+            return None
+        torso = self.get_part("torso")
+        if torso is not None:
+            return torso
+        for part in self.body_parts:
+            if getattr(part, "is_critical", False):
+                return part
+        return self.body_parts[0]
+
+    def _embed_defense_value(self) -> int:
+        """Defense value the spawn embed renders.
+
+        Equals :func:`effective_defense_for_part` against the
+        creature's torso (or a sensible fallback — see
+        :meth:`_embed_torso_part`). This is the d{N} pool a torso-
+        aimed swing actually rolls absorption against, so the embed
+        number matches the combat surface. Body-less creatures fall
+        back to creature-level :meth:`get_defense` since per-part
+        lookup isn't applicable.
+        """
+        part = self._embed_torso_part()
+        if part is None:
+            return self.get_defense()
+        return effective_defense_for_part(self, part)
+
     def _healthy_aggregate(self, getter):
         """Run ``getter`` (e.g. ``self.get_defense``) against a
         temporary full-health snapshot of this creature's body parts.
@@ -1457,12 +1491,37 @@ class Creature:
             file = File(f"./site/static/images/{self.image}", filename=self.image)
             embed.set_thumbnail(url=f"attachment://{self.image}")
 
+        # Defense is the TORSO-EFFECTIVE value a torso-aimed swing
+        # actually faces — :func:`effective_defense_for_part` against
+        # the creature's torso part. The bare ``get_defense()`` pool
+        # hides per-part bonuses (e.g. bearowl torso +3, golem torso
+        # +4 / head +4) so the embed under-reported what combat
+        # actually rolls against. Locked spec 2026-04-28 (Caels):
+        # "Make the embed show the end result. Leg was correct at 16
+        # according to the embed, so the +4 for the torso is a magic
+        # number on a creature with no armor bonuses." The validator
+        # in ``tools/playtest_combat_harness --validate-embed-stats``
+        # pins ``embed.Defense == effective_defense_for_part(creature,
+        # torso)`` against future drift.
+        #
+        # Body-less creatures (spirit, future gel cube) fall back to
+        # ``get_defense()`` since per-part lookup isn't applicable —
+        # there is no part to attribute defense to. A creature with
+        # body parts but no part literally named ``"torso"`` falls
+        # back to the first critical part (skull-only golems, sphere
+        # monsters that someday ship). We never crash the embed for a
+        # missing torso.
+        #
+        # Dodge stays on creature-level ``get_dodge()`` for now: per-
+        # part dodge variance is dominated by size scaling, not part
+        # bonuses, so the same anchoring problem doesn't apply.
+        #
         # Mark Defense / Dodge with a bandage emoji (U+1FA79) when
-        # the emergent value (get_*) is below what that aggregation
-        # would yield with every body part at full health.
-        # Signals "your body damage is reducing this stat" so the
-        # player doesn't read a mid-fight stat drop as a UI bug
-        # (2026-04-24 playtest finding).
+        # the emergent value is below what that aggregation would
+        # yield with every body part at full health. Signals "your
+        # body damage is reducing this stat" so the player doesn't
+        # read a mid-fight stat drop as a UI bug (2026-04-24
+        # playtest finding).
         #
         # Comparing emergent against ``self.defense`` / ``self.dodge``
         # produced false positives because ``get_defense`` /
@@ -1473,9 +1532,9 @@ class Creature:
         # size-mod factor and only fires when injury actually
         # reduces the stat.
         injury_marker = " \U0001fa79"
-        emergent_def = self.get_defense()
+        emergent_def = self._embed_defense_value()
         emergent_dodge = self.get_dodge()
-        baseline_def = self._healthy_aggregate(self.get_defense)
+        baseline_def = self._healthy_aggregate(self._embed_defense_value)
         baseline_dodge = self._healthy_aggregate(self.get_dodge)
         def_marker = injury_marker if emergent_def < baseline_def else ""
         dodge_marker = injury_marker if emergent_dodge < baseline_dodge else ""

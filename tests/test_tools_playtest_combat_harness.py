@@ -15,7 +15,9 @@ from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
 from tools.playtest_combat_harness import (
     TrialOutcome,
     _build_player,
+    _embed_field_int,
     _summarize,
+    _validate_embed_stats,
     _xp_for_level,
 )
 
@@ -148,3 +150,102 @@ class TestSummarize:
         _summarize(outcomes, "stale-only")
         out = capsys.readouterr().out
         assert "stalemates=1" in out
+
+
+class TestEmbedFieldInt:
+    """``_embed_field_int`` parses the leading integer out of an
+    embed field's value, tolerating commas and trailing markers."""
+
+    def test_returns_int_for_plain_number(self):
+        embed = MagicMock()
+        embed.fields = [MagicMock(name="Defense", value="14")]
+        embed.fields[0].name = "Defense"
+        assert _embed_field_int(embed, "Defense") == 14
+
+    def test_returns_int_with_trailing_marker(self):
+        """Bandage marker (U+1FA79) appended to an injured stat —
+        the integer should still parse cleanly off the front."""
+        embed = MagicMock()
+        f = MagicMock()
+        f.name = "Defense"
+        f.value = "14 \U0001fa79"
+        embed.fields = [f]
+        assert _embed_field_int(embed, "Defense") == 14
+
+    def test_strips_thousands_separator(self):
+        embed = MagicMock()
+        f = MagicMock()
+        f.name = "Health"
+        f.value = "1,234"
+        embed.fields = [f]
+        assert _embed_field_int(embed, "Health") == 1234
+
+    def test_returns_none_for_missing_field(self):
+        embed = MagicMock()
+        embed.fields = []
+        assert _embed_field_int(embed, "Defense") is None
+
+    def test_returns_none_for_non_numeric_value(self):
+        embed = MagicMock()
+        f = MagicMock()
+        f.name = "Defense"
+        f.value = "bandit"
+        embed.fields = [f]
+        assert _embed_field_int(embed, "Defense") is None
+
+
+class TestValidateEmbedStats:
+    """Smoke-check the property validator across the live bestiary.
+
+    Mirrors what the operator runs via the CLI flag — a small
+    sample count keeps the test cheap, and the assertion is binary
+    ("no drift across the registry"). When this fails the harness
+    prints per-monster drift events to stdout for debugging."""
+
+    def test_full_bestiary_no_drift(self, capsys):
+        with (
+            patch("caldanai.dispatcher.Dispatcher"),
+            patch("caldanai.lib.rpg.Dispatcher"),
+            patch("caldanai.lib.rpg.creatures.DB", create=True),
+        ):
+            exit_code = _validate_embed_stats(stems=[], samples=5)
+        out = capsys.readouterr().out
+        assert exit_code == 0, (
+            f"unexpected drift; output:\n{out}"
+        )
+        assert "ALL EMBED STATS MATCH RUNTIME" in out
+
+    def test_scoped_stems_validates_only_those(self, capsys):
+        """Passing explicit stems narrows the check — the report
+        should only mention those monsters."""
+        with (
+            patch("caldanai.dispatcher.Dispatcher"),
+            patch("caldanai.lib.rpg.Dispatcher"),
+            patch("caldanai.lib.rpg.creatures.DB", create=True),
+        ):
+            exit_code = _validate_embed_stats(
+                stems=["bearowl", "goblin"], samples=3,
+            )
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "bearowl" in out
+        assert "goblin" in out
+        # An unrelated monster should NOT appear in the scoped report.
+        assert "dragon" not in out
+
+    def test_unknown_stem_skipped_cleanly(self, capsys):
+        """An unknown stem prints a skip line and doesn't crash —
+        keeps the validator usable as a quick check on a typo."""
+        with (
+            patch("caldanai.dispatcher.Dispatcher"),
+            patch("caldanai.lib.rpg.Dispatcher"),
+            patch("caldanai.lib.rpg.creatures.DB", create=True),
+        ):
+            exit_code = _validate_embed_stats(
+                stems=["nonexistent_monster"], samples=2,
+            )
+        out = capsys.readouterr().out
+        # Skipped monsters don't count as drift.
+        assert exit_code == 0
+        assert "nonexistent_monster" in out
+        assert "unknown monster" in out

@@ -615,6 +615,167 @@ def _print_sweep(
             print(f"  {label:<28} | {cells}")
 
 
+_DEFENSE_FIELD = "Defense"
+_DODGE_FIELD = "Dodge"
+
+
+def _embed_field_int(embed, name: str) -> Optional[int]:
+    """Pull the leading integer from a named embed field. Returns
+    ``None`` if the field is missing or non-numeric (defensive
+    against future embed reshuffles — the validator should call
+    out the missing field rather than crash mid-sweep)."""
+    import re
+    for f in getattr(embed, "fields", []) or []:
+        if f.name == name:
+            match = re.match(r"\s*([\d,]+)", str(f.value))
+            if not match:
+                return None
+            return int(match.group(1).replace(",", ""))
+    return None
+
+
+def _validate_embed_stats(stems: List[str], samples: int) -> int:
+    """Property-check that every monster's spawn-embed Defense field
+    agrees with the torso-effective defense (post 2026-04-28 contract:
+    the embed shows the d{N} pool a torso-aimed swing actually rolls
+    absorption against, NOT the bare creature-level ``get_defense()``
+    pool). Dodge stays anchored to creature-level ``get_dodge()`` —
+    per-part dodge variance is dominated by size scaling.
+
+    Spawns ``samples`` fresh instances per stem so the dice-rolled
+    ``self.defense`` / ``self.dodge`` distributions get covered
+    (a single spawn could pass by accident). Reports any
+    divergence as a row in the per-monster summary; returns
+    non-zero exit code if any drift was found so CI / scripted
+    callers can fail loudly.
+
+    Operator-facing: run after touching size-mod math, the
+    emergence helpers, the per-part defense resolver, or the
+    embed renderer — anything that could quietly drift display
+    from runtime.
+    """
+    from caldanai.lib.rpg.creatures import effective_defense_for_part
+
+    MonsterPlugin.load_plugins()
+    if not stems:
+        stems = sorted(MonsterPlugin._PLUGIN_REGISTRY.keys())
+
+    print(
+        f"==== EMBED STAT DRIFT CHECK ====\n"
+        f"  monsters: {len(stems)}, samples/monster: {samples}\n"
+        f"  asserts: embed[Defense] == effective_defense_for_part("
+        f"creature, torso), embed[Dodge] == get_dodge()\n"
+    )
+
+    total_mismatches = 0
+    monster_failures: List[str] = []
+    for stem in stems:
+        cls = MonsterPlugin.get_plugin_class(stem)
+        if cls is None:
+            print(f"  [{stem:<14}] unknown monster — skipping")
+            continue
+        per_stem_mismatches: List[str] = []
+        size = None
+        def_min = def_max = dodge_min = dodge_max = None
+        for _ in range(samples):
+            try:
+                m = cls()
+            except Exception as exc:
+                per_stem_mismatches.append(f"construct error: {exc!r}")
+                break
+            size = getattr(m, "size", None)
+            try:
+                embed, _ = m.get_embed()
+            except Exception as exc:
+                per_stem_mismatches.append(f"embed error: {exc!r}")
+                continue
+            disp_def = _embed_field_int(embed, _DEFENSE_FIELD)
+            disp_dodge = _embed_field_int(embed, _DODGE_FIELD)
+            # Torso-effective is THE defense number per the 2026-04-28
+            # contract. Body-less creatures (spirit) and anatomies
+            # without a literal "torso" fall back to creature-level
+            # ``get_defense()`` — match the embed renderer's fallback
+            # in :meth:`Creature._embed_defense_value`.
+            torso = m.get_part("torso") if m.body_parts else None
+            if torso is None and m.body_parts:
+                torso = next(
+                    (p for p in m.body_parts
+                     if getattr(p, "is_critical", False)),
+                    m.body_parts[0],
+                )
+            if torso is not None:
+                run_def = effective_defense_for_part(m, torso)
+            else:
+                run_def = m.get_defense()
+            run_dodge = m.get_dodge()
+            # Track displayed-value range for the human-readable
+            # summary line. Using displayed-value avoids a second
+            # call to get_defense / get_dodge per spawn.
+            if disp_def is not None:
+                def_min = disp_def if def_min is None else min(def_min, disp_def)
+                def_max = disp_def if def_max is None else max(def_max, disp_def)
+            if disp_dodge is not None:
+                dodge_min = disp_dodge if dodge_min is None else min(
+                    dodge_min, disp_dodge,
+                )
+                dodge_max = disp_dodge if dodge_max is None else max(
+                    dodge_max, disp_dodge,
+                )
+            if disp_def is None:
+                per_stem_mismatches.append(
+                    f"missing/non-numeric Defense field"
+                )
+            elif disp_def != run_def:
+                per_stem_mismatches.append(
+                    f"defense displayed={disp_def} runtime={run_def}"
+                )
+            if disp_dodge is None:
+                per_stem_mismatches.append(
+                    f"missing/non-numeric Dodge field"
+                )
+            elif disp_dodge != run_dodge:
+                per_stem_mismatches.append(
+                    f"dodge displayed={disp_dodge} runtime={run_dodge}"
+                )
+        size_str = size.name if hasattr(size, "name") else str(size)
+        def_range = (
+            f"{def_min}-{def_max}" if def_min is not None else "-"
+        )
+        dodge_range = (
+            f"{dodge_min}-{dodge_max}" if dodge_min is not None else "-"
+        )
+        if per_stem_mismatches:
+            total_mismatches += len(per_stem_mismatches)
+            monster_failures.append(stem)
+            # Collapse repeated identical messages — one bad
+            # formula tends to fire on every sample, and N copies
+            # of the same line buries the actual drift.
+            unique = sorted(set(per_stem_mismatches))
+            print(
+                f"  [{stem:<14}] size={size_str:<8} "
+                f"def={def_range:<7} dodge={dodge_range:<6} "
+                f"FAIL ({len(per_stem_mismatches)} drift events)"
+            )
+            for line in unique:
+                print(f"    -> {line}")
+        else:
+            print(
+                f"  [{stem:<14}] size={size_str:<8} "
+                f"def={def_range:<7} dodge={dodge_range:<6} OK"
+            )
+
+    print()
+    if monster_failures:
+        print(
+            f"==== {total_mismatches} drift event(s) across "
+            f"{len(monster_failures)} monster(s): "
+            f"{', '.join(monster_failures)} ====\n"
+        )
+        return 1
+    print("==== ALL EMBED STATS MATCH RUNTIME ====\n")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--weapon", default=None,
@@ -686,9 +847,44 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--armor-quality", default=None,
                     choices=[q.name for q in Qualities],
                     help="Armor quality (default: same as --quality).")
+    ap.add_argument("--validate-embed-stats", action="store_true",
+                    help="Property-check that every monster's spawn-"
+                         "embed Defense / Dodge values agree with "
+                         "``get_defense()`` / ``get_dodge()`` across "
+                         "``--validate-samples`` fresh instances per "
+                         "stem. Catches drift between displayed and "
+                         "runtime-resolved stats. Use with "
+                         "``--sweep-monsters`` to scope to specific "
+                         "stems; otherwise covers the full bestiary. "
+                         "Returns non-zero exit code on any drift.")
+    ap.add_argument("--validate-samples", type=int, default=200,
+                    help="Spawns per monster for "
+                         "``--validate-embed-stats`` (default 200). "
+                         "Each spawn re-rolls dice-driven stats so a "
+                         "size-mod regression on a low roll can't "
+                         "slip through with one lucky sample.")
     args = ap.parse_args(argv)
 
     random.seed(args.seed)
+
+    if args.validate_embed_stats:
+        # Validator runs without --monster/--sweep-monsters being
+        # required: by default it covers every plugin in the
+        # registry. ``--sweep-monsters`` (when present) scopes the
+        # check to those stems.
+        if args.depth_coef is not None:
+            from caldanai.lib.rpg import creatures as _creatures_module
+            _creatures_module.DEPTH_COEFFICIENT = args.depth_coef
+        with (
+            patch("caldanai.dispatcher.Dispatcher"),
+            patch("caldanai.lib.rpg.Dispatcher"),
+            patch("caldanai.lib.rpg.creatures.DB", create=True),
+        ):
+            stems = (
+                [s.strip() for s in args.sweep_monsters.split(",")]
+                if args.sweep_monsters else []
+            )
+            return _validate_embed_stats(stems, args.validate_samples)
 
     if not args.monster and not args.sweep_monsters:
         ap.error("either --monster or --sweep-monsters is required")

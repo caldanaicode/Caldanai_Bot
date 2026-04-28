@@ -4,6 +4,33 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-28 — Spawn embed: Defense re-anchored to TORSO-effective
+
+Bare creature-level `get_defense()` hid per-part bonuses on the
+spawn embed: a bearowl with torso `defense_bonus=+3` displayed
+the underlying pool (e.g. 17) when a torso swing actually rolls
+absorption against torso-effective (e.g. 20). Caels' 2026-04-28
+call: "Make the embed show the end result. Leg was correct at 16
+according to the embed, so the +4 for the torso is a magic number
+on a creature with no armor bonuses."
+
+- `Creature.get_embed` now routes Defense through the per-part
+  resolver (`effective_defense_for_part`) anchored on torso —
+  same code path `Creature.resolve_attack` uses when a torso
+  swing lands. Body-less creatures (spirit) and anatomies without
+  a literal "torso" fall back gracefully (creature-level
+  `get_defense()` for body-less; first critical part otherwise).
+- Dodge stays on creature-level `get_dodge()` — per-part dodge
+  variance is dominated by size scaling, not part bonuses.
+- `tools/playtest_combat_harness --validate-embed-stats` validator
+  contract updated to assert `embed[Defense] ==
+  effective_defense_for_part(creature, torso)`. 200 × 22 monsters
+  = 4400 spawns pass clean.
+- `tools/inspect_monster` header now reads
+  `defense=raw->effective (torso N)` so the underlying creature
+  pool stays diagnostic-visible alongside the number a player
+  sees on `$look`.
+
 ### 2026-04-27 — Per-hit absorption rolls 1d{defense} (trial)
 
 Pre-trial: a hit doing 10 raw against a defense-7 part deterministically
