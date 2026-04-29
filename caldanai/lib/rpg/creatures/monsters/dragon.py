@@ -72,6 +72,13 @@ class Dragon(MonsterPlugin):
         *paired(WingPlugin, "wing"),
     ])
 
+    # Age-variant size pool. Picked uniformly at spawn so any given
+    # dragon could be a young (LARGE), mature (HUGE), or ancient
+    # (COLOSSAL) specimen. Size cascades through the Size enum's
+    # ``dodge_mod`` / ``defense_mod`` / ``hp_scale`` baked into base
+    # stats at construction.
+    SIZE_VARIANTS = [Size.LARGE, Size.HUGE, Size.COLOSSAL]
+
     VARIANTS = [
         {
             "flavor": "A {size} red @1, smelling faintly of cinnamon and charcoal.",
@@ -118,6 +125,14 @@ class Dragon(MonsterPlugin):
         self.aggression = AggressionLevels.RAMPAGE
         self.arrival = "A piercing roar rocks the heavens, as @1i swoops down out of the sky searching for prey."
 
+        # Age-variant size pick: a young dragon is LARGE, a mature one
+        # HUGE, an ancient one COLOSSAL. Set BEFORE flavor format so
+        # the "{size} red dragon" substitution lands the actual size
+        # (the prior-bug shape always rendered "medium" because
+        # ``self.size`` defaulted to MEDIUM until ``self.size = ...``
+        # later in __init__).
+        self.size = choice(self.SIZE_VARIANTS)
+
         variant = choice(self.VARIANTS)
         self._has_toes = variant["has_toes"]
         self.flavor = variant["flavor"].format(size=self.size.name.lower())
@@ -142,7 +157,9 @@ class Dragon(MonsterPlugin):
 
         self.flags = {"flying"}
 
-        self.size = Size.HUGE
+        # ``self.size`` was set above (before flavor format). Now that
+        # body parts are composed by ``super().__init__``, scale per-
+        # part HP against that size.
         self._scale_part_hp()
 
         # Enrage state: breath chance ramps each round since the last

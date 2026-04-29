@@ -705,35 +705,31 @@ class TestMonsterSizes:
         d = Doppelganger()
         assert d.size == Size.MEDIUM
 
-    def test_giant_is_huge(self):
+    def test_giant_size_in_age_variants(self):
+        """Giants pick from SIZE_VARIANTS at spawn (age-variant scaling)."""
         from caldanai.lib.rpg.creatures.monsters.giant import Giant
-        g = Giant()
-        assert g.size == Size.HUGE
+        for _ in range(20):
+            g = Giant()
+            assert g.size in Giant.SIZE_VARIANTS
 
     def test_bearowl_is_large(self):
         from caldanai.lib.rpg.creatures.monsters.bearowl import Bearowl
         b = Bearowl()
         assert b.size == Size.LARGE
 
-    def test_dragon_is_huge(self):
+    def test_dragon_size_in_age_variants(self):
+        """Dragons pick from SIZE_VARIANTS at spawn (young/mature/ancient)."""
         from caldanai.lib.rpg.creatures.monsters.dragon import Dragon
-        d = Dragon()
-        assert d.size == Size.HUGE
+        for _ in range(20):
+            d = Dragon()
+            assert d.size in Dragon.SIZE_VARIANTS
 
-    def test_hydra_default_is_large(self):
-        from caldanai.lib.rpg.creatures.monsters.hydra import Hydra, VARIANTS
-        # Test that the default/swamp/hexed variants are LARGE
-        for variant in VARIANTS:
-            if variant["name"] in ("hydra", "swamp hydra", "hexed hydra"):
-                assert variant["size"] == Size.LARGE, (
-                    f"{variant['name']} should be LARGE"
-                )
-
-    def test_hydra_elemental_is_huge(self):
-        from caldanai.lib.rpg.creatures.monsters.hydra import VARIANTS
-        for variant in VARIANTS:
-            if variant["name"] == "elemental hydra":
-                assert variant["size"] == Size.HUGE
+    def test_hydra_size_in_age_variants(self):
+        """Hydras pick from SIZE_VARIANTS at spawn (LARGE↔HUGE, no COLOSSAL)."""
+        from caldanai.lib.rpg.creatures.monsters.hydra import Hydra
+        for _ in range(20):
+            h = Hydra()
+            assert h.size in Hydra.SIZE_VARIANTS
 
 
 # ---------------------------------------------------------------------------

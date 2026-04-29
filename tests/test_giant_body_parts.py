@@ -155,20 +155,23 @@ class TestGiantPartNames:
 
 class TestGiantFullHealthBackwardsCompat:
     """At full health every part is at ``InjuryLevels.NONE`` (ratio 1.0).
-    Giant is HUGE: dodge_mod=0.5, defense_mod=1.5.
+    Giants now pick from SIZE_VARIANTS at spawn (LARGE/HUGE/COLOSSAL),
+    so the size_mod arithmetic varies — read the actual spawned
+    size's modifiers rather than hard-coding HUGE.
     """
 
     def test_get_defense_matches_size_scaled(self):
         g = Giant()
-        expected = int(g.defense * 1.0 * 1.5)
+        defense_mod = g.size.value["defense_mod"]
+        expected = int(g.defense * 1.0 * defense_mod)
         assert g.get_defense() == expected
 
     def test_get_dodge_matches_size_scaled(self):
         g = Giant()
-        # HUGE dodge_mod=0.5; ``get_dodge`` floors at 1 when
-        # mobility remains, so mirror the clamp — ``int(low_roll
-        # * 0.5)`` can truncate to 0 otherwise.
-        expected = max(1, int(g.dodge * 1.0 * 0.5))
+        dodge_mod = g.size.value["dodge_mod"]
+        # ``get_dodge`` floors at 1 when mobility remains, so mirror
+        # the clamp — ``int(low_roll * mod)`` can truncate to 0 otherwise.
+        expected = max(1, int(g.dodge * 1.0 * dodge_mod))
         assert g.get_dodge() == expected
 
     def test_stat_modifier_total_is_zero_at_full_health(self):

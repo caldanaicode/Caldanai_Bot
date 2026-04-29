@@ -92,7 +92,7 @@ class Pixie(MonsterPlugin):
             name="pixie",
             atk="1d4",           # tiny sting / dart / thrown pebble
             defense="2d3",       # bumped from 1d2 so TINY def_mod doesn't truncate her torso to 0 defense
-            dodge="5d3",         # signature humanoid dodge; TINY dodge_mod buffs to ~15, sits her squarely with math_teacher in the agile-cluster while staying landable for skilled players (skill-20 hit bonus ~+5 vs dodge 15 = ~50%)
+            dodge="8d3",         # bumped from 5d3 after the 2026-04-28 size-ratio remnant fix removed the per-part 2x cap that previously made TINY un-hittable. Mean 16 × TINY dodge_mod 1.5 ≈ 24 effective body dodge, so the pixie reads as pesky again without the doubling bug doing the work.
             health_max="2d4",    # glass cannon
         )
 

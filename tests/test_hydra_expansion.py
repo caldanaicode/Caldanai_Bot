@@ -627,16 +627,17 @@ class TestRegrowthWithTypes:
             )
 
     def test_regrown_heads_have_body_hp_relative_hp(self):
-        """Regrown heads on a LARGE hydra match the Q.6 body-HP-relative
-        scaling applied to initial heads.
+        """Regrown heads match the Q.6 body-HP-relative scaling applied
+        to initial heads.
 
         Hydra heads are non-critical (so hydra dies from decap, not
-        head destruction) with a ``head`` part-fraction of 0.5. LARGE
-        size scalar = 1.0. So a regrown head's HP is ``body_hp * 0.5``.
+        head destruction) with a ``head`` part-fraction of 0.5. Read
+        the spawned hydra's size scalar (Q.6 size scalar table) since
+        hydras now pick from SIZE_VARIANTS at spawn (LARGE or HUGE).
         """
-        from caldanai.lib.rpg.helpers.enums import Size
+        from caldanai.lib.rpg.creatures import _Q6_SIZE_SCALAR
         h = _make_variant_hydra("hydra")
-        assert h.size == Size.LARGE
+        size_scalar = _Q6_SIZE_SCALAR[h.size]
 
         # Destroy a head, then trigger regrowth.
         heads_before = _live_heads(h)
@@ -647,11 +648,11 @@ class TestRegrowthWithTypes:
         regrown = [hd for hd in _live_heads(h) if hd.name not in original_names]
         assert len(regrown) >= 1, "Expected at least one regrown head"
 
-        expected = max(1, int(h.health_max * 0.5 * 1.0))
+        expected = max(1, int(h.health_max * 0.5 * size_scalar))
         for head in regrown:
             assert head.health_max == expected, (
                 f"Regrown head {head.name!r} has health_max="
                 f"{head.health_max}, expected {expected} "
-                f"(body_hp {h.health_max} × 0.5 × LARGE 1.0)"
+                f"(body_hp {h.health_max} × 0.5 × {h.size.name} {size_scalar})"
             )
             assert head.health == head.health_max

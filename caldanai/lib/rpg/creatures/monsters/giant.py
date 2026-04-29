@@ -1,3 +1,5 @@
+from random import choice
+
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimePartitions, DamageTypes, Size
 from caldanai.lib.rpg.creatures import Creature
@@ -7,6 +9,10 @@ from caldanai.lib.rpg.helpers.dice import Dice
 
 class Giant(MonsterPlugin):
     BODY_TREE = humanoid_tree()
+
+    # Age-variant size pool. Picked uniformly at spawn so any given
+    # giant could be young (LARGE), mature (HUGE), or elder (COLOSSAL).
+    SIZE_VARIANTS = [Size.LARGE, Size.HUGE, Size.COLOSSAL]
 
     # Per-hit narration: huge slabs of muscle and thick hide blunt
     # most damage; ranged attacks lose force across the distance.
@@ -52,7 +58,9 @@ class Giant(MonsterPlugin):
         self.loot["ice_axe"] = 0.1
         self.loot["giant_toe"] = 0.25
 
-        self.size = Size.HUGE
+        # Age-variant size pick: a young giant is LARGE, a mature one
+        # HUGE, an elder COLOSSAL.
+        self.size = choice(self.SIZE_VARIANTS)
         self._scale_part_hp()
         # Leathery hide over slab-of-meat mass — modest +2 torso armor.
         for part in self.body_parts:

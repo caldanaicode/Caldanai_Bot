@@ -4,6 +4,64 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-28 — Size-aware combat: region-collapse, COLOSSAL, age variants
+
+Three small adjustments make size differences read consistently
+during attack resolution and surface the new variant texture.
+
+- `_REGION_COLLAPSE_THRESHOLD` is now applied at-or-above (`>=`)
+  instead of strictly above (`>`). Player vs TINY pixie and
+  Medium vs HUGE cyclops/giant/dragon now trigger eye → head /
+  arm → torso roll-up; the previous `>` left the most-common
+  ratio-2 cases falling through with no collapse.
+- `COLOSSAL.attack_scale` 1.75 → 2.0. Restores the round
+  scaling the design intent assumed; matches the size-ladder
+  spread (TINY 0.5, MEDIUM 1.0, COLOSSAL 2.0).
+- Age-variant `SIZE_VARIANTS` class attribute on dragon, giant,
+  and hydra plugins. Each spawn now picks uniformly from a
+  size pool: dragons & giants roll LARGE / HUGE / COLOSSAL,
+  hydras roll LARGE / HUGE (no COLOSSAL — multi-headed-ness IS
+  the apex flavor). Tests for these creatures patch the variant
+  pick to read the actual rolled size.
+
+### 2026-04-28 — Drop size-ratio remnant from per-part dodge
+
+Creature size is already baked into `creature.get_dodge()` at spawn
+via the Size enum's `dodge_mod` (TINY 1.5×, COLOSSAL 0.25×). The
+`effective_dodge_for_part` resolver was re-applying an
+attacker-vs-target `size_ratio` on top, which doubled-up: a Medium
+player attacking a Tiny pixie saw per-part dodges clamped to 2×
+the displayed body dodge (16 displayed → 32 effective torso, 33
+effective wing). Caels diagnosed it live during the 2026-04-28
+playtest as a remnant from before size baked into the base.
+
+- `effective_dodge_for_part` no longer reads `attacker` for size
+  scaling; `attacker` parameter retained for API stability with
+  callers but unused. Per-part dodge varies only by exposure tax
+  + depth + offset within the size-correct base.
+- `SIZE_RATIO_MIN` / `SIZE_RATIO_MAX` constants removed (only
+  used in this function).
+- `ScaledDodgeTests` updated: `test_attacker_size_does_not_affect_dodge`
+  replaces the size-ratio assertions; `test_dodge_cap_clamps_runaway_inflation`
+  simplified to test the exposure-tax cap on its own.
+- Region-collapse and selection-bias paths still cover the
+  size-aware targeting story — only the dodge double-count was
+  the bug.
+- Pixie dodge bumped 5d3 → 8d3 follow-up: with the 2× cap gone,
+  TINY needed real base dodge to stay pesky-not-trivial. New
+  spread sits the pixie at ~24 effective body dodge, sk0 86%
+  win-rate / sk20 100% (was ~50% / un-killable).
+
+### 2026-04-28 — Social-pool flavor token fixes
+
+Eight social-command flavor pool entries had `@1 ... @1` doubling
+that rendered the actor's name twice ("Caels plants himself
+mid-stride like Caels just kicked"). Replaced the second `@1`
+with `@1s` (subject pronoun) across `pose`, `salute`, `hug`,
+`nod`, `tease`, `taunt`, `stare`, `bow`. Caught proofing the
+pose pool 2026-04-28; verified each fix via
+`tools/render_flavor`.
+
 ### 2026-04-28 — Humanoid base-stat rebalance + sweep harness skill ladder
 
 Defense/dodge values across humanoid monsters collapse onto a

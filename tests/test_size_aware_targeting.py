@@ -83,20 +83,21 @@ class TestCollapseToRegion:
             ]),
         ]).build()
 
-    def test_ratio_at_or_below_threshold_returns_part_unchanged(self):
+    def test_ratio_below_threshold_returns_part_unchanged(self):
         root = self._build_tree()
         eye = root.find("eye.left")
         assert _collapse_to_region(eye, 1.0) is eye
         assert _collapse_to_region(eye, 1.9) is eye
-        assert _collapse_to_region(eye, 2.0) is eye
 
-    def test_ratio_just_above_threshold_walks_one_level(self):
-        """int(log2(2.1)) == 1 → one level up. Eye → head."""
+    def test_ratio_at_threshold_walks_one_level(self):
+        """At-or-above (>=) so the most-common ratio-2 cases trigger:
+        MEDIUM player vs TINY pixie, MEDIUM player vs HUGE cyclops/giant/dragon.
+        int(log2(2.0)) == 1 → one level up. Eye → head."""
         root = self._build_tree()
         eye = root.find("eye.left")
         head = root.find("head")
-        collapsed = _collapse_to_region(eye, 2.1)
-        assert collapsed is head
+        assert _collapse_to_region(eye, 2.0) is head
+        assert _collapse_to_region(eye, 2.1) is head
 
     def test_ratio_doubling_walks_two_levels(self):
         """int(log2(4.0)) == 2 → two levels up. Eye → head → torso."""

@@ -407,6 +407,11 @@ class Hydra(MonsterPlugin):
     # is the filename stem and registered automatically).
     ALIASES = [v["name"] for v in VARIANTS if v["name"] != "hydra"]
 
+    # Age-variant size pool. Hydras range LARGE↔HUGE — no COLOSSAL
+    # because the multi-head regrowth mechanic IS the apex texture;
+    # going colossal on top would shove hydra into dragon territory.
+    SIZE_VARIANTS = [Size.LARGE, Size.HUGE]
+
     MAX_HEADS = 10
 
     # Per-hit narration: hydra-class flavor that reads correctly
@@ -464,9 +469,11 @@ class Hydra(MonsterPlugin):
         for item, freq in variant.get("loot_overrides", {}).items():
             self.loot[item] = freq
 
-        # Set size from variant (must be before body part composition
-        # so _scale_part_hp reads the correct scale).
-        self.size = variant["size"]
+        # Age-variant size pick: hydras range LARGE↔HUGE (no COLOSSAL —
+        # the multi-head regrowth mechanic IS the apex texture). Override
+        # the variant's default ``size`` field with a fresh roll so any
+        # variant can spawn at either scale.
+        self.size = choice(self.SIZE_VARIANTS)
 
         # Breath cooldown tracker: {head_name: rounds_remaining}. Must
         # exist before ``_wire_part_actions`` runs so the breath

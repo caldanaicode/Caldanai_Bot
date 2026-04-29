@@ -48,25 +48,13 @@ _log = get_logger(__name__)
 # without a crit" regime.
 EXPOSURE_TAX_COEF: float = 1.0
 
-# Attacker/target size-scale ratio is clamped to this range before
-# entering the dodge calc. Prevents a TINY pixie from treating a
-# COLOSSAL dragon as a stationary wall (32× ratio would collapse
-# defense), while still letting cross-size mismatches matter.
-SIZE_RATIO_MIN = 0.5
-SIZE_RATIO_MAX = 2.0
-
 # Absurdity ceiling on per-part effective dodge inflation. The
-# multiplicative scaling step (``base × size_ratio × tax``) can
-# stack, especially for small targets with low-exposure critical
-# parts: a Medium attacker vs. a Small toadstool's neck observed
-# dodge 32 against base 5 (6.4× base) during the 2026-04-24
-# playtest, making rip-and-tear unplayable for that target. The
-# multiplicative product caps at ``base × DODGE_CAP_COEF``;
-# additive depth/offset still apply afterward, preserving per-
-# part ordering for the depth-walk resolver. 2.0 keeps the
-# Tiny-neck case at ~10 (down from 32) while keeping the
-# dragon-vs-pixie torso/arm differentiation that
-# ``test_big_vs_small_stall_rolls_up`` relies on.
+# multiplicative scaling step (``base × tax``) caps at
+# ``base × DODGE_CAP_COEF``; additive depth/offset still apply
+# afterward, preserving per-part ordering for the depth-walk
+# resolver. With EXPOSURE_TAX_COEF=1.0 the cap is the same as
+# the natural ceiling of ``tax`` at exposure=0, but they're kept
+# separately tunable.
 DODGE_CAP_COEF: float = 2.0
 
 # Size-aware target selection (see "Size-Aware Targeting" design doc).
@@ -79,13 +67,18 @@ DODGE_CAP_COEF: float = 2.0
 # the "lucky poke" flavor tail.
 _SIZE_SENSITIVITY: float = 2.0
 
-# Region-collapse kicks in above this ratio: a COLOSSAL attacker
+# Region-collapse kicks in at or above this ratio: a COLOSSAL attacker
 # aiming at a TINY target's eye still NARRATES the aim point but
 # the attack CONNECTS on an ancestor in the body tree (eye → head,
 # head → torso, etc., depending on how far log2(ratio) walks). Only
 # fires big-vs-small; the inverse direction is handled by the
 # selection-bias formula alone (pixies stab eyes precisely — their
 # precision IS the flavor, no collapse on the large creature's end).
+# At-or-above (not strictly above) so the most-common ratio-2 cases
+# trigger: MEDIUM player vs TINY pixie, MEDIUM player vs HUGE
+# cyclops/giant/dragon. Strict `>` would have left those gap-of-2
+# cases falling through with no collapse, leaving extremities
+# un-hittable on tiny creatures.
 _REGION_COLLAPSE_THRESHOLD: float = 2.0
 
 
@@ -1238,7 +1231,7 @@ class Creature:
         attacker_scale = _attack_scale_of(attacker)
         target_scale = _attack_scale_of(self)
         ratio = attacker_scale / max(0.01, target_scale)
-        if ratio > _REGION_COLLAPSE_THRESHOLD:
+        if ratio >= _REGION_COLLAPSE_THRESHOLD:
             return deepest_beaten, deepest_dodge
         # Same-size miss: return None to flag the miss; report
         # the aim's effective dodge so the roll-vs-dodge narration
@@ -2646,47 +2639,40 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
     Formula (with full context available)::
 
         tax = 1 + (1 - exposure) × EXPOSURE_TAX_COEF
-        scaled = min(int(base × size_ratio × tax), int(base × DODGE_CAP_COEF))
+        scaled = min(int(base × tax), int(base × DODGE_CAP_COEF))
         return max(0, scaled + part.depth × DEPTH_COEFFICIENT + part.dodge_offset)
 
-    Three factors compose with a multiplicative cap:
+    Two factors compose with a multiplicative cap:
 
-    - **Size ratio** (attacker / target) — big attacker vs. small
-      target pays extra dodge, small attacker vs. big target gets
-      a bonus. Clamped to ``[SIZE_RATIO_MIN, SIZE_RATIO_MAX]`` so
-      pixie-vs-colossal doesn't trivialize or break the math.
     - **Exposure** (``source.reach``) — low-exposure parts (eye 0.1)
       get an additive tax on base dodge; ``EXPOSURE_TAX_COEF``
       controls aggressiveness. Bounded: a fully-hidden part
       (exposure 0) caps at ``(1 + EXPOSURE_TAX_COEF)`` × base —
       never hyperbolic.
-    - **Absurdity ceiling** — the composed multiplicative product
-      ``base × size_ratio × tax`` clamps at
-      ``DODGE_CAP_COEF × base``. Stacked size-ratio + exposure tax
-      could otherwise drive an eye or neck on a Tiny target to
-      6× base. Additive depth + offset still apply on top, so
-      the final value can exceed the cap by those small constants
-      — keeps per-part ordering intact for the depth-walk
-      resolver while preventing runaway inflation.
+    - **Absurdity ceiling** — the multiplicative product
+      ``base × tax`` clamps at ``DODGE_CAP_COEF × base``. Additive
+      depth + offset still apply on top, so the final value can
+      exceed the cap by those small constants — keeps per-part
+      ordering intact for the depth-walk resolver while preventing
+      runaway inflation.
     - **Depth** — extremities are slightly harder to hit than the
       torso via a small additive ramp (post-cap).
 
-    ``attacker`` and ``source`` are optional so introspection tools
+    Creature size is baked into ``creature.get_dodge()`` at spawn
+    time via the Size enum's ``dodge_mod`` (TINY 1.5×, COLOSSAL
+    0.25×). This function does NOT re-apply attacker-vs-target
+    size scaling — that was a remnant double-count that drove
+    Medium-vs-Tiny cases to 2× the displayed dodge. The
+    ``attacker`` parameter is retained for API stability but is
+    no longer consulted; remove on next API revision.
+
+    ``source`` is optional so introspection tools
     (``inspect_body_tree --stats``) can read a static baseline
-    without inventing an attack context. When either is missing,
-    size_ratio falls back to 1.0 and exposure to 1.0 — both neutral.
+    without inventing an attack context — exposure falls back to
+    1.0 (neutral, no tax).
     """
     base = creature.get_dodge()
-
-    size_ratio = 1.0
-    if attacker is not None:
-        size_ratio = max(
-            SIZE_RATIO_MIN,
-            min(
-                SIZE_RATIO_MAX,
-                _attack_scale_of(attacker) / max(0.01, _attack_scale_of(creature)),
-            ),
-        )
+    del attacker  # retained for API stability; size baked at spawn
 
     exp = 1.0
     if source is not None:
@@ -2698,7 +2684,7 @@ def effective_dodge_for_part(creature, part, attacker=None, source=None) -> int:
     exp = max(0.0, min(1.0, exp))
 
     tax_multiplier = 1 + (1 - exp) * EXPOSURE_TAX_COEF
-    scaled_base = int(base * size_ratio * tax_multiplier)
+    scaled_base = int(base * tax_multiplier)
     # Cap the multiplicative inflation only — additive depth and
     # offset still apply afterward, preserving per-part ordering
     # for the depth-walk resolver.
@@ -2961,18 +2947,19 @@ def _collapse_to_region(
     doubling of the size gap adds one step toward the torso.
 
     Returns the original part when:
-    - ``ratio <= _REGION_COLLAPSE_THRESHOLD`` — gap too small,
+    - ``ratio < _REGION_COLLAPSE_THRESHOLD`` — gap too small,
       selection-bias alone handles it.
     - ``part`` has no parent — already at the tree root, or
       the part isn't wired into a tree (legacy / test scaffolding).
 
     Symmetric flavor: this function only fires on big-vs-small
-    (``ratio > 1``). Small-vs-big gets its own dynamic from
-    :func:`_size_attractor` (which triples eye pick rate) combined
-    with :func:`effective_dodge_for_part`'s inverse-ratio dodge
-    reduction — no mirrored collapse needed.
+    (``ratio >= 2``). Small-vs-big gets its own dynamic from
+    :func:`_size_attractor` (which triples eye pick rate); creature
+    size is already baked into ``creature.get_dodge()`` at spawn
+    via the Size enum's ``dodge_mod``, so no mirrored collapse
+    needed on the dodge side.
     """
-    if ratio <= _REGION_COLLAPSE_THRESHOLD:
+    if ratio < _REGION_COLLAPSE_THRESHOLD:
         return part
     # int(log2(2.0)) == 1, int(log2(4.0)) == 2, etc. A ratio just
     # above the threshold walks one level; doubling walks two.

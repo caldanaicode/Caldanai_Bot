@@ -41,13 +41,13 @@ def _load_plugins():
 
 def _force_variant(has_toes: bool):
     """Return a monkeypatch context manager that forces ``choice`` to
-    pick the variant matching the given ``has_toes`` value."""
+    pick the variant matching the given ``has_toes`` value AND pin
+    the dragon's age-variant size to HUGE (the historical default
+    these tests' arithmetic assumes — defense_mod=1.5, dodge_mod=0.5)."""
     target = next(v for v in Dragon.VARIANTS if v["has_toes"] is has_toes)
 
     def _pick(seq):
         # When called with VARIANTS, return our forced variant.
-        # For any other choice call (e.g. inside super().__init__),
-        # fall through to the first element.
         if seq is Dragon.VARIANTS or (
             isinstance(seq, list)
             and len(seq) > 0
@@ -55,6 +55,11 @@ def _force_variant(has_toes: bool):
             and "has_toes" in seq[0]
         ):
             return target
+        # When called with SIZE_VARIANTS, pin to HUGE so the tests'
+        # size_mod arithmetic stays accurate.
+        if seq is Dragon.SIZE_VARIANTS:
+            from caldanai.lib.rpg.helpers.enums import Size
+            return Size.HUGE
         # Fall through: return first element for other choice calls.
         return seq[0] if seq else seq
 

@@ -537,7 +537,7 @@ class Size(Enum):
     MEDIUM   = {"dodge_mod": 1.0,  "defense_mod": 1.0,  "hp_scale": 1.0,  "attack_scale": 1.0}
     LARGE    = {"dodge_mod": 0.75, "defense_mod": 1.25, "hp_scale": 2.0,  "attack_scale": 1.25}
     HUGE     = {"dodge_mod": 0.5,  "defense_mod": 1.5,  "hp_scale": 4.0,  "attack_scale": 1.5}
-    COLOSSAL = {"dodge_mod": 0.25, "defense_mod": 2.0,  "hp_scale": 8.0,  "attack_scale": 1.75}
+    COLOSSAL = {"dodge_mod": 0.25, "defense_mod": 2.0,  "hp_scale": 8.0,  "attack_scale": 2.0}
 
 
 class Reach(Enum):

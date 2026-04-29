@@ -525,7 +525,7 @@ _SALUTE_INTENT_BEATS: Dict[str, List[str]] = {
     ],
     warmth.Warmth.HOT: [
         "@1 SNAPS to attention for @2 and brings up the sharpest parade-ground salute in living memory.",
-        "@1 hurls @1r into the most thunderous, honor-guard salute @1 can muster for @2.",
+        "@1 hurls @1r into the most thunderous, honor-guard salute @1s can muster for @2.",
         "@1 cracks off a resounding salute for @2 with the whole regiment in @1a spine.",
     ],
 }
@@ -615,7 +615,7 @@ _COMFORT_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
     warmth.Warmth.HOT: [
         "@2 collapses into @1 entirely, clinging with both hands, and lets the whole thing out.",
         "@2 folds into @1 with a grateful sob and does not let go for a long while.",
-        "@2 holds on to @1 as if @1 is the only solid thing in the world right now.",
+        "@2 holds on to @1 as if @1s is the only solid thing in the world right now.",
     ],
 }
 
@@ -704,7 +704,7 @@ _NOD_INTENT_BEATS: Dict[str, List[str]] = {
         "@1 dips @1a head to @2 with obvious affection.",
     ],
     warmth.Warmth.HOT: [
-        "@1 nods so emphatically at @2 that @1 almost bows along with it.",
+        "@1 nods so emphatically at @2 that @1s almost bows along with it.",
         "@1 greets @2 with a thunderous whole-body nod of recognition.",
         "@1 gives @2 the kind of nod that is basically a reunion.",
     ],
@@ -945,11 +945,11 @@ _TAUNT_INTENT_BEATS: Dict[str, List[str]] = {
     ],
     warmth.Warmth.WARM: [
         "@1 ribs @2 with an affectionate, bantering jab.",
-        "@1 teases @2 with a grin that says @1 means nothing by it.",
+        "@1 teases @2 with a grin that says @1s means nothing by it.",
         "@1 lobs a fond, joking jibe in @2np direction.",
     ],
     warmth.Warmth.HOT: [
-        "@1 hurls the MOST ELABORATE monologue of mockery @1 can assemble at @2.",
+        "@1 hurls the MOST ELABORATE monologue of mockery @1s can assemble at @2.",
         "@1 climbs onto metaphorical furniture and delivers a ten-verse taunt-aria aimed squarely at @2.",
         "@1 unloads a bardic opus of jeering at @2 with full theatrical gestures.",
     ],
@@ -960,7 +960,7 @@ _TAUNT_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
         "@2 does not take the bait; @2 looks at @1 the way one looks at a puddle.",
         "@2 walks away mid-taunt, visibly bored.",
         "@2 ignores the jab entirely, which stings more than any comeback could.",
-        "@2 stares at @1 until @1 runs out of material.",
+        "@2 stares at @1 until @1s runs out of material.",
     ],
     warmth.Warmth.COOL: [
         "@2 returns a short, dry one-liner that lands with a small thud.",
@@ -1084,7 +1084,7 @@ _POSE_FLAVOR: List[str] = [
     "@1 settles into a brooding, cloak-flared pose that would look great in candlelight.",
     "@1 flexes with exaggerated bicep-display commitment.",
     "@1 drops to one knee and extends an arm skyward in a dramatic tableau.",
-    "@1 plants @1r mid-stride like @1 just kicked down a castle door.",
+    "@1 plants @1r mid-stride like @1s just kicked down a castle door.",
     "@1 locks into a cool, arms-crossed silhouette and holds it for an unreasonable amount of time.",
 ]
 
@@ -1130,7 +1130,7 @@ _BOW_FLAVOR: List[str] = [
     "@1 bows deeply, one hand pressed to @1a heart.",
     "@1 dips into a courtly bow with an elaborate flourish of one hand.",
     "@1 inclines @1a head in a small, respectful bow.",
-    "@1 bows so deeply @1 nearly pitches forward on @1a face.",
+    "@1 bows so deeply @1s nearly pitches forward on @1a face.",
     "@1 sweeps into a theatrical stage-bow, complete with imaginary hat-flourish.",
     "@1 offers a brief, soldierly bow, heels clicking.",
     "@1 bows low and holds it a beat longer than strictly necessary.",

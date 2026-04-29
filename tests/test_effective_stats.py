@@ -125,10 +125,11 @@ class EffectiveDodgeTests(TestCase):
 
 
 class ScaledDodgeTests(TestCase):
-    """Exposure + size-ratio scaling fold into
-    :func:`effective_dodge_for_part` when ``attacker`` and
-    ``source`` are passed. Replaces the B4 ``get_targeted_dodge``
-    tests — same math, different API surface."""
+    """Exposure scaling folds into :func:`effective_dodge_for_part`
+    when ``source`` is passed. Creature size is baked into
+    ``get_dodge()`` at spawn via the Size enum's ``dodge_mod`` —
+    per-part dodge does NOT re-apply attacker-vs-target size
+    scaling (removed 2026-04-28 as a remnant double-count)."""
 
     def _pair(self, attacker_size=None, target_size=None):
         """Build (attacker, target) with explicit sizes. Both
@@ -189,33 +190,29 @@ class ScaledDodgeTests(TestCase):
             20,
         )
 
-    def test_small_attacker_vs_big_target_reduces_dodge(self):
-        """TINY vs HUGE: size_ratio 0.5 / 1.5 ≈ 0.33, clamped to
-        SIZE_RATIO_MIN (0.5). Base 10 * 0.5 * tax_1.0 = 5."""
+    def test_attacker_size_does_not_affect_dodge(self):
+        """Regression for the 2026-04-28 size-ratio remnant. Creature
+        size is baked into ``get_dodge()`` at spawn via the Size
+        enum's ``dodge_mod``; per-part dodge no longer re-applies an
+        attacker-vs-target ratio. TINY-vs-HUGE and HUGE-vs-TINY
+        attacks both resolve at base = 10 with exp 1.0 + depth 0."""
         from caldanai.lib.rpg.helpers.enums import Size
-        attacker, target = self._pair(
-            attacker_size=Size.TINY, target_size=Size.HUGE,
-        )
         part = self._torso_with_exposure(1.0)
         src = self._source()
-        self.assertEqual(
-            effective_dodge_for_part(target, part, attacker, src),
-            5,
-        )
-
-    def test_big_attacker_vs_small_target_boosts_dodge(self):
-        """HUGE vs TINY: size_ratio 1.5 / 0.5 = 3.0, clamped to
-        SIZE_RATIO_MAX (2.0). Base 10 * 2.0 * tax_1.0 = 20."""
-        from caldanai.lib.rpg.helpers.enums import Size
-        attacker, target = self._pair(
-            attacker_size=Size.HUGE, target_size=Size.TINY,
-        )
-        part = self._torso_with_exposure(1.0)
-        src = self._source()
-        self.assertEqual(
-            effective_dodge_for_part(target, part, attacker, src),
-            20,
-        )
+        for attacker_size, target_size in (
+            (Size.TINY, Size.HUGE),
+            (Size.HUGE, Size.TINY),
+            (Size.MEDIUM, Size.MEDIUM),
+        ):
+            attacker, target = self._pair(
+                attacker_size=attacker_size, target_size=target_size,
+            )
+            self.assertEqual(
+                effective_dodge_for_part(target, part, attacker, src),
+                10,
+                f"size {attacker_size.name}-vs-{target_size.name} "
+                f"should not modify per-part dodge",
+            )
 
     def test_same_size_ratio_is_one(self):
         """MEDIUM vs MEDIUM, torso (exp 1.0): ratio 1.0, tax 1.0,
@@ -239,20 +236,14 @@ class ScaledDodgeTests(TestCase):
         self.assertEqual(effective_dodge_for_part(target, part), 10)
 
     def test_dodge_cap_clamps_runaway_inflation(self):
-        """Big-vs-Tiny attacker with a low-exposure part stacks
-        size_ratio (2.0) × tax (2.0) = 4× base on the multiplicative
-        side. The ``DODGE_CAP_COEF`` ceiling clamps that to 2× base
-        (20) BEFORE the additive depth + offset apply. Regression
-        for the 2026-04-24 Tiny-toadstool-neck dodge-32-vs-base-5
-        playtest finding."""
-        from caldanai.lib.rpg.helpers.enums import Size
-        attacker, target = self._pair(
-            attacker_size=Size.HUGE, target_size=Size.TINY,
-        )
-        part = self._torso_with_exposure(0.0)  # max tax
+        """Low-exposure part with max tax (exposure 0 → tax 2.0) caps
+        at ``DODGE_CAP_COEF × base`` = 2× base. Additive depth +
+        offset still apply afterward."""
+        attacker, target = self._pair()
+        part = self._torso_with_exposure(0.0)  # max tax → 2× base
         src = self._source()
-        # Pre-cap raw would be int(10 × 2.0 × 2.0) = 40; cap is
-        # int(10 × 2.0) = 20. Torso depth 0, no offset → 20.
+        # Tax 2.0 × base 10 = 20, equals cap 2.0 × 10 = 20. Torso
+        # depth 0, no offset → 20.
         self.assertEqual(
             effective_dodge_for_part(target, part, attacker, src),
             20,
