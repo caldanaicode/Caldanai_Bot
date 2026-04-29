@@ -393,6 +393,62 @@ class TestCheckTimeFlee:
     @patch("caldanai.lib.rpg.DB")
     @patch("caldanai.lib.rpg.player_manager")
     @patch("caldanai.lib.rpg.GameClock")
+    async def test_time_flee_with_only_stale_pool_no_loot_prompt(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Loot from a PRIOR encounter still in the pool but THIS
+        combat dropped nothing fresh (e.g., sheep walk-off, dragon
+        fly-off). The post-flee prompt should stay silent — the old
+        loot already had its own announce; firing again would
+        mislead the player into thinking the runaway dropped
+        something. Regression for the 2026-04-29 bug Caels caught
+        live: sheep walked off and the prompt fired even though the
+        sheep dropped nothing; the leftover items in pool were
+        Vael's overburdened-from-prior-bandit stash.
+        """
+        game = _make_combat_game(mock_db, mock_gc_cls)
+
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        game.monster.flees_from_time = True
+        game.monster.dies_from_time = False
+        game.monster.time_partition = TimesOfDay.NIGHT.value
+        game.monster.time_flee = "@1d bolts for cover at sunrise."
+        game.monster.is_dead.return_value = False
+
+        game.game_clock.get_time_of_day.return_value = "NOON"
+        game.game_clock.get_time_components.return_value = (12, 0, 0)
+        game.game_clock.get_next_time.return_value = ("AFTERNOON", 14, 0)
+        game.game_clock.remove_routine = MagicMock()
+        game.game_clock.add_routine = MagicMock()
+
+        # Pool has stale loot from a prior encounter; size_at_start
+        # snapshot captured the same value at combat begin, so the
+        # diff (current - start) is zero — nothing fresh added.
+        game.loot.clear()
+        game.loot[42] = ["a leftover stick"]
+        game.combat.loot_size_at_start = 1
+
+        await game.check_time()
+
+        all_calls = [
+            str(call.args[1]) for call in mock_dispatch.add.call_args_list
+            if len(call.args) >= 2
+        ]
+        blob = "\n".join(all_calls)
+        assert "bolts for cover" in blob
+        assert "There might be something to" not in blob, (
+            f"unexpected loot prompt when pool size unchanged "
+            f"(stale leftovers, no fresh drops); got:\n{blob}"
+        )
+        # Stale loot itself preserved (cleanup is loot_expires's
+        # job, not the announce path's).
+        assert game.loot[42] == ["a leftover stick"]
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
     async def test_time_flee_with_empty_pool_no_loot_prompt(
         self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
     ):

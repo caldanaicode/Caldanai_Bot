@@ -4,6 +4,29 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-29 — Suppress post-flee `$loot` prompt when nothing fresh dropped
+
+The post-combat `$loot` prompt was firing on flee exits even when
+the fleeing creature dropped nothing — sheep walk-off, dragon
+fly-off, math teacher dimensional retreat — because the announce
+condition checked whether ANY items were in the loot pool.
+Inherited stale ground-litter from a prior encounter (e.g.,
+overburdened items the player couldn't pick up) made the global
+pool non-empty, so the prompt fired anyway. Caels caught it live
+mid-playtest 2026-04-29.
+
+- `CombatState` now snapshots `loot_size_at_start` when a monster
+  spawns. `_finalize_combat` compares end-size to start-size to
+  decide whether THIS combat actually added anything fresh. Stale
+  pool from prior encounters no longer triggers the prompt; the
+  cleanup timer (`loot_expires`) still schedules off the
+  has-any-loot check so old items get swept on schedule.
+- New regression test `test_time_flee_with_only_stale_pool_no_loot_prompt`
+  pins the bug case (pool non-empty but unchanged across the
+  combat → no prompt). Existing `test_time_flee_with_salvage_emits_loot_prompt`
+  / `test_time_flee_with_empty_pool_no_loot_prompt` still pass —
+  fresh-salvage and empty-pool both behave as before.
+
 ### 2026-04-28 — Size-aware combat: region-collapse, COLOSSAL, age variants
 
 Three small adjustments make size differences read consistently

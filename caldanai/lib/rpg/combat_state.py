@@ -57,7 +57,10 @@ class CombatState:
         touches it.
     """
 
-    __slots__ = ("monster", "monsters", "combatants", "combat_targets", "looters", "loot")
+    __slots__ = (
+        "monster", "monsters", "combatants", "combat_targets",
+        "looters", "loot", "loot_size_at_start",
+    )
 
     def __init__(self) -> None:
         self.monster: Optional["MonsterPlugin"] = None
@@ -66,6 +69,14 @@ class CombatState:
         self.combat_targets: Dict[int, Optional[List[str]]] = {}
         self.looters: List["Player"] = []
         self.loot: Dict[int, List[Union["Item", "Weapon"]]] = {}
+        # Snapshot of total loot-pile size at combat start, used by
+        # ``Game._finalize_combat`` to decide whether to fire the
+        # post-combat ``$loot`` prompt. Stale ground-litter from a
+        # prior encounter that hasn't expired yet would otherwise
+        # trigger a misleading prompt on a sheep walk-off / dragon
+        # fly-off; comparing end-size to start-size ensures the
+        # prompt only fires when THIS combat actually added loot.
+        self.loot_size_at_start: int = 0
 
     async def end_combat(
         self,
@@ -95,3 +106,4 @@ class CombatState:
         game_clock.remove_routine(do_combat_routine)
         await player_manager.clear_combat_roles(self.looters)
         self.looters.clear()
+        self.loot_size_at_start = 0

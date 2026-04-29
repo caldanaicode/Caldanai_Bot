@@ -604,6 +604,13 @@ class Game:
             Dispatcher.add(self.channel, parse(spawn_msg, *arrival_args))
         if self.monster.dies_from_time or self.monster.flees_from_time:
             self.game_clock.add_routine(self.check_time, 1)
+        # Snapshot the loot pile size at combat start so
+        # ``_finalize_combat`` can tell whether THIS combat actually
+        # dropped anything new vs. just inheriting stale ground-
+        # litter from a prior encounter that hasn't expired yet.
+        self.combat.loot_size_at_start = sum(
+            len(items) for items in self.loot.values()
+        )
         return True
 
     async def do_spawn(self, monster: Optional[str] = None):
@@ -651,12 +658,24 @@ class Game:
             its wording (corpse vs. runaway).
         """
         self.last_combat_outcome = outcome
-        has_loot = any(items for items in self.loot.values())
+        loot_size_now = sum(len(items) for items in self.loot.values())
+        has_loot = loot_size_now > 0
+        loot_added_this_combat = (
+            loot_size_now > self.combat.loot_size_at_start
+        )
         announce = ""
         if has_loot:
+            # Stale ground-litter still needs cleanup eventually —
+            # reschedule the expire timer regardless of whether
+            # THIS combat added anything fresh.
             self.game_clock.add_routine(
                 self.loot_expires, self.loot_duration, True,
             )
+        if loot_added_this_combat:
+            # Only ping players when there's something NEW to
+            # claim. Inherited leftover from a prior fight already
+            # had its own announce; firing again on a sheep walk-
+            # off would mislead.
             announce = (
                 f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\n"
                 f"There might be something to `{self.prefix}loot`..."
