@@ -578,7 +578,7 @@ async def _gateway_loop(
         if buffer is not None:
             buffer.append(_make_buffer_entry(raw, mention_map=mention_map))
         for line in _format_message(raw, mention_map=mention_map):
-            print(line)
+            print(line, flush=True)
 
     @client.event
     async def on_message_edit(
@@ -595,7 +595,7 @@ async def _gateway_loop(
         if buffer is not None:
             buffer.append(_make_buffer_entry(raw, mention_map=mention_map))
         for line in _format_message(raw, mention_map=mention_map):
-            print(line)
+            print(line, flush=True)
 
     @client.event
     async def on_raw_reaction_add(
@@ -623,7 +623,7 @@ async def _gateway_loop(
                 "author": actor,
                 "content": f"reacted with {emoji} to {payload.message_id}",
             })
-        print(line)
+        print(line, flush=True)
 
     try:
         await client.start(token)
