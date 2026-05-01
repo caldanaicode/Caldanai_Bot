@@ -39,7 +39,7 @@ import asyncio
 import os
 import sys
 
-from tools._common import DiscordRestClient
+from tools._common import DiscordRestClient, split_for_discord
 
 
 def _journal_channel_id() -> int:
@@ -94,7 +94,18 @@ async def _read(tail: int) -> None:
             print()
 
 
-async def _post(content: str) -> dict:
+async def _post(content: str) -> tuple[dict, int]:
+    """Post a journal entry, auto-splitting if it exceeds Discord's
+    per-message limit. Returns ``(first_message, total_chunks)``:
+    the first chunk's message object (canonical handle for the
+    ``edit`` subcommand) and the total chunk count for the CLI to
+    report.
+
+    Multi-chunk posts pace themselves with a 1s pause between
+    chunks to stay comfortably under Discord's 5 msgs / 5 sec
+    per-channel rate limit. Continuation chunks land in the
+    channel but aren't separately editable through the tool —
+    only the first message id is returned."""
     token = os.environ.get("CLAUDE_TESTER_TOKEN")
     if not token:
         raise SystemExit(
@@ -102,8 +113,17 @@ async def _post(content: str) -> dict:
             "token in .env under that name and try again."
         )
     channel_id = _journal_channel_id()
+    chunks = split_for_discord(content)
     async with DiscordRestClient(token) as client:
-        return await client.post_message(channel_id, content)
+        first_msg: dict | None = None
+        for i, chunk in enumerate(chunks):
+            msg = await client.post_message(channel_id, chunk)
+            if first_msg is None:
+                first_msg = msg
+            if i < len(chunks) - 1:
+                await asyncio.sleep(1.0)
+        assert first_msg is not None
+        return first_msg, len(chunks)
 
 
 async def _edit(message_id: int, content: str) -> dict:
@@ -171,10 +191,11 @@ def main(argv=None) -> int:
         asyncio.run(_read(args.tail))
         return 0
     if args.cmd == "post":
-        msg = asyncio.run(_post(args.content))
+        msg, n_chunks = asyncio.run(_post(args.content))
         author = (msg.get("author") or {}).get("username", "?")
+        chunk_note = f" [+ {n_chunks - 1} continuation]" if n_chunks > 1 else ""
         print(
-            f"posted id={msg['id']} as {author} "
+            f"posted id={msg['id']}{chunk_note} as {author} "
             f"(channel={msg.get('channel_id')})"
         )
         return 0

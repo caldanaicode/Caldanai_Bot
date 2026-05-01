@@ -139,6 +139,118 @@ from caldanai.environment import DB_CONNECTION, LIVE_DB_NAME
 
 _DISCORD_API_BASE = "https://discord.com/api/v10"
 
+# Discord caps a single message at 2000 characters. Tools that
+# post user-authored prose (patch notes, journal entries) need a
+# splitter for anything longer; see :func:`split_for_discord`.
+DISCORD_MESSAGE_LIMIT = 2000
+
+
+def split_for_discord(
+    content: str,
+    max_chars: int = DISCORD_MESSAGE_LIMIT,
+    reserve_header: bool = False,
+) -> list[str]:
+    """Split ``content`` into Discord-sized chunks at line boundaries.
+
+    Aims for roughly even chunk sizes (target = total / n where
+    n = ceil(total / max_chars)) and snaps each chunk boundary
+    to the nearest line ending so list/bullet structure is
+    preserved across chunks.
+
+    Single-message content (under ``max_chars``) returns a list of
+    length 1, so callers can iterate uniformly.
+
+    With ``reserve_header=True``, the lines from line 0 up to and
+    including the first blank line are treated as a header that
+    lands exclusively in chunk 1 — chunk 1's body budget is
+    reduced accordingly. Used by ``post_patch_notes`` where the
+    timestamp header must not repeat across continuation chunks.
+    Defaults to False — the general case (e.g. journal entries)
+    treats the whole input as body.
+
+    Raises :class:`SystemExit` when a single chunk would still
+    exceed ``max_chars`` after splitting at line boundaries (i.e.
+    one line is longer than the limit on its own); the operator
+    must shorten the offending line rather than silently posting
+    a truncated message.
+    """
+    if len(content) <= max_chars:
+        return [content]
+
+    lines = content.split("\n")
+    if reserve_header:
+        try:
+            blank_idx = next(i for i, line in enumerate(lines) if line == "")
+            header_lines = lines[: blank_idx + 1]
+            body_lines = lines[blank_idx + 1:]
+        except StopIteration:
+            # No blank-line separator found — treat all content as
+            # body. Shouldn't happen with the standard timestamp
+            # header but the splitter stays robust.
+            header_lines = []
+            body_lines = lines
+    else:
+        header_lines = []
+        body_lines = lines
+
+    header_block = "\n".join(header_lines)
+    header_size = len(header_block) + (1 if header_block else 0)
+    body_block = "\n".join(body_lines)
+    body_size = len(body_block)
+
+    # Pick n so that:
+    #   - chunk 1 (header + body_target) fits in max_chars
+    #   - chunks 2..n (body_target only) fit in max_chars
+    # body_target = body_size / n. The two constraints reduce to
+    # taking the larger of two ceil-divisions.
+    by_total = (header_size + body_size + max_chars - 1) // max_chars
+    body_room_first = max(max_chars - header_size, 1)
+    by_first = (body_size + body_room_first - 1) // body_room_first
+    n = max(by_total, by_first, 2)
+
+    # Optimal-cut algorithm: precompute cumulative body-size at
+    # every line boundary, then for each chunk boundary k in
+    # 1..n-1, pick the line index whose cumulative size is closest
+    # to k * body_size / n. This produces a globally balanced
+    # split at line boundaries — flush-on-walk approaches drift
+    # because they decide each cut locally and can't see ahead to
+    # whether a future bullet will overshoot the target.
+    cumulative: list[int] = [0]
+    for line in body_lines:
+        cumulative.append(cumulative[-1] + len(line) + 1)
+
+    cuts: list[int] = []
+    for k in range(1, n):
+        ideal = k * body_size / n
+        prev_cut = cuts[-1] if cuts else 0
+        best_i = min(
+            range(prev_cut + 1, len(cumulative)),
+            key=lambda i: abs(cumulative[i] - ideal),
+        )
+        cuts.append(best_i)
+    cuts.append(len(body_lines))
+
+    chunks: list[str] = []
+    start = 0
+    for end in cuts:
+        chunk_body = "\n".join(body_lines[start:end]).rstrip()
+        if not chunks and header_block:
+            chunks.append(f"{header_block}\n{chunk_body}")
+        else:
+            chunks.append(chunk_body)
+        start = end
+
+    for i, chunk in enumerate(chunks):
+        if len(chunk) > max_chars:
+            raise SystemExit(
+                f"Discord-split chunk {i + 1}/{len(chunks)} is "
+                f"{len(chunk)} chars after splitting at line "
+                f"boundaries — still over the {max_chars}-char "
+                f"limit. A single line exceeds the limit on its "
+                f"own; tighten that line."
+            )
+    return chunks
+
 
 _client: Optional[MongoClient] = None
 _active_db_name: Optional[str] = None

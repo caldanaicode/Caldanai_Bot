@@ -322,3 +322,83 @@ class TestDiscordRestClient:
 
             limits = [c.kwargs["params"]["limit"] for c in session.get.call_args_list]
             assert limits == [100, 1]
+
+
+class TestSplitForDiscord:
+    """Shared splitter that backs both ``post_patch_notes`` (with
+    ``reserve_header=True``) and ``journal post`` (default,
+    body-only). Patch-notes-specific header behavior is covered in
+    ``test_tools_post_patch_notes.py``; these cover the journal-
+    flavored body-only path and parameter contract."""
+
+    def test_single_chunk_when_under_limit(self):
+        content = "Short journal entry, well under the cap."
+        chunks = _common.split_for_discord(content)
+        assert chunks == [content]
+
+    def test_no_header_by_default(self):
+        """Default ``reserve_header=False`` treats the whole input
+        as body — a leading paragraph with a trailing blank line
+        is NOT auto-detected as a header to reserve for chunk 1."""
+        opener = "Caels came back tonight."
+        bullets = [f"Line {i}: " + ("y" * 80) for i in range(40)]
+        content = opener + "\n\n" + "\n".join(bullets)
+        assert len(content) > 2000
+
+        chunks = _common.split_for_discord(content)
+        assert len(chunks) >= 2
+        # The opener appears once in chunk 1; chunk 2+ have neither
+        # the opener nor any artificial header.
+        assert chunks[0].startswith(opener)
+        for chunk in chunks[1:]:
+            assert opener not in chunk
+
+    def test_reserve_header_true_keeps_header_on_chunk_one(self):
+        """When opt-in via ``reserve_header=True``, the lines up to
+        and including the first blank line land only in chunk 1."""
+        header = "**Header — 2026-05-01**\n"
+        bullets = [f"- Bullet {i}: " + ("z" * 100) for i in range(25)]
+        content = header + "\n" + "\n".join(bullets)
+
+        chunks = _common.split_for_discord(content, reserve_header=True)
+        assert len(chunks) >= 2
+        assert chunks[0].startswith("**Header")
+        for chunk in chunks[1:]:
+            assert not chunk.startswith("**Header")
+
+    def test_lines_preserved_intact(self):
+        """Splitting at line boundaries means no line is broken
+        mid-text; every line in every chunk is whole."""
+        lines = [f"L{i}: " + ("a" * 70) for i in range(40)]
+        content = "\n".join(lines)
+        chunks = _common.split_for_discord(content)
+        # Concatenating all chunk lines should produce the original
+        # set of lines (with rstrip on the last line of each chunk).
+        rejoined = "\n".join(c.rstrip() for c in chunks)
+        # All original lines are present in order.
+        for line in lines:
+            assert line in rejoined
+
+    def test_chunks_under_max_chars(self):
+        lines = [f"L{i}: " + ("b" * 100) for i in range(40)]
+        content = "\n".join(lines)
+        chunks = _common.split_for_discord(content)
+        assert len(chunks) >= 2
+        for chunk in chunks:
+            assert len(chunk) <= 2000
+
+    def test_oversize_single_line_raises(self):
+        """A single line longer than the limit can't be split at
+        line boundaries; SystemExit so the operator can shorten
+        rather than silently truncate."""
+        huge = "x" * 2500
+        with pytest.raises(SystemExit, match="(?i)tighten that line"):
+            _common.split_for_discord(huge)
+
+    def test_default_max_uses_module_constant(self):
+        """No explicit ``max_chars`` => fall back to
+        ``DISCORD_MESSAGE_LIMIT``. Pin the constant so a future
+        Discord limit change is a single-point edit."""
+        assert _common.DISCORD_MESSAGE_LIMIT == 2000
+        content = "x" * 1999  # one under
+        assert _common.split_for_discord(content) == [content]

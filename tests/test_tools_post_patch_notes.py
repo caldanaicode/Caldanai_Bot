@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tools import post_patch_notes
+from tools._common import split_for_discord
 
 
 @pytest.fixture
@@ -89,7 +90,7 @@ class TestSplitForDiscord:
         """Content under the limit returns as a single-element
         list — caller can treat splitter output uniformly."""
         content = self._HEADER + "\n- one\n- two\n- three"
-        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        chunks = split_for_discord(content, reserve_header=True)
         assert len(chunks) == 1
 
     def test_two_chunks_when_over_limit(self):
@@ -97,7 +98,7 @@ class TestSplitForDiscord:
         content = self._HEADER + "\n" + "\n".join(bullets)
         assert len(content) > 2000
 
-        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        chunks = split_for_discord(content, reserve_header=True)
         assert len(chunks) >= 2
         for chunk in chunks:
             assert len(chunk) <= 2000
@@ -109,7 +110,7 @@ class TestSplitForDiscord:
         bullets = [self._bullet(i, "x" * 200) for i in range(15)]
         content = self._HEADER + "\n" + "\n".join(bullets)
 
-        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        chunks = split_for_discord(content, reserve_header=True)
         assert len(chunks) >= 2
         assert chunks[0].startswith("**Patch notes")
         for chunk in chunks[1:]:
@@ -122,7 +123,7 @@ class TestSplitForDiscord:
         bullets = [self._bullet(i, "x" * 100) for i in range(20)]
         content = self._HEADER + "\n" + "\n".join(bullets)
 
-        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        chunks = split_for_discord(content, reserve_header=True)
         for chunk in chunks:
             for line in chunk.split("\n"):
                 if not line or line.startswith("**Patch notes"):
@@ -139,7 +140,7 @@ class TestSplitForDiscord:
         total = len(content)
         expected_n = (total + 1999) // 2000
 
-        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        chunks = split_for_discord(content, reserve_header=True)
         assert len(chunks) == expected_n
 
     def test_chunks_roughly_even(self):
@@ -150,7 +151,7 @@ class TestSplitForDiscord:
         content = self._HEADER + "\n" + "\n".join(bullets)
         total = len(content)
 
-        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        chunks = split_for_discord(content, reserve_header=True)
         n = len(chunks)
         assert n >= 2
         target = total / n
@@ -169,8 +170,8 @@ class TestSplitForDiscord:
         huge = self._bullet(1, "x" * 2500)  # > 2000 chars on its own
         content = self._HEADER + "\n" + huge
 
-        with pytest.raises(SystemExit, match="(?i)tighten that bullet"):
-            post_patch_notes._split_for_discord(content, max_chars=2000)
+        with pytest.raises(SystemExit, match="(?i)tighten that line"):
+            split_for_discord(content, reserve_header=True)
 
 
 class TestFindAnnouncementTargets:

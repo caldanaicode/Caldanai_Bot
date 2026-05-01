@@ -26,11 +26,16 @@ import sys
 from pathlib import Path
 
 from tools import _post_log
-from tools._common import DiscordRestClient, get_auth, live_db, use_db_env_var
+from tools._common import (
+    DiscordRestClient,
+    get_auth,
+    live_db,
+    split_for_discord,
+    use_db_env_var,
+)
 
 
 _DEFAULT_FILE = Path(".patch-notes-scratch.md")
-_DISCORD_MESSAGE_LIMIT = 2000
 
 # Match a leading ``**Patch notes — YYYY-MM-DD HH:MM UTC**`` header
 # (and trailing blank line) so a legacy scratch file with a stale
@@ -71,110 +76,6 @@ def _read_blurb(path: Path) -> str:
     if not body:
         raise SystemExit(f"Patch-notes file is empty: {path}")
     return _prepend_current_timestamp(body)
-
-
-def _split_for_discord(
-    content: str, max_chars: int = _DISCORD_MESSAGE_LIMIT,
-) -> list[str]:
-    """Split a single patch-notes blurb into N Discord-sized chunks
-    when over the per-message limit. Aims for roughly even chunk
-    sizes (target = total / n where n = ceil(total / max_chars)),
-    and snaps each chunk boundary to the nearest line ending so
-    bullet structure is preserved.
-
-    The header (``**Patch notes — ... UTC**`` + blank line) lands
-    exclusively in the first chunk; subsequent chunks are body
-    only. Each chunk in the returned list is independently
-    postable to Discord (each <= max_chars).
-
-    Single-message content (under the limit) returns a list of
-    length 1, so callers can treat output uniformly."""
-    if len(content) <= max_chars:
-        return [content]
-
-    lines = content.split("\n")
-    # Header runs from line 0 to the first blank line (inclusive).
-    # Body is everything after.
-    try:
-        blank_idx = next(i for i, line in enumerate(lines) if line == "")
-        header_lines = lines[: blank_idx + 1]
-        body_lines = lines[blank_idx + 1:]
-    except StopIteration:
-        # No blank-line separator found — treat all content as body.
-        # Shouldn't happen with the standard timestamp header but
-        # the splitter stays robust.
-        header_lines = []
-        body_lines = lines
-
-    header_block = "\n".join(header_lines)
-    header_size = len(header_block) + (1 if header_block else 0)
-    body_block = "\n".join(body_lines)
-    body_size = len(body_block)
-
-    # Pick n so that:
-    #   - chunk 1 (header + body_target) fits in max_chars
-    #   - chunks 2..n (body_target only) fit in max_chars
-    # body_target = body_size / n. The two constraints reduce to
-    # taking the larger of two ceil-divisions.
-    by_total = (header_size + body_size + max_chars - 1) // max_chars
-    body_room_first = max(max_chars - header_size, 1)
-    by_first = (body_size + body_room_first - 1) // body_room_first
-    n = max(by_total, by_first, 2)
-    body_target = body_size / n
-
-    # Optimal-cut algorithm: precompute cumulative body-size at
-    # every line boundary, then for each chunk boundary k in
-    # 1..n-1, pick the line index whose cumulative size is closest
-    # to k * body_size / n. This produces a globally balanced split
-    # at line boundaries — flush-on-walk approaches drift because
-    # they decide each cut locally and can't see ahead to whether
-    # a future bullet will overshoot the target.
-    cumulative: list[int] = [0]
-    for line in body_lines:
-        cumulative.append(cumulative[-1] + len(line) + 1)
-    # cumulative[-1] over-counts by 1 (no joining newline after the
-    # last line in body); we don't need to fix this since we only
-    # use cumulative for relative comparisons.
-
-    cuts: list[int] = []
-    for k in range(1, n):
-        ideal = k * body_size / n
-        # Find the line index with the closest cumulative size,
-        # subject to "monotonically increasing relative to prior
-        # cuts" so we never get a degenerate empty chunk.
-        prev_cut = cuts[-1] if cuts else 0
-        best_i = min(
-            range(prev_cut + 1, len(cumulative)),
-            key=lambda i: abs(cumulative[i] - ideal),
-        )
-        cuts.append(best_i)
-    # Final boundary is past-the-end.
-    cuts.append(len(body_lines))
-
-    chunks: list[str] = []
-    start = 0
-    for end in cuts:
-        chunk_body = "\n".join(body_lines[start:end]).rstrip()
-        if not chunks and header_block:
-            chunks.append(f"{header_block}\n{chunk_body}")
-        else:
-            chunks.append(chunk_body)
-        start = end
-
-    # Sanity guard: if any single chunk exceeds the hard limit
-    # (one absurdly long bullet with no breakable boundary), fall
-    # back to a SystemExit so the operator can intervene rather
-    # than silently posting a truncated message.
-    for i, chunk in enumerate(chunks):
-        if len(chunk) > max_chars:
-            raise SystemExit(
-                f"Patch-notes chunk {i + 1}/{len(chunks)} is "
-                f"{len(chunk)} chars after splitting at line "
-                f"boundaries — still over the {max_chars}-char "
-                f"limit. A single bullet must be longer than the "
-                f"limit; tighten that bullet."
-            )
-    return chunks
 
 
 def _find_announcement_targets(guild_filter: int | None) -> list[dict]:
@@ -321,7 +222,7 @@ def main() -> int:
 
     use_db_env_var(args.db_env_var)
     content = _read_blurb(args.file)
-    chunks = _split_for_discord(content)
+    chunks = split_for_discord(content, reserve_header=True)
     targets = _find_announcement_targets(args.guild)
 
     if not targets:
