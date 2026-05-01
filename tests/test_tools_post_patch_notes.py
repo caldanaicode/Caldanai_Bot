@@ -60,15 +60,117 @@ class TestReadBlurb:
         with pytest.raises(SystemExit, match="empty"):
             post_patch_notes._read_blurb(f)
 
-    def test_oversize_blurb_raises_with_limit_in_message(self, tmp_path: Path):
-        """Discord's 2000-char limit; we refuse rather than silently
-        truncate or post a 400 from the API. The size check runs
-        against the post-prepend content so the limit is honest
-        about what'll actually be sent."""
+    def test_oversize_blurb_no_longer_rejected_at_read(self, tmp_path: Path):
+        """``_read_blurb`` used to reject oversize content with a
+        SystemExit; the auto-splitter (added 2026-04-30) makes
+        that rejection wrong — content over the 2000-char limit
+        is now valid and gets chunked at post time. This test
+        pins the new contract: read returns content untouched
+        regardless of size; the splitter handles the limit."""
         f = tmp_path / "big.md"
         f.write_text("x" * 2500, encoding="utf-8")
-        with pytest.raises(SystemExit, match=r"\d{4} chars"):
-            post_patch_notes._read_blurb(f)
+        # Should not raise.
+        content = post_patch_notes._read_blurb(f)
+        assert "x" * 2500 in content
+
+
+class TestSplitForDiscord:
+    """Auto-chunk oversize blurbs at line boundaries so a single
+    invocation can post multiple Discord messages without the
+    operator manually trimming or splitting. Added 2026-04-30
+    to replace the previous oversize-rejection contract."""
+
+    _HEADER = "**Patch notes — 2026-04-30 12:00 UTC**\n"
+
+    def _bullet(self, idx, body="lorem ipsum dolor sit amet"):
+        return f"- **Bullet {idx}.** {body}"
+
+    def test_single_chunk_when_under_limit(self):
+        """Content under the limit returns as a single-element
+        list — caller can treat splitter output uniformly."""
+        content = self._HEADER + "\n- one\n- two\n- three"
+        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        assert len(chunks) == 1
+
+    def test_two_chunks_when_over_limit(self):
+        bullets = [self._bullet(i, "x" * 100) for i in range(20)]
+        content = self._HEADER + "\n" + "\n".join(bullets)
+        assert len(content) > 2000
+
+        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        assert len(chunks) >= 2
+        for chunk in chunks:
+            assert len(chunk) <= 2000
+
+    def test_header_only_on_first_chunk(self):
+        """The ``**Patch notes — ... UTC**`` header lands on the
+        first chunk; subsequent chunks are body-only. Repeating
+        the header on continuations would clutter the channel."""
+        bullets = [self._bullet(i, "x" * 200) for i in range(15)]
+        content = self._HEADER + "\n" + "\n".join(bullets)
+
+        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        assert len(chunks) >= 2
+        assert chunks[0].startswith("**Patch notes")
+        for chunk in chunks[1:]:
+            assert not chunk.startswith("**Patch notes")
+
+    def test_bullets_preserved_intact(self):
+        """Splitting at line boundaries means no bullet gets
+        broken mid-text. Every body line in every chunk is either
+        the header or a whole bullet."""
+        bullets = [self._bullet(i, "x" * 100) for i in range(20)]
+        content = self._HEADER + "\n" + "\n".join(bullets)
+
+        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        for chunk in chunks:
+            for line in chunk.split("\n"):
+                if not line or line.startswith("**Patch notes"):
+                    continue
+                assert line.startswith("- **"), (
+                    f"Chunk contained a partial line: {line!r}"
+                )
+
+    def test_chunk_count_matches_ceil_division(self):
+        """Number of chunks = ceil(total / max_chars). Pin this
+        so test_chunks_roughly_even has a predictable target."""
+        bullets = [self._bullet(i, "x" * 200) for i in range(40)]
+        content = self._HEADER + "\n" + "\n".join(bullets)
+        total = len(content)
+        expected_n = (total + 1999) // 2000
+
+        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        assert len(chunks) == expected_n
+
+    def test_chunks_roughly_even(self):
+        """Target is total/n; line-snapping causes some variance
+        but no chunk should be wildly larger or smaller than the
+        others. 'Within 50% of target' is the smoke ceiling."""
+        bullets = [self._bullet(i, "x" * 150) for i in range(30)]
+        content = self._HEADER + "\n" + "\n".join(bullets)
+        total = len(content)
+
+        chunks = post_patch_notes._split_for_discord(content, max_chars=2000)
+        n = len(chunks)
+        assert n >= 2
+        target = total / n
+        for chunk in chunks:
+            ratio = len(chunk) / target
+            assert 0.5 < ratio < 1.5, (
+                f"Chunk size {len(chunk)} far from target {target:.0f} "
+                f"(ratio {ratio:.2f}); split is unbalanced."
+            )
+
+    def test_oversize_single_bullet_raises(self):
+        """If a single bullet exceeds the per-message limit,
+        line-boundary splitting can't help — SystemExit so the
+        operator can intervene rather than silently posting a
+        truncated message."""
+        huge = self._bullet(1, "x" * 2500)  # > 2000 chars on its own
+        content = self._HEADER + "\n" + huge
+
+        with pytest.raises(SystemExit, match="(?i)tighten that bullet"):
+            post_patch_notes._split_for_discord(content, max_chars=2000)
 
 
 class TestFindAnnouncementTargets:
@@ -198,7 +300,7 @@ class TestMainOrchestration:
         poster.assert_called_once()
         # The token from get_auth() makes it into the post call.
         assert poster.call_args.args[2] == "xyz"
-        assert "1/1 successful" in captured.out
+        assert "1/1 guild(s) successful" in captured.out
 
     def test_post_without_token_in_auth_doc_errors(
         self, tmp_blurb, capsys, monkeypatch,
