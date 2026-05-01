@@ -60,6 +60,19 @@ class Doppelganger(MonsterPlugin):
     # — see that method for the instance-state override pattern.
     BODY_TREE = humanoid_tree()
 
+    # Order-of-magnitude reduction from the base monster rates
+    # (2/3 and 1/3 respectively). Doppy mimicked equipment is
+    # organic flesh shaped to look like the target's gear, not
+    # actual gear — so most of it dissolves with the body when
+    # the doppy dies. Salvage still happens occasionally and the
+    # player's rolled rarity carries through when it does, which
+    # preserves the "kill your shadow, take its armor" flavor at
+    # a sustainable rate. Pre-fix, standard rates combined with
+    # accumulated-across-imitations loot tables made doppies the
+    # most generous gear-pinata in the bestiary.
+    SALVAGE_SURVIVAL_CHANCE: float = 2.0 / 30.0
+    CORPSE_SCAVENGE_CHANCE: float = 1.0 / 30.0
+
     """Shapeshifting imitator that inherits its target's form and injuries.
 
     **Body part design note:** when the doppelganger imitates a target
@@ -127,6 +140,16 @@ class Doppelganger(MonsterPlugin):
         self.loot["bow"] = 0.15
         self.loot["cheese_sandwich"] = 0.2
         self.loot["wallet"] = 0.25
+
+        # Snapshot the doppy's "always-drops-some-of-this" baseline
+        # so ``imitate`` can reset to it without losing these five
+        # entries. Pre-fix, every imitation layered the new target's
+        # inventory plugins onto self.loot WITHOUT clearing the
+        # previous target's additions — so a doppy that mimicked
+        # three players ended up rolling drops from all three's
+        # inventories at once. Reset-to-baseline keeps drops scoped
+        # to the current form.
+        self._base_loot: dict = dict(self.loot)
 
         self.size = Size.MEDIUM
         self._scale_part_hp()
@@ -211,6 +234,18 @@ class Doppelganger(MonsterPlugin):
         # Phase C (player integration) should address this.
         self.dodge = getattr(target, "dodge", target.get_dodge())
 
+        # Reset the loot table to the doppy's baseline before
+        # re-seeding from the current target. Pre-fix, every
+        # imitation layered the new target's inventory plugins
+        # onto the EXISTING loot table without clearing prior
+        # targets' contributions — so a doppy that imitated three
+        # players ended up rolling drops from all three. Reset
+        # restores the five baseline entries snapshotted at
+        # __init__ (shortsword / bandanna / bow / cheese_sandwich
+        # / wallet) and discards anything layered on by previous
+        # imitations.
+        self.loot = dict(self._base_loot)
+
         # Add the player's inventory items to the loot table with re-rolled rarity
         for item in target.inventory.all():
             quality = choice(list(Qualities))
@@ -241,6 +276,34 @@ class Doppelganger(MonsterPlugin):
             # Fall back to the natural humanoid form.
             self.body_root = humanoid_tree().build()
             self.body_parts = list(self.body_root.walk())
+
+        # Null the ``_id`` on every deep-copied equipment placement.
+        # ``copy.deepcopy`` carries the source Item's ``id`` over to
+        # the clone (ObjectId is immutable so deepcopy preserves the
+        # bytes), which means the doppelganger's mimicked gear shares
+        # the player's original item ids. When a salvage / corpse-
+        # scavenge roll lands and the clone enters the player's bag,
+        # the dup-id silently breaks every code path that does
+        # ``inventory[item.id]`` for first-match lookup —
+        # ``Player.take_item`` returns None for siblings 2+N, so
+        # ``$sell`` paths leave duplicates stranded.
+        #
+        # Nulling instead of minting a fresh ObjectId keeps the fix
+        # minimal: ``Inventory.add`` already promotes ``id is None``
+        # to a fresh ObjectId at insertion time, so the clone gets
+        # its real id only if and when it actually reaches a bag
+        # via the (now much-rarer) salvage path. Until then the
+        # placement-borne clone is anonymous and harmless. 2026-04-29
+        # surfaced live by ``$sell duplicates`` against Vael's
+        # 4-bandanna bag where 3 shared an id.
+        from caldanai.lib.rpg.creatures.mixins import Equippable
+        for part in self.body_parts:
+            if not isinstance(part, Equippable):
+                continue
+            placements = getattr(part, "placements", None) or {}
+            for slot, worn in placements.items():
+                if worn is not None:
+                    worn.id = None
 
         # Copy target's flags (e.g. "flying") as an independent set.
         self.flags = set(target.flags) if hasattr(target, 'flags') else set()

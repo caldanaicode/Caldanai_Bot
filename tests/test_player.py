@@ -507,6 +507,54 @@ class TestEquipment:
         assert p.part_equipment["hand.left"]["held"] is existing_left  # unchanged
         assert p.part_equipment["hand.right"]["held"] is new_wand  # filled the empty
 
+    def test_auto_equip_force_displace_bypasses_quality_gate(self):
+        """``force_displace=True`` is the cog's signal that the
+        player named a fully-qualified item (e.g.
+        ``$equip wand.junk.1``) and accepts the downgrade. The
+        same-type tier-2 quality gate that normally blocks
+        worse-replacing-better is removed. 2026-04-29 fix for
+        Caels' "equip should work if fully qualified" report."""
+        from bson import ObjectId
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots, Qualities
+        from caldanai.lib.rpg.inventory.equipment import Equipment
+
+        p = _make_player()
+        existing_left = Equipment(
+            iid=ObjectId(), name="superior wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.SUPERIOR,
+            plugin="wand",
+        )
+        existing_right = Equipment(
+            iid=ObjectId(), name="masterwork wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.MASTERWORK,
+            plugin="wand",
+        )
+        p.equip(existing_left)
+        p.equip(existing_right)
+
+        # Junk wand — without force_displace, this is refused
+        # (every same-type slot is already higher quality, no
+        # cross-type fallback because all are wands).
+        worse = Equipment(
+            iid=ObjectId(), name="junk wand",
+            slots=EquipmentSlots.EITHER_HELD,
+            unit_weight=0.5, unit_value=2, quality=Qualities.JUNK,
+            plugin="wand",
+        )
+        # Sanity: default behavior refuses.
+        no_force_success, _ = p.equip(worse)
+        assert no_force_success is False
+
+        # With force_displace, the WORST-quality same-type slot
+        # gets displaced (the SUPERIOR — multiplier 1.5 vs
+        # masterwork's 2.0).
+        success, _ = p.equip(worse, force_displace=True)
+        assert success is True
+        assert p.part_equipment["hand.left"]["held"] is worse
+        assert p.part_equipment["hand.right"]["held"] is existing_right
+
     def test_equip_multi_slot_refuses_when_any_part_destroyed(self):
         """Two-handed weapons need every required placement
         intact — equipping a bow with one severed arm would

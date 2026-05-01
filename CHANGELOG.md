@@ -4,6 +4,138 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-04-29 — Doppy mimic dup-id corruption + drop-rate rebalance
+
+`Doppelganger.imitate` deep-copies the target's body tree
+including equipment `placements`, and `ObjectId` is immutable so
+deepcopy preserves the source `_id` on every cloned Item. When
+salvage or corpse-scavenge harvests one of those clones into the
+killer's bag, the dup-id silently breaks every code path that
+does `inventory[item.id]` first-match lookup —
+`Player.take_item` returns None for siblings 2+N, so `$sell`
+paths leave duplicates stranded. Surfaced live by
+`$sell duplicates` finding 3 quality bandannas in Vael's bag
+with one shared `_id`.
+
+The investigation surfaced two related drop-rate problems in
+the same `imitate` pipeline (loot-table accumulating across
+imitations without reset, mimicked gear salvageable at standard
+monster rates despite the organic-mimicry conceit), fixed
+together.
+
+- **Source-of-corruption fix** — `imitate` nulls `item.id` on
+  every deep-copied placement. `Inventory.add` already promotes
+  `id is None` to a fresh `ObjectId` at insertion, so a clone
+  gets a real id only when it actually reaches a bag.
+- **Loot-table reset on imitation** — `__init__` snapshots the
+  doppy's five baseline loot entries; `imitate` restores that
+  baseline before re-seeding from the new target's inventory.
+  Pre-fix, a doppy that imitated three players rolled drops
+  from all three at once.
+- **Salvage-rate override** — Doppy `SALVAGE_SURVIVAL_CHANCE` =
+  2/30 (vs base 2/3) and `CORPSE_SCAVENGE_CHANCE` = 1/30 (vs
+  base 1/3). Order-of-magnitude lower; salvage still
+  occasionally lands and the player's rolled rarity carries
+  through, preserving the "kill your shadow, take its armor"
+  flavor sustainably.
+- **Shield against existing-state corruption** —
+  `Inventory.__contains__` identity-based; `Inventory.remove`
+  uses identity-based slot lookup; `Player.take_item` uses
+  `item in self.inventory`. Pre-existing dup-id items in any
+  player's bag become salable without intervention.
+
+Reading-B balance concern (masterwork-wand farm) addressed
+indirectly: drops still preserve rarity, but at ~1/10 the prior
+frequency, so farming is no longer efficient. Reading-A flavor
+stays.
+
+Also: `tools/inspect_inventory.py` (new) dumps persisted
+inventory with `_id` / quality / equipped+favorited flags for
+investigations like this one. Defaults to `TEST_DB_NAME`,
+`--live` for LIVE.
+
+### 2026-04-29 — Inventory QoL: dup-label collapse, fully-qualified equip, `$sell duplicates`
+
+Three QoL items closed off the back of the morning sell rebuild —
+two surfaced live during playtest, one is the long-standing
+"bulk-clear extras" ask.
+
+- **Disambiguation collapses on identical labels.** When the
+  resolver's "did you mean" candidates all render to the same
+  string (e.g. two ordinary tee-shirts both projecting as
+  ``tee-shirt.ordinary``), the hint can't help the player narrow
+  further — surface the first match instead. New helper
+  ``_ambiguity_or_first`` wraps the common pattern across
+  ``equip`` / ``stow`` / ``item`` modes. Genuine ambiguity (two
+  wands of different qualities → ``wand.fine`` and
+  ``wand.superior``) still surfaces candidates as before.
+- **Fully-qualified `$equip` bypasses the quality gate.**
+  ``$equip wand.junk.1`` (or any ``.<quality>`` /
+  ``.<quality>.<n>`` / ``.<n>`` form) now lands even when the
+  current occupant is higher quality. The quality gate remains
+  for bare ``$equip <name>`` and for ``.best`` — both auto-pick
+  cases where accidental-downgrade protection is warranted.
+  Detection: any selector other than ``best`` after the first
+  ``.`` flips ``force_displace=True`` on the cog → ``Player.equip``
+  call. Tier-3 cross-type and bare-name auto-best behavior
+  untouched.
+- **`$sell duplicates [n]` bulk-clears extras.** Group inventory
+  by ``item.plugin``, drop equipped + favorited from the sale
+  pool, then sell everything past the top ``n`` by quality.
+  Default ``n=1`` keeps the best of each. ``$sell duplicates 2``
+  preserves dual-wieldable pairs — the user's hammer for the
+  Serena-bow scenario. Stackables (consumables) auto-stack to
+  one entry per plugin so they trivially satisfy keep-1.
+  Receipt headers count duplicates ("sold 4 duplicates (keeping
+  1 of each)"); empty-result path surfaces a friendly
+  "no duplicates to sell" instead of an empty receipt.
+- New regression tests pin all three behaviors:
+  ``test_dup_quality_collapses_to_first``,
+  ``test_auto_equip_force_displace_bypasses_quality_gate``, and
+  the ``tests/test_sell_duplicates.py`` module (6 cases covering
+  keep-1 default, keep-N, favorited+equipped exclusion,
+  per-plugin grouping, and the no-duplicates path).
+
+### 2026-04-29 — `$sell` rebuild: dict-keyed inventory, hyphen-safe parser, identity equip-check, within-action stability
+
+Five compounding bugs surfaced 2026-04-29 morning when Vael
+couldn't `$sell junk` despite having unequipped junk in
+inventory (junk tee-shirts only, three of them, one worn).
+
+- **`Inventory` storage now `Dict[int, Item]`** keyed by 1-based
+  slot. Slots stay compact (1..N, no gaps) via rekey-on-mutation.
+  Observable behavior matches the prior `List[Item]` exactly;
+  the dict shape sets up cleaner read patterns for the upcoming
+  inventory-sort QoL work and gives mutators a stable handle to
+  reason about.
+- **`$sell <name-with-hyphen>`** no longer trips the range
+  parser. The dash-as-range branch now matches `\d+-\d+` only;
+  `tee-shirt` falls through to fuzzy-name resolution.
+- **`$sell <indices>` equip-check** now uses
+  `player.is_equipped(item)` (identity compare). Prior behavior
+  matched by `Item.id` set membership, which on the live repro
+  refused all three tee-shirts when only one was worn.
+- **Within-action index stability.** Numeric inputs are pre-
+  resolved to `Item` references upfront, before any sells fire.
+  `$sell 35 38 43` now sells three distinct items as the player
+  intended, instead of shifting after each sale and selling
+  whatever ended up at 38 / 43 next.
+- **"Must un-equip ... before selling them" → "selling it"**.
+  Singular subject takes singular pronoun.
+- **Equipped-skip receipt line**. Fuzzy-name `$sell` (e.g.
+  `$sell tee-shirt` with only the worn copy in your bag) used
+  to fail with "you don't seem to have anything matching" —
+  the resolver pre-filtered equipped items, hiding their
+  existence. Sell-mode resolution now returns every match;
+  the candidate loop counts equipped skips and surfaces them
+  in the receipt parallel to favorited skips: *"1 item skipped
+  (equipped — `$stow` first)."*
+- New `TestSlotStability` regression class pins the dict-storage
+  contract: `filter("N")` returns the item at user-visible slot
+  N, removes don't leave gaps, adds land in the next compact
+  slot. 3978 tests pass overall (+4 from the new regression
+  class).
+
 ### 2026-04-29 — Suppress post-flee `$loot` prompt when nothing fresh dropped
 
 The post-combat `$loot` prompt was firing on flee exits even when

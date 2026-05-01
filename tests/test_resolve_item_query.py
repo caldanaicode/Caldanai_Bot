@@ -82,11 +82,13 @@ class TestEquipMode:
         assert res.items == [masterwork_wand]
         assert res.ambiguity_candidates == []
 
-    def test_explicit_quality_with_multiple_matches_still_ambiguates(self):
-        """``$equip wand.fine`` with two fine wands still triggers
-        ambiguity — explicit selector means the player has a
-        specific item in mind, and we shouldn't auto-pick when
-        the selector itself doesn't disambiguate."""
+    def test_explicit_quality_with_dup_labels_collapses_to_first(self):
+        """``$equip wand.fine`` with two fine wands — both
+        candidates render to the same disambiguation label
+        (``wand.fine``), so the "did you mean" hint can't help
+        the player narrow further. Surface the first match
+        instead. 2026-04-29 fix for Caels' "did you mean
+        tee-shirt.ordinary, tee-shirt.ordinary?" report."""
         p = _player()
         wand_a = Inventory.load_item(
             data={"plugin": "wand", "quality": "FINE"},
@@ -98,8 +100,8 @@ class TestEquipMode:
         p.inventory.add(wand_b)
 
         res = p.resolve_item_query("wand.fine", "equip")
-        assert res.items == []
-        assert res.ambiguity_candidates  # surfaces both
+        assert res.items == [wand_a]
+        assert res.ambiguity_candidates == []
 
     def test_best_selector_picks_highest_quality(self):
         """``.best`` collapses multi-match ambiguity by picking the
@@ -197,9 +199,21 @@ class TestItemMode:
         assert res.items == [hat]
 
     def test_ambiguous_inventory_surfaces_candidates(self):
+        """Two wands of DIFFERENT qualities — disambiguation labels
+        actually differ (``wand.fine`` vs ``wand.superior``), so
+        ambiguity surfaces. (Two wands of the same quality would
+        collapse to the first — see
+        ``test_dup_quality_collapses_to_first`` for the dup-label
+        path.)"""
         p = _player()
-        _give(p, "wand")
-        _give(p, "wand")
+        fine = Inventory.load_item(
+            data={"plugin": "wand", "quality": "FINE"},
+        )
+        superior = Inventory.load_item(
+            data={"plugin": "wand", "quality": "SUPERIOR"},
+        )
+        p.inventory.add(fine)
+        p.inventory.add(superior)
         res = p.resolve_item_query("wand", "item")
         assert res.items == []
         assert res.ambiguity_candidates
@@ -215,20 +229,29 @@ class TestSellMode:
         # Sell never surfaces ambiguity — multi-match IS the point.
         assert res.ambiguity_candidates == []
 
-    def test_excludes_equipped_items(self):
-        """Equipped items are NOT sellable — resolver filters them
-        out of the result so the caller doesn't have to."""
+    def test_includes_equipped_items_for_caller_to_count(self):
+        """Sell-mode resolution returns EVERY match, including
+        equipped — the cog filters them at the candidate loop and
+        surfaces them as a *"N items skipped (equipped)"* receipt
+        line. Pre-2026-04-29 this excluded equipped, but that hid
+        the worn copy from the player's view: ``$sell tee-shirt``
+        with only the worn copy returned "no match" instead of a
+        useful prompt to ``$stow`` first. Caels caught the bad
+        UX live."""
         p = _player()
         _give_and_equip(p, "wand")  # equipped
         _give(p, "wand")              # free
         res = p.resolve_item_query("wand", "sell")
-        assert len(res.items) == 1
+        assert len(res.items) == 2
 
-    def test_all_equipped_returns_empty(self):
+    def test_all_equipped_still_returns_match(self):
+        """Equipped-only inventory still surfaces the match — the
+        cog reports "1 item skipped (equipped — `$stow` first)"
+        instead of pretending the item doesn't exist."""
         p = _player()
         _give_and_equip(p, "mushroom_hat")
         res = p.resolve_item_query("mushroom", "sell")
-        assert res.items == []
+        assert len(res.items) == 1
 
     def test_best_picks_one_unequipped(self):
         p = _player()

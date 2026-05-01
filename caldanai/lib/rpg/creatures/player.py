@@ -144,6 +144,20 @@ def _candidate_labels(items: List[Item]) -> List[str]:
     return labels
 
 
+def _ambiguity_or_first(candidates: List[Item]) -> "ItemResolution":
+    """Wrap a multi-match candidate list. When the disambiguation
+    labels collapse to a single unique entry — e.g. two
+    ``ordinary`` tee-shirts both render as ``tee-shirt.ordinary``
+    because there's no quality letter that further separates them
+    — surface the first match instead of asking. The "did you
+    mean" hint can't help when every option prints the same string;
+    Caels' guidance 2026-04-29: just pick the first."""
+    labels = _candidate_labels(candidates)
+    if len(set(labels)) == 1:
+        return ItemResolution(items=[candidates[0]])
+    return ItemResolution(ambiguity_candidates=labels)
+
+
 # Player anatomy as a body-tree. Fixed ``health_max`` per part
 # overrides each plugin's default dice roll so every player starts
 # with the same deterministic HP pool — character build stays
@@ -1381,9 +1395,7 @@ class Player(Creature):
             if len(equipped_candidates) == 1:
                 return ItemResolution(items=equipped_candidates)
             if len(equipped_candidates) > 1:
-                return ItemResolution(
-                    ambiguity_candidates=_candidate_labels(equipped_candidates),
-                )
+                return _ambiguity_or_first(equipped_candidates)
             return ItemResolution()
 
         # ---- ``equip`` / ``item`` / ``sell`` — item-first.
@@ -1421,18 +1433,14 @@ class Player(Creature):
                         key=lambda i: i.quality.value["multiplier"],
                     )
                     return ItemResolution(items=[best])
-                return ItemResolution(
-                    ambiguity_candidates=_candidate_labels(candidates),
-                )
+                return _ambiguity_or_first(candidates)
             return ItemResolution()
 
         if mode == "item":
             if len(candidates) == 1:
                 return ItemResolution(items=candidates)
             if len(candidates) > 1:
-                return ItemResolution(
-                    ambiguity_candidates=_candidate_labels(candidates),
-                )
+                return _ambiguity_or_first(candidates)
             # No inventory match — fall back to placement lookup so
             # e.g. ``$item head.worn`` shows the currently-worn helm.
             # Bare-key queries (``held``) that match multiple occupied
@@ -1448,15 +1456,24 @@ class Player(Creature):
             return ItemResolution()
 
         if mode == "sell":
-            # Sell excludes equipped items — you can't sell what
-            # you're wearing. Re-filter via the predicate path so
-            # ``.best`` picks the best UNEQUIPPED match rather
-            # than globally-best-then-check (which would fail when
-            # the global best happens to be worn).
-            unequipped = self._filter_matching_items(
-                str(q), predicate=lambda i: not self.is_equipped(i),
-            )
-            return ItemResolution(items=unequipped)
+            # Return ALL name-matches; the sell command counts
+            # equipped-skipped items separately and surfaces them
+            # in the receipt ("N items skipped (equipped)") so the
+            # player learns WHY their query produced no sales,
+            # rather than the misleading "you don't seem to have
+            # anything matching" when matches exist but are worn.
+            #
+            # ``.best`` keeps the equipped-exclusion predicate so
+            # ``$sell wand.best`` still falls back to the next-best
+            # unequipped wand instead of resolving to the worn one
+            # and then silently skipping. 2026-04-29 fix.
+            q_str = str(q)
+            if q_str.endswith(".best") and len(q_str) > 5:
+                unequipped = self._filter_matching_items(
+                    q_str, predicate=lambda i: not self.is_equipped(i),
+                )
+                return ItemResolution(items=unequipped)
+            return ItemResolution(items=self._filter_matching_items(q_str))
 
         raise ValueError(f"Unknown resolve_item_query mode: {mode!r}")
 
@@ -1508,7 +1525,12 @@ class Player(Creature):
             filtered = [i for i in filtered if predicate(i)]
         return filtered
 
-    def equip(self, item: Equipment, slot: EquipmentSlots = None) -> Tuple[bool, str]:
+    def equip(
+        self,
+        item: Equipment,
+        slot: EquipmentSlots = None,
+        force_displace: bool = False,
+    ) -> Tuple[bool, str]:
         """Equip ``item`` — either at a specific ``slot`` or
         auto-routed to the first available placement its mask
         supports.
@@ -1534,6 +1556,13 @@ class Player(Creature):
            placements in declaration order and drop it into the
            first empty one. If nothing is empty, refuse so the
            caller isn't silently thrashing equipped gear.
+
+        ``force_displace=True`` removes the quality-gate on the
+        same-type displacement tier (tier 2). Used when the
+        caller is honoring a fully-qualified player query
+        (``$equip wand.fine.1`` etc.) — the player named a
+        specific item, so accidental-downgrade protection no
+        longer applies.
         """
         # Identity guard — reject re-equip of an item that's
         # already placed somewhere. Prevents a user from accidentally
@@ -1629,9 +1658,9 @@ class Player(Creature):
                         worst_same_type = cur
                         worst_same_part = part_name
                         worst_same_key = key
-                if (
-                    worst_same_type is not None
-                    and item.quality.value["multiplier"]
+                if worst_same_type is not None and (
+                    force_displace
+                    or item.quality.value["multiplier"]
                     > worst_same_type.quality.value["multiplier"]
                 ):
                     ok, replaced = self.replace_equipment(
@@ -2081,7 +2110,17 @@ class Player(Creature):
         item that's been sold, traded away, or otherwise removed.
         """
 
-        if item == self.inventory[item.id] and not self.is_equipped(item):
+        # Identity-based membership check (``item in self.inventory``
+        # uses ``Inventory.__contains__`` → ``any(i is item for ...)``).
+        # The previous form ``item == self.inventory[item.id]`` did
+        # an id-lookup that returned the FIRST match by ObjectId, then
+        # compared by ``__eq__`` (identity for default Items). When a
+        # doppy-clone harvest or other path seeded the bag with two
+        # items sharing one ``_id``, siblings 2+N silently failed
+        # ``take_item`` because ``inventory[id]`` always returned the
+        # first one. 2026-04-29 fix surfaced live by ``$sell duplicates``
+        # against Vael's bandanna bag.
+        if item in self.inventory and not self.is_equipped(item):
             self._purge_item_refs(item)
             self.inventory.remove(item, count)
             self.is_dirty = True

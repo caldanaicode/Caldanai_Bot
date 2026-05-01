@@ -350,3 +350,65 @@ class TestFavorites:
             loaded = Inventory.load_item(data={"plugin": "rock"})
 
         assert loaded.favorited is False
+
+
+# ---------------------------------------------------------------------------
+# Slot stability — internal storage is a dict keyed by 1-based
+# slot number, rekeyed compact (1..N) on every mutation. These
+# tests pin the contract: filter("N") returns the item currently
+# at user-visible slot N, and removes don't leave gaps.
+# ---------------------------------------------------------------------------
+
+class TestSlotStability:
+    def test_slots_are_one_indexed_after_add(self):
+        inv = Inventory()
+        a = _make_item(name="a")
+        b = _make_item(name="b")
+        c = _make_item(name="c")
+        inv.add(a)
+        inv.add(b)
+        inv.add(c)
+        assert inv.filter("1") == (a,)
+        assert inv.filter("2") == (b,)
+        assert inv.filter("3") == (c,)
+
+    def test_remove_compacts_slots_to_close_gap(self):
+        inv = Inventory()
+        a = _make_item(name="a")
+        b = _make_item(name="b")
+        c = _make_item(name="c")
+        inv.add(a)
+        inv.add(b)
+        inv.add(c)
+        inv.remove(b)
+        # b was at slot 2; after remove, c is now at slot 2.
+        assert inv.filter("1") == (a,)
+        assert inv.filter("2") == (c,)
+        assert len(inv) == 2
+
+    def test_add_after_remove_uses_next_compact_slot(self):
+        inv = Inventory()
+        a = _make_item(name="a")
+        b = _make_item(name="b")
+        c = _make_item(name="c")
+        inv.add(a)
+        inv.add(b)
+        inv.remove(a)
+        # b moved from slot 2 to slot 1; new add lands at slot 2.
+        inv.add(c)
+        assert inv.filter("1") == (b,)
+        assert inv.filter("2") == (c,)
+        assert len(inv) == 2
+
+    def test_all_iteration_order_matches_slot_order(self):
+        inv = Inventory()
+        a = _make_item(name="a")
+        b = _make_item(name="b")
+        c = _make_item(name="c")
+        inv.add(a)
+        inv.add(b)
+        inv.add(c)
+        inv.remove(b)
+        # all() returns insertion order, which after a remove +
+        # rekey equals slot order: (a, c) at slots 1, 2.
+        assert inv.all() == (a, c)

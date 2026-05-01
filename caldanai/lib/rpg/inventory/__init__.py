@@ -90,9 +90,25 @@ class Inventory:
         return None
 
     def __init__(self, contents: list = ()):
-        self.__items: List[Item] = []
+        # Keyed by 1-based slot number. The slot is the user-visible
+        # index in $inv output and the handle for $sell <n> /
+        # $equip <n>. Slots are kept compact (1..N, no gaps) by
+        # rekeying after every mutation; new items go to slot
+        # ``len(self) + 1``. Insertion-ordered dict so iteration
+        # order matches slot order.
+        self.__items: Dict[int, Item] = {}
         for _item in contents:
             self.add(_item)
+
+    def _rekey(self) -> None:
+        """Compact ``__items`` to slots 1..N after a mutation that
+        could leave gaps. Called from ``__delitem__`` / ``remove``.
+        Insertion order is preserved, so the resulting slots match
+        the prior iteration order minus the removed item."""
+        self.__items = {
+            new_key: item
+            for new_key, item in enumerate(self.__items.values(), start=1)
+        }
 
     def __getitem__(self, _id: Union[str, ObjectId]) -> Optional[Item]:
         """
@@ -105,16 +121,17 @@ class Inventory:
             return None
 
         if isinstance(_id, str):
-            return next((i for i in self.__items if str(i.id) == _id), None)
+            return next((i for i in self.__items.values() if str(i.id) == _id), None)
 
         if isinstance(_id, ObjectId):
-            return next((i for i in self.__items if _id == i.id), None)
+            return next((i for i in self.__items.values() if _id == i.id), None)
 
         return None
 
     def __delitem__(self, _id: Union[str, ObjectId]) -> None:
         """
-        Removes an item from the inventory by ID.
+        Removes an item from the inventory by ID. Rekeys the
+        remaining items to keep slots compact at 1..N.
 
         :param _id: The ID of the item to remove.
         :return: None
@@ -125,11 +142,27 @@ class Inventory:
 
         _item = self[_id]
         if _item:
-            self.__items.remove(_item)
+            slot = next(
+                (k for k, v in self.__items.items() if v is _item),
+                None,
+            )
+            if slot is not None:
+                del self.__items[slot]
+                self._rekey()
             del _item
 
     def __len__(self) -> int:
         return len(self.__items)
+
+    def __contains__(self, item: Item) -> bool:
+        """Identity-based membership check. ``item in inventory``
+        returns True iff the *exact same Item instance* is present
+        — distinct from ``inventory[item.id] is not None`` which
+        would falsely accept a sibling that shares an ObjectId
+        through a doppy-clone harvest or any other dup-id path.
+        2026-04-29 added so ``Player.take_item`` can verify
+        possession without relying on id uniqueness."""
+        return any(i is item for i in self.__items.values())
 
     def add(self, _item: Item) -> None:
         """
@@ -140,7 +173,13 @@ class Inventory:
 
         stacked = False
         if isinstance(_item, Stackable):
-            stack = next((i for i in self.__items if isinstance(i, Stackable) and _item.can_stack(i)), None)
+            stack = next(
+                (
+                    i for i in self.__items.values()
+                    if isinstance(i, Stackable) and _item.can_stack(i)
+                ),
+                None,
+            )
             if stack is not None:
                 stack.stack(_item)
                 stacked = True
@@ -148,7 +187,9 @@ class Inventory:
         if not stacked:
             if _item.id is None:
                 _item.id = ObjectId()
-            self.__items.append(_item)
+            # Slots are 1..N with no gaps thanks to ``_rekey`` on
+            # remove, so the next free slot is always ``len + 1``.
+            self.__items[len(self.__items) + 1] = _item
 
     def remove(self, _item: Item, count: int = 1) -> None:
         """
@@ -156,33 +197,44 @@ class Inventory:
 
         :param _item: The item to remove.
         :param count: The number to remove, if stackable and more than 1 exists.
+
+        Identity-based slot lookup — ``del self[_item.id]`` would
+        match the FIRST sibling sharing an ObjectId, removing the
+        wrong instance when ids collide (e.g. doppy-clone harvest
+        seeded the bag with a dup-id pair). 2026-04-29 fix.
         """
 
         if isinstance(_item, Stackable):
             _item.count -= max(count, 0)
-            if _item.count <= 0:
-                del self[_item.id]
-        else:
-            del self[_item.id]
+            if _item.count > 0:
+                return
+        slot = next(
+            (k for k, v in self.__items.items() if v is _item),
+            None,
+        )
+        if slot is not None:
+            del self.__items[slot]
+            self._rekey()
 
     def get_weight(self) -> float:
         """Gets the total weight of the inventory."""
-        return fsum([i.get_weight() for i in self.__items])
+        return fsum([i.get_weight() for i in self.__items.values()])
 
     def _get_by_index(self, index: int) -> Optional[Item]:
-        """Returns an item by index, rather than by key."""
+        """Returns an item by 0-based position. Slots are 1..N
+        internally, so position N maps to slot N+1."""
         if 0 <= index < len(self):
-            return self.__items[index]
+            return self.__items.get(index + 1)
         return None
 
     def _filter_by_name(self, f: str) -> Tuple[Item]:
         """Returns a tuple of Items with names containing the provided string."""
-        results = tuple(filter(lambda i: f.lower() in i.name, self.__items))
+        results = tuple(filter(lambda i: f.lower() in i.name, self.__items.values()))
         return results
 
     def _filter_by_quality(self, f: str) -> Tuple[Item]:
         """Returns of tuple of Items with qualities matching the provided string."""
-        results = tuple(filter(lambda i: f.lower() == i.quality.name.lower(), self.__items))
+        results = tuple(filter(lambda i: f.lower() == i.quality.name.lower(), self.__items.values()))
         return results
 
     def filter(self, f: Union[str, int]) -> Tuple[Optional[Item]]:
@@ -236,19 +288,20 @@ class Inventory:
         return (None,)
 
     def all(self) -> Tuple[Item]:
-        """Returns a tuple containing all inventory items."""
+        """Returns a tuple containing all inventory items in slot
+        order (1..N)."""
 
-        return tuple(self.__items)
+        return tuple(self.__items.values())
 
     def favorites(self) -> Tuple[Item]:
         """Returns the tuple of items flagged ``favorited``."""
 
-        return tuple(i for i in self.__items if i.favorited)
+        return tuple(i for i in self.__items.values() if i.favorited)
 
     def to_list(self) -> List[Dict]:
         """Returns a sorted and stacked list of items as data dictionaries."""
 
-        tmp = sorted([i.to_dict() for i in self.__items], key=lambda d: d["plugin"])
+        tmp = sorted([i.to_dict() for i in self.__items.values()], key=lambda d: d["plugin"])
         return tmp
 
     @classmethod

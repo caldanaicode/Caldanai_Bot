@@ -1,3 +1,5 @@
+import re
+
 from discord.ext.commands import Cog, command, cooldown, group, BucketType, guild_only, Context
 from discord.ext.commands.errors import MissingRequiredArgument
 from discord import Embed
@@ -15,6 +17,12 @@ from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 _log = get_logger(__name__)
+
+# Numeric-only range matcher for ``$sell <low>-<high>``. Item
+# names with hyphens (``tee-shirt``) must NOT match — they fall
+# through to fuzzy-name resolution. 2026-04-29 fix for the
+# tee-shirt bug Caels caught live.
+_NUMERIC_RANGE_RE = re.compile(r"\d+-\d+")
 
 
 # Shared dead-invoker flavor pool for every inventory command —
@@ -117,6 +125,20 @@ class RpgInventoryCommands(Cog):
             if not resolved:
                 continue
 
+            # Detect "fully qualified" player intent. A query
+            # carrying any selector other than ``.best`` (e.g.
+            # ``shirt.ordinary``, ``wand.1``, ``shirt.ordinary.1``)
+            # means the player named a specific item and accepts
+            # any displacement consequences — bypass the
+            # accidental-downgrade quality gate. ``.best`` keeps
+            # the gate because it's a smart-pick request, not a
+            # named-item one. Bare ``$equip <name>`` keeps the
+            # gate too. 2026-04-29 fix for Caels' "equip should
+            # work if fully qualified" report.
+            query_part = raw.split("@", 1)[0]
+            selectors = [s.lower() for s in query_part.split(".")[1:]]
+            force_displace = bool(selectors) and "best" not in selectors
+
             for _item, hint_slot in resolved:
                 if not isinstance(_item, Equipment):
                     Dispatcher.add(
@@ -133,7 +155,9 @@ class RpgInventoryCommands(Cog):
                     if hint_slot is not None
                     else None
                 )
-                success, replaced_msg = player.equip(_item, final_slot)
+                success, replaced_msg = player.equip(
+                    _item, final_slot, force_displace=force_displace,
+                )
                 if success:
                     if replaced_msg:
                         Dispatcher.add(
@@ -505,10 +529,19 @@ class RpgInventoryCommands(Cog):
         Sells items by name, name.n, index, a range of indices, all items, or items having a given rarity.
         Items must be unequipped to be sold.
 
+        Special keyword ``duplicates`` (or ``dupes``) bulk-clears
+        extras while keeping the best ``n`` of each item type
+        (default 1). Equipped and favorited copies are protected
+        the same way as every other sell path.
+
+        ``$sell duplicates``        — keep best 1 of each, sell the rest
+        ``$sell duplicates 2``      — keep best 2 of each (dual-wield-safe)
+
         (2-second cool-down)
 
         :param items: An item name, name.n, name.quality, name.quality.n, index, range of indices, quality,
-        or 'all'. You may also specify multiple items with a space between them (i.e. 'stick rock spear.junk')
+        or 'all'. You may also specify multiple items with a space between them (i.e. 'stick rock spear.junk').
+        Or ``duplicates [n]`` to bulk-clear extras keeping ``n`` of each (default 1).
         """
 
         game, player = await RpgUtilities.get_game_and_player(ctx)
@@ -526,56 +559,99 @@ class RpgInventoryCommands(Cog):
             Dispatcher.add(channel, "You must specify something to sell.")
             return
 
+        # ``$sell duplicates [n]`` — bulk-clear extras while keeping
+        # ``n`` (default 1) of each unique item plugin. Equipped and
+        # favorited copies are protected separately (same as every
+        # other sell path), so the keep-N count applies to the
+        # unequipped + unfavorited pool. Players who want dual-wield
+        # protection ($sell sword w/ both wielded gone) can opt in
+        # via ``$sell duplicates 2``. Caels' QoL ask 2026-04-29.
+        first = items[0] if items else None
+        if isinstance(first, str) and first.lower() in ('duplicates', 'dupes'):
+            keep = 1
+            if len(items) >= 2:
+                second = items[1]
+                if isinstance(second, int):
+                    keep = second
+                elif isinstance(second, str) and second.isnumeric():
+                    keep = int(second)
+                else:
+                    Dispatcher.add(
+                        channel,
+                        f"`{second}` isn't a valid keep-count. "
+                        f"Try `$sell duplicates` or `$sell duplicates 2`.",
+                    )
+                    return
+                if keep < 1:
+                    keep = 1
+            await self._sell_duplicates(channel, player, keep)
+            return
+
         msg = ''
         sell: List[Item] = []
         total = 0
         favorited_skipped = 0
+        equipped_skipped = 0
 
-        # Per-query resolve-then-sell so repeat queries see the
-        # updated inventory. ``$sell wand.b wand.b`` now sells the
-        # BEST and then the NEXT-BEST wand: the first sell removes
-        # the superior wand from inventory, so the second
-        # ``wand.b`` resolver call picks the fine wand instead of
-        # the same superior again. Pre-fix, both queries resolved
-        # to the same instance and the second sell hit "Item not
-        # found" in the receipt.
+        # Pre-resolve numeric inputs to ``Item`` references upfront,
+        # before any sells fire. Resolving an index AFTER a prior
+        # sell has rekeyed inventory pulls the wrong item — was the
+        # 2026-04-29 ``$sell 35 38 43`` shift bug. Strings stay as
+        # strings and resolve progressively in the main loop so
+        # ``$sell wand.b wand.b`` still picks BEST then NEXT-BEST.
+        prepared: List[Union[Item, str, int]] = []
         for _item in items:
-            # Track equipped set fresh each iteration so an already-
-            # sold item in a preceding iteration doesn't linger as
-            # a stale reference.
-            equipped = {i.id for i in player._iter_equipped_items()}
+            if (
+                (isinstance(_item, int) or (isinstance(_item, str) and _item.isnumeric()))
+                and 1 <= int(_item) <= len(player.inventory)
+            ):
+                pinned = player.inventory.filter(_item)[0]
+                prepared.append(pinned if pinned is not None else _item)
+            else:
+                prepared.append(_item)
+
+        for _item in prepared:
             candidates: List[Item] = []
 
-            if (isinstance(_item, int) or _item.isnumeric()) and 1 <= int(_item) <= len(player.inventory):
-                item, *_ = player.inventory.filter(_item)
-                if item and item.id not in equipped:
-                    candidates.append(item)
-                elif item is not None:
-                    msg += f'\nYou must un-equip {item.get_full_name()} before selling them.'
+            if isinstance(_item, Item):
+                # Pre-resolved numeric input. Identity-based equip
+                # check (was id-set, which collided in the
+                # 2026-04-29 tee-shirt repro). Singular grammar:
+                # one item per index, "selling it" not "selling
+                # them".
+                if not player.is_equipped(_item):
+                    candidates.append(_item)
                 else:
-                    msg += f'\nNo such item: {_item}.'
+                    msg += f'\nYou must un-equip {_item.get_full_name()} before selling it.'
+
+            elif isinstance(_item, (int, str)) and (
+                isinstance(_item, int) or _item.isnumeric()
+            ):
+                # Numeric input that didn't resolve in the
+                # pre-pass (out of range / inventory shrank).
+                msg += f'\nNo such item: {_item}.'
 
             elif isinstance(_item, str):
                 if _item.lower() == 'all':
-                    candidates = [
-                        i for i in list(player.inventory.all())
-                        if i.id not in equipped
-                    ]
-                elif '-' in _item:
-                    try:
-                        low, high = map(int, _item.split('-'))
-                        if low > high:
-                            low, high = high, low
-                        low -= 1
-                        if 0 <= low <= high <= len(player.inventory):
-                            candidates = [
-                                i for i in player.inventory.all()[low:high]
-                                if i.id not in equipped
-                            ]
-                        else:
-                            msg += f"\nIndex range invalid."
-                    except ValueError:
-                        msg += f"\nUnable to determine lower and upper indices from {_item}."
+                    # Equipped items pass through to the candidate
+                    # loop so they're counted into ``equipped_skipped``
+                    # rather than silently dropped — a player asking
+                    # "$sell all" should know how much of their bag
+                    # is locked behind ``$stow``.
+                    candidates = list(player.inventory.all())
+                elif _NUMERIC_RANGE_RE.fullmatch(_item):
+                    # Only treat dash as a range when BOTH halves
+                    # are numeric. Item names with hyphens (e.g.
+                    # ``tee-shirt``) fall through to fuzzy-name
+                    # resolution. 2026-04-29 fix.
+                    low, high = map(int, _item.split('-'))
+                    if low > high:
+                        low, high = high, low
+                    low -= 1
+                    if 0 <= low <= high <= len(player.inventory):
+                        candidates = list(player.inventory.all()[low:high])
+                    else:
+                        msg += f"\nIndex range invalid."
                 else:
                     # Fuzzy name / ``.best`` / quality-prefix —
                     # shared resolver. Sell mode returns every
@@ -588,15 +664,23 @@ class RpgInventoryCommands(Cog):
             else:
                 msg += f"\nI'm afraid you don't have any {_item}."
 
-            # Apply favorites guard + equipped re-check per
-            # candidate, then actually sell. Each successful sale
-            # removes the item from inventory, which is what makes
-            # the next query's resolver pick a different instance.
+            # Apply favorites guard + identity-based equipped
+            # re-check per candidate, then actually sell. Each
+            # successful sale removes the item from inventory,
+            # which is what makes the next query's resolver pick a
+            # different instance for fuzzy-name queries.
             for item in candidates:
                 if item.favorited:
                     favorited_skipped += 1
                     continue
-                if item.id in equipped:
+                if player.is_equipped(item):
+                    # 2026-04-29: surface "equipped, $stow first"
+                    # instead of silent skip. Caels caught the bad
+                    # UX live — ``$sell tee-shirt`` with only the
+                    # worn copy returned "no match", which read
+                    # like "you don't have one" instead of "it's
+                    # on your back."
+                    equipped_skipped += 1
                     continue
                 m, v = player.sell(item, 1, True)
                 if v or m.startswith("You sold"):
@@ -608,6 +692,10 @@ class RpgInventoryCommands(Cog):
             noun = "item" if favorited_skipped == 1 else "items"
             msg += f"\n{favorited_skipped} {noun} skipped (★ favorited)."
 
+        if equipped_skipped:
+            noun = "item" if equipped_skipped == 1 else "items"
+            msg += f"\n{equipped_skipped} {noun} skipped (equipped — `$stow` first)."
+
         # Nothing to sell AND no pre-sell context (favorited skips,
         # no-match / bad-range / equipped-guard messages) to report
         # back to the player. Short-circuit so we don't dispatch an
@@ -617,8 +705,82 @@ class RpgInventoryCommands(Cog):
         if not sell and not msg.strip():
             return
 
+        # Skip-only path: every match was equipped or favorited,
+        # so no actual sale fired. The "sold ... for 0 clarks"
+        # wrapper would lie about the action; just surface the
+        # skip lines directly. 2026-04-29 fix surfaced live by
+        # ``$sell tee.junk`` against a single worn junk shirt.
+        if not sell:
+            Dispatcher.add(channel, msg.strip())
+            return
+
         msg = f'{player.name} sold the following items for a total of {total:,} clarks: ```\n{msg}```'
         msgs = Dispatcher.split_message(msg, 'clarks.', True)
+        count = 0
+        for m in msgs:
+            Dispatcher.add(
+                channel,
+                ('```\n' if count > 0 else '') + m + ('```' if count > 0 and not m.endswith('```') else '')
+            )
+            count += 1
+
+    async def _sell_duplicates(self, channel, player, keep: int):
+        """``$sell duplicates [n]`` implementation. Group inventory
+        by ``item.plugin``, drop equipped + favorited from the sale
+        pool (both are protected the same way as every other sell
+        path), then keep the top ``keep`` per group ranked by
+        quality and sell the rest. Stackables stack to one entry
+        per plugin so they auto-satisfy keep-1. Two-handed weapons
+        and other multi-placement items are single ``Item`` refs
+        in the inventory dict — they count as one and aren't
+        double-counted."""
+        # Group by plugin. Order matters within each group so the
+        # cheapest copies get sold first when ``keep < total``.
+        by_plugin: Dict[str, List[Item]] = {}
+        for item in player.inventory.all():
+            if player.is_equipped(item) or item.favorited:
+                continue
+            by_plugin.setdefault(item.plugin, []).append(item)
+
+        to_sell: List[Item] = []
+        for plugin_items in by_plugin.values():
+            plugin_items.sort(
+                key=lambda i: i.quality.value["multiplier"],
+                reverse=True,
+            )
+            to_sell.extend(plugin_items[keep:])
+
+        if not to_sell:
+            Dispatcher.add(
+                channel,
+                f"No duplicates to sell — keeping {keep} of each item.",
+            )
+            return
+
+        msg = ''
+        sold: List[Item] = []
+        total = 0
+        for item in to_sell:
+            m, v = player.sell(item, 1, True)
+            if v or m.startswith("You sold"):
+                sold.append(item)
+                total += v
+                msg += f"\n{m}"
+
+        if not sold:
+            Dispatcher.add(
+                channel,
+                f"No duplicates to sell — keeping {keep} of each item.",
+            )
+            return
+
+        noun = "duplicate" if len(sold) == 1 else "duplicates"
+        header = (
+            f"{player.name} sold {len(sold)} {noun} "
+            f"(keeping {keep} of each) for a total of "
+            f"{total:,} clarks: ```\n{msg}```"
+        )
+        msgs = Dispatcher.split_message(header, 'clarks.', True)
         count = 0
         for m in msgs:
             Dispatcher.add(

@@ -86,6 +86,15 @@ Existing tools (`python -m tools.<name> --help` for details):
   registered Discord application. Pairs with ``tail_peek TEST``
   for read-back. Use for automated playtest sweeps against the
   bestiary; scoped TEST-only, never LIVE.
+- **`inspect_inventory`** — dump a player's persisted inventory
+  with each item's plugin / quality / `_id` / equipped+favorited
+  flags. Reads MongoDB directly — defaults to `TEST_DB_NAME`,
+  swap with `--live` for real-player forensics or `--db <env>`
+  for any other env var. Filter to one player with `--user-name`
+  / `--user-id`, narrow rows with `--plugin <substr>`. Built
+  2026-04-29 for the doppy-clone dup-id investigation; reach
+  for it whenever a $sell / $loadout / inventory bug feels
+  like an item-state mystery rather than a code mystery.
 
 Shape to follow when adding a new tool:
 
