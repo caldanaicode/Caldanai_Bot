@@ -95,6 +95,25 @@ Existing tools (`python -m tools.<name> --help` for details):
   2026-04-29 for the doppy-clone dup-id investigation; reach
   for it whenever a $sell / $loadout / inventory bug feels
   like an item-state mystery rather than a code mystery.
+- **`vael_thoughts`** — surface another Claude Code agent's
+  in-conversation assistant text from its session jsonl at
+  ``~/.claude/projects/<workspace-slug>/<session-id>.jsonl``.
+  Default workspace is bg Vael
+  (``E:/dev/Vael-Caldanai/workspace``); pass ``--workspace`` for
+  any other agent. Filter pipeline: ``--match <regex>`` (case-
+  insensitive),
+  ``--min-length`` / ``--max-length``, ``--since <iso>``,
+  ``--longest N`` (top-N by length, where reflective beats live),
+  or ``--tail N``. ``--stats`` swaps the thought emit for a
+  length histogram; ``--repeats N`` swaps it for top-N
+  most-repeated thoughts (combat-loop fingerprint, flavor
+  template leak). ``--follow`` for live capture. Sidechains
+  (sub-agent conversations) skipped by default. Built 2026-05-02
+  to capture in-flight character moments and design-seed
+  fallacies that don't survive into the agent's own memory
+  files. Pairs with the overnight memory-diff cron — cron
+  catches what an agent writes deliberately, vael_thoughts
+  catches what they say moment-to-moment.
 
 Shape to follow when adding a new tool:
 

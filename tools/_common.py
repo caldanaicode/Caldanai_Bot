@@ -418,6 +418,89 @@ class DiscordRestClient:
             resp.raise_for_status()
             return await resp.json()
 
+    async def add_reaction(
+        self,
+        channel_id: int,
+        message_id: int,
+        emoji: str,
+    ) -> None:
+        """PUT a reaction onto a message as the authenticated bot.
+
+        ``emoji`` accepts:
+        - A single Unicode emoji character (e.g. ``"❤️"``, ``"🔥"``).
+        - A custom-emoji ref in ``name:id`` form (e.g. ``"sword:12345"``).
+
+        The emoji is URL-encoded into the request path per Discord's
+        spec. Returns 204 on success — no response body. Raises on
+        non-2xx via ``raise_for_status``.
+        """
+        from urllib.parse import quote
+        encoded = quote(emoji, safe=":")
+        url = (
+            f"{_DISCORD_API_BASE}/channels/{channel_id}/messages/"
+            f"{message_id}/reactions/{encoded}/@me"
+        )
+        async with self._session.put(url) as resp:
+            resp.raise_for_status()
+
+    async def remove_reaction(
+        self,
+        channel_id: int,
+        message_id: int,
+        emoji: str,
+    ) -> None:
+        """DELETE the bot's own reaction from a message.
+
+        Mirrors :meth:`add_reaction` for the toggle-off case —
+        Discord's UI removes a reaction when the same user clicks
+        their existing reaction; over the API that's an explicit
+        DELETE. Required for paginated UIs (``$help`` page-flip,
+        $loadout selectors) where the bot's reaction_remove event
+        is part of the paging flow.
+
+        ``emoji`` is URL-encoded the same way as ``add_reaction``.
+        Returns 204 on success.
+        """
+        from urllib.parse import quote
+        encoded = quote(emoji, safe=":")
+        url = (
+            f"{_DISCORD_API_BASE}/channels/{channel_id}/messages/"
+            f"{message_id}/reactions/{encoded}/@me"
+        )
+        async with self._session.delete(url) as resp:
+            resp.raise_for_status()
+
+    async def toggle_reaction(
+        self,
+        channel_id: int,
+        message_id: int,
+        emoji: str,
+    ) -> str:
+        """Toggle the bot's reaction on a message.
+
+        Mirrors Discord's UI behavior — clicking your own reaction
+        removes it; clicking again re-adds it. Lets a caller
+        invoke a single tool without tracking add-vs-remove state.
+
+        Implementation: GET the message, scan its ``reactions``
+        array for an entry matching ``emoji`` with ``me=true``. If
+        present, DELETE; otherwise PUT.
+
+        :return: ``"added"`` or ``"removed"`` describing which
+            side of the toggle ran.
+        """
+        msg = await self.get_message(channel_id, message_id)
+        already_reacted = any(
+            (r.get("emoji") or {}).get("name") == emoji
+            and r.get("me") is True
+            for r in (msg.get("reactions") or [])
+        )
+        if already_reacted:
+            await self.remove_reaction(channel_id, message_id, emoji)
+            return "removed"
+        await self.add_reaction(channel_id, message_id, emoji)
+        return "added"
+
     async def get_message(self, channel_id: int, message_id: int) -> dict:
         """GET a single message by id from a channel. Used by the
         edit tool's dry-run to show the operator what content

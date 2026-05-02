@@ -119,6 +119,37 @@ async def _post(
         return await client.post_message(channel_id, content)
 
 
+async def _react(
+    message_id: int,
+    emoji: str,
+    guild_filter: Optional[int],
+    channel_id_override: Optional[int] = None,
+) -> str:
+    """Toggle the tester bot's reaction on a message.
+
+    Mirrors Discord's UI: if the bot already has this reaction on
+    the message, it gets removed; otherwise it gets added. The
+    caller doesn't need to track add-vs-remove state — useful for
+    paging UIs ($help page-flip, $loadout selectors) where each
+    interaction toggles the previous page's reaction off and adds
+    the new page's reaction on.
+
+    :return: ``"added"`` or ``"removed"`` describing the action.
+    """
+    token = os.environ.get("CLAUDE_TESTER_TOKEN")
+    if not token:
+        raise SystemExit(
+            "CLAUDE_TESTER_TOKEN env var not set. Drop the tester-bot "
+            "token in .env under that name and try again."
+        )
+    if channel_id_override is not None:
+        channel_id = channel_id_override
+    else:
+        channel_id = _resolve_test_channel_id(guild_filter)
+    async with DiscordRestClient(token) as client:
+        return await client.toggle_reaction(channel_id, message_id, emoji)
+
+
 async def _edit(
     message_id: int,
     content: str,
@@ -173,6 +204,32 @@ def main(argv=None) -> int:
              "(e.g. a journal channel) the tester bot has access to.",
     )
 
+    react_p = sub.add_parser(
+        "react",
+        help="Toggle a reaction on a message in the TEST channel.",
+    )
+    react_p.add_argument(
+        "message_id", type=int,
+        help="Discord snowflake of the message to react to. Toggles "
+             "the bot's reaction — calling twice with the same emoji "
+             "removes the reaction. Mirrors Discord's UI behavior.",
+    )
+    react_p.add_argument(
+        "emoji",
+        help="Emoji to toggle. Single Unicode char (e.g. ❤️, 🔥, 💀) or "
+             "custom-emoji name:id form (e.g. sword:12345).",
+    )
+    react_p.add_argument(
+        "--guild", type=int, default=None,
+        help="Restrict channel lookup to one guild id when "
+             "multiple test guilds exist. Usually unnecessary.",
+    )
+    react_p.add_argument(
+        "--channel-id", type=int, default=None,
+        help="React in a specific channel id, skipping "
+             "the DB-based test-channel lookup.",
+    )
+
     edit_p = sub.add_parser(
         "edit",
         help="Edit a previously-posted tester-bot message in place.",
@@ -218,6 +275,14 @@ def main(argv=None) -> int:
         print(
             f"edited id={msg['id']} as {author} "
             f"(channel={msg.get('channel_id')})"
+        )
+        return 0
+    if args.cmd == "react":
+        action = asyncio.run(
+            _react(args.message_id, args.emoji, args.guild, args.channel_id)
+        )
+        print(
+            f"{action} reaction {args.emoji} on id={args.message_id}"
         )
         return 0
     return 1

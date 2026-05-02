@@ -4,6 +4,11 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — Tester tooling: bot_player reactions + vael_thoughts session-log scanner
+
+- `bot_player react <message_id> <emoji>` toggles a reaction on a Discord message (PUT/DELETE on `/reactions/{emoji}/@me`). Mirrors Discord's UI: first call adds, second with the same emoji removes. Lets the tester bot acknowledge channel events without a full chat response, including paginated UIs ($help page-flip).
+- `tools/vael_thoughts.py` reads a Claude Code agent's per-session jsonl at `~/.claude/projects/<workspace-slug>/<session-id>.jsonl` and surfaces assistant text content blocks. Filters: `--match REGEX`, `--min-length` / `--max-length`, `--since ISO`, `--longest N`, `--tail N`, `--stats` (length histogram), `--repeats N` (top-N repeated thoughts), `--follow` (live capture). Sidechains skipped by default. Built to capture in-flight character moments and design-seed fallacies that don't survive into an agent's own memory files.
+
 ### 2026-05-02 — Player-pronoun grammar + resurrection narration dedup + bandit death-pool refresh
 
 - Verb-agreement fixes for they/them players. Pattern `@1s <hardcoded-singular-verb>` rendered as e.g. "they replenishes" / "they runs" / "they is". Tokenized via `@Nv(singular|plural)` in cheese sandwich consumption and three social-command beats (HOT comfort, WARM taunt, COLD taunt-acceptance).
