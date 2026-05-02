@@ -117,6 +117,20 @@ Existing tools (`python -m tools.<name> --help` for details):
   with ``vael_memory_diff`` — that tool catches what an agent
   writes deliberately, vael_thoughts catches what they say or
   do moment-to-moment.
+- **`vael_collect`** — periodic data collector designed for
+  Windows Task Scheduler invocation via the venv-aware launcher
+  ``tools/vael_collect.bat``. Each run snapshots bg Vael's memory
+  dir, pulls thoughts + channel chat since the last cursor, and
+  appends a timestamped section to the digest at
+  ``~/.claude/projects/E--dev-Caldanai-Bot/memory/_vael_digest.md``
+  (skipping empty sections so the digest stays signal-only).
+  Cursor lives at ``_vael_collect_cursor`` in the same dir;
+  ``--reset-cursor`` bumps it to now without collecting.
+  ``--show`` prints the tail of the digest for session-start
+  catch-up. The .bat resolves the project root from its own
+  location (``%~dp0..``) — portable across operator-specific
+  drive layouts. Built 2026-05-02 to enable unattended hourly
+  collection without spending Claude tokens per fire.
 - **`vael_memory_diff`** — snapshot bg Vael's memory directory
   and diff later snapshots against earlier ones. Default mode
   (no flag): diff current state vs the latest snapshot, then

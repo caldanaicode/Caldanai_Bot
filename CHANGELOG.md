@@ -4,6 +4,12 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — vael_collect: unattended hourly data collection
+
+- **`tools/vael_collect.py`** orchestrates `vael_memory_diff` and `vael_thoughts` (text + chat modes) into a single periodic-collection pass. Each run snapshots bg Vael's memory, diffs against the previous, pulls thoughts + chat since the last cursor, and appends a timestamped section to `~/.claude/projects/E--dev-Caldanai-Bot/memory/_vael_digest.md`. Empty sections skip so the digest stays signal-only. Cursor file (`_vael_collect_cursor`) tracks the sliding window; `--reset-cursor` bumps without collecting; `--show` prints the tail for session-start catch-up.
+- **`tools/vael_collect.bat`** — venv-aware launcher for Windows Task Scheduler. Resolves project root from `%~dp0..` (the script's own location) so no hardcoded operator-specific paths. Forwards args, sets cwd to project root so `.env` loads correctly. Setup: Task Scheduler → Action: Start a program → Program: `<project>/tools/vael_collect.bat` → Trigger: every 1 hour.
+- 18 tests covering cursor roundtrip, memory-diff edge cases (first run, no changes, added/modified files), digest append + show + reset, CLI integration. State files (`_DIGEST_PATH`, `_CURSOR_PATH`, `_SNAPSHOT_ROOT`) are monkeypatch-redirected per test so the suite never touches the real digest.
+
 ### 2026-05-02 — vael_thoughts: --mode chat + --context N
 
 - **`--mode chat`** — extracts in-character Discord posts from `bot_player send` tool calls in the session jsonl, skipping `$`-prefixed combat commands. Surfaces the spontaneous mid-action register that's structurally distinct from internal assistant text or the composed journal. New `_extract_send_message` helper uses `shlex` to handle `--guild`, `--channel-id`, `--ooc`, `--obs` flag patterns generically.
