@@ -186,6 +186,176 @@ def test_iter_handles_malformed_json_lines(session_file: Path):
 
 
 # ---------------------------------------------------------------------------
+# Mode: tool-use and user
+# ---------------------------------------------------------------------------
+
+
+def _make_assistant_with_tool_use(
+    *, name: str, input_dict: dict,
+    timestamp: str = "2026-05-02T08:10:00.000Z",
+    uuid: str = "u-tu",
+) -> dict:
+    return {
+        "type": "assistant",
+        "isSidechain": False,
+        "uuid": uuid,
+        "timestamp": timestamp,
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "About to fire a tool."},
+                {
+                    "type": "tool_use",
+                    "name": name,
+                    "input": input_dict,
+                },
+            ],
+        },
+    }
+
+
+@pytest.fixture
+def session_file_with_tools(tmp_path: Path) -> Path:
+    p = tmp_path / "tools-session.jsonl"
+    entries = [
+        _make_user_entry("kick the goblin"),
+        _make_assistant_with_tool_use(
+            name="Bash",
+            input_dict={"command": "$kill goblin torso"},
+            uuid="u-bash",
+        ),
+        _make_assistant_with_tool_use(
+            name="Write",
+            input_dict={"file_path": "/path/to/journal.md", "content": "ignored"},
+            uuid="u-write",
+        ),
+        _make_assistant_with_tool_use(
+            name="WeirdTool",
+            input_dict={"some_unknown_key": "value"},
+            uuid="u-weird",
+        ),
+        # User entry with tool_result content (Monitor notification shape).
+        {
+            "type": "user",
+            "userType": "external",
+            "uuid": "u-result",
+            "timestamp": "2026-05-02T08:11:00.000Z",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "content": "[gateway] msg(id=12345) hi",
+                    },
+                ],
+            },
+        },
+    ]
+    with p.open("w", encoding="utf-8") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+    return p
+
+
+def test_iter_mode_tool_use_emits_tool_calls(session_file_with_tools: Path):
+    records = list(
+        vael_thoughts._iter_assistant_thoughts(
+            session_file_with_tools, mode="tool-use",
+        )
+    )
+    texts = [r["text"] for r in records]
+    # Bash: command field surfaced.
+    assert any("Bash" in t and "kill goblin torso" in t for t in texts)
+    # Write: file_path surfaced.
+    assert any("Write" in t and "journal.md" in t for t in texts)
+    # WeirdTool: falls back to JSON dump.
+    assert any("WeirdTool" in t for t in texts)
+    # Text blocks are NOT included in tool-use mode.
+    assert not any("About to fire a tool." in t for t in texts)
+
+
+def test_iter_mode_user_emits_user_entries(session_file_with_tools: Path):
+    records = list(
+        vael_thoughts._iter_assistant_thoughts(
+            session_file_with_tools, mode="user",
+        )
+    )
+    texts = [r["text"] for r in records]
+    # Plain string user message rendered.
+    assert any("kick the goblin" in t for t in texts)
+    # Tool-result block rendered with prefix.
+    assert any(
+        "[tool_result]" in t and "gateway" in t for t in texts
+    )
+    # Assistant entries NOT in user mode.
+    assert not any("About to fire a tool." in t for t in texts)
+
+
+def test_iter_mode_text_default_unchanged(session_file_with_tools: Path):
+    """Default mode preserves existing behavior — assistant text only."""
+    records = list(
+        vael_thoughts._iter_assistant_thoughts(
+            session_file_with_tools, mode="text",
+        )
+    )
+    texts = [r["text"] for r in records]
+    assert "About to fire a tool." in texts
+    # No tool_use renderings in text mode.
+    assert not any("Bash(" in t for t in texts)
+    # No user messages in text mode.
+    assert not any("kick the goblin" in t for t in texts)
+
+
+def test_iter_mode_invalid_raises():
+    with pytest.raises(ValueError, match="unknown mode"):
+        list(
+            vael_thoughts._iter_assistant_thoughts(
+                Path("ignored"), mode="bogus",
+            )
+        )
+
+
+def test_format_tool_use_picks_relevant_field():
+    block = {"type": "tool_use", "name": "Bash", "input": {"command": "ls -la"}}
+    assert "Bash" in vael_thoughts._format_tool_use(block)
+    assert "ls -la" in vael_thoughts._format_tool_use(block)
+
+    block = {"type": "tool_use", "name": "Read", "input": {"file_path": "/a/b.md"}}
+    assert "/a/b.md" in vael_thoughts._format_tool_use(block)
+
+
+def test_format_tool_use_truncates_long_input():
+    long = "x" * 500
+    block = {
+        "type": "tool_use", "name": "Bash",
+        "input": {"command": long},
+    }
+    out = vael_thoughts._format_tool_use(block)
+    assert len(out) < 200  # truncation kicks in around 120 chars
+
+
+def test_format_user_content_string():
+    assert vael_thoughts._format_user_content("hello") == "hello"
+
+
+def test_format_user_content_block_list():
+    blocks = [
+        {"type": "text", "text": "first"},
+        {"type": "text", "text": "second"},
+    ]
+    out = vael_thoughts._format_user_content(blocks)
+    assert out is not None
+    assert "first" in out and "second" in out
+
+
+def test_format_user_content_empty_returns_none():
+    assert vael_thoughts._format_user_content("") is None
+    assert vael_thoughts._format_user_content("   ") is None
+    assert vael_thoughts._format_user_content([]) is None
+    assert vael_thoughts._format_user_content(None) is None
+
+
+# ---------------------------------------------------------------------------
 # Filter pipeline
 # ---------------------------------------------------------------------------
 

@@ -4,6 +4,12 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — bg Vael investigation tooling: --obs channel + memory diff + thought modes
+
+- **`--obs` shortcut** added to `bot_player` (send/react/edit) and `tail_channel`. New `OBSERVATIONS_CHANNEL_ID` env var holds the snowflake for the bg-Vael observations channel; `--obs` is sugar for `--channel-id $OBSERVATIONS_CHANNEL_ID`. Mutually exclusive with `--ooc`. Tests in `test_tools_bot_player.py`.
+- **`tools/vael_memory_diff.py`** — snapshot bg Vael's memory directory and diff later state against earlier snapshots. Default mode diffs vs latest then takes a fresh snapshot, so successive calls show what's changed since last check. `--snapshot` (capture only), `--diff [TIMESTAMP]` (inspect against specific or latest), `--list`. Snapshots live under `~/.claude/projects/E--dev-Caldanai-Bot/memory/_vael_snapshots/<iso-ts>/`. 19 tests in `test_tools_vael_memory_diff.py`.
+- **`--mode` flag** added to `tools/vael_thoughts.py`: choices `text` (default — assistant prose, existing behavior), `tool-use` (assistant tool_use blocks rendered as `name(input_summary)` — surfaces commands invoked), `user` (user-role entries: operator prompts + Monitor stream + tool results she was responding to). Plus best-effort summarization for known tool inputs (Bash → command, Read/Write/Edit → file_path, etc.). 11 new tests covering all three modes, format helpers, and CLI integration.
+
 ### 2026-05-02 — Cross-game player bleed fix + OOC engineering channel tooling
 
 - **CRITICAL: cross-game player state bleed.** Guilds hosting more than one concurrent game (test guild now has Vael-facing TEST channel + new OOC engineering channel) loaded every guild player into every game's `PlayerManager` because `load_players` queried by `guild_id` only. New `$join` attempts in the second game reported "already a player," `$skills` showed the wrong game's skills, and any `is_dirty` save would have created duplicate records at the second channel_id with the first game's state. Mongo's unique `_id` constraint prevented actual data corruption (the upsert collided on Vael's _id and errored), but the in-memory bleed was real. Fix: new `DB.find_players_by_game(guild_id, channel_id)` compound query; `PlayerManager.load_players` now uses it whenever `channel_id` is supplied (fallback to guild-only with a warning log for legacy callers). Regression test in `test_player_manager.py::TestLoadPlayers::test_channel_scoped_load_passes_channel_id_to_db`.

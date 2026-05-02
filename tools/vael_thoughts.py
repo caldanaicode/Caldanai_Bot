@@ -137,23 +137,102 @@ def _resolve_session_path(workspace: str, session_id: Optional[str]) -> Path:
     return latest
 
 
+def _format_tool_use(block: dict) -> str:
+    """Render a ``tool_use`` content block as a short ``name(args)``
+    string for human reading.
+
+    Best-effort summarization: pulls the most-relevant input field
+    per tool (Bash → ``command``, Read/Write/Edit → ``file_path``,
+    WebFetch → ``url``, etc.). Falls back to truncated JSON when
+    no special-case applies.
+    """
+    name = block.get("name", "?")
+    inp = block.get("input") or {}
+    if not isinstance(inp, dict):
+        return f"{name}(?)"
+    summary_keys = (
+        "command", "file_path", "url", "pattern", "skill",
+        "description", "prompt", "query", "content",
+    )
+    for key in summary_keys:
+        val = inp.get(key)
+        if isinstance(val, str) and val.strip():
+            snippet = val.strip().replace("\n", " ")
+            if len(snippet) > 120:
+                snippet = snippet[:117] + "..."
+            return f"{name}({key}={snippet!r})"
+    # Fallback: short JSON.
+    try:
+        rendered = json.dumps(inp, ensure_ascii=False)[:120]
+    except (TypeError, ValueError):
+        rendered = "..."
+    return f"{name}({rendered})"
+
+
+def _format_user_content(content) -> Optional[str]:
+    """Render a user-entry's ``message.content`` (which may be a
+    string or a list of blocks) as a single text string, or None if
+    nothing readable is present.
+
+    User content can be:
+    - A plain string (typed input or Monitor notification)
+    - A list of blocks: ``text`` and ``tool_result`` shapes
+    """
+    if isinstance(content, str):
+        return content.strip() or None
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "text":
+                t = block.get("text", "")
+                if isinstance(t, str) and t.strip():
+                    parts.append(t.strip())
+            elif btype == "tool_result":
+                inner = block.get("content")
+                if isinstance(inner, str) and inner.strip():
+                    parts.append(f"[tool_result] {inner.strip()}")
+                elif isinstance(inner, list):
+                    for sub in inner:
+                        if isinstance(sub, dict) and sub.get("type") == "text":
+                            t = sub.get("text", "")
+                            if isinstance(t, str) and t.strip():
+                                parts.append(f"[tool_result] {t.strip()}")
+        return "\n".join(parts) if parts else None
+    return None
+
+
 def _iter_assistant_thoughts(
     path: Path,
     since: Optional[datetime.datetime] = None,
     include_sidechains: bool = False,
+    mode: str = "text",
 ) -> Iterator[dict]:
     """Stream ``{timestamp, text, uuid}`` records from a jsonl file.
 
-    Filters to ``type == "assistant"`` entries with at least one
-    text-type content block. Each text block becomes its own record
-    (an assistant turn that calls multiple tools may emit several
-    text segments interleaved with tool-use blocks; we want each
-    prose segment surfaced separately).
+    Default ``mode="text"``: filter to ``type == "assistant"``
+    entries' text-type content blocks (her in-conversation prose).
+
+    ``mode="tool-use"``: assistant entries' ``tool_use`` blocks,
+    rendered as ``name(input_summary)``. Surfaces what commands
+    she invoked — combat actions, journal posts, memory edits.
+
+    ``mode="user"``: ``type == "user"`` entries instead of
+    assistant. Surfaces what bg Vael was responding to (operator
+    prompts, Monitor stream notifications, tool results). User
+    content can be string or block-list; both are handled.
+
+    Each emission becomes its own record. An assistant turn that
+    calls multiple tools may emit several text segments
+    interleaved with tool-use blocks; we want each surfaced
+    separately for fine-grained filtering downstream.
 
     By default, entries with ``isSidechain: true`` are skipped.
     Sidechains are sub-agent (Agent-tool) conversations whose
-    voice is the sub-agent's, not the main agent's — usually noise
-    when you're trying to capture the primary character's
+    voice is the sub-agent's, not the main agent's — usually
+    noise when you're trying to capture the primary character's
     moment-to-moment thoughts. bg Vael never spawns sidechains
     (her CLAUDE.md forbids the Agent tool); the filter matters
     for other workspaces. Pass ``include_sidechains=True`` to
@@ -162,6 +241,9 @@ def _iter_assistant_thoughts(
     ``since`` is optional ISO-cutoff — entries with timestamps at
     or before it are skipped. Useful for incremental scans.
     """
+    if mode not in ("text", "tool-use", "user"):
+        raise ValueError(f"unknown mode: {mode!r}")
+    target_role = "user" if mode == "user" else "assistant"
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -171,7 +253,7 @@ def _iter_assistant_thoughts(
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if entry.get("type") != "assistant":
+            if entry.get("type") != target_role:
                 continue
             if not include_sidechains and entry.get("isSidechain"):
                 continue
@@ -187,21 +269,34 @@ def _iter_assistant_thoughts(
                 ts = None
             if since is not None and ts is not None and ts <= since:
                 continue
-            content = (entry.get("message") or {}).get("content") or []
             uuid = entry.get("uuid", "")
+            content = (entry.get("message") or {}).get("content") or []
+
+            if mode == "user":
+                # User content can be string or block-list — handle both.
+                rendered = _format_user_content(content)
+                if rendered:
+                    yield {"timestamp": ts_str, "text": rendered, "uuid": uuid}
+                continue
+
+            # Assistant modes — content is always a block list.
+            if not isinstance(content, list):
+                continue
             for block in content:
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") != "text":
-                    continue
-                text = block.get("text", "").strip()
-                if not text:
-                    continue
-                yield {
-                    "timestamp": ts_str,
-                    "text": text,
-                    "uuid": uuid,
-                }
+                if mode == "text":
+                    if block.get("type") != "text":
+                        continue
+                    text = block.get("text", "").strip()
+                    if not text:
+                        continue
+                    yield {"timestamp": ts_str, "text": text, "uuid": uuid}
+                elif mode == "tool-use":
+                    if block.get("type") != "tool_use":
+                        continue
+                    text = _format_tool_use(block)
+                    yield {"timestamp": ts_str, "text": text, "uuid": uuid}
 
 
 def _apply_filters(
@@ -330,34 +425,45 @@ def _follow(
     since: Optional[datetime.datetime],
     as_json: bool,
     include_sidechains: bool = False,
+    mode: str = "text",
     poll_seconds: float = 2.0,
 ) -> None:
-    """Tail-follow the jsonl, emitting new assistant text as it lands.
+    """Tail-follow the jsonl, emitting new content as it lands.
 
     Re-reads the file from scratch on each poll because jsonl
     entries can be appended between reads — we track the last
     yielded uuid and skip everything up through it. Cheap enough
     for a live capture; the file is small relative to memory.
+
+    The same ``mode`` selector that drives the one-shot read
+    applies here — follow can target text, tool-use, or user
+    streams independently.
     """
     seen: set = set()
     cutoff = since
     # Initial backfill — print everything matching the cutoff, then
     # switch to "new only" mode for subsequent polls.
     for rec in _iter_assistant_thoughts(
-        path, since=cutoff, include_sidechains=include_sidechains
+        path, since=cutoff, include_sidechains=include_sidechains, mode=mode,
     ):
-        seen.add(rec["uuid"])
+        # uuid alone collides when one entry emits multiple blocks
+        # (one assistant turn, multiple text segments or tool_uses).
+        # Pair (uuid, text) for de-dup so each block shows once.
+        key = (rec["uuid"], rec["text"])
+        seen.add(key)
         _print_thoughts([rec], as_json)
         sys.stdout.flush()
     try:
         while True:
             time.sleep(poll_seconds)
             for rec in _iter_assistant_thoughts(
-                path, since=cutoff, include_sidechains=include_sidechains
+                path, since=cutoff, include_sidechains=include_sidechains,
+                mode=mode,
             ):
-                if rec["uuid"] in seen:
+                key = (rec["uuid"], rec["text"])
+                if key in seen:
                     continue
-                seen.add(rec["uuid"])
+                seen.add(key)
                 _print_thoughts([rec], as_json)
                 sys.stdout.flush()
     except KeyboardInterrupt:
@@ -431,6 +537,21 @@ def main(argv=None) -> int:
             "conversations. Default: skipped, since their voice is "
             "the sub-agent's, not the main agent's. bg Vael never "
             "spawns sidechains, so this is a no-op for her log."
+        ),
+    )
+    ap.add_argument(
+        "--mode",
+        choices=("text", "tool-use", "user"),
+        default="text",
+        help=(
+            "What to surface from each entry. "
+            "``text`` (default): assistant text content blocks — her "
+            "in-conversation prose. "
+            "``tool-use``: assistant tool_use blocks rendered as "
+            "``name(input_summary)`` — what commands she invoked. "
+            "``user``: user-role entries (operator prompts + Monitor "
+            "stream notifications + tool results) — what she was "
+            "responding to."
         ),
     )
     ap.add_argument(
@@ -549,7 +670,10 @@ def main(argv=None) -> int:
     path = _resolve_session_path(args.workspace, args.session_id)
 
     if args.follow:
-        _follow(path, since, args.json, args.include_sidechains)
+        _follow(
+            path, since, args.json, args.include_sidechains,
+            mode=args.mode,
+        )
         return 0
 
     records = list(
@@ -558,6 +682,7 @@ def main(argv=None) -> int:
                 path,
                 since=since,
                 include_sidechains=args.include_sidechains,
+                mode=args.mode,
             ),
             min_length=args.min_length,
             max_length=args.max_length,

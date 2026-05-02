@@ -132,6 +132,24 @@ def _resolve_ooc_channel_id() -> int:
         ) from e
 
 
+def _resolve_observations_channel_id() -> int:
+    """Return the bg-Vael observations channel id from
+    ``OBSERVATIONS_CHANNEL_ID`` env."""
+    raw = os.environ.get("OBSERVATIONS_CHANNEL_ID")
+    if not raw:
+        raise SystemExit(
+            "OBSERVATIONS_CHANNEL_ID env var not set. Add the "
+            "observations channel snowflake to .env as "
+            "OBSERVATIONS_CHANNEL_ID before using --obs."
+        )
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise SystemExit(
+            f"OBSERVATIONS_CHANNEL_ID is not a valid integer: {raw!r}"
+        ) from e
+
+
 async def _post(
     content: str,
     guild_filter: Optional[int],
@@ -243,6 +261,14 @@ def main(argv=None) -> int:
              "playtest space — does NOT route to bg Vael's "
              "world view.",
     )
+    send_p.add_argument(
+        "--obs", action="store_true",
+        help="Target the bg-Vael observations channel from the "
+             "OBSERVATIONS_CHANNEL_ID env var. Shortcut for "
+             "``--channel-id $OBSERVATIONS_CHANNEL_ID``. For "
+             "posting consolidated observations, fallacies, voice "
+             "moments, etc. — also out-of-band from Vael's view.",
+    )
 
     react_p = sub.add_parser(
         "react",
@@ -273,6 +299,11 @@ def main(argv=None) -> int:
         "--ooc", action="store_true",
         help="Target the OOC engineering channel from the "
              "OOC_CHANNEL_ID env var.",
+    )
+    react_p.add_argument(
+        "--obs", action="store_true",
+        help="Target the bg-Vael observations channel from the "
+             "OBSERVATIONS_CHANNEL_ID env var.",
     )
 
     edit_p = sub.add_parser(
@@ -306,14 +337,27 @@ def main(argv=None) -> int:
         help="Target the OOC engineering channel from the "
              "OOC_CHANNEL_ID env var.",
     )
+    edit_p.add_argument(
+        "--obs", action="store_true",
+        help="Target the bg-Vael observations channel from the "
+             "OBSERVATIONS_CHANNEL_ID env var.",
+    )
 
     args = ap.parse_args(argv)
 
-    # Resolve the --ooc shortcut into channel_id BEFORE dispatch so
-    # all three subcommands share the same logic. Explicit
-    # --channel-id wins if both are passed (last-write semantics).
-    if getattr(args, "ooc", False) and args.channel_id is None:
-        args.channel_id = _resolve_ooc_channel_id()
+    # Resolve --ooc / --obs shortcuts into channel_id BEFORE
+    # dispatch so all three subcommands share the same logic.
+    # Explicit --channel-id wins if it's also passed (last-write
+    # semantics). --ooc and --obs are mutually exclusive — pick one.
+    ooc = getattr(args, "ooc", False)
+    obs = getattr(args, "obs", False)
+    if ooc and obs:
+        ap.error("--ooc and --obs are mutually exclusive")
+    if args.channel_id is None:
+        if ooc:
+            args.channel_id = _resolve_ooc_channel_id()
+        elif obs:
+            args.channel_id = _resolve_observations_channel_id()
 
     if args.cmd == "send":
         msg = asyncio.run(_post(args.content, args.guild, args.channel_id))

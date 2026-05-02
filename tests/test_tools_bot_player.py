@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tools.bot_player import (
+    _resolve_observations_channel_id,
     _resolve_ooc_channel_id,
     _resolve_test_channel_id,
     main,
@@ -117,6 +118,30 @@ class TestResolveOocChannelId:
         with patch.dict("os.environ", {"OOC_CHANNEL_ID": "not-a-number"}):
             with pytest.raises(SystemExit, match="not a valid integer"):
                 _resolve_ooc_channel_id()
+
+
+class TestResolveObservationsChannelId:
+    def test_obs_resolves_from_env(self):
+        with patch.dict(
+            "os.environ", {"OBSERVATIONS_CHANNEL_ID": "1500213630786863385"}
+        ):
+            assert _resolve_observations_channel_id() == 1500213630786863385
+
+    def test_obs_missing_env_raises(self):
+        saved = os.environ.pop("OBSERVATIONS_CHANNEL_ID", None)
+        try:
+            with pytest.raises(SystemExit, match="OBSERVATIONS_CHANNEL_ID"):
+                _resolve_observations_channel_id()
+        finally:
+            if saved is not None:
+                os.environ["OBSERVATIONS_CHANNEL_ID"] = saved
+
+    def test_obs_invalid_env_raises(self):
+        with patch.dict(
+            "os.environ", {"OBSERVATIONS_CHANNEL_ID": "not-a-number"}
+        ):
+            with pytest.raises(SystemExit, match="not a valid integer"):
+                _resolve_observations_channel_id()
 
 
 class TestMainCliGuards:

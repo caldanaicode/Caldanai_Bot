@@ -96,24 +96,42 @@ Existing tools (`python -m tools.<name> --help` for details):
   for it whenever a $sell / $loadout / inventory bug feels
   like an item-state mystery rather than a code mystery.
 - **`vael_thoughts`** — surface another Claude Code agent's
-  in-conversation assistant text from its session jsonl at
+  in-conversation activity from its session jsonl at
   ``~/.claude/projects/<workspace-slug>/<session-id>.jsonl``.
   Default workspace is bg Vael
   (``E:/dev/Vael-Caldanai/workspace``); pass ``--workspace`` for
-  any other agent. Filter pipeline: ``--match <regex>`` (case-
-  insensitive),
-  ``--min-length`` / ``--max-length``, ``--since <iso>``,
-  ``--longest N`` (top-N by length, where reflective beats live),
-  or ``--tail N``. ``--stats`` swaps the thought emit for a
-  length histogram; ``--repeats N`` swaps it for top-N
-  most-repeated thoughts (combat-loop fingerprint, flavor
-  template leak). ``--follow`` for live capture. Sidechains
-  (sub-agent conversations) skipped by default. Built 2026-05-02
-  to capture in-flight character moments and design-seed
-  fallacies that don't survive into the agent's own memory
-  files. Pairs with the overnight memory-diff cron — cron
-  catches what an agent writes deliberately, vael_thoughts
-  catches what they say moment-to-moment.
+  any other agent. ``--mode`` selects what to surface:
+  ``text`` (default — assistant prose), ``tool-use`` (commands
+  she invoked, rendered as ``name(input_summary)``), or
+  ``user`` (operator prompts + Monitor stream + tool results
+  she was responding to). Filter pipeline: ``--match <regex>``
+  (case-insensitive), ``--min-length`` / ``--max-length``,
+  ``--since <iso>``, ``--longest N`` (top-N by length, where
+  reflective beats live), or ``--tail N``. ``--stats`` swaps
+  the emit for a length histogram; ``--repeats N`` swaps it
+  for top-N most-repeated entries (combat-loop fingerprint).
+  ``--follow`` for live capture. Sidechains (sub-agent
+  conversations) skipped by default. Built 2026-05-02 to
+  capture in-flight character moments and design-seed fallacies
+  that don't survive into the agent's own memory files. Pairs
+  with ``vael_memory_diff`` — that tool catches what an agent
+  writes deliberately, vael_thoughts catches what they say or
+  do moment-to-moment.
+- **`vael_memory_diff`** — snapshot bg Vael's memory directory
+  and diff later snapshots against earlier ones. Default mode
+  (no flag): diff current state vs the latest snapshot, then
+  take a fresh snapshot so the next call diffs against this
+  point. Modes: ``--snapshot`` (no-diff capture),
+  ``--diff [TIMESTAMP]`` (inspect against a specific snapshot
+  or latest), ``--list`` (show available snapshots).
+  ``--show-unchanged`` adds unmodified files to the manifest;
+  ``--no-snapshot-after`` prevents the default-mode
+  snapshot-after-diff side effect. Snapshots stored under
+  ``~/.claude/projects/E--dev-Caldanai-Bot/memory/_vael_snapshots/<iso-ts>/``
+  as recursive copies. Built 2026-05-02 for the morning
+  consolidation pass: shows what bg Vael curated (memory
+  writes) since the last check, so the diff isn't a hand-
+  comparison of every file in her tree.
 
 Shape to follow when adding a new tool:
 

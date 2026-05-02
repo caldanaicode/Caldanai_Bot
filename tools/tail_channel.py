@@ -901,16 +901,26 @@ def _format_range_header(
 
 
 async def _run(args: argparse.Namespace, token: str) -> int:
-    # Resolve --ooc shortcut into args.channel_id BEFORE the
-    # picker decision. Explicit --channel-id wins if both passed.
-    if getattr(args, "ooc", False) and args.channel_id is None:
+    # Resolve --ooc / --obs shortcuts into args.channel_id BEFORE
+    # the picker decision. Explicit --channel-id wins if also
+    # passed. --ooc and --obs are mutually exclusive.
+    ooc = getattr(args, "ooc", False)
+    obs = getattr(args, "obs", False)
+    if ooc and obs:
+        print(
+            "--ooc and --obs are mutually exclusive — pick one.",
+            file=sys.stderr,
+        )
+        return 1
+    if args.channel_id is None and (ooc or obs):
         import os as _os
-        raw = _os.environ.get("OOC_CHANNEL_ID")
+        env_var = "OOC_CHANNEL_ID" if ooc else "OBSERVATIONS_CHANNEL_ID"
+        flag = "--ooc" if ooc else "--obs"
+        raw = _os.environ.get(env_var)
         if not raw:
             print(
-                "OOC_CHANNEL_ID env var not set. Add the engineering "
-                "playtest channel snowflake to .env as OOC_CHANNEL_ID "
-                "before using --ooc.",
+                f"{env_var} env var not set. Add the channel "
+                f"snowflake to .env as {env_var} before using {flag}.",
                 file=sys.stderr,
             )
             return 1
@@ -918,7 +928,7 @@ async def _run(args: argparse.Namespace, token: str) -> int:
             args.channel_id = int(raw)
         except ValueError:
             print(
-                f"OOC_CHANNEL_ID is not a valid integer: {raw!r}",
+                f"{env_var} is not a valid integer: {raw!r}",
                 file=sys.stderr,
             )
             return 1
@@ -1104,6 +1114,15 @@ def main() -> int:
             "``--channel-id $OOC_CHANNEL_ID``. Out-of-character "
             "playtest space — does NOT route to bg Vael's "
             "world view."
+        ),
+    )
+    parser.add_argument(
+        "--obs",
+        action="store_true",
+        help=(
+            "Target the bg-Vael observations channel from the "
+            "OBSERVATIONS_CHANNEL_ID env var. Shortcut for "
+            "``--channel-id $OBSERVATIONS_CHANNEL_ID``."
         ),
     )
     parser.add_argument(
