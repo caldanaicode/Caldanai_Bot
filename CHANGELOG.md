@@ -4,6 +4,10 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — Group-aware message splitting in Dispatcher
+
+`Dispatcher.split_message` previously cut at the line boundary nearest the limit, which produced ugly seams in combat output — orphaning a column-header from its body rows when a fenced attack table straddled the 1900-char split window. Replaced with a three-tier candidate picker: blank-line boundaries (preferred) beat in-paragraph line boundaries beat in-fence line boundaries. Code fences now stay atomic when they fit alone in a chunk; the existing close/reopen post-process only fires when a single fence exceeds the limit. Header-pull (a description line directly before a fence) happens implicitly because they're in the same paragraph. All 27 existing splitter tests pass; three new tests cover the new behavior.
+
 ### 2026-05-02 — Tester tooling: bot_player reactions + vael_thoughts session-log scanner
 
 - `bot_player react <message_id> <emoji>` toggles a reaction on a Discord message (PUT/DELETE on `/reactions/{emoji}/@me`). Mirrors Discord's UI: first call adds, second with the same emoji removes. Lets the tester bot acknowledge channel events without a full chat response, including paginated UIs ($help page-flip).

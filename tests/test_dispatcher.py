@@ -243,6 +243,70 @@ class TestDispatcherCodeFenceSplitting:
         chunks = Dispatcher.split_message(msg, keep_sep=True, limit=9999)
         assert chunks == (msg,)
 
+    def test_fence_atomic_when_it_fits_alone(self):
+        # A header paragraph followed by a code fence that BOTH fit
+        # alone in a chunk but exceed the limit combined: splitter
+        # should break at the blank-line boundary, leaving the fence
+        # whole in chunk 2 with no synthetic close/reopen markers.
+        header = "Round 5 — Bearowl\n" * 5  # 90 chars
+        fence = (
+            "```\n"
+            "Bearowl attacks Patrick:\n"
+            "kick -> right foot | MISS\n"
+            "wing buffet -> right leg | MISS\n"
+            "Total: 0 damage\n"
+            "```\n"
+        )  # ~110 chars
+        msg = header + "\n" + fence
+        chunks = Dispatcher.split_message(msg, keep_sep=True, limit=150)
+
+        assert len(chunks) == 2, f"expected 2 chunks, got {len(chunks)}"
+        # Header chunk: no fence markers leaked in
+        assert "```" not in chunks[0], (
+            f"header chunk contains fence marker: {chunks[0]!r}"
+        )
+        # Fence chunk: complete fence (open + body + close)
+        assert chunks[1].count("```") == 2, (
+            f"fence chunk doesn't have exactly 2 fence markers: {chunks[1]!r}"
+        )
+        assert "Bearowl attacks Patrick:" in chunks[1]
+        assert "Total: 0 damage" in chunks[1]
+
+    def test_blank_line_preferred_over_in_paragraph_line(self):
+        # Two paragraphs separated by a blank line. With a limit
+        # large enough for either alone but not both, the splitter
+        # should cut at the blank line (between paragraphs) instead
+        # of at a single-line boundary inside paragraph 1.
+        para1 = "alpha line one\nalpha line two\nalpha line three"
+        para2 = "beta line one\nbeta line two\nbeta line three"
+        msg = para1 + "\n\n" + para2
+        chunks = Dispatcher.split_message(msg, keep_sep=True, limit=60)
+
+        assert len(chunks) == 2
+        assert "alpha line three" in chunks[0]
+        assert "beta line one" in chunks[1]
+        # No alpha bleed into chunk 2
+        assert "alpha" not in chunks[1]
+
+    def test_in_fence_split_only_when_no_outside_option(self):
+        # A single oversized fence with no surrounding text — there
+        # is no out-of-fence candidate in the window, so tier-3
+        # in-fence cuts are the only option. Falls back to current
+        # close/reopen behavior. Same shape as
+        # test_split_mid_fence_closes_and_reopens but asserts that
+        # a fence-only message still gets balanced chunks under the
+        # new tiered logic.
+        row = "+  row line with padding text content here\n"
+        body = row * 30
+        msg = f"```diff\n{body}```"
+        chunks = Dispatcher.split_message(msg, keep_sep=True, limit=200)
+
+        assert len(chunks) >= 2
+        for chunk in chunks:
+            assert chunk.count("```") % 2 == 0
+        assert chunks[0].startswith("```diff")
+        assert chunks[-1].rstrip().endswith("```")
+
     def test_fence_reserve_keeps_chunks_under_limit(self):
         # The splitter deducts a fence-reserve from the working limit
         # when it splits; enforce that emitted chunks (including any
