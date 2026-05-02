@@ -56,11 +56,19 @@ manifest.
 import argparse
 import datetime
 import difflib
+import os
 import re
 import shutil
 import sys
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
+
+from dotenv import load_dotenv
+
+# Load main-project .env so BG_VAEL_WORKSPACE resolves without
+# pulling in caldanai.environment (which mandates DB_CONNECTION).
+# Idempotent; safe under repeated tool invocations.
+load_dotenv()
 
 
 # Windows consoles default to cp1252 which mangles em-dashes and
@@ -72,7 +80,6 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
-_DEFAULT_SOURCE = "E:/dev/Vael-Caldanai/memory"
 _SNAPSHOT_ROOT = (
     Path.home()
     / ".claude"
@@ -81,6 +88,22 @@ _SNAPSHOT_ROOT = (
     / "memory"
     / "_vael_snapshots"
 )
+
+
+def _default_source() -> Optional[str]:
+    """Resolve the default source directory from ``BG_VAEL_DIR``
+    env var (the bg-agent's root directory); the memory dir is
+    the ``memory`` subdirectory of that root.
+
+    Returns None when the env var is unset — the CLI then errors
+    with a helpful message rather than reading from a baked-in
+    operator-specific path. Keeps any drive-letter / project-tree
+    layout out of source.
+    """
+    raw = os.environ.get("BG_VAEL_DIR")
+    if not raw:
+        return None
+    return str(Path(raw) / "memory")
 
 
 def _iso_timestamp(now: Optional[datetime.datetime] = None) -> str:
@@ -263,10 +286,12 @@ def main(argv=None) -> int:
     )
     ap.add_argument(
         "--source",
-        default=_DEFAULT_SOURCE,
+        default=None,
         help=(
-            "bg Vael's memory directory to snapshot. "
-            f"Default: {_DEFAULT_SOURCE}."
+            "Memory directory to snapshot. Defaults to "
+            "``$BG_VAEL_DIR/memory`` when that env var is set; "
+            "otherwise must be supplied explicitly. Keeps "
+            "operator-specific path layout out of source."
         ),
     )
     ap.add_argument(
@@ -318,7 +343,14 @@ def main(argv=None) -> int:
     )
     args = ap.parse_args(argv)
 
-    source = Path(args.source)
+    source_str = args.source or _default_source()
+    if not source_str:
+        ap.error(
+            "No source directory: pass --source <path> or set "
+            "BG_VAEL_DIR in the environment so the default "
+            "(``$BG_VAEL_DIR/memory``) resolves."
+        )
+    source = Path(source_str)
     snapshot_root = Path(args.snapshot_root)
 
     if args.list:

@@ -65,6 +65,14 @@ import time
 from pathlib import Path
 from typing import Iterator, List, Optional, Pattern, Tuple
 
+from dotenv import load_dotenv
+
+# Load main-project .env so BG_VAEL_WORKSPACE (and any sibling
+# workspace-config env vars) resolve without pulling in
+# caldanai.environment (which mandates DB_CONNECTION). Idempotent;
+# safe under repeated tool invocations.
+load_dotenv()
+
 # Windows consoles default to cp1252 which mangles em-dashes and
 # other non-latin1 glyphs when piping. Reconfigure where supported.
 for _stream in (sys.stdout, sys.stderr):
@@ -74,7 +82,19 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
-_DEFAULT_WORKSPACE = "E:/dev/Vael-Caldanai/workspace"
+def _default_workspace() -> Optional[str]:
+    """Resolve the default workspace path from ``BG_VAEL_DIR`` env
+    var (the bg-agent's root directory); the workspace is the
+    ``workspace`` subdirectory of that root.
+
+    Returns None when unset — the CLI errors with a helpful message
+    rather than reading from a baked-in operator-specific path.
+    Keeps any drive-letter / project-tree layout out of source.
+    """
+    raw = os.environ.get("BG_VAEL_DIR")
+    if not raw:
+        return None
+    return str(Path(raw) / "workspace")
 
 
 def _projects_root() -> Path:
@@ -477,10 +497,12 @@ def main(argv=None) -> int:
     )
     ap.add_argument(
         "--workspace",
-        default=_DEFAULT_WORKSPACE,
+        default=None,
         help=(
             "Workspace path whose Claude Code session log to read. "
-            f"Default: {_DEFAULT_WORKSPACE} (bg Vael)."
+            "Defaults to ``$BG_VAEL_DIR/workspace`` when that env "
+            "var is set; otherwise must be supplied explicitly. "
+            "Keeps operator-specific path layout out of source."
         ),
     )
     ap.add_argument(
@@ -631,6 +653,15 @@ def main(argv=None) -> int:
     active = [name for name, on in view_modes if on]
     if len(active) > 1:
         ap.error(f"mutually exclusive view modes: {', '.join(active)}")
+
+    if args.workspace is None:
+        args.workspace = _default_workspace()
+    if not args.workspace:
+        ap.error(
+            "No workspace: pass --workspace <path> or set "
+            "BG_VAEL_DIR in the environment so the default "
+            "(``$BG_VAEL_DIR/workspace``) resolves."
+        )
 
     if args.list:
         sessions = _list_sessions(args.workspace)

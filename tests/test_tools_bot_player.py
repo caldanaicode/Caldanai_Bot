@@ -96,10 +96,10 @@ class TestResolveTestChannelId:
             patch("tools.bot_player.live_db", return_value=fake_db),
             patch.dict(
                 "os.environ",
-                {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"},
+                {"BOT_PLAYER_CHANNEL_ID": "111111111111111111"},
             ),
         ):
-            assert _resolve_test_channel_id() == 1269749688496558161
+            assert _resolve_test_channel_id() == 111111111111111111
 
     def test_pinned_env_var_invalid_raises(self):
         with patch.dict(
@@ -118,7 +118,7 @@ class TestResolveTestChannelId:
         # Only return the Vael channel; the test asserts the OOC
         # filter went into the query.
         fake_db.games.find.return_value = [
-            {"channel_id": 1269749688496558161, "guild_id": 10},
+            {"channel_id": 111111111111111111, "guild_id": 10},
         ]
 
         with (
@@ -126,23 +126,23 @@ class TestResolveTestChannelId:
             patch("tools.bot_player.live_db", return_value=fake_db),
             patch.dict(
                 "os.environ",
-                {"OOC_CHANNEL_ID": "1500205779184255146"},
+                {"OOC_CHANNEL_ID": "222222222222222222"},
             ),
         ):
             result = _resolve_test_channel_id()
-            assert result == 1269749688496558161
+            assert result == 111111111111111111
             args, _ = fake_db.games.find.call_args
             cid_filter = args[0].get("channel_id")
             assert isinstance(cid_filter, dict)
-            assert cid_filter.get("$ne") == 1500205779184255146
+            assert cid_filter.get("$ne") == 222222222222222222
 
 
 class TestResolveOocChannelId:
     def test_ooc_resolves_from_env(self):
         with patch.dict(
-            "os.environ", {"OOC_CHANNEL_ID": "1500205779184255146"}
+            "os.environ", {"OOC_CHANNEL_ID": "222222222222222222"}
         ):
-            assert _resolve_ooc_channel_id() == 1500205779184255146
+            assert _resolve_ooc_channel_id() == 222222222222222222
 
     def test_ooc_missing_env_raises(self):
         saved = os.environ.pop("OOC_CHANNEL_ID", None)
@@ -162,9 +162,9 @@ class TestResolveOocChannelId:
 class TestResolveObservationsChannelId:
     def test_obs_resolves_from_env(self):
         with patch.dict(
-            "os.environ", {"OBSERVATIONS_CHANNEL_ID": "1500213630786863385"}
+            "os.environ", {"OBSERVATIONS_CHANNEL_ID": "333333333333333333"}
         ):
-            assert _resolve_observations_channel_id() == 1500213630786863385
+            assert _resolve_observations_channel_id() == 333333333333333333
 
     def test_obs_missing_env_raises(self):
         saved = os.environ.pop("OBSERVATIONS_CHANNEL_ID", None)
@@ -191,7 +191,7 @@ class TestWorkspaceMinimalMode:
 
     def test_thread_subcommand_missing_in_minimal_mode(self, capsys):
         with patch.dict(
-            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"}
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "111111111111111111"}
         ):
             with pytest.raises(SystemExit):
                 main(["thread", "ignored.md"])
@@ -200,7 +200,7 @@ class TestWorkspaceMinimalMode:
 
     def test_ooc_flag_missing_in_minimal_mode(self, capsys):
         with patch.dict(
-            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"}
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "111111111111111111"}
         ):
             with pytest.raises(SystemExit):
                 main(["send", "$health", "--ooc"])
@@ -209,7 +209,7 @@ class TestWorkspaceMinimalMode:
 
     def test_obs_flag_missing_in_minimal_mode(self, capsys):
         with patch.dict(
-            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"}
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "111111111111111111"}
         ):
             with pytest.raises(SystemExit):
                 main(["send", "$health", "--obs"])
@@ -226,7 +226,7 @@ class TestWorkspaceMinimalMode:
         try:
             with patch.dict(
                 "os.environ",
-                {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"},
+                {"BOT_PLAYER_CHANNEL_ID": "111111111111111111"},
             ):
                 with pytest.raises(SystemExit, match="CLAUDE_TESTER_TOKEN"):
                     main(["send", "$health"])
