@@ -276,6 +276,230 @@ class RpgAdminCommands(Cog):
                 else:
                     Dispatcher.add(game.channel, "Everyone mentioned appears to already be in good health.")
 
+    @command(brief="Test-only: force-pray with a specific d20 result, bypassing cooldown.")
+    @guild_only()
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def forcepray(self, ctx: Context, *args: str):
+        """Run pray's resolution flow with a forced d20 result,
+        bypassing the 60s pray cooldown and the d20 RNG.
+
+        Useful for branch-testing pray narration deterministically:
+        ``$forcepray 17`` lands the d20-17 heal branch every time;
+        ``$forcepray 1`` lands the lightning sacrifice; ``$forcepray
+        20`` lands the party-wide miracle (and the hidden 1d6 smite
+        roll still rolls live).
+
+        Mention a player to drive their pray (e.g. ``$forcepray
+        @Vael 17`` if the invoker is dead and needs the healthy
+        kin to do the praying); without a mention, the invoker is
+        the praying player. The mention and the d20 value can
+        appear in either order — the d20 is found by scanning args
+        for the first integer 1-20.
+
+        Owner / manage_guild only.
+        """
+        d20_value: Optional[int] = None
+        for arg in args:
+            try:
+                v = int(arg)
+            except ValueError:
+                continue
+            if 1 <= v <= 20:
+                d20_value = v
+                break
+
+        if d20_value is None:
+            Dispatcher.add(
+                ctx,
+                "Usage: `$forcepray [@target] <d20-value>` — d20 must be 1-20.",
+            )
+            return
+
+        game = await RpgUtilities.get_game(ctx)
+        if game is None:
+            return
+
+        if ctx.message.mentions:
+            target_member = ctx.message.mentions[0]
+        else:
+            target_member = ctx.author
+
+        praying_player = await RpgUtilities.get_player(
+            target_member, game=game, notify=False
+        )
+        if praying_player is None:
+            Dispatcher.add(ctx, "Praying player not found.")
+            return
+
+        if praying_player.is_dead():
+            Dispatcher.add(
+                ctx,
+                f"{praying_player.name} is dead — pray's dead-player "
+                f"flavor short-circuits the heal flow. Pick an alive "
+                f"praying player.",
+            )
+            return
+
+        user_cog = self.bot.get_cog("RpgUserCommands")
+        if user_cog is None:
+            Dispatcher.add(ctx, "User commands cog not loaded.")
+            return
+
+        await user_cog._execute_pray(game, praying_player, d20_value=d20_value)
+
+    @group(brief="Admin operations on creatures (players or monsters).", case_insensitive=True)
+    @guild_only()
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    async def creature(self, ctx: Context):
+        """Admin operations that target creatures — players via
+        mention, the current monster via fuzzy name match, or the
+        currently spawned monster as default. Subcommands cover
+        per-creature state changes (destroy parts, future heal /
+        inspect / etc.).
+
+        Use ``$help creature <subcommand>`` for details.
+        """
+        if ctx.invoked_subcommand is None:
+            Dispatcher.add(
+                ctx,
+                "Usage: `$creature <subcommand> [args]`. "
+                "See `$help creature` for available subcommands.",
+            )
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @creature.command(
+        name="destroy",
+        brief="Force-destroys named body parts on a player or monster.",
+    )
+    async def creature_destroy(self, ctx: Context, *args: str):
+        """Force-destroys named body parts on a target creature.
+
+        Target resolution:
+
+        - ``$creature destroy @player <part> [<part>...]`` —
+          targets the mentioned player.
+        - ``$creature destroy <monster-name> <part> [<part>...]``
+          — targets the currently-spawned monster if its name
+          contains the provided substring (fuzzy match).
+        - ``$creature destroy <part> [<part>...]`` — defaults to
+          the currently-spawned monster (legacy ``$spawn destroy``
+          behavior).
+
+        Part names use fuzzy match — ``h.1`` resolves to ``head.1``,
+        ``arm.l`` to ``arm.left``, etc.
+
+        Each destruction fires the part's ``on_destroyed`` hook so
+        side effects (gear drops, debuff applies, narrative beats)
+        proceed exactly as they would on a normal kill — but does
+        NOT itself end-of-state the target, so part-driven death
+        rules (hydra zero-heads, critical-part destruction) still
+        flow through their normal detection paths in the next combat
+        round.
+
+        Intended for playtest / admin use only.
+        """
+        game = await RpgUtilities.get_game(ctx)
+        if game is None:
+            return
+
+        args_list = list(args)
+        target = None
+
+        # Mention-first resolution. Mention text in args is the
+        # raw ``<@!id>`` token — strip it from the parts list.
+        if ctx.message.mentions:
+            target_member = ctx.message.mentions[0]
+            target = await RpgUtilities.get_player(
+                target_member, game=game, notify=False
+            )
+            args_list = [a for a in args_list if not a.startswith("<@")]
+
+        # Fuzzy monster-name match if no mention. The monster's name
+        # is matched as a case-insensitive substring against the
+        # first arg; if it hits, that arg is consumed and the rest
+        # are parts.
+        if (
+            target is None
+            and args_list
+            and game.monster is not None
+            and args_list[0].lower() in game.monster.name.lower()
+        ):
+            target = game.monster
+            args_list = args_list[1:]
+
+        # Default to the spawned monster.
+        if target is None:
+            target = game.monster
+
+        if target is None:
+            Dispatcher.add(
+                ctx,
+                "No target found — mention a player, name a monster, "
+                "or have a monster spawned.",
+            )
+            return
+
+        if not args_list:
+            Dispatcher.add(
+                ctx,
+                "Usage: `$creature destroy [@target | <monster-name>] "
+                "<part> [<part>...]`",
+            )
+            return
+
+        target_name = target.name
+        # Players don't have ``uses_article``; monsters do (default
+        # True). ``getattr`` with a False default cleanly produces
+        # no article for players and the right one for monsters
+        # without needing an isinstance check.
+        article = "the " if getattr(target, "uses_article", False) else ""
+
+        destroyed = []
+        unmatched = []
+        for name in args_list:
+            matches = target.find_parts(name)
+            if not matches:
+                unmatched.append(name)
+                continue
+            for part in matches:
+                if part.is_destroyed():
+                    continue
+                # Route through ``apply_damage`` with the part as
+                # target so the canonical critical-part safety sweep
+                # fires (zeros body HP when a critical part destroys)
+                # and gear placements on the destroyed part clear via
+                # the standard pipeline. Caels 2026-05-01 caught the
+                # "is_dead with body HP at 20" oddity that the prior
+                # direct ``part.health = 0`` mutation produced — pure
+                # ``is_dead`` returned True correctly but downstream
+                # displays still showed the body-HP number, reading
+                # as inconsistent. The apply_damage return is
+                # discarded; we render our own admin announcement
+                # below to keep the admin output clean.
+                target.apply_damage(
+                    part.health_max,
+                    dmg_type=None,
+                    target_part=part,
+                )
+                destroyed.append(part)
+                hook_msg = part.on_destroyed(target)
+                if hook_msg:
+                    Dispatcher.add(game.channel, parse(hook_msg, target))
+
+        if destroyed:
+            part_labels = ", ".join(p.display_name for p in destroyed)
+            Dispatcher.add(
+                game.channel,
+                f"*An unseen force crushes {article}{target_name}'s "
+                f"{part_labels}.*",
+            )
+        if unmatched:
+            unmatched_str = ", ".join(f"`{n}`" for n in unmatched)
+            Dispatcher.add(
+                ctx,
+                f"No body part matched: {unmatched_str}",
+            )
+
     @group(brief="Displays or sets various spawning options.", case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
@@ -500,74 +724,6 @@ class RpgAdminCommands(Cog):
             return
 
         await game.kill_monster()
-
-    @check_any(is_owner(), has_permissions(manage_guild=True))
-    @spawn.command(brief="Force-destroys named body parts on the current monster.")
-    async def destroy(self, ctx: Context, *parts: str):
-        """
-        Force-destroys the named body parts on the current monster.
-        Admin-only. Variadic — `$spawn destroy head.1 head.2`
-        destroys both. Parts are fuzzy-matched the same way `$kill`
-        / `$target` do, so `h.1` resolves to `head.1`.
-
-        Part destruction fires the part's ``on_destroyed`` hook but
-        does NOT itself terminate the monster — monsters with a
-        part-driven death condition (e.g. the hydra's zero-heads
-        rule) die via :meth:`Creature.check_part_driven_death`
-        during the next combat round. This is intentional: it lets
-        playtest exercises like "decapitate a hydra and verify the
-        death detection fires in the combat round that landed the
-        killing blow" actually test that code path, by using this
-        command to accelerate early-round attrition and reserving
-        the final part-destruction for a real combat attack.
-
-        Intended for playtest / admin use only.
-        """
-        game = self.bot.games.get(ctx.channel.id)
-        if game is None:
-            return
-        if game.monster is None:
-            Dispatcher.add(game.channel, "There is no monster present!")
-            return
-        if not parts:
-            Dispatcher.add(
-                ctx,
-                "Usage: `$spawn destroy <part> [<part> ...]`. Part names "
-                "are fuzzy-matched (e.g. `h.1` for `head.1`).",
-            )
-            return
-
-        destroyed = []
-        unmatched = []
-        for name in parts:
-            matches = game.monster.find_parts(name)
-            if not matches:
-                unmatched.append(name)
-                continue
-            for part in matches:
-                if part.is_destroyed():
-                    continue
-                part.health = 0
-                destroyed.append(part)
-                hook_msg = part.on_destroyed(game.monster)
-                if hook_msg:
-                    Dispatcher.add(game.channel, parse(hook_msg, game.monster))
-
-        if destroyed:
-            part_labels = ", ".join(p.display_name for p in destroyed)
-            monster_name = game.monster.name
-            article = "the " if getattr(game.monster, "uses_article", True) else ""
-            Dispatcher.add(
-                game.channel,
-                f"*An unseen force crushes {article}{monster_name}'s "
-                f"{part_labels}.*",
-            )
-        if unmatched:
-            unmatched_str = ", ".join(f"`{n}`" for n in unmatched)
-            Dispatcher.add(
-                ctx,
-                f"No body part matched: {unmatched_str}",
-            )
 
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @spawn.command(brief="Spawns the requested item to the given player's inventory.")

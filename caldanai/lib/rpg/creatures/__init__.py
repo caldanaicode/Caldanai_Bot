@@ -8,6 +8,7 @@ from discord import Embed, File
 
 from caldanai.lib.rpg import parse, _INDENT
 from caldanai.lib.rpg.creatures.body_part import BodyPart
+from caldanai.lib.rpg.creatures.healing import HealMixin
 from caldanai.lib.rpg.creatures.mixins import (
     Defensive, Equippable, Mobility, Offensive, Sensory,
 )
@@ -113,7 +114,7 @@ def _roll_absorption(defense: int, raw: int) -> int:
     return min(rolled, raw)
 
 
-class Creature:
+class Creature(HealMixin):
     """
     An instance of a creature object.
     """
@@ -2276,12 +2277,18 @@ class Creature:
         OR any critical body part has been destroyed (directly or via
         an ancestor-destroyed cascade).
 
-        The critical-part check catches paths that bypass
-        :meth:`apply_damage`'s safety sweep — e.g. admin commands
-        that zero a part's health directly, or any future code that
-        mutates part state outside the damage-application flow. Sets
-        ``self.health = 0`` as a side effect so subsequent health
-        checks agree with this verdict.
+        Pure predicate — no side effects. ``apply_damage`` is the
+        canonical place to zero ``self.health`` when a critical part
+        is destroyed (via its post-damage safety sweep). Code paths
+        that mutate part state outside the damage-application flow
+        (e.g. admin commands that zero a part directly) are
+        responsible for keeping the body HP in sync themselves; the
+        2026-05-01 doppelganger pray-revive bug traced to this method
+        zeroing ``self.health`` mid-heal because the destroyed
+        critical part hadn't yet been restored, and the surgical fix
+        was to make this check a non-mutator so heal-then-restore
+        sequences don't lose the body-HP delta to a transient
+        critical-part-destroyed read.
 
         :return: True if dead (HP 0 or critical part destroyed).
         """
@@ -2290,7 +2297,6 @@ class Creature:
         if self.body_parts:
             for part in self.body_parts:
                 if part.is_critical and part.is_destroyed():
-                    self.health = 0
                     return True
         return False
 

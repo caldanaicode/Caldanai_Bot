@@ -5,7 +5,7 @@ from caldanai.lib.rpg import get_random_direction, Player
 from caldanai.lib.rpg.creatures.body_builder import humanoid_tree
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
-from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, Size, TimePartitions, Qualities
+from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, Size, TimePartitions
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.logger import get_logger
@@ -141,16 +141,6 @@ class Doppelganger(MonsterPlugin):
         self.loot["cheese_sandwich"] = 0.2
         self.loot["wallet"] = 0.25
 
-        # Snapshot the doppy's "always-drops-some-of-this" baseline
-        # so ``imitate`` can reset to it without losing these five
-        # entries. Pre-fix, every imitation layered the new target's
-        # inventory plugins onto self.loot WITHOUT clearing the
-        # previous target's additions — so a doppy that mimicked
-        # three players ended up rolling drops from all three's
-        # inventories at once. Reset-to-baseline keeps drops scoped
-        # to the current form.
-        self._base_loot: dict = dict(self.loot)
-
         self.size = Size.MEDIUM
         self._scale_part_hp()
 
@@ -233,24 +223,6 @@ class Doppelganger(MonsterPlugin):
         # and size modifiers, effectively double-applying those factors.
         # Phase C (player integration) should address this.
         self.dodge = getattr(target, "dodge", target.get_dodge())
-
-        # Reset the loot table to the doppy's baseline before
-        # re-seeding from the current target. Pre-fix, every
-        # imitation layered the new target's inventory plugins
-        # onto the EXISTING loot table without clearing prior
-        # targets' contributions — so a doppy that imitated three
-        # players ended up rolling drops from all three. Reset
-        # restores the five baseline entries snapshotted at
-        # __init__ (shortsword / bandanna / bow / cheese_sandwich
-        # / wallet) and discards anything layered on by previous
-        # imitations.
-        self.loot = dict(self._base_loot)
-
-        # Add the player's inventory items to the loot table with re-rolled rarity
-        for item in target.inventory.all():
-            quality = choice(list(Qualities))
-            base_freq = quality.value["multiplier"] * 0.1
-            self.loot[item.plugin] = self.loot.get(item.plugin, 0) + base_freq
 
         # Deep-copy the target's body tree including injury state.
         # Copying ``body_root`` (instead of each part individually)

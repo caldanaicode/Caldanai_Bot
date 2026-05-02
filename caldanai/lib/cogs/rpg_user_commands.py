@@ -1,5 +1,6 @@
 import math
 from random import choice
+from typing import Optional
 
 from discord.ext.commands import Cog, command, cooldown, BucketType, guild_only, group, Context
 
@@ -473,6 +474,24 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, parse(msg, player))
             return
 
+        await self._execute_pray(game, player)
+
+    async def _execute_pray(self, game, player, d20_value: Optional[int] = None):
+        """The pray-roll resolution body. Extracted from
+        :meth:`pray` 2026-05-01 so admin tooling can fire the same
+        flow with a forced d20 value (e.g. ``$forcepray 17`` for
+        deterministic branch testing without burning real prayers
+        on the 60s cooldown).
+
+        :param game: The active :class:`Game` whose channel will
+            receive the narration.
+        :param player: The praying player (whose roll count is
+            updated and who anchors the parser's ``@1``).
+        :param d20_value: Optional 1-20 override. ``None`` rolls
+            a fresh d20 — the production path. A forced value
+            skips the RNG and selects a specific branch.
+        """
+
         msgs = [
             "@1 offers a solemn prayer, seeking forgiveness and humility.",
             "@1 seeks the guidance of the Divine.",
@@ -482,7 +501,14 @@ class RpgUserCommands(Cog):
         ]
 
         msg = choice(msgs)
-        d20 = Dice.d20()
+        if d20_value is None:
+            d20 = Dice.d20()
+        else:
+            class _ForcedDice:
+                def __init__(self, value):
+                    self.value = value
+                    self.sides = 20
+            d20 = _ForcedDice(d20_value)
         msg += f" (1d{d20.sides} = {d20.value})"
         player.update_roll_count(d20.sides, d20.value)
         heal_amount = 0
@@ -626,61 +652,57 @@ class RpgUserCommands(Cog):
             actors.append(heal_target)
             index = len(actors)
 
-            # 17–19: computed body heal + fully restore ONE most-
-            # injured part (triage). Keeps nat 20 distinct as the
-            # "everything fixed" outcome.
-            missing_health = heal_target.get_health_max() - heal_target.health
-            quarter = math.ceil(missing_health / 4) if missing_health else 0
+            # 17-19: divine intervention that always at-minimum
+            # revives. Free part rescue + body spark, then a
+            # rolled buffer distributed 2:1 across residual wound
+            # surface. Heavy lifting lives on Creature so future
+            # heal sources (potions, scrolls, magic, mob-vs-mob
+            # heals in multi-monster combat) can reuse it.
+            grace_hp, revive_msg, rescue_healed = heal_target.divine_rescue()
 
-            if quarter > 1:
-                heal_amount = Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value % 17)
-            elif missing_health == 1:
-                heal_amount = 1
-            elif missing_health > 0:
-                heal_amount = Dice.quick_roll(f"1d{missing_health}")
-            else:
-                heal_amount = 0
-
-            heal_amount = heal_amount or 0
-
-            # Pick the worst-injured part BEFORE applying heals so
-            # we can fold its missing-HP contribution into the
-            # single "points of health" total. Prior implementation
-            # reported only the body-HP delta, which read as "1
-            # point of health" even when an arm missing 8 HP was
-            # being restored to full in the same beat.
-            injured_parts = [
-                part for part in (heal_target.body_parts or [])
-                if part.health < part.health_max
-            ]
-            worst = (
-                min(injured_parts, key=lambda p: p.health / p.health_max)
-                if injured_parts else None
+            quarter = max(
+                1, math.ceil(heal_target.get_total_injury_surface() / 4)
             )
-            part_heal_amount = (
-                worst.health_max - worst.health if worst else 0
+            total_heal = (
+                Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value - 17)
+                if heal_target.get_total_injury_surface() > 0 else 0
             )
-            total_heal = heal_amount + part_heal_amount
 
-            body_heal_msg = heal_target.apply_damage(-heal_amount) if heal_amount else ""
+            parts_applied, body_applied, distributed_healed, body_msg = (
+                heal_target.distribute_heal(total_heal)
+            )
 
-            if body_heal_msg:
-                msg += f"\n{body_heal_msg}"
+            # Merge healed-part lists (rescue first, then any
+            # additional transitions from the rolled distribute).
+            healed_parts: List = list(rescue_healed)
+            for hp in distributed_healed:
+                if hp not in healed_parts:
+                    healed_parts.append(hp)
+
+            total_actual = grace_hp + parts_applied + body_applied
+
+            # Narration order: revive beat (gasps) → warm light →
+            # per-part recovery lines. Spark's revive_msg wins over
+            # the budget-body's tail because the spark fires first
+            # while was_alive was still False.
+            tail_msg = revive_msg or body_msg
+            if tail_msg:
+                msg += f"\n{tail_msg}"
 
             msg += f"\nA warm light suffuses @{index}, "
 
-            if total_heal > 0:
-                noun = "point" if total_heal == 1 else "points"
-                msg += f"imbuing @{index}o with {total_heal} {noun} of health!"
+            if total_actual > 0:
+                noun = "point" if total_actual == 1 else "points"
+                msg += f"imbuing @{index}o with {total_actual} {noun} of health!"
             else:
                 msg += f"and a pleasant tingle envelops @{index}o without noticeable effect."
 
-            if worst is not None:
-                worst.health = worst.health_max
-                heal_target.is_dirty = True
-                msg += (
-                    f"\n@{index}'s {worst.display_name} knits itself whole."
-                )
+            target_is_dead = heal_target.is_dead()
+            for healed_part in healed_parts:
+                template = healed_part.get_recovery_string(dead=target_is_dead)
+                if template:
+                    line = parse(template, heal_target)
+                    msg += f"\n{line[0].upper()}{line[1:]}"
 
         Dispatcher.add(game.channel, parse(msg, *actors))
 

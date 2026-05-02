@@ -4,6 +4,69 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-01 — Heal-system rewrite: pray d20=17-19 + cascade-revive narration + neck-critical
+
+Live `$pray` playtest exposed a corpse-revive bug — narration
+read "imbuing them with N points of health!" but the player
+stayed mechanically dead because `Creature.is_dead()` had a
+hidden side-effect that zeroed `self.health` mid-heal whenever
+a destroyed critical part was still detected. The surface fix
+unraveled into a full rewrite of how pray, regen, and divine
+intervention distribute heal magnitude.
+
+- **`is_dead()` is now a pure predicate.** Damage paths
+  (`Creature.apply_damage`, hydra's `check_part_driven_death`)
+  own their own body-HP zeroing on critical-part destruction;
+  `is_dead` just reads state.
+- **`HealMixin` extracted to `creatures/healing.py`.** Three
+  primitives Creature inherits: `get_total_injury_surface`,
+  `divine_rescue` (free critical-part rescue + body spark),
+  `distribute_heal` (2:1 part:body distribution). Future heal
+  sources (potions, scrolls, magic, mob-vs-mob heals) reuse them.
+- **Pray d20=17-19 rewrite.** Always-revives if the target was
+  dead — every destroyed critical part rescued to 1 HP, body
+  sparked to 1 if at 0, gasping narration fires. Then a rolled
+  budget distributes 2:1 part-to-body, worst-first within tiers
+  (critical-destroyed → critical → non-critical), with ratio-
+  preserving spillover (4 saved part-HP → 2 body, 2 lost to
+  the routing valve). Min-1 floor on small rolls so even a
+  low d20=17 lands ≥1 HP somewhere effective.
+- **Cascade-revive narration.** Pray and `do_health_regen` both
+  capture `was_dead` at function entry and fire the gasping
+  tail on cascade transitions (body > 0 but is_dead via
+  critical-part destroyed → rescue clears it → alive).
+  `apply_damage`'s tail was HP-only and missed this.
+- **`neck.is_critical = True`** for humanoid anatomy. Direct
+  kill on neck destruction. Hydra explicitly overrides
+  `is_critical=False` on multi-necks (only the last head is
+  critical per existing design).
+- **`$creature destroy [@target | <monster-name>] <part>`** —
+  lifted from `$spawn destroy`, now top-level under a
+  `$creature` admin group. Targets players via mention or
+  monsters via fuzzy name match. Routes through `apply_damage`
+  with `target_part` so the canonical safety sweep zeros body
+  HP on critical destruction and gear placements clear normally.
+- **`$forcepray <d20-value> [@target]`** admin command for
+  branch-testing pray narration deterministically. Bypasses
+  the 60s pray cooldown and the d20 RNG. Owner / manage_guild.
+
+### 2026-05-01 — Inventory $sort + doppy loot-volume fix
+
+`$sort` (aliases: `organize`, `tidy`) re-slots inventory by
+`(plugin asc, quality desc)` so duplicates land together and
+the best copy of each plugin sits at the lowest slot. DM-routed
+via the same `dm_target` selector `$inv` uses. Items keep their
+`_id`s, so saved loadouts stay valid post-sort.
+
+Doppelganger loot-pile cleanup: removed the for-loop in
+`imitate` that augmented the loot table with the target's
+inventory at re-rolled rarity. Pre-fix doppy kills produced
+~8-9 items/kill (1 baseline + 6.5 augment + ~1 salvage); post-
+fix is the static 5-entry baseline plus occasional salvage of
+mimicked equipped gear. The 2026-04-29 dup-id fix already
+covered the salvage pipeline; this finishes the volume-bomb
+removal noted in that commit.
+
 ### 2026-04-29 — Doppy mimic dup-id corruption + drop-rate rebalance
 
 `Doppelganger.imitate` deep-copies the target's body tree

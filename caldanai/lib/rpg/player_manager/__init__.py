@@ -313,6 +313,17 @@ class PlayerManager:
             max_health = player.get_health_max()
             body_needs = player.health < max_health
 
+            # Snapshot is_dead BEFORE the heal applies so a regen
+            # tick that lifts the player off death (body 0 → positive
+            # OR critical part destroyed → restored) can fire the
+            # resurrection narration. ``apply_damage``'s tail check
+            # is HP-only and won't catch the cascade-revive case
+            # (e.g. dead-by-cascade with body > 0). 2026-05-01:
+            # surfaced when Caels was-dead transitioned to alive
+            # via regen with no "gasps raggedly" beat — same shape
+            # as the pray cascade-revive narration fix.
+            was_dead = player.is_dead()
+
             if body_needs:
                 m = player.apply_damage(-player.health_regen)
                 if m:
@@ -327,13 +338,33 @@ class PlayerManager:
                 injured_part.apply_damage(-player.health_regen)
                 new_level = injured_part.get_injury_level()
                 if new_level != old_level:
-                    template = injured_part.get_recovery_string()
+                    template = injured_part.get_recovery_string(dead=player.is_dead())
                     if template:
                         # Parse through the @ system so pronouns /
                         # names come out naturally (e.g. "Caels winces
                         # as feeling returns to her left arm.").
                         line = parse(template, player)
                         msg += f"\n{line[0].upper()}{line[1:]}"
+
+            # Cascade-revive narration: regen tick brought the
+            # player back from is_dead. Emits BEFORE the recovery
+            # line in narrative order so readers see "X gasps as
+            # life returns" then the per-part transition that
+            # enabled it. ``apply_damage``'s HP-only tail won't
+            # fire when the death cause was critical-part-destroyed
+            # (cascade) rather than body-HP-zero, so we narrate
+            # the gasping ourselves on detected transition.
+            if was_dead and not player.is_dead():
+                mention = (
+                    f"<@!{player.member.id}>"
+                    if getattr(player, "member", None) is not None
+                    else player.name
+                )
+                revive_line = parse(
+                    f"{mention} suddenly gasps raggedly as life returns to @1o!",
+                    player,
+                )
+                msg = f"\n{revive_line}{msg}"
 
             # Regen grows until all of the player's HP pools (body +
             # every part) are back at max, then resets. Ramp is +2

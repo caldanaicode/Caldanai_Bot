@@ -458,6 +458,154 @@ class TestNat17To19SingleTargetUnchanged:
         assert "radiant column of light" not in sent
 
 
+class TestNat17To19RescueAndDistribute:
+    """Pins the 2026-05-01 rewrite: free critical-part rescue + body
+    spark, then a rolled buffer distributed 2:1 part:body, with
+    honest reporting of HP that actually landed (not the intent).
+
+    Locks in the contract behind the doppy-cyclops live-playtest bug
+    chain: ``is_dead`` was a mutator that nuked mid-heal HP deltas;
+    pray d20=17-19 was reporting a heal that didn't fully revive
+    despite narrating "imbuing them with N points of health."
+    """
+
+    @pytest.mark.asyncio
+    async def test_destroyed_critical_part_revives_with_gasping_tail(self):
+        """Caels prays for fallen Alice — she's dead from critical-
+        part destruction (head at 0/15, body HP at 0). Pray d20=17+
+        should rescue the head to 1 HP, spark the body to 1 HP, and
+        fire the resurrection narration tail through ``apply_damage``
+        so Alice visibly comes back. Without the rescue-then-spark
+        order the tail is suppressed because ``is_dead`` returns
+        True throughout the body-heal call."""
+        cog = _cog()
+        caels = _make_player("Caels", health=20, health_max=20, uid=1)
+        alice = _make_player("Alice", health=0, health_max=20, uid=2)
+        # Critical-destroyed head, otherwise is_dead won't detect
+        # critical-part death.
+        head = BodyPart(name="head", health_max=15)
+        head.is_critical = True
+        head.health = 0
+        torso = BodyPart(name="torso", health_max=30)
+        torso.is_critical = True
+        alice.body_parts = [head, torso]
+        game = _make_game(monster=None, players=[caels, alice])
+
+        await _invoke_pray(cog, game, caels, d20_value=17, d6_value=1)
+
+        # Rescue: head off zero, body off zero, alive.
+        assert head.health >= 1
+        assert alice.health >= 1
+        assert not alice.is_dead()
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        assert "gasps raggedly" in sent
+        assert "warm light suffuses" in sent
+
+    @pytest.mark.asyncio
+    async def test_body_full_but_part_injured_reports_honest_amount(self):
+        """Caels prays for Alice. Alice's body HP is at max but a
+        part is injured. The 2:1 distribute directs body_budget at
+        a full body — ``apply_damage`` clamps to max and the body-
+        side absorbs nothing. The narration must reflect what
+        actually landed (parts only), not the intended budget.
+        Pre-fix, ``body_to_apply`` was reported as ``body_applied``
+        and the message over-stated the heal magnitude."""
+        cog = _cog()
+        caels = _make_player("Caels", health=20, health_max=20, uid=1)
+        alice = _make_player("Alice", health=20, health_max=20, uid=2)
+        # One injured non-critical part with enough missing HP to
+        # produce a meaningful budget at d20=19 (quarter ramp +
+        # 2*quarter bonus).
+        leg = BodyPart(name="left leg", health_max=20)
+        leg.health = 4  # 16 HP missing
+        alice.body_parts = [leg]
+        game = _make_game(monster=None, players=[caels, alice])
+
+        await _invoke_pray(cog, game, caels, d20_value=19, d6_value=1)
+
+        # Body HP must remain at max (clamped). Leg gets some heal.
+        assert alice.health == 20
+        assert leg.health > 4
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        # Pull the "imbuing them with N points" line and parse N.
+        # The reported number must equal the actual leg-HP delta —
+        # not body+parts intent.
+        import re
+        match = re.search(r"imbuing .+? with (\d+) points? of health", sent)
+        assert match, f"Expected imbuing-N narration, got: {sent}"
+        reported = int(match.group(1))
+        actual_leg_delta = leg.health - 4
+        # Reported should be exactly the leg delta (body absorbed
+        # zero, no rescue happened, no spark since alive).
+        assert reported == actual_leg_delta, (
+            f"Reported {reported} HP but only {actual_leg_delta} landed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_rescue_lifts_non_critical_ancestor_without_overwriting_critical(self):
+        """Caels-2026-05-01 incident: neck (non-critical) is destroyed,
+        cascade-destroying head (critical, but own HP intact). Pre-fix
+        ``divine_rescue`` walked critical-AND-is-destroyed parts and
+        OVERWROTE head's intact HP to 1 because ``is_destroyed`` cascades
+        through ancestors. Post-fix: own-zero check skips intact head,
+        ancestor-of-critical walk catches neck for rescue."""
+        cog = _cog()
+        caels = _make_player("Caels", health=20, health_max=20, uid=1)
+        alice = _make_player("Alice", health=5, health_max=20, uid=2)
+
+        # Real BodyPart objects with parent/child wiring so ``ancestors()``
+        # walks correctly. MagicMocks don't expose the tree topology.
+        torso = BodyPart(name="torso", health_max=30)
+        torso.is_critical = True
+        torso.health = 5  # alive but injured
+        neck = BodyPart(name="neck", health_max=8)
+        neck.is_critical = False  # matches production neck.py
+        neck.health = 0  # destroyed
+        torso.add_child(neck)
+        head = BodyPart(name="head", health_max=15)
+        head.is_critical = True
+        head.health = 15  # FULL HP — must not be overwritten
+        neck.add_child(head)
+        alice.body_parts = [torso, neck, head]
+
+        game = _make_game(monster=None, players=[caels, alice])
+
+        await _invoke_pray(cog, game, caels, d20_value=17, d6_value=1)
+
+        # Head's intact HP must NOT be overwritten by the rescue.
+        assert head.health == 15
+        # Neck (non-critical, ancestor of critical head) must be rescued.
+        assert neck.health >= 1
+        # Alice should now read alive — body still > 0 (wasn't 0),
+        # head intact, neck rescued, no cascade-destroyed criticals.
+        assert not alice.is_dead()
+
+    @pytest.mark.asyncio
+    async def test_uninjured_target_fires_tingle_branch(self):
+        """Edge case: ``is_injured`` filter lands on the praying
+        player as fallback (`or [player]` in the candidate list)
+        when no one is actually injured. With ``total_missing == 0``,
+        the rolled budget is zero and the narration falls through
+        to the "pleasant tingle" branch instead of "imbuing"."""
+        cog = _cog()
+        alice = _make_player("Alice", health=20, health_max=20, uid=1)
+        # All parts at full HP. ``is_injured`` returns False, so the
+        # candidates list is empty and falls back to ``[alice]``.
+        leg = BodyPart(name="left leg", health_max=12)
+        leg.health = 12
+        alice.body_parts = [leg]
+        game = _make_game(monster=None, players=[alice])
+
+        await _invoke_pray(cog, game, alice, d20_value=18, d6_value=1)
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        assert "warm light suffuses" in sent
+        assert "pleasant tingle" in sent
+        assert "imbuing" not in sent
+
+
 # ---------------------------------------------------------------------------
 # Nat-1 regression pin
 # ---------------------------------------------------------------------------

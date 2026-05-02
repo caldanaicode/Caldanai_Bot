@@ -123,26 +123,20 @@ class TestImitate:
         assert second == ""
         assert doppel.defense == 999  # not re-overwritten to 5
 
-    def test_adds_inventory_to_loot(self):
+    def test_loot_table_does_not_accumulate_across_imitations(self):
+        """The doppy's ``self.loot`` is the static baseline
+        seeded in ``__init__`` (shortsword / bandanna / bow /
+        cheese_sandwich / wallet) and stays that way across any
+        number of imitations. Mimicked-gear drops happen via
+        salvage / corpse-scavenge of equipped pieces from the
+        deep-copied body tree, NOT via inventory-augmentation of
+        the loot table — that pre-2026-05-01 path is gone.
+        Pre-removal, imitating two players in sequence would
+        leave both players' inventory plugins layered onto
+        ``self.loot``."""
         doppel = Doppelganger()
-        item = MagicMock()
-        item.plugin = "magic_sword"
-        player = _make_player()
-        player.inventory.all.return_value = (item,)
+        baseline_keys = set(doppel.loot.keys())
 
-        doppel.imitate(player)
-
-        assert "magic_sword" in doppel.loot
-
-    def test_loot_resets_to_baseline_across_imitations(self):
-        """Each imitation resets ``self.loot`` to the doppy's
-        baseline (the five entries seeded in ``__init__``) before
-        re-seeding from the new target's inventory. Pre-fix, every
-        imitation layered the new target's plugins onto the
-        existing loot table without clearing prior targets' adds —
-        a doppy that imitated three players ended up rolling drops
-        from all three at once. 2026-04-29 fix."""
-        doppel = Doppelganger()
         item1 = MagicMock()
         item1.plugin = "unique_to_alice"
         item2 = MagicMock()
@@ -154,13 +148,13 @@ class TestImitate:
         player2.inventory.all.return_value = (item2,)
 
         doppel.imitate(player1)
-        assert "unique_to_alice" in doppel.loot
+        assert set(doppel.loot.keys()) == baseline_keys
+        assert "unique_to_alice" not in doppel.loot
 
         doppel.imitate(player2)
-        # Alice's plugin must NOT carry over; Bob's must be present.
-        assert "unique_to_alice" not in doppel.loot
-        assert "unique_to_bob" in doppel.loot
-        # Doppy's baseline stays across resets.
+        assert set(doppel.loot.keys()) == baseline_keys
+        assert "unique_to_bob" not in doppel.loot
+        # Baseline still intact.
         assert "shortsword" in doppel.loot
         assert "bandanna" in doppel.loot
 

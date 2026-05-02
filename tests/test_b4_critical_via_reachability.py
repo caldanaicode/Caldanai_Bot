@@ -9,10 +9,15 @@ makes descendants *unreachable* — the descendant's HP stays
 intact but it's dangling off a ruined limb. For critical
 descendants, unreachable = functionally dead = creature dies.
 
-The canonical case is player anatomy: ``neck`` is non-critical
-and sits between torso and head; ``head`` is critical. A broken
-neck leaves the head dangling but functionally severed. By
-design, that's death.
+Player anatomy used to demonstrate this via the neck: pre-
+2026-05-01, neck was non-critical and the head's cascade
+death (via ``BodyPart.is_destroyed`` ancestor walk) was what
+killed the player on neck destruction. After 2026-05-01 the
+humanoid neck is itself ``is_critical=True``, so the kill is
+direct — the cascade path is no longer the active mechanism
+for humanoids. This file retains the cascade tests as
+regression pins for multi-neck creatures (hydra), where necks
+remain non-critical and head-via-cascade is still the design.
 """
 
 from unittest import TestCase
@@ -35,14 +40,18 @@ def _fresh_player() -> Player:
 
 
 class NeckDestructionKillsPlayerTests(TestCase):
-    def test_destroying_neck_kills_player_via_critical_head_descendant(self):
-        """Neck is non-critical. Head is critical. Neck → head
-        in the player's body tree. Destroying the neck severs
-        the head → creature dies."""
+    def test_destroying_neck_kills_player_directly(self):
+        """Post-2026-05-01: neck is itself ``is_critical=True`` for
+        humanoid anatomy, so destroying it kills the player
+        directly via the critical-part short-circuit. The pre-
+        rewrite cascade path (head-via-ancestor-destroyed) is now
+        a fallback rather than the primary mechanism."""
         p = _fresh_player()
         neck = p.get_part("neck")
         assert neck is not None
-        assert not neck.is_critical
+        assert neck.is_critical, (
+            "humanoid neck should be critical post-2026-05-01"
+        )
         head = p.get_part("head")
         assert head is not None
         assert head.is_critical
@@ -52,7 +61,7 @@ class NeckDestructionKillsPlayerTests(TestCase):
         p.apply_damage(neck.health_max, dmg_type=None, target_part=neck)
         self.assertTrue(
             p.is_dead(),
-            "player should be dead after neck destruction severs head",
+            "player should be dead after neck destruction (neck is critical)",
         )
 
     def test_destroying_neck_via_multiple_small_hits_kills(self):

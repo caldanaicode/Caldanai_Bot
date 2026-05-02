@@ -349,6 +349,47 @@ class RpgInventoryCommands(Cog):
         for msg in inv:
             Dispatcher.add(dest, f'```js\n{msg.strip()}```')
 
+    @command(
+        name='sort',
+        aliases=['organize', 'tidy'],
+        brief="Reorder inventory: groups by item type, best quality first.",
+    )
+    @cooldown(1, 5, BucketType.member)
+    async def sort(self, ctx: Context):
+        """
+        Reorder the inventory so identical item types group
+        together, with the best-quality copy of each group
+        landing on top. Sorting preserves equipped placement
+        and ★ favorited status — only slot numbers change.
+
+        After sorting, the freshly-ordered inventory is DM'd
+        back, same as ``$inv`` — no channel spam.
+
+        (5-second cool-down)
+        """
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+
+        if ctx.guild is not None and not RpgUtilities.is_bot_player(player.member):
+            await ctx.message.delete()
+
+        n = player.inventory.sort()
+        dest = RpgUtilities.dm_target(player.member, ctx.channel)
+        if n == 0:
+            Dispatcher.add(
+                dest,
+                f"{player.name}'s inventory is empty — nothing to sort.",
+            )
+            return
+
+        # Same render path as $inv so the sorted result lands in
+        # the player's DMs in the familiar format.
+        Dispatcher.add(dest, f'Inventory for {player.name} on {game.guild.name}')
+        inv = Dispatcher.split_message(player.get_inventory(), keep_sep=True)
+        for msg in inv:
+            Dispatcher.add(dest, f'```js\n{msg.strip()}```')
+
     @command(name='item', brief='Displays details about an item or placement.')
     @cooldown(1, 2, BucketType.member)
     async def item(self, ctx: Context, *, name: str = None):

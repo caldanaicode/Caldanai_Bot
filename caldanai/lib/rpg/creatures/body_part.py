@@ -119,7 +119,7 @@ class BodyPart(Node, ABC):
 
         return f"{label} is completely unscathed."
 
-    def get_recovery_string(self):
+    def get_recovery_string(self, dead: bool = False):
         """Returns a narration template for a part that has just
         *improved* to this injury level (i.e. healed up from something
         worse). Template uses ``@1`` / ``@1a`` tokens resolved via the
@@ -129,9 +129,33 @@ class BodyPart(Node, ABC):
         Level-appropriate flavor ramps from "just starting to recover"
         (SEVERE) to "completely fine" (NONE). Returns empty string if
         the part is still at USELESS — we don't narrate a non-heal.
+
+        ``dead=True`` switches to corpse-state variants for callers
+        that detect the owning creature is mechanically dead (e.g.
+        regen ticking on a player whose critical part destruction
+        still gates ``is_dead`` to True). The dead lines stay third-
+        person observational — a corpse can't "wince as feeling
+        returns" — so the narration matches the in-fiction state of
+        a body that's mending in stillness rather than recovering
+        with awareness.
         """
         level = self.get_injury_level()
         display = self.display_name  # "left arm", "right foreleg", "head"
+
+        if dead:
+            if level == InjuryLevels.MINOR:
+                return f"Color creeps faintly into @1np {display}, though @1s @1v(stirs|stir) not."
+
+            if level == InjuryLevels.MODERATE:
+                return f"@1np {display} mends quietly, though @1s @1v(remains|remain) still."
+
+            if level == InjuryLevels.SEVERE:
+                return f"Tissue knits along @1np {display} in eerie silence."
+
+            if level == InjuryLevels.NONE:
+                return f"@1np {display} looks whole, though @1s @1v(lies|lie) silent."
+
+            return ""
 
         if level == InjuryLevels.MINOR:
             return f"@1np {display} is nearly back to full strength."

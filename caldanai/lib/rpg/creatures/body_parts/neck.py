@@ -26,12 +26,22 @@ Design rationale
     head (``3d10``) or a torso (``6d10``). A single decent
     blow should be enough to seriously injure the neck.
 
-``is_critical = False``
-    A damaged neck should hurt — eventually reaching that
-    throat-bite kill path — but the base plugin doesn't fire
-    a critical-part death short-circuit on its own. Creatures
-    like werewolf can override to inflict neck-specific finish
-    moves without the base plugin presuming them.
+``is_critical = True``
+    The neck holds the head atop the body — destroying it is
+    structurally fatal for humanoid anatomy. Updated 2026-05-01
+    after live playtest revealed humanoid-neck destruction was
+    only fatal via the head-cascade path (head dangling off a
+    destroyed neck → ``head.is_destroyed`` returns True via
+    ancestor walk → death). Marking neck critical makes the kill
+    direct rather than detoured, and gives ``divine_rescue``
+    a top-level part to lift back to 1 HP rather than relying
+    on its ancestor-of-critical fallback.
+
+    Multi-neck creatures (hydra) override this to ``False`` so
+    losing one neck doesn't end the fight — only the last
+    remaining neck should be critical, and that's enforced via
+    ``check_part_driven_death`` (todo: same shape as the
+    last-head detection).
 
 Exposure
     Slightly-shielded-head profile (MELEE 0.6, REACH 0.7,
@@ -73,7 +83,7 @@ class NeckPlugin(BodyPartPlugin, Equippable):
 
     name = "neck"
     health_max = "1d8"
-    is_critical = False
+    is_critical = True
     bleed_rate = 0.3
     exposure = {
         Reach.MELEE:  0.6,

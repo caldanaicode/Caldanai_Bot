@@ -266,6 +266,129 @@ class TestWeight:
 
 
 # ---------------------------------------------------------------------------
+# sort()
+# ---------------------------------------------------------------------------
+
+class TestSort:
+    """``$sort`` re-keys ``__items`` so identical plugins group
+    together (alpha asc), with the best-quality copy of each
+    group at the lowest slot. Item identity preserved."""
+
+    def test_sort_groups_by_plugin(self):
+        inv = Inventory()
+        a1 = _make_item(name="alpha"); a1.plugin = "alpha"
+        b1 = _make_item(name="bravo"); b1.plugin = "bravo"
+        a2 = _make_item(name="alpha"); a2.plugin = "alpha"
+        # Insertion: alpha, bravo, alpha — interleaved.
+        inv.add(a1); inv.add(b1); inv.add(a2)
+        inv.sort()
+        items = inv.all()
+        # Both alphas land before bravo.
+        assert items[0].plugin == "alpha"
+        assert items[1].plugin == "alpha"
+        assert items[2].plugin == "bravo"
+
+    def test_sort_quality_desc_within_plugin(self):
+        inv = Inventory()
+        junk = _make_item(quality=Qualities.JUNK); junk.plugin = "rerebrace"
+        masterwork = _make_item(quality=Qualities.MASTERWORK); masterwork.plugin = "rerebrace"
+        fine = _make_item(quality=Qualities.FINE); fine.plugin = "rerebrace"
+        inv.add(junk); inv.add(masterwork); inv.add(fine)
+        inv.sort()
+        items = inv.all()
+        assert items[0].quality == Qualities.MASTERWORK
+        assert items[1].quality == Qualities.FINE
+        assert items[2].quality == Qualities.JUNK
+
+    def test_sort_returns_count(self):
+        inv = Inventory()
+        for _ in range(5):
+            inv.add(_make_item())
+        assert inv.sort() == 5
+
+    def test_sort_empty_inventory(self):
+        inv = Inventory()
+        assert inv.sort() == 0
+        assert len(inv) == 0
+
+    def test_sort_preserves_favorited(self):
+        inv = Inventory()
+        i1 = _make_item(name="A"); i1.plugin = "alpha"
+        i2 = _make_item(name="B"); i2.plugin = "bravo"
+        i1.favorited = True
+        inv.add(i2); inv.add(i1)
+        inv.sort()
+        # Find i1 in the sorted result; favorited flag intact.
+        found = next(x for x in inv.all() if x is i1)
+        assert found.favorited is True
+
+    def test_sort_preserves_item_identity(self):
+        """Items keep their _id and instance identity through
+        sort — only slot keys change. Loadouts (which reference
+        items by ObjectId) stay intact."""
+        inv = Inventory()
+        ids = [ObjectId() for _ in range(4)]
+        for i, oid in enumerate(ids):
+            it = _make_item(iid=oid); it.plugin = f"plugin_{i % 2}"
+            inv.add(it)
+        before = {item.id: item for item in inv.all()}
+        inv.sort()
+        after = {item.id: item for item in inv.all()}
+        # Same IDs, same Item instances.
+        assert set(before.keys()) == set(after.keys())
+        for oid in before:
+            assert before[oid] is after[oid]
+
+    def test_sort_preserves_stacks(self):
+        """Stackables sort as a single Item entry — no
+        unstacking, no count loss."""
+        inv = Inventory()
+        s1 = _make_stackable(plugin="dust", count=5)
+        item = _make_item(); item.plugin = "alpha"
+        inv.add(s1); inv.add(item)
+        inv.sort()
+        # 'alpha' < 'dust' so item comes first; stack lands second
+        # with count intact.
+        items = inv.all()
+        assert items[0].plugin == "alpha"
+        assert items[1] is s1
+        assert items[1].count == 5
+
+    def test_sort_idempotent(self):
+        """Sorting twice is a no-op — the second sort produces the
+        same ordering as the first."""
+        inv = Inventory()
+        for q, p in [
+            (Qualities.JUNK, "rerebrace"),
+            (Qualities.SUPERIOR, "alpha"),
+            (Qualities.FINE, "rerebrace"),
+            (Qualities.ORDINARY, "alpha"),
+        ]:
+            it = _make_item(quality=q); it.plugin = p
+            inv.add(it)
+        inv.sort()
+        first_pass = [(i.plugin, i.quality) for i in inv.all()]
+        inv.sort()
+        second_pass = [(i.plugin, i.quality) for i in inv.all()]
+        assert first_pass == second_pass
+
+    def test_sort_compacts_slots_to_1_n(self):
+        """After sort, slot keys are 1..N with no gaps — same
+        invariant ``_rekey`` maintains for delete/remove paths."""
+        inv = Inventory()
+        for _ in range(6):
+            inv.add(_make_item())
+        inv.sort()
+        # Iterate slots via to_list which exposes the slot order.
+        # Length should match item count.
+        assert len(inv) == 6
+        # All items reachable in slot order, no None gaps.
+        all_items = inv.all()
+        assert all(it is not None for it in all_items)
+        assert len(all_items) == 6
+
+
+# ---------------------------------------------------------------------------
 # all()
 # ---------------------------------------------------------------------------
 

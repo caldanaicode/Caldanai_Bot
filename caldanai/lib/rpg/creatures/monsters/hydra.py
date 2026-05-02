@@ -527,15 +527,21 @@ class Hydra(MonsterPlugin):
 
         starting_heads = variant["starting_heads"]
         # Phase D: each hydra head sits on its own neck with a
-        # pair of eyes. The heads share the same exposure profile
-        # and non-critical flag regardless of index; eyes are
-        # shared across heads so aim targeting hydra.3 eye.left
-        # resolves naturally. Legs end in forepaws / hindpaws.
+        # pair of eyes. Heads AND necks share the non-critical
+        # flag regardless of index — destroying one neck or one
+        # head doesn't end the fight; only the last surviving
+        # head ends combat (via ``check_part_driven_death``).
+        # The 2026-05-01 humanoid-neck-critical default would
+        # otherwise turn the hydra back into a one-neck-kills
+        # creature; explicit override keeps multi-neck design
+        # intact. Eyes are shared per-head so aim targeting like
+        # ``hydra.3 eye.left`` resolves naturally. Legs end in
+        # forepaws / hindpaws.
         head_subtrees = []
         for i in range(starting_heads):
             idx = i + 1
             head_subtrees.append(
-                node(NeckPlugin, name=f"neck.{idx}", children=[
+                node(NeckPlugin, name=f"neck.{idx}", is_critical=False, children=[
                     node(HeadPlugin, name=f"head.{idx}",
                          is_critical=False, exposure=dict(_HEAD_EXPOSURE),
                          children=[
@@ -611,7 +617,10 @@ class Hydra(MonsterPlugin):
         new_head = self._make_head(
             f"head.{idx}", dmg_type, scale=True,
         )
-        new_neck = NeckPlugin(name=f"neck.{idx}")
+        # Override the post-2026-05-01 humanoid-default critical
+        # flag — hydra necks are non-critical so losing one
+        # doesn't end the fight (matches the head override above).
+        new_neck = NeckPlugin(name=f"neck.{idx}", is_critical=False)
         new_eye_l = EyePlugin(name=f"eye.{idx}.left")
         new_eye_r = EyePlugin(name=f"eye.{idx}.right")
         # Wire the subtree internally first: head gets two eye

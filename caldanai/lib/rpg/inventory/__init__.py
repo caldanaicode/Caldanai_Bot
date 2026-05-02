@@ -110,6 +110,35 @@ class Inventory:
             for new_key, item in enumerate(self.__items.values(), start=1)
         }
 
+    def sort(self) -> int:
+        """Re-slot every item by ``(plugin asc, quality desc)``.
+
+        Same shape as :meth:`_rekey`, different ordering function:
+        groups all instances of one plugin together, with the
+        best-quality copy of each plugin landing at the lowest
+        slot in its group. Quality sort uses the ``Qualities``
+        ``multiplier`` value (range 0.75–2.0; masterwork high)
+        which gives a clean numeric desc sort via negation.
+
+        Items keep their identity — ``_id``, equipped placement
+        (placement state lives on the ``Player.body`` tree, not
+        on the slot), and ``favorited`` are properties of the
+        ``Item`` instance. Loadouts reference items by ObjectId
+        not slot, so saved loadouts are unaffected.
+
+        Returns the count of items in the now-sorted inventory,
+        for the cog command to surface back to the player.
+        """
+        items = sorted(
+            self.__items.values(),
+            key=lambda i: (i.plugin, -i.quality.value["multiplier"]),
+        )
+        self.__items = {
+            new_key: item
+            for new_key, item in enumerate(items, start=1)
+        }
+        return len(items)
+
     def __getitem__(self, _id: Union[str, ObjectId]) -> Optional[Item]:
         """
         Retrieves an item from the inventory by ID.
