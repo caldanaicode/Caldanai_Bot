@@ -615,7 +615,7 @@ _COMFORT_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
     warmth.Warmth.HOT: [
         "@2 collapses into @1 entirely, clinging with both hands, and lets the whole thing out.",
         "@2 folds into @1 with a grateful sob and does not let go for a long while.",
-        "@2 holds on to @1 as if @1s is the only solid thing in the world right now.",
+        "@2 holds on to @1 as if @1s @1v(is|are) the only solid thing in the world right now.",
     ],
 }
 
@@ -945,7 +945,7 @@ _TAUNT_INTENT_BEATS: Dict[str, List[str]] = {
     ],
     warmth.Warmth.WARM: [
         "@1 ribs @2 with an affectionate, bantering jab.",
-        "@1 teases @2 with a grin that says @1s means nothing by it.",
+        "@1 teases @2 with a grin that says @1s @1v(means|mean) nothing by it.",
         "@1 lobs a fond, joking jibe in @2np direction.",
     ],
     warmth.Warmth.HOT: [
@@ -960,7 +960,7 @@ _TAUNT_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
         "@2 does not take the bait; @2 looks at @1 the way one looks at a puddle.",
         "@2 walks away mid-taunt, visibly bored.",
         "@2 ignores the jab entirely, which stings more than any comeback could.",
-        "@2 stares at @1 until @1s runs out of material.",
+        "@2 stares at @1 until @1s @1v(runs|run) out of material.",
     ],
     warmth.Warmth.COOL: [
         "@2 returns a short, dry one-liner that lands with a small thud.",

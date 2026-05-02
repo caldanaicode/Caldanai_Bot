@@ -86,7 +86,9 @@ class Bandit(MonsterPlugin):
             [
                 "@1dc dies, and shall no longer steal from the rich and give to the poor.",
                 "@1dc coughs blood before collapsing to the ground.",
-                '"In another life, you could have been me," @1d gasps with @1a dying breath.',
+                "@1dc whispers a name no one in the clearing recognizes, and is gone.",
+                '"Should\'ve picked an easier mark," @1d gasps with @1a dying breath.',
+                '"Tell — " @1d starts, and then doesn\'t finish.',
             ]
         )
 

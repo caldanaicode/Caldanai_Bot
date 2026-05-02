@@ -4,6 +4,12 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — Player-pronoun grammar + resurrection narration dedup + bandit death-pool refresh
+
+- Verb-agreement fixes for they/them players. Pattern `@1s <hardcoded-singular-verb>` rendered as e.g. "they replenishes" / "they runs" / "they is". Tokenized via `@Nv(singular|plural)` in cheese sandwich consumption and three social-command beats (HOT comfort, WARM taunt, COLD taunt-acceptance).
+- Resurrection narration was firing twice in `do_health_regen` when a regen tick lifted body HP from 0 to positive: once from `Player.apply_damage`'s tail and again from the cascade-revive after-check. Gated the after-check to the cascade-only case (`body_before <= 0 < player.health` excludes body-HP revives) so each path narrates once.
+- Bandit death pool refreshed. Removed `"In another life, you could have been me"` (copy-paste artifact from when bandit predated doppelganger; the line lands sharper as the doppy's exclusive death beat where the identity-theft mechanic makes the words literal). Added three personal-interior replacements: a whispered name, a wry "should've picked an easier mark," and a cut-off "Tell —" last word.
+
 ### 2026-05-01 — Heal-system rewrite: pray d20=17-19 + cascade-revive narration + neck-critical
 
 Live `$pray` playtest exposed a corpse-revive bug — narration

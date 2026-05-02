@@ -32,7 +32,7 @@ class ConsumablePlugin(Consumable):
         )
 
         d4 = Dice.d4()
-        msg += f"\n@2sc replenishes {d4.value} health!"
+        msg += f"\n@2sc @2v(replenishes|replenish) {d4.value} health!"
         user.apply_damage(-d4.value)
 
         if isinstance(user, Player):

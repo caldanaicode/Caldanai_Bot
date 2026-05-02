@@ -323,6 +323,7 @@ class PlayerManager:
             # via regen with no "gasps raggedly" beat — same shape
             # as the pray cascade-revive narration fix.
             was_dead = player.is_dead()
+            body_before = player.health
 
             if body_needs:
                 m = player.apply_damage(-player.health_regen)
@@ -350,11 +351,13 @@ class PlayerManager:
             # player back from is_dead. Emits BEFORE the recovery
             # line in narrative order so readers see "X gasps as
             # life returns" then the per-part transition that
-            # enabled it. ``apply_damage``'s HP-only tail won't
-            # fire when the death cause was critical-part-destroyed
-            # (cascade) rather than body-HP-zero, so we narrate
-            # the gasping ourselves on detected transition.
-            if was_dead and not player.is_dead():
+            # enabled it. ``apply_damage``'s HP-only tail already
+            # narrates the body-HP revive case (body crossed 0),
+            # so we only fire here for cascade-only revives where
+            # body HP didn't transition through 0 — otherwise the
+            # gasp narrates twice.
+            body_hp_revived = body_before <= 0 < player.health
+            if was_dead and not player.is_dead() and not body_hp_revived:
                 mention = (
                     f"<@!{player.member.id}>"
                     if getattr(player, "member", None) is not None
