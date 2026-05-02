@@ -80,11 +80,25 @@ def _resolve_test_channel_id(guild_filter: Optional[int] = None) -> int:
     matching game is found — usually means the bot has never
     been run in the test channel yet, so no game doc has been
     persisted.
+
+    When the operator has registered an out-of-character (OOC)
+    engineering channel via the ``OOC_CHANNEL_ID`` env var, that
+    channel is filtered OUT of the default lookup so existing
+    flows (bg Vael's ``bot_player send`` without args) keep
+    landing in the original Vael-facing test channel. The OOC
+    channel is reachable explicitly via the ``--ooc`` flag or
+    ``--channel-id``.
     """
     use_db_env_var("TEST_DB_NAME")
     query: dict = {"channel_id": {"$exists": True}}
     if guild_filter is not None:
         query["guild_id"] = guild_filter
+    ooc_id_str = os.environ.get("OOC_CHANNEL_ID")
+    if ooc_id_str:
+        try:
+            query["channel_id"] = {"$ne": int(ooc_id_str), "$exists": True}
+        except ValueError:
+            pass
     docs = list(live_db().games.find(query, {"channel_id": 1, "guild_id": 1}))
     if not docs:
         raise SystemExit(
@@ -95,9 +109,27 @@ def _resolve_test_channel_id(guild_filter: Optional[int] = None) -> int:
         guilds = ", ".join(str(d.get("guild_id")) for d in docs)
         raise SystemExit(
             f"Multiple games found in TEST_DB_NAME.games ({guilds}). "
-            f"Pass --guild <id> to disambiguate."
+            f"Pass --guild <id> to disambiguate, or --ooc / --channel-id "
+            f"to target a specific channel."
         )
     return int(docs[0]["channel_id"])
+
+
+def _resolve_ooc_channel_id() -> int:
+    """Return the OOC engineering channel id from ``OOC_CHANNEL_ID`` env."""
+    raw = os.environ.get("OOC_CHANNEL_ID")
+    if not raw:
+        raise SystemExit(
+            "OOC_CHANNEL_ID env var not set. Add the engineering "
+            "playtest channel snowflake to .env as OOC_CHANNEL_ID "
+            "before using --ooc."
+        )
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise SystemExit(
+            f"OOC_CHANNEL_ID is not a valid integer: {raw!r}"
+        ) from e
 
 
 async def _post(
@@ -203,6 +235,14 @@ def main(argv=None) -> int:
              "test-channel lookup. For posting to non-combat channels "
              "(e.g. a journal channel) the tester bot has access to.",
     )
+    send_p.add_argument(
+        "--ooc", action="store_true",
+        help="Target the OOC engineering channel from the "
+             "OOC_CHANNEL_ID env var. Shortcut for "
+             "``--channel-id $OOC_CHANNEL_ID``. Out-of-character "
+             "playtest space — does NOT route to bg Vael's "
+             "world view.",
+    )
 
     react_p = sub.add_parser(
         "react",
@@ -228,6 +268,11 @@ def main(argv=None) -> int:
         "--channel-id", type=int, default=None,
         help="React in a specific channel id, skipping "
              "the DB-based test-channel lookup.",
+    )
+    react_p.add_argument(
+        "--ooc", action="store_true",
+        help="Target the OOC engineering channel from the "
+             "OOC_CHANNEL_ID env var.",
     )
 
     edit_p = sub.add_parser(
@@ -256,8 +301,19 @@ def main(argv=None) -> int:
              "the DB-based test-channel lookup. Required when "
              "editing messages outside the test-combat channel.",
     )
+    edit_p.add_argument(
+        "--ooc", action="store_true",
+        help="Target the OOC engineering channel from the "
+             "OOC_CHANNEL_ID env var.",
+    )
 
     args = ap.parse_args(argv)
+
+    # Resolve the --ooc shortcut into channel_id BEFORE dispatch so
+    # all three subcommands share the same logic. Explicit
+    # --channel-id wins if both are passed (last-write semantics).
+    if getattr(args, "ooc", False) and args.channel_id is None:
+        args.channel_id = _resolve_ooc_channel_id()
 
     if args.cmd == "send":
         msg = asyncio.run(_post(args.content, args.guild, args.channel_id))

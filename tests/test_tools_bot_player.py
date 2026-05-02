@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.bot_player import _resolve_test_channel_id, main
+from tools.bot_player import (
+    _resolve_ooc_channel_id,
+    _resolve_test_channel_id,
+    main,
+)
 
 
 class TestResolveTestChannelId:
@@ -63,6 +67,56 @@ class TestResolveTestChannelId:
             # And the query included the guild filter.
             args, _ = fake_db.games.find.call_args
             assert args[0].get("guild_id") == 20
+
+    def test_ooc_channel_excluded_from_default_lookup(self):
+        """When OOC_CHANNEL_ID is set, the default DB lookup
+        excludes that channel via $ne so existing flows
+        (bg Vael's no-flag bot_player send) keep landing on the
+        Vael-facing test channel even after a second game is
+        registered for the OOC engineering channel."""
+        fake_db = MagicMock()
+        # Only return the Vael channel; the test asserts the OOC
+        # filter went into the query.
+        fake_db.games.find.return_value = [
+            {"channel_id": 1269749688496558161, "guild_id": 10},
+        ]
+
+        with (
+            patch("tools.bot_player.use_db_env_var"),
+            patch("tools.bot_player.live_db", return_value=fake_db),
+            patch.dict(
+                "os.environ",
+                {"OOC_CHANNEL_ID": "1500205779184255146"},
+            ),
+        ):
+            result = _resolve_test_channel_id()
+            assert result == 1269749688496558161
+            args, _ = fake_db.games.find.call_args
+            cid_filter = args[0].get("channel_id")
+            assert isinstance(cid_filter, dict)
+            assert cid_filter.get("$ne") == 1500205779184255146
+
+
+class TestResolveOocChannelId:
+    def test_ooc_resolves_from_env(self):
+        with patch.dict(
+            "os.environ", {"OOC_CHANNEL_ID": "1500205779184255146"}
+        ):
+            assert _resolve_ooc_channel_id() == 1500205779184255146
+
+    def test_ooc_missing_env_raises(self):
+        saved = os.environ.pop("OOC_CHANNEL_ID", None)
+        try:
+            with pytest.raises(SystemExit, match="OOC_CHANNEL_ID"):
+                _resolve_ooc_channel_id()
+        finally:
+            if saved is not None:
+                os.environ["OOC_CHANNEL_ID"] = saved
+
+    def test_ooc_invalid_env_raises(self):
+        with patch.dict("os.environ", {"OOC_CHANNEL_ID": "not-a-number"}):
+            with pytest.raises(SystemExit, match="not a valid integer"):
+                _resolve_ooc_channel_id()
 
 
 class TestMainCliGuards:

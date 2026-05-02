@@ -374,7 +374,7 @@ class TestLoadPlayers:
         called."""
         pm = PlayerManager()
         ids = [101, 202, 303]
-        mock_db.find_players_by_guild_id.return_value = [_player_doc(u) for u in ids]
+        mock_db.find_players_by_game.return_value = [_player_doc(u) for u in ids]
         mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
 
         members = {u: MagicMock(display_name=f"user{u}") for u in ids}
@@ -401,7 +401,7 @@ class TestLoadPlayers:
         can deadlock the gateway."""
         pm = PlayerManager()
         ids = [101, 202]
-        mock_db.find_players_by_guild_id.return_value = [_player_doc(u) for u in ids]
+        mock_db.find_players_by_game.return_value = [_player_doc(u) for u in ids]
         mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
 
         members = {u: MagicMock(display_name=f"user{u}") for u in ids}
@@ -420,7 +420,7 @@ class TestLoadPlayers:
     async def test_chunk_skipped_when_no_players(self, mock_db, mock_guild):
         """No DB rows means no work to do — chunk should not fire."""
         pm = PlayerManager()
-        mock_db.find_players_by_guild_id.return_value = []
+        mock_db.find_players_by_game.return_value = []
         mock_guild.chunked = False
         mock_guild.chunk = AsyncMock()
 
@@ -436,7 +436,7 @@ class TestLoadPlayers:
         """If ``chunk`` blows up, the per-player ``fetch_member`` fallback
         must still load members the gateway did deliver."""
         pm = PlayerManager()
-        mock_db.find_players_by_guild_id.return_value = [_player_doc(777)]
+        mock_db.find_players_by_game.return_value = [_player_doc(777)]
         mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
 
         # ClientException is the realistic chunk() failure — discord.py raises it
@@ -463,7 +463,7 @@ class TestLoadPlayers:
         must fire. Guards against the on_ready-chunk deadlock."""
         import asyncio as _asyncio
         pm = PlayerManager()
-        mock_db.find_players_by_guild_id.return_value = [_player_doc(888)]
+        mock_db.find_players_by_game.return_value = [_player_doc(888)]
         mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
 
         mock_guild.chunked = False
@@ -480,11 +480,52 @@ class TestLoadPlayers:
     @pytest.mark.asyncio
     @patch("caldanai.lib.rpg.player_manager.Player")
     @patch("caldanai.lib.rpg.player_manager.DB")
+    async def test_channel_scoped_load_passes_channel_id_to_db(
+        self, mock_db, mock_player_cls, mock_guild,
+    ):
+        """Regression for the 2026-05-02 cross-game bleed.
+
+        A guild hosting two games (Vael-facing TEST channel + OOC
+        engineering channel) used to load EVERY player in the guild
+        into EACH game's PlayerManager because the DB query was
+        guild-scoped. ``$join`` in the second game returned "already
+        a player," ``$skills`` showed the wrong game's skills, and
+        the next is_dirty save would have created duplicate records
+        at channel_id=OOC for users from the original game.
+
+        Fix: ``load_players`` now calls
+        ``DB.find_players_by_game(guild_id, channel_id)`` — compound
+        scoping so each game gets only its own players. This test
+        guards the call site, not the query semantics (the DB-side
+        method has its own coverage).
+        """
+        pm = PlayerManager()
+        mock_db.find_players_by_game.return_value = []
+        mock_guild.id = 1269749534473453568
+        mock_guild.chunked = True
+
+        await pm.load_players(mock_guild, channel_id=1500205779184255146)
+
+        # Verify the query was scoped to BOTH guild_id and channel_id,
+        # not guild-only. Without the channel_id arg, an OOC-channel
+        # PlayerManager would pull Vael-channel players.
+        mock_db.find_players_by_game.assert_called_once_with(
+            1269749534473453568, 1500205779184255146,
+        )
+        # Guild-only fallback must NOT have been used when channel_id
+        # is supplied — that path is only for legacy callers that
+        # haven't been updated, and using it would re-introduce the
+        # bleed.
+        mock_db.find_players_by_guild_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Player")
+    @patch("caldanai.lib.rpg.player_manager.DB")
     async def test_unknown_member_after_chunk_is_removed(self, mock_db, mock_player_cls, mock_guild):
         """If a DB player isn't in the guild any more, ``fetch_member``
         raises NotFound(10007) and the player gets cleaned up."""
         pm = PlayerManager()
-        mock_db.find_players_by_guild_id.return_value = [_player_doc(444)]
+        mock_db.find_players_by_game.return_value = [_player_doc(444)]
         mock_player_cls.from_dict.side_effect = lambda _p: _stub_player()
 
         mock_guild.chunked = False

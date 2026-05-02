@@ -420,8 +420,42 @@ class DB:
     @check_connection
     @staticmethod
     def find_players_by_guild_id(guild_id):
-        """Retrieves all players associated with a guild ID."""
+        """Retrieves all players associated with a guild ID.
+
+        **Use sparingly.** For per-game player loading, use
+        :meth:`find_players_by_game` instead — a guild can host
+        multiple games (one per channel), and a guild-scoped query
+        will pull every player across every game into one
+        ``PlayerManager``, causing cross-game state bleed.
+        """
         return DB._players.find({"guild_id": guild_id})
+
+    @check_connection
+    @staticmethod
+    def find_players_by_game(guild_id, channel_id):
+        """Retrieves all players associated with a specific game
+        (guild_id + channel_id pair).
+
+        Compound query — required for guilds hosting multiple
+        concurrent games (e.g. test guild running a Vael-facing
+        game alongside an OOC engineering channel). Without this
+        scoping, ``PlayerManager.load_players`` for game B would
+        pull game A's players into B's in-memory roster and
+        report them as "already a player" on ``$join`` while
+        showing skills from game A on ``$skills``.
+
+        Legacy adoption for ``channel_id``-less docs (pre-
+        compound era) was previously handled by a permissive
+        guild-only query plus a stamping pass; that path is
+        retired now that all extant docs (LIVE + TEST as of
+        2026-05-02) are channel-scoped. If a future migration
+        ever needs to backfill unscoped docs, do it as a one-
+        shot ``tools/`` script rather than re-introducing the
+        in-load adoption that caused the bleed bug.
+        """
+        return DB._players.find(
+            {"guild_id": guild_id, "channel_id": channel_id}
+        )
 
     @staticmethod
     def delete_player(guild_id, channel_id, user_id):

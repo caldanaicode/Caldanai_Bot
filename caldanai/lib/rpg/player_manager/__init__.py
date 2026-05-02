@@ -28,10 +28,25 @@ class PlayerManager:
         self.channel: Optional[TextChannel] = channel
 
     async def load_players(self, guild: Guild, channel_id: int = None):
-        """Load all players for a guild into memory. ``channel_id``
-        is stamped onto each loaded player so they know which game
-        they belong to. Legacy DB docs missing ``channel_id`` are
-        adopted on load and self-migrate on next save."""
+        """Load this game's players into memory.
+
+        Game-scoped (compound ``guild_id`` + ``channel_id`` query)
+        as of 2026-05-02 to fix cross-game state bleed: a guild
+        running multiple games (e.g. Vael-facing test channel +
+        OOC engineering channel) used to load EVERY guild player
+        into EACH game's ``PlayerManager`` because the query was
+        guild-only. New ``$join`` attempts in the second game
+        reported "already a player," ``$skills`` showed the wrong
+        game's skills, and any subsequent ``is_dirty`` write would
+        have persisted the second channel's id over the first —
+        irrecoverably swapping the player to the wrong game.
+
+        ``channel_id`` is required for proper scoping. When None
+        (legacy callers that haven't been updated), falls back to
+        the old guild-only query for backward compat with pre-
+        scoping setups, but logs a warning — every active call
+        site should pass ``channel_id``.
+        """
         if not guild:
             _log.error("No guild supplied to PlayerManager.load_players()")
             return
@@ -42,11 +57,18 @@ class PlayerManager:
             self.roles[r] = matches[0] if len(matches) > 0 else None
 
         try:
-            # Guild-scoped query for backward compat — legacy docs
-            # lack channel_id, so a compound query would miss them.
-            # Players are bound to *this* game at runtime by stamping
-            # channel_id below; next save writes it to the doc.
-            players = list(DB.find_players_by_guild_id(guild.id))
+            if channel_id is None:
+                _log.warning(
+                    "PlayerManager.load_players() called without "
+                    "channel_id — falling back to guild-only query. "
+                    "This pulls every player in the guild and is "
+                    "incompatible with multi-game guilds."
+                )
+                players = list(DB.find_players_by_guild_id(guild.id))
+            else:
+                players = list(
+                    DB.find_players_by_game(guild.id, channel_id)
+                )
         except Exception as e:
             _log.error(e)
             return

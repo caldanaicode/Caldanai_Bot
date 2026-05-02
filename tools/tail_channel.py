@@ -901,6 +901,28 @@ def _format_range_header(
 
 
 async def _run(args: argparse.Namespace, token: str) -> int:
+    # Resolve --ooc shortcut into args.channel_id BEFORE the
+    # picker decision. Explicit --channel-id wins if both passed.
+    if getattr(args, "ooc", False) and args.channel_id is None:
+        import os as _os
+        raw = _os.environ.get("OOC_CHANNEL_ID")
+        if not raw:
+            print(
+                "OOC_CHANNEL_ID env var not set. Add the engineering "
+                "playtest channel snowflake to .env as OOC_CHANNEL_ID "
+                "before using --ooc.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            args.channel_id = int(raw)
+        except ValueError:
+            print(
+                f"OOC_CHANNEL_ID is not a valid integer: {raw!r}",
+                file=sys.stderr,
+            )
+            return 1
+
     async with DiscordRestClient(token) as client:
         if args.channel_id is not None:
             # Operator supplied the channel id directly — skip all
@@ -1072,6 +1094,17 @@ def main() -> int:
         type=int,
         default=None,
         help="Fetch from this channel id directly; skips game picker.",
+    )
+    parser.add_argument(
+        "--ooc",
+        action="store_true",
+        help=(
+            "Target the OOC engineering channel from the "
+            "OOC_CHANNEL_ID env var. Shortcut for "
+            "``--channel-id $OOC_CHANNEL_ID``. Out-of-character "
+            "playtest space — does NOT route to bg Vael's "
+            "world view."
+        ),
     )
     parser.add_argument(
         "--follow", "-f",
