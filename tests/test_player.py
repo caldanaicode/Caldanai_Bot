@@ -691,6 +691,64 @@ class TestGainSkillExperience:
 
 
 # ---------------------------------------------------------------------------
+# gain_craft_experience
+# ---------------------------------------------------------------------------
+
+class TestGainCraftExperience:
+    def test_success_at_level_1_grants_base_plus_scaling(self):
+        """L1 success: base + floor(10 * sqrt(1)) = base + 10."""
+        p = _make_player()
+        amount = p.gain_craft_experience(
+            "leatherworking", base_xp=20, succeeded=True
+        )
+        assert amount == 30
+        assert p.skills["leatherworking"] == 30
+        assert p.is_dirty is True
+
+    def test_failure_grants_flat_base(self):
+        """Failure does NOT level-scale — flat base_xp grant."""
+        p = _make_player()
+        amount = p.gain_craft_experience(
+            "leatherworking", base_xp=5, succeeded=False
+        )
+        assert amount == 5
+        assert p.skills["leatherworking"] == 5
+
+    def test_higher_skill_level_grants_more_on_success(self):
+        """sqrt(level) scaling: L4 grants base + 20, L9 grants base + 30."""
+        p = _make_player()
+        # Level 4 (threshold = (50*4-25)^2/5 - 125 = 6000)
+        p.skills["leatherworking"] = 6000
+        assert p.get_skill_level("leatherworking") == 4
+        before = p.skills["leatherworking"]
+        amount = p.gain_craft_experience(
+            "leatherworking", base_xp=20, succeeded=True
+        )
+        assert amount == 20 + 20  # 20 base + floor(10 * sqrt(4))
+        assert p.skills["leatherworking"] == before + amount
+
+    def test_no_gain_at_level_20(self):
+        p = _make_player()
+        p.skills["leatherworking"] = 999999
+        assert p.get_skill_level("leatherworking") == 20
+        before = p.skills["leatherworking"]
+        amount = p.gain_craft_experience(
+            "leatherworking", base_xp=20, succeeded=True
+        )
+        assert amount == 0
+        assert p.skills["leatherworking"] == before
+
+    def test_unknown_skill_initializes(self):
+        p = _make_player()
+        assert "carpentry" not in p.skills
+        amount = p.gain_craft_experience(
+            "carpentry", base_xp=20, succeeded=True
+        )
+        assert amount > 0
+        assert p.skills["carpentry"] == amount
+
+
+# ---------------------------------------------------------------------------
 # do_attack — event-driven refactor
 # ---------------------------------------------------------------------------
 

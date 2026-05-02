@@ -1819,6 +1819,53 @@ class Player(Creature):
         self.skills[skill] += amt
         self.is_dirty = True
 
+    def gain_craft_experience(
+        self, skill: str, base_xp: int, *, succeeded: bool
+    ) -> int:
+        """Crafting XP grant. Mirrors :meth:`gain_skill_experience`'s
+        sqrt-of-level shape so crafting progression scales against
+        the same quadratic level threshold combat does, but with
+        2× the multiplier (10 vs 5) since crafting is material-gated
+        — each attempt costs leather/bone/etc., so per-attempt XP
+        needs to be more generous to keep the higher-level grind
+        from blowing up against material availability.
+
+        - Success: ``base_xp + floor(10 * sqrt(level))``. ``base_xp``
+          is the recipe's ``xp_reward_success`` (default 20). At
+          level 1 grants base+10; at level 9 grants base+30.
+        - Failure: ``base_xp`` flat. Caller passes
+          ``recipe.xp_reward_failure`` (default 5). Failure
+          intentionally doesn't level-scale — mirrors combat's
+          flat-2 miss path: gives low-skill players a progression
+          floor when they fail without making bad luck the path
+          to high-level XP.
+        - Capped at level 20.
+
+        :param skill: Skill name, e.g. ``"leatherworking"``.
+        :param base_xp: Recipe's per-attempt base. Caller passes
+            ``recipe.xp_reward_success`` on success or
+            ``recipe.xp_reward_failure`` on failure.
+        :param succeeded: Whether the craft succeeded — only success
+            gets the level-scaled bonus.
+        :return: XP actually granted (so the cog can echo it back to
+            the player).
+        """
+        if skill not in self.skills:
+            self.skills[skill] = 0
+
+        skill_level = self.get_skill_level(skill)
+        if skill_level >= 20:
+            return 0
+
+        if succeeded:
+            amt = base_xp + floor(10 * (skill_level ** 0.5))
+        else:
+            amt = base_xp
+
+        self.skills[skill] += amt
+        self.is_dirty = True
+        return amt
+
     def get_chart_attacks(self) -> Tuple[Embed, File]:
         """Returns a discord Embed and File for the player's natural rolls."""
 

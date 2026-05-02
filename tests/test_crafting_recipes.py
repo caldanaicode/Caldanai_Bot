@@ -110,3 +110,24 @@ class TestRecipePluginBase:
         assert RecipePlugin.skill is None
         assert RecipePlugin.min_skill == 0
         assert RecipePlugin.requires_known is False
+
+    def test_xp_reward_defaults_tuned_2026_05_02(self):
+        """Per Celowin's 2026-05-02 community feedback, the default
+        per-attempt XP rewards were bumped from 5/2 to 20/5 AND
+        actual grants are now scaled by player skill level via
+        ``Player.gain_craft_experience`` (mirrors combat's
+        ``5 + floor(5 * sqrt(level))`` with a 2× multiplier since
+        crafting is material-gated).
+
+        Math at L1, 50% success rate: success = 20 + 10 = 30,
+        failure = 5, avg = 17.5 → ~57 attempts to L2 (1000 XP).
+        At higher levels the sqrt scaling keeps per-level attempts
+        in the 60-200 range up through L10, holding steady against
+        the quadratic level-threshold curve.
+
+        This test guards against an accidental revert; the scaling
+        formula itself is tested in
+        ``tests/test_player_craft_xp.py``.
+        """
+        assert RecipePlugin.xp_reward_success == 20
+        assert RecipePlugin.xp_reward_failure == 5

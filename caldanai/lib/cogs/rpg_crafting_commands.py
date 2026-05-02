@@ -327,28 +327,36 @@ class RpgCraftingCommands(Cog):
                 )
                 return
             player.inventory.add(output)
-            if recipe.skill:
-                player.skills.setdefault(recipe.skill, 0)
-                player.skills[recipe.skill] += recipe.xp_reward_success
+            xp_granted = (
+                player.gain_craft_experience(
+                    recipe.skill, recipe.xp_reward_success, succeeded=True,
+                )
+                if recipe.skill
+                else 0
+            )
             player.is_dirty = True
             Dispatcher.add(
                 channel,
                 f"{player.name} crafts {output.get_full_name()}. "
-                f"(+{recipe.xp_reward_success} {recipe.skill or 'XP'})",
+                f"(+{xp_granted} {recipe.skill or 'XP'})",
             )
         else:
             # Failure: half the materials are wasted, small XP grant
             # so the player isn't grinding-blocked by bad luck.
             _consume_materials(player, recipe.materials, found, 0.5)
-            if recipe.skill:
-                player.skills.setdefault(recipe.skill, 0)
-                player.skills[recipe.skill] += recipe.xp_reward_failure
+            xp_granted = (
+                player.gain_craft_experience(
+                    recipe.skill, recipe.xp_reward_failure, succeeded=False,
+                )
+                if recipe.skill
+                else 0
+            )
             player.is_dirty = True
             Dispatcher.add(
                 channel,
                 f"{player.name} botches **{recipe.display_name()}** — "
                 f"half the materials are spoiled. "
-                f"(+{recipe.xp_reward_failure} {recipe.skill or 'XP'})",
+                f"(+{xp_granted} {recipe.skill or 'XP'})",
             )
 
     async def _send_list(self, channel, player) -> None:

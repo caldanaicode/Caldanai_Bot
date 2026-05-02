@@ -1158,15 +1158,40 @@ class Creature(HealMixin):
         """Return a short flavor line describing how this attack
         landed against this creature. Default: look up the
         MRO-merged ``HIT_NARRATIONS`` by damage type, return the
-        first match (or None if no entry matches). Override for
-        dynamic narration (varying by hit intensity, current
-        state, etc.)."""
+        match whose trait-multiplier deviates most from 1.0
+        (most-extreme matchup wins) — or ``None`` if no entry
+        matches. Override for dynamic narration (varying by hit
+        intensity, current state, etc.).
+
+        **Compound-damage tiebreak (2026-05-02 fix).** Compound
+        weapons (ice axe = ``SLASHING | WATER``) used to narrate
+        the FIRST matching component in MRO-declaration order,
+        which against a golem (slashing 0.5×, water 1.25×) told
+        the player they hit a resistance even though the WATER
+        vulnerability drove the multiplier. Now we rank matching
+        components by ``|get_trait_multiplier(component) - 1.0|``
+        and narrate the most-deviating one — the matchup that
+        actually defines this weapon-vs-this-creature.
+        """
         if not result.hit() or source.damage_type is None:
             return None
-        for dmg_type, template in self._resolved_hit_narrations().items():
-            if source.damage_type & dmg_type:
-                return parse(template, self, attacker)
-        return None
+
+        narrations = self._resolved_hit_narrations()
+        matches = [
+            (dmg_type, template)
+            for dmg_type, template in narrations.items()
+            if source.damage_type & dmg_type
+        ]
+        if not matches:
+            return None
+
+        # Most-extreme-matchup wins. Stable: ties resolve to MRO
+        # declaration order, preserving prior behavior for
+        # equal-deviation cases.
+        matches.sort(
+            key=lambda kv: -abs(self.get_trait_multiplier(kv[0]) - 1.0)
+        )
+        return parse(matches[0][1], self, attacker)
 
     def _walk_to_aim(
         self,

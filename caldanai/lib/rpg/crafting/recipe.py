@@ -54,8 +54,20 @@ class RecipePlugin:
     skill: Optional[str] = None
     min_skill: int = 0
     requires_known: bool = False
-    xp_reward_success: int = 5
-    xp_reward_failure: int = 2
+    # Per-attempt XP BASE. The actual amount granted is scaled by
+    # the player's current skill level via
+    # ``Player.register_craft_xp``: success grants
+    # ``xp_reward_success + floor(10 * sqrt(level))``, failure
+    # grants the flat ``xp_reward_failure`` (mirrors combat misses).
+    #
+    # Tuned 2026-05-02 from community feedback (Celowin: prior 5/2
+    # flat values made leatherworking 1→2 a 286-attempt grind).
+    # Base 20/5 + sqrt-level scaling targets ~50/60/85/105 attempts
+    # per level for L1→L5, holding steady against the quadratic
+    # level threshold (combat skills reuse the same general shape
+    # via ``Player.register_attack_xp``).
+    xp_reward_success: int = 20
+    xp_reward_failure: int = 5
 
     @classmethod
     def display_name(cls) -> str:
