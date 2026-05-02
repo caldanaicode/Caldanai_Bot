@@ -13,11 +13,25 @@ from tools.bot_player import (
     _resolve_observations_channel_id,
     _resolve_ooc_channel_id,
     _resolve_test_channel_id,
+    _split_thread_file,
     main,
 )
 
 
 class TestResolveTestChannelId:
+    @pytest.fixture(autouse=True)
+    def _clear_pin_env(self):
+        """Ensure BOT_PLAYER_CHANNEL_ID isn't leaked from the runner's
+        environment into tests that exercise the DB lookup path —
+        the env var would short-circuit the lookup and mask test
+        behavior."""
+        saved = os.environ.pop("BOT_PLAYER_CHANNEL_ID", None)
+        try:
+            yield
+        finally:
+            if saved is not None:
+                os.environ["BOT_PLAYER_CHANNEL_ID"] = saved
+
     def test_single_game_resolves(self):
         fake_game = {"channel_id": 123456789, "guild_id": 111}
         fake_db = MagicMock()
@@ -68,6 +82,31 @@ class TestResolveTestChannelId:
             # And the query included the guild filter.
             args, _ = fake_db.games.find.call_args
             assert args[0].get("guild_id") == 20
+
+    def test_pinned_env_var_short_circuits_db_lookup(self):
+        """``BOT_PLAYER_CHANNEL_ID`` env var is the highest-priority
+        default channel resolver — when set, the DB lookup is skipped
+        entirely. Workspace-pinning mode for bg Vael's launcher."""
+        fake_db = MagicMock()
+        fake_db.games.find.side_effect = AssertionError(
+            "DB lookup should not be called when env var is set"
+        )
+        with (
+            patch("tools.bot_player.use_db_env_var"),
+            patch("tools.bot_player.live_db", return_value=fake_db),
+            patch.dict(
+                "os.environ",
+                {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"},
+            ),
+        ):
+            assert _resolve_test_channel_id() == 1269749688496558161
+
+    def test_pinned_env_var_invalid_raises(self):
+        with patch.dict(
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "not-a-number"}
+        ):
+            with pytest.raises(SystemExit, match="not a valid integer"):
+                _resolve_test_channel_id()
 
     def test_ooc_channel_excluded_from_default_lookup(self):
         """When OOC_CHANNEL_ID is set, the default DB lookup
@@ -142,6 +181,124 @@ class TestResolveObservationsChannelId:
         ):
             with pytest.raises(SystemExit, match="not a valid integer"):
                 _resolve_observations_channel_id()
+
+
+class TestWorkspaceMinimalMode:
+    """When BOT_PLAYER_CHANNEL_ID is set (workspace mode), the
+    engineering-side surface is hidden from argparse — the
+    --ooc / --obs flags and the thread subcommand simply don't
+    exist. Verifies the conditional surface holds."""
+
+    def test_thread_subcommand_missing_in_minimal_mode(self, capsys):
+        with patch.dict(
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"}
+        ):
+            with pytest.raises(SystemExit):
+                main(["thread", "ignored.md"])
+        err = capsys.readouterr().err
+        assert "invalid choice: 'thread'" in err
+
+    def test_ooc_flag_missing_in_minimal_mode(self, capsys):
+        with patch.dict(
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"}
+        ):
+            with pytest.raises(SystemExit):
+                main(["send", "$health", "--ooc"])
+        err = capsys.readouterr().err
+        assert "unrecognized arguments: --ooc" in err
+
+    def test_obs_flag_missing_in_minimal_mode(self, capsys):
+        with patch.dict(
+            "os.environ", {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"}
+        ):
+            with pytest.raises(SystemExit):
+                main(["send", "$health", "--obs"])
+        err = capsys.readouterr().err
+        assert "unrecognized arguments: --obs" in err
+
+    def test_send_still_works_in_minimal_mode(self, capsys):
+        """The minimal subset (send/react/edit + --channel-id /
+        --guild) stays functional. Verified at the parser level
+        — actual send is mocked elsewhere."""
+        # Use an invalid token to bail early but verify argparse
+        # accepts the args.
+        saved = os.environ.pop("CLAUDE_TESTER_TOKEN", None)
+        try:
+            with patch.dict(
+                "os.environ",
+                {"BOT_PLAYER_CHANNEL_ID": "1269749688496558161"},
+            ):
+                with pytest.raises(SystemExit, match="CLAUDE_TESTER_TOKEN"):
+                    main(["send", "$health"])
+        finally:
+            if saved is not None:
+                os.environ["CLAUDE_TESTER_TOKEN"] = saved
+
+
+class TestSplitThreadFile:
+    def test_basic_split(self):
+        text = "first message\n\n---\n\nsecond message\n"
+        chunks = _split_thread_file(text)
+        assert chunks == ["first message", "second message"]
+
+    def test_strips_leading_and_trailing_separators(self):
+        text = "---\nfirst\n---\nsecond\n---\n"
+        chunks = _split_thread_file(text)
+        assert chunks == ["first", "second"]
+
+    def test_drops_empty_chunks(self):
+        text = "alpha\n---\n\n   \n---\nbeta\n"
+        chunks = _split_thread_file(text)
+        assert chunks == ["alpha", "beta"]
+
+    def test_inline_dashes_preserved(self):
+        """Only LINE-anchored ``---`` (a line containing only dashes,
+        possibly with trailing whitespace) is a separator. Inline
+        em-dashes or mid-line ``---`` stay in the content."""
+        text = (
+            "first message — has em-dash\n"
+            "---\n"
+            "second message has --- inline but the line has more\n"
+        )
+        chunks = _split_thread_file(text)
+        assert len(chunks) == 2
+        assert "em-dash" in chunks[0]
+        assert "--- inline" in chunks[1]
+
+    def test_separator_with_trailing_whitespace(self):
+        text = "alpha\n---   \nbeta\n"
+        chunks = _split_thread_file(text)
+        assert chunks == ["alpha", "beta"]
+
+    def test_no_separator_returns_single_chunk(self):
+        text = "just one message with no separators here\n"
+        chunks = _split_thread_file(text)
+        assert chunks == ["just one message with no separators here"]
+
+    def test_empty_input(self):
+        assert _split_thread_file("") == []
+        assert _split_thread_file("   \n\n  \n") == []
+
+
+class TestThreadCliDryRun:
+    def test_thread_dry_run_prints_chunks(self, tmp_path, capsys):
+        f = tmp_path / "thread.md"
+        f.write_text("alpha\n---\nbeta\n", encoding="utf-8")
+        rc = main(["thread", str(f), "--channel-id", "999", "--dry-run"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "chunk 1/2" in out
+        assert "chunk 2/2" in out
+        assert "alpha" in out
+        assert "beta" in out
+
+    def test_thread_empty_file_errors(self, tmp_path, capsys):
+        f = tmp_path / "empty.md"
+        f.write_text("\n   \n", encoding="utf-8")
+        rc = main(["thread", str(f), "--channel-id", "999", "--dry-run"])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "No messages parsed" in err
 
 
 class TestMainCliGuards:

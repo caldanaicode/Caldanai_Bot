@@ -4,6 +4,11 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — Workspace channel pin + bot_player thread subcommand
+
+- **`BOT_PLAYER_CHANNEL_ID` env var** added to `bot_player`'s default channel resolution. When set, takes priority over the DB lookup — workspace-pinning mode for setups with a single canonical channel. Added to bg Vael's workspace `.env` (pointing at her one-true test channel) so her commands no longer have to pass `--guild` to disambiguate against the OOC engineering game in the same guild. Main project leaves it unset and continues to use DB lookup with OOC exclusion. Test fixture added to `TestResolveTestChannelId` to clear the env var per-test so existing DB-lookup tests aren't masked. 2 new tests cover the new path.
+- **`bot_player thread <file>`** subcommand reads a markdown file with `---` separator lines and posts each section as a separate Discord message with configurable inter-message pacing. Replaces the `.tmp_post_*.py` one-shot pattern I'd been hand-writing for multi-message observations posts. Full channel-flag set (`--channel-id`, `--ooc`, `--obs`, `--guild`) plus `--dry-run` for previewing the split without sending. Line-anchored separator (`^---$`) so inline em-dashes and embedded horizontal rules are preserved. 9 new tests for the splitter and CLI.
+
 ### 2026-05-02 — bg Vael investigation tooling: --obs channel + memory diff + thought modes
 
 - **`--obs` shortcut** added to `bot_player` (send/react/edit) and `tail_channel`. New `OBSERVATIONS_CHANNEL_ID` env var holds the snowflake for the bg-Vael observations channel; `--obs` is sugar for `--channel-id $OBSERVATIONS_CHANNEL_ID`. Mutually exclusive with `--ooc`. Tests in `test_tools_bot_player.py`.

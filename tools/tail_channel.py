@@ -1111,16 +1111,14 @@ def main() -> int:
         help=(
             "Target the OOC engineering channel from the "
             "OOC_CHANNEL_ID env var. Shortcut for "
-            "``--channel-id $OOC_CHANNEL_ID``. Out-of-character "
-            "playtest space — does NOT route to bg Vael's "
-            "world view."
+            "``--channel-id $OOC_CHANNEL_ID``."
         ),
     )
     parser.add_argument(
         "--obs",
         action="store_true",
         help=(
-            "Target the bg-Vael observations channel from the "
+            "Target the observations channel from the "
             "OBSERVATIONS_CHANNEL_ID env var. Shortcut for "
             "``--channel-id $OBSERVATIONS_CHANNEL_ID``."
         ),

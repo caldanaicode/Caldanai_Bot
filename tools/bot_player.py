@@ -74,21 +74,37 @@ from tools._common import DiscordRestClient, live_db, use_db_env_var
 def _resolve_test_channel_id(guild_filter: Optional[int] = None) -> int:
     """Look up the TEST game's channel id from the test DB.
 
-    Queries ``TEST_DB_NAME``'s ``games`` collection. Most test
-    setups have exactly one game; when multiple exist the caller
-    narrows with ``guild_filter``. Raises ``SystemExit`` when no
+    Resolution order:
+
+    1. ``BOT_PLAYER_CHANNEL_ID`` env var — when set, returned
+       directly (skips DB lookup entirely). Workspace-pinning
+       mode: bg Vael's launcher sets this so every no-flag
+       ``bot_player send`` lands on her one-true channel without
+       discovering the OOC engineering channel that shares her
+       guild. Main-project workflows leave this unset and fall
+       through to the DB lookup below.
+    2. DB lookup against ``TEST_DB_NAME``'s ``games`` collection,
+       filtered to exclude ``OOC_CHANNEL_ID`` when that env var is
+       set. Most test setups have exactly one game; when multiple
+       remain after the OOC exclusion the caller narrows with
+       ``guild_filter``.
+
+    Raises ``SystemExit`` when the env var is unset AND no
     matching game is found — usually means the bot has never
     been run in the test channel yet, so no game doc has been
     persisted.
 
-    When the operator has registered an out-of-character (OOC)
-    engineering channel via the ``OOC_CHANNEL_ID`` env var, that
-    channel is filtered OUT of the default lookup so existing
-    flows (bg Vael's ``bot_player send`` without args) keep
-    landing in the original Vael-facing test channel. The OOC
-    channel is reachable explicitly via the ``--ooc`` flag or
-    ``--channel-id``.
+    The OOC channel is reachable explicitly via the ``--ooc``
+    flag or ``--channel-id``.
     """
+    pinned = os.environ.get("BOT_PLAYER_CHANNEL_ID")
+    if pinned:
+        try:
+            return int(pinned)
+        except ValueError as e:
+            raise SystemExit(
+                f"BOT_PLAYER_CHANNEL_ID is not a valid integer: {pinned!r}"
+            ) from e
     use_db_env_var("TEST_DB_NAME")
     query: dict = {"channel_id": {"$exists": True}}
     if guild_filter is not None:
@@ -109,8 +125,9 @@ def _resolve_test_channel_id(guild_filter: Optional[int] = None) -> int:
         guilds = ", ".join(str(d.get("guild_id")) for d in docs)
         raise SystemExit(
             f"Multiple games found in TEST_DB_NAME.games ({guilds}). "
-            f"Pass --guild <id> to disambiguate, or --ooc / --channel-id "
-            f"to target a specific channel."
+            f"Pass --guild <id> or --channel-id <id> to target a "
+            f"specific channel, or set BOT_PLAYER_CHANNEL_ID in "
+            f"the env to pin a default."
         )
     return int(docs[0]["channel_id"])
 
@@ -200,6 +217,45 @@ async def _react(
         return await client.toggle_reaction(channel_id, message_id, emoji)
 
 
+_THREAD_SEPARATOR_RE = __import__("re").compile(r"^---\s*$", __import__("re").MULTILINE)
+
+
+def _split_thread_file(text: str) -> "list[str]":
+    """Split a thread file into messages on lines containing only
+    ``---``. Strips surrounding whitespace from each chunk; drops
+    empty chunks so a leading or trailing separator doesn't produce
+    a phantom empty post.
+
+    The separator must be a full line (``^---$``) — inline
+    ``---`` inside a section (e.g. inside a Markdown horizontal
+    rule embedded in a code block) is preserved.
+    """
+    chunks = _THREAD_SEPARATOR_RE.split(text)
+    return [c.strip() for c in chunks if c.strip()]
+
+
+async def _post_thread(
+    messages: "list[str]",
+    guild_filter: Optional[int],
+    channel_id_override: Optional[int] = None,
+    pacing_seconds: float = 0.6,
+) -> "list[dict]":
+    """Post a sequence of messages to the same channel with a brief
+    inter-message pause so they land in order on Discord's side.
+
+    Returns the list of posted message dicts (one per send) so the
+    caller can echo IDs.
+    """
+    import asyncio as _asyncio
+    posted: "list[dict]" = []
+    for i, content in enumerate(messages):
+        msg = await _post(content, guild_filter, channel_id_override)
+        posted.append(msg)
+        if i < len(messages) - 1:
+            await _asyncio.sleep(pacing_seconds)
+    return posted
+
+
 async def _edit(
     message_id: int,
     content: str,
@@ -227,12 +283,26 @@ async def _edit(
         return await client.edit_message(channel_id, message_id, content)
 
 
+def _is_workspace_mode() -> bool:
+    """True when the running process is in a channel-pinned
+    workspace (``BOT_PLAYER_CHANNEL_ID`` set in env). Triggers
+    a minimal CLI surface: ``--ooc`` / ``--obs`` flags and the
+    ``thread`` subcommand are not registered, so they don't
+    appear in ``--help`` and can't be invoked. Keeps tester-bot
+    operators inside their pinned channel without exposing
+    engineering-side surfaces in their tool view.
+    """
+    return bool(os.environ.get("BOT_PLAYER_CHANNEL_ID"))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    minimal = _is_workspace_mode()
 
     send_p = sub.add_parser(
         "send",
@@ -253,22 +323,19 @@ def main(argv=None) -> int:
              "test-channel lookup. For posting to non-combat channels "
              "(e.g. a journal channel) the tester bot has access to.",
     )
-    send_p.add_argument(
-        "--ooc", action="store_true",
-        help="Target the OOC engineering channel from the "
-             "OOC_CHANNEL_ID env var. Shortcut for "
-             "``--channel-id $OOC_CHANNEL_ID``. Out-of-character "
-             "playtest space — does NOT route to bg Vael's "
-             "world view.",
-    )
-    send_p.add_argument(
-        "--obs", action="store_true",
-        help="Target the bg-Vael observations channel from the "
-             "OBSERVATIONS_CHANNEL_ID env var. Shortcut for "
-             "``--channel-id $OBSERVATIONS_CHANNEL_ID``. For "
-             "posting consolidated observations, fallacies, voice "
-             "moments, etc. — also out-of-band from Vael's view.",
-    )
+    if not minimal:
+        send_p.add_argument(
+            "--ooc", action="store_true",
+            help="Target the OOC engineering channel from the "
+                 "OOC_CHANNEL_ID env var. Shortcut for "
+                 "``--channel-id $OOC_CHANNEL_ID``.",
+        )
+        send_p.add_argument(
+            "--obs", action="store_true",
+            help="Target the observations channel from the "
+                 "OBSERVATIONS_CHANNEL_ID env var. Shortcut for "
+                 "``--channel-id $OBSERVATIONS_CHANNEL_ID``.",
+        )
 
     react_p = sub.add_parser(
         "react",
@@ -295,16 +362,17 @@ def main(argv=None) -> int:
         help="React in a specific channel id, skipping "
              "the DB-based test-channel lookup.",
     )
-    react_p.add_argument(
-        "--ooc", action="store_true",
-        help="Target the OOC engineering channel from the "
-             "OOC_CHANNEL_ID env var.",
-    )
-    react_p.add_argument(
-        "--obs", action="store_true",
-        help="Target the bg-Vael observations channel from the "
-             "OBSERVATIONS_CHANNEL_ID env var.",
-    )
+    if not minimal:
+        react_p.add_argument(
+            "--ooc", action="store_true",
+            help="Target the OOC engineering channel from the "
+                 "OOC_CHANNEL_ID env var.",
+        )
+        react_p.add_argument(
+            "--obs", action="store_true",
+            help="Target the observations channel from the "
+                 "OBSERVATIONS_CHANNEL_ID env var.",
+        )
 
     edit_p = sub.add_parser(
         "edit",
@@ -332,16 +400,72 @@ def main(argv=None) -> int:
              "the DB-based test-channel lookup. Required when "
              "editing messages outside the test-combat channel.",
     )
-    edit_p.add_argument(
-        "--ooc", action="store_true",
-        help="Target the OOC engineering channel from the "
-             "OOC_CHANNEL_ID env var.",
-    )
-    edit_p.add_argument(
-        "--obs", action="store_true",
-        help="Target the bg-Vael observations channel from the "
-             "OBSERVATIONS_CHANNEL_ID env var.",
-    )
+    if not minimal:
+        edit_p.add_argument(
+            "--ooc", action="store_true",
+            help="Target the OOC engineering channel from the "
+                 "OOC_CHANNEL_ID env var.",
+        )
+        edit_p.add_argument(
+            "--obs", action="store_true",
+            help="Target the observations channel from the "
+                 "OBSERVATIONS_CHANNEL_ID env var.",
+        )
+
+    if not minimal:
+        thread_p = sub.add_parser(
+            "thread",
+            help=(
+                "Post a sequence of messages from a markdown file, "
+                "split on ``---`` separator lines. Each chunk becomes "
+                "a separate Discord message with a small inter-message "
+                "pause so they land in order."
+            ),
+        )
+        thread_p.add_argument(
+            "file",
+            help=(
+                "Path to a markdown file. Sections are separated by "
+                "lines containing only ``---`` (line-anchored, so "
+                "horizontal rules inside content are preserved). "
+                "Empty leading/trailing chunks are dropped."
+            ),
+        )
+        thread_p.add_argument(
+            "--guild", type=int, default=None,
+            help="Restrict channel lookup to one guild id when "
+                 "multiple test guilds exist.",
+        )
+        thread_p.add_argument(
+            "--channel-id", type=int, default=None,
+            help="Post to a specific channel id, skipping the DB-based "
+                 "test-channel lookup.",
+        )
+        thread_p.add_argument(
+            "--ooc", action="store_true",
+            help="Target the OOC engineering channel from "
+                 "OOC_CHANNEL_ID env var.",
+        )
+        thread_p.add_argument(
+            "--obs", action="store_true",
+            help="Target the observations channel from "
+                 "OBSERVATIONS_CHANNEL_ID env var.",
+        )
+        thread_p.add_argument(
+            "--pacing-seconds", type=float, default=0.6,
+            help=(
+                "Sleep between messages so they land in order on "
+                "Discord. Default: 0.6s. Set to 0 for no pacing."
+            ),
+        )
+        thread_p.add_argument(
+            "--dry-run", action="store_true",
+            help=(
+                "Print the resolved chunks (with separator markers) "
+                "and exit without sending. Useful for verifying the "
+                "split."
+            ),
+        )
 
     args = ap.parse_args(argv)
 
@@ -384,6 +508,35 @@ def main(argv=None) -> int:
         print(
             f"{action} reaction {args.emoji} on id={args.message_id}"
         )
+        return 0
+    if args.cmd == "thread":
+        from pathlib import Path as _Path
+        text = _Path(args.file).read_text(encoding="utf-8")
+        chunks = _split_thread_file(text)
+        if not chunks:
+            print(
+                f"No messages parsed from {args.file} — file is "
+                "empty or every chunk was whitespace.",
+                file=sys.stderr,
+            )
+            return 1
+        if args.dry_run:
+            for i, c in enumerate(chunks, 1):
+                print(f"--- chunk {i}/{len(chunks)} ({len(c)} chars) ---")
+                print(c)
+                print()
+            return 0
+        posted = asyncio.run(
+            _post_thread(
+                chunks, args.guild, args.channel_id,
+                pacing_seconds=args.pacing_seconds,
+            )
+        )
+        for i, msg in enumerate(posted, 1):
+            print(
+                f"posted {i}/{len(posted)} id={msg['id']} "
+                f"(channel={msg.get('channel_id')})"
+            )
         return 0
     return 1
 
