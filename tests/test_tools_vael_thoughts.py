@@ -356,6 +356,146 @@ def test_format_user_content_empty_returns_none():
 
 
 # ---------------------------------------------------------------------------
+# Mode: chat (in-character Discord posts via bot_player send)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_send_message_basic():
+    cmd = "python -m tools.bot_player send 'Locked, kin.'"
+    assert vael_thoughts._extract_send_message(cmd) == "Locked, kin."
+
+
+def test_extract_send_message_with_guild_flag():
+    cmd = "vael-python.bat -m tools.bot_player send --guild 12345 'Mendholm.'"
+    assert vael_thoughts._extract_send_message(cmd) == "Mendholm."
+
+
+def test_extract_send_message_with_channel_id_flag():
+    cmd = "bot_player send --channel-id 99 'a message'"
+    assert vael_thoughts._extract_send_message(cmd) == "a message"
+
+
+def test_extract_send_message_skips_non_send_commands():
+    assert vael_thoughts._extract_send_message("ls -la") is None
+    assert vael_thoughts._extract_send_message(
+        "bot_player react 12345 fire"
+    ) is None
+    assert vael_thoughts._extract_send_message(
+        "bot_player edit 12345 'oops'"
+    ) is None
+
+
+def test_extract_send_message_handles_bool_flags():
+    """--ooc / --obs / --dry-run are bool flags; their values
+    aren't standalone args. The skip-flag-and-value logic must
+    handle them as standalone."""
+    cmd = "bot_player send --ooc '$health'"
+    assert vael_thoughts._extract_send_message(cmd) == "$health"
+
+
+def test_iter_mode_chat_extracts_in_character_posts(tmp_path):
+    """End-to-end mode=chat against a synthetic session log."""
+    p = tmp_path / "chat.jsonl"
+    entries = [
+        # Combat command — skipped (starts with $)
+        _make_assistant_with_tool_use(
+            name="Bash",
+            input_dict={"command": "bot_player send '$kill torso'"},
+            uuid="u-cmd",
+            timestamp="2026-05-02T08:01:00.000Z",
+        ),
+        # In-character chat — kept
+        _make_assistant_with_tool_use(
+            name="Bash",
+            input_dict={
+                "command": "bot_player send 'Locked, kin.'"
+            },
+            uuid="u-chat1",
+            timestamp="2026-05-02T08:02:00.000Z",
+        ),
+        # Another in-character chat with --guild flag
+        _make_assistant_with_tool_use(
+            name="Bash",
+            input_dict={
+                "command": "bot_player send --guild 999 'Mendholm.'"
+            },
+            uuid="u-chat2",
+            timestamp="2026-05-02T08:03:00.000Z",
+        ),
+        # Non-Bash tool — skipped
+        _make_assistant_with_tool_use(
+            name="Write",
+            input_dict={"file_path": "/x.md", "content": "hi"},
+            uuid="u-write",
+            timestamp="2026-05-02T08:04:00.000Z",
+        ),
+    ]
+    with p.open("w", encoding="utf-8") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+    records = list(
+        vael_thoughts._iter_assistant_thoughts(p, mode="chat")
+    )
+    texts = [r["text"] for r in records]
+    assert texts == ["Locked, kin.", "Mendholm."]
+
+
+# ---------------------------------------------------------------------------
+# --context expansion
+# ---------------------------------------------------------------------------
+
+
+def test_expand_with_context_basic():
+    records = [{"text": f"r{i}", "uuid": f"u{i}", "timestamp": None} for i in range(10)]
+    pattern = re.compile(r"r5")
+    result = vael_thoughts._expand_with_context(records, pattern, n=2)
+    # Match at idx 5; ±2 keeps r3,r4,r5,r6,r7
+    assert [r["text"] for r in result] == ["r3", "r4", "r5", "r6", "r7"]
+
+
+def test_expand_with_context_overlapping_windows_merge():
+    records = [{"text": f"r{i}", "uuid": f"u{i}", "timestamp": None} for i in range(10)]
+    pattern = re.compile(r"r3|r5")
+    result = vael_thoughts._expand_with_context(records, pattern, n=2)
+    # Matches at 3 and 5, ±2 each: {1,2,3,4,5} ∪ {3,4,5,6,7} = {1..7}
+    assert [r["text"] for r in result] == [
+        "r1", "r2", "r3", "r4", "r5", "r6", "r7"
+    ]
+
+
+def test_expand_with_context_clamped_at_boundaries():
+    records = [{"text": f"r{i}", "uuid": f"u{i}", "timestamp": None} for i in range(5)]
+    pattern = re.compile(r"r0")
+    result = vael_thoughts._expand_with_context(records, pattern, n=3)
+    # Match at 0; window is max(0, -3) to min(5, 4) = 0..3
+    assert [r["text"] for r in result] == ["r0", "r1", "r2", "r3"]
+
+
+def test_expand_with_context_no_match_empty():
+    records = [{"text": f"r{i}", "uuid": f"u{i}", "timestamp": None} for i in range(5)]
+    pattern = re.compile(r"never")
+    result = vael_thoughts._expand_with_context(records, pattern, n=2)
+    assert result == []
+
+
+def test_expand_with_context_zero_n_just_match():
+    """``--context 0`` is identical to ``--match`` alone — no
+    neighbors, just hits."""
+    records = [{"text": f"r{i}", "uuid": f"u{i}", "timestamp": None} for i in range(10)]
+    pattern = re.compile(r"r5")
+    result = vael_thoughts._expand_with_context(records, pattern, n=0)
+    assert [r["text"] for r in result] == ["r5"]
+
+
+def test_cli_context_requires_match():
+    with pytest.raises(SystemExit):
+        vael_thoughts.main([
+            "--workspace", "/ignored",
+            "--context", "3",
+        ])
+
+
+# ---------------------------------------------------------------------------
 # Filter pipeline
 # ---------------------------------------------------------------------------
 

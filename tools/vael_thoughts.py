@@ -60,6 +60,7 @@ import datetime
 import json
 import os
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -189,6 +190,49 @@ def _format_tool_use(block: dict) -> str:
     return f"{name}({rendered})"
 
 
+_CHAT_BOOL_FLAGS = frozenset({"--ooc", "--obs", "--dry-run"})
+
+
+def _extract_send_message(cmd: str) -> Optional[str]:
+    """Extract the message arg from a ``bot_player send`` invocation.
+
+    Returns None if the command isn't a ``bot_player send`` or if the
+    parse fails. Handles common flag shapes (``--guild``,
+    ``--channel-id``, ``--ooc``, ``--obs``) by skipping them and
+    their values; the message is the last non-flag positional.
+
+    Used by ``--mode chat`` to surface the in-character chat lines an
+    agent posts to its Discord channel — a signal class structurally
+    distinct from internal assistant text (terse log-shaped) or
+    journal entries (composed retrospective). Channel chat is
+    spontaneous, mid-action, and often the most meta-aware register
+    an agent inhabits.
+    """
+    if "bot_player send" not in cmd:
+        return None
+    try:
+        parts = shlex.split(cmd, posix=True)
+    except ValueError:
+        return None
+    if "send" not in parts:
+        return None
+    after_send = parts[parts.index("send") + 1:]
+    positionals: List[str] = []
+    i = 0
+    while i < len(after_send):
+        p = after_send[i]
+        if p.startswith("--"):
+            if p in _CHAT_BOOL_FLAGS:
+                i += 1
+            else:
+                # Flag with value: skip both.
+                i += 2
+        else:
+            positionals.append(p)
+            i += 1
+    return positionals[-1] if positionals else None
+
+
 def _format_user_content(content) -> Optional[str]:
     """Render a user-entry's ``message.content`` (which may be a
     string or a list of blocks) as a single text string, or None if
@@ -239,6 +283,13 @@ def _iter_assistant_thoughts(
     rendered as ``name(input_summary)``. Surfaces what commands
     she invoked — combat actions, journal posts, memory edits.
 
+    ``mode="chat"``: assistant ``tool_use`` blocks for
+    ``bot_player send`` only, with the message arg extracted and
+    ``$``-prefixed combat commands skipped. Surfaces her
+    in-character Discord channel posts — the spontaneous,
+    mid-action register that's structurally distinct from
+    internal assistant text and from her composed journal.
+
     ``mode="user"``: ``type == "user"`` entries instead of
     assistant. Surfaces what bg Vael was responding to (operator
     prompts, Monitor stream notifications, tool results). User
@@ -261,7 +312,7 @@ def _iter_assistant_thoughts(
     ``since`` is optional ISO-cutoff — entries with timestamps at
     or before it are skipped. Useful for incremental scans.
     """
-    if mode not in ("text", "tool-use", "user"):
+    if mode not in ("text", "tool-use", "chat", "user"):
         raise ValueError(f"unknown mode: {mode!r}")
     target_role = "user" if mode == "user" else "assistant"
     with path.open("r", encoding="utf-8") as f:
@@ -317,6 +368,18 @@ def _iter_assistant_thoughts(
                         continue
                     text = _format_tool_use(block)
                     yield {"timestamp": ts_str, "text": text, "uuid": uuid}
+                elif mode == "chat":
+                    if (
+                        block.get("type") != "tool_use"
+                        or block.get("name") != "Bash"
+                    ):
+                        continue
+                    inp = block.get("input") or {}
+                    cmd = inp.get("command", "")
+                    msg = _extract_send_message(cmd)
+                    if msg is None or msg.startswith("$"):
+                        continue
+                    yield {"timestamp": ts_str, "text": msg, "uuid": uuid}
 
 
 def _apply_filters(
@@ -341,6 +404,28 @@ def _apply_filters(
         if match is not None and not match.search(text):
             continue
         yield rec
+
+
+def _expand_with_context(
+    records: List[dict], match: Pattern, n: int,
+) -> List[dict]:
+    """For each record matching ``match``, keep ``n`` records before
+    and after. Overlapping windows merge naturally via set union.
+
+    Preserves chronological order. Useful for surfacing the buildup
+    and aftermath around a specific moment (e.g. a naming, a
+    tactical pivot, a death).
+    """
+    matched = [
+        i for i, r in enumerate(records) if match.search(r["text"])
+    ]
+    if not matched:
+        return []
+    keep: set = set()
+    for idx in matched:
+        for j in range(max(0, idx - n), min(len(records), idx + n + 1)):
+            keep.add(j)
+    return [records[i] for i in sorted(keep)]
 
 
 def _frequency_counts(records: List[dict]) -> "List[Tuple[int, str]]":
@@ -563,7 +648,7 @@ def main(argv=None) -> int:
     )
     ap.add_argument(
         "--mode",
-        choices=("text", "tool-use", "user"),
+        choices=("text", "tool-use", "chat", "user"),
         default="text",
         help=(
             "What to surface from each entry. "
@@ -571,9 +656,24 @@ def main(argv=None) -> int:
             "in-conversation prose. "
             "``tool-use``: assistant tool_use blocks rendered as "
             "``name(input_summary)`` — what commands she invoked. "
+            "``chat``: in-character Discord posts via "
+            "``bot_player send`` (skipping $-prefixed combat "
+            "commands) — the spontaneous mid-action register. "
             "``user``: user-role entries (operator prompts + Monitor "
             "stream notifications + tool results) — what she was "
             "responding to."
+        ),
+    )
+    ap.add_argument(
+        "--context",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Show N records before and after each ``--match`` hit. "
+            "Useful for surfacing the buildup and aftermath of a "
+            "specific moment (e.g. naming a place, deciding a "
+            "tactic). Requires ``--match``."
         ),
     )
     ap.add_argument(
@@ -654,6 +754,9 @@ def main(argv=None) -> int:
     if len(active) > 1:
         ap.error(f"mutually exclusive view modes: {', '.join(active)}")
 
+    if args.context is not None and args.match is None:
+        ap.error("--context requires --match (it expands a window around match hits)")
+
     if args.workspace is None:
         args.workspace = _default_workspace()
     if not args.workspace:
@@ -707,19 +810,39 @@ def main(argv=None) -> int:
         )
         return 0
 
-    records = list(
-        _apply_filters(
-            _iter_assistant_thoughts(
-                path,
-                since=since,
-                include_sidechains=args.include_sidechains,
-                mode=args.mode,
-            ),
-            min_length=args.min_length,
-            max_length=args.max_length,
-            match=match,
+    # Length-filter first (cheap, drops noise), then either
+    # match-filter or context-expand around match hits. Context
+    # expansion needs to see neighbors that DIDN'T match, so it
+    # runs after length filtering but BEFORE the match cull.
+    if args.context is not None:
+        all_records = list(
+            _apply_filters(
+                _iter_assistant_thoughts(
+                    path,
+                    since=since,
+                    include_sidechains=args.include_sidechains,
+                    mode=args.mode,
+                ),
+                min_length=args.min_length,
+                max_length=args.max_length,
+                match=None,
+            )
         )
-    )
+        records = _expand_with_context(all_records, match, args.context)
+    else:
+        records = list(
+            _apply_filters(
+                _iter_assistant_thoughts(
+                    path,
+                    since=since,
+                    include_sidechains=args.include_sidechains,
+                    mode=args.mode,
+                ),
+                min_length=args.min_length,
+                max_length=args.max_length,
+                match=match,
+            )
+        )
 
     if args.stats:
         _print_stats(_length_stats(records))

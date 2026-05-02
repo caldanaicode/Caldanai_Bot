@@ -4,6 +4,12 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-02 — vael_thoughts: --mode chat + --context N
+
+- **`--mode chat`** — extracts in-character Discord posts from `bot_player send` tool calls in the session jsonl, skipping `$`-prefixed combat commands. Surfaces the spontaneous mid-action register that's structurally distinct from internal assistant text or the composed journal. New `_extract_send_message` helper uses `shlex` to handle `--guild`, `--channel-id`, `--ooc`, `--obs` flag patterns generically.
+- **`--context N`** — show N records before and after each `--match` hit. Useful for surfacing the buildup and aftermath of a specific moment (a naming, a tactical pivot, a death). Overlapping windows merge naturally; clamped at boundaries; requires `--match`. Caught the buildup around bg Vael's world-naming moment ("Mendholm") that motivated the feature.
+- 12 new tests covering both modes (extractor edge cases, context expansion, boundary clamping, CLI guard).
+
 ### 2026-05-02 — Workspace channel pin + bot_player thread subcommand
 
 - **`BOT_PLAYER_CHANNEL_ID` env var** added to `bot_player`'s default channel resolution. When set, takes priority over the DB lookup — workspace-pinning mode for setups with a single canonical channel. Added to bg Vael's workspace `.env` (pointing at her one-true test channel) so her commands no longer have to pass `--guild` to disambiguate against the OOC engineering game in the same guild. Main project leaves it unset and continues to use DB lookup with OOC exclusion. Test fixture added to `TestResolveTestChannelId` to clear the env var per-test so existing DB-lookup tests aren't masked. 2 new tests cover the new path.
