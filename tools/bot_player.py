@@ -466,6 +466,15 @@ def main(argv=None) -> int:
                 "split."
             ),
         )
+        thread_p.add_argument(
+            "--cleanup", action="store_true",
+            help=(
+                "Delete the source file after a successful post. "
+                "Useful for unattended cron flows that build a "
+                "temp markdown, post it, and shouldn't leave the "
+                "scratch behind. No-op on dry-run."
+            ),
+        )
 
     args = ap.parse_args(argv)
 
@@ -537,6 +546,15 @@ def main(argv=None) -> int:
                 f"posted {i}/{len(posted)} id={msg['id']} "
                 f"(channel={msg.get('channel_id')})"
             )
+        if getattr(args, "cleanup", False):
+            try:
+                _Path(args.file).unlink()
+                print(f"cleaned up {args.file}")
+            except OSError as e:
+                print(
+                    f"warning: cleanup of {args.file} failed: {e}",
+                    file=sys.stderr,
+                )
         return 0
     return 1
 

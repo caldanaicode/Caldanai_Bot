@@ -292,6 +292,75 @@ class TestThreadCliDryRun:
         assert "alpha" in out
         assert "beta" in out
 
+    def test_thread_cleanup_flag_deletes_file_on_success(
+        self, tmp_path, monkeypatch
+    ):
+        """``--cleanup`` should unlink the source file after a
+        successful post. Mocks out the actual Discord call so this
+        runs offline."""
+        import asyncio
+        f = tmp_path / "thread.md"
+        f.write_text("alpha\n---\nbeta\n", encoding="utf-8")
+
+        # Stub _post_thread to return fake post results without
+        # hitting Discord.
+        async def fake_post_thread(*_args, **_kw):
+            return [
+                {"id": "1", "channel_id": "999"},
+                {"id": "2", "channel_id": "999"},
+            ]
+
+        monkeypatch.setattr(
+            "tools.bot_player._post_thread", fake_post_thread
+        )
+
+        rc = main([
+            "thread", str(f),
+            "--channel-id", "999",
+            "--cleanup",
+        ])
+        assert rc == 0
+        assert not f.exists(), "cleanup should have deleted the file"
+
+    def test_thread_cleanup_failure_logs_warning(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """If the unlink fails (e.g. file already gone, permission
+        error), the tool should log a warning but not error out —
+        the post already succeeded."""
+        import asyncio
+        f = tmp_path / "thread.md"
+        f.write_text("alpha\n", encoding="utf-8")
+
+        async def fake_post_thread(*_args, **_kw):
+            return [{"id": "1", "channel_id": "999"}]
+
+        monkeypatch.setattr(
+            "tools.bot_player._post_thread", fake_post_thread
+        )
+
+        # Force unlink to fail by deleting the file before main runs
+        # cleanup, then invoking with --cleanup. main reads the file
+        # for chunks first (so we need it to exist for that step),
+        # so this is a slightly different setup: monkeypatch
+        # Path.unlink to raise.
+        from pathlib import Path as _RealPath
+        original_unlink = _RealPath.unlink
+
+        def failing_unlink(self, *a, **kw):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(_RealPath, "unlink", failing_unlink)
+
+        rc = main([
+            "thread", str(f),
+            "--channel-id", "999",
+            "--cleanup",
+        ])
+        assert rc == 0  # post succeeded, cleanup failure is non-fatal
+        err = capsys.readouterr().err
+        assert "warning" in err.lower()
+
     def test_thread_empty_file_errors(self, tmp_path, capsys):
         f = tmp_path / "empty.md"
         f.write_text("\n   \n", encoding="utf-8")
