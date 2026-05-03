@@ -21,6 +21,7 @@ feels right; uses name when it matters.
 from typing import Dict, List
 
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+from caldanai.lib.rpg.helpers.enums import TimePartitions
 from caldanai.lib.rpg.helpers.warmth import Warmth
 
 
@@ -30,6 +31,12 @@ class Shepherd(PasserbyPlugin):
     gender = "male"
     pronouns = "he,him,his,his,himself"
     ALIASES = ["sheep-herder", "old shepherd"]
+
+    # Shepherds are out at sheep-hours — dawn for the morning
+    # count, through the day, evening for bringing them in.
+    # Could narrow to dawn+evening for a stricter "going out /
+    # coming back" pattern but DIURNAL keeps spawn variety.
+    time_partition = TimePartitions.DIURNAL
 
     # "Friend" / "you" are home. Names when it matters.
     NAMING_BIAS = 0.3

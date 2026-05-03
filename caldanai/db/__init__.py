@@ -45,6 +45,12 @@ class DB:
     _statics = _mongoDB.statics
     _command_statics = _mongoDB.user_command_statics
     _logs = _mongoDB.logs_discord
+    # Per-channel passerby NPC state — one document per
+    # (channel_id, npc_stem, player_id) triple. Carries warmth,
+    # acquaintance, met_count, and the via-tag for how the NPC
+    # learned the player's name. Persistence layer in
+    # ``caldanai/lib/rpg/creatures/passersby/state.py``.
+    _passerby_state = _mongoDB.passerby_state
     _is_connected = False
     _last_successful_write: datetime = None
     _write_alert_sent = False

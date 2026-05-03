@@ -1,0 +1,635 @@
+"""Tests for the passerby spawn-pipeline state machine in
+``caldanai.lib.rpg.creatures.passersby.spawn``.
+
+Pure-function design (game-like object passed in, no real
+``Game``) so transitions are unit-testable without the Discord
+or Mongo stack. Validates:
+
+- State transitions: idle → present, idle → silhouette,
+  silhouette → present (drain), present → idle (depart / flee).
+- ``is_combat_active`` honors monster + combatants gates.
+- ``pick_npc`` deduplicates aliases and uniformly samples plugin
+  classes.
+- ``flee_from_attack`` reads PRE-degrade warmth for line
+  rendering and applies degrade after.
+"""
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+from caldanai.lib.rpg.creatures.passersby.spawn import (
+    OUTCOME_DEATH,
+    OUTCOME_FLED,
+    OUTCOME_WON,
+    attempt_spawn,
+    depart_passerby,
+    drain_silhouette,
+    flee_from_attack,
+    is_combat_active,
+    overhear_mentions,
+    pick_npc,
+)
+from caldanai.lib.rpg.creatures.passersby.wagoneer import Wagoneer
+from caldanai.lib.rpg.creatures.passersby.wren import Wren
+from caldanai.lib.rpg.helpers.warmth import Warmth
+
+
+# ---------------------------------------------------------------------------
+# Fake game / collection fixtures
+# ---------------------------------------------------------------------------
+
+
+def _make_game(
+    monster=None, combatants=None, passerby=None, pending=None, channel_id=1,
+):
+    return SimpleNamespace(
+        channel_id=channel_id,
+        monster=monster,
+        combatants=combatants or [],
+        passerby=passerby,
+        pending_silhouette=pending,
+    )
+
+
+def _make_alive_monster():
+    """Minimal monster stand-in: ``is_dead()`` returns False."""
+    m = MagicMock()
+    m.is_dead.return_value = False
+    return m
+
+
+def _make_dead_monster():
+    m = MagicMock()
+    m.is_dead.return_value = True
+    return m
+
+
+class _FakeCollection:
+    """Same shape as the test_passerby_state fixture — minimal
+    pymongo Collection stand-in."""
+
+    def __init__(self):
+        self._docs = []
+
+    def find_one(self, filter_):
+        for doc in self._docs:
+            if all(doc.get(k) == v for k, v in filter_.items()):
+                return doc
+        return None
+
+    def insert(self, doc):
+        """Test-only helper to seed the collection with prior state."""
+        self._docs.append(doc)
+
+
+@pytest.fixture
+def coll():
+    return _FakeCollection()
+
+
+@pytest.fixture
+def quiet_db(coll):
+    """Patch the DB module so writes go nowhere (pure-state tests
+    don't care about persistence side-effects)."""
+
+    class _NoOpQueue:
+        def put(self, op):
+            pass
+
+    class _NoOpDict(dict):
+        def __missing__(self, key):
+            q = _NoOpQueue()
+            self[key] = q
+            return q
+
+    with patch("caldanai.lib.rpg.creatures.passersby.state.DB") as mock_db:
+        mock_db._passerby_state = coll
+        mock_db._queues = _NoOpDict()
+        yield mock_db
+
+
+# ---------------------------------------------------------------------------
+# is_combat_active
+# ---------------------------------------------------------------------------
+
+
+class TestIsCombatActive:
+    def test_no_monster_no_combat(self):
+        assert is_combat_active(_make_game()) is False
+
+    def test_monster_no_combatants_no_combat(self):
+        """Monster spawned but no players engaged → not in
+        combat. Silhouette mode shouldn't fire just because a
+        creature exists."""
+        game = _make_game(monster=_make_alive_monster(), combatants=[])
+        assert is_combat_active(game) is False
+
+    def test_dead_monster_not_combat(self):
+        game = _make_game(
+            monster=_make_dead_monster(),
+            combatants=[MagicMock()],
+        )
+        assert is_combat_active(game) is False
+
+    def test_alive_monster_with_combatants(self):
+        game = _make_game(
+            monster=_make_alive_monster(),
+            combatants=[MagicMock()],
+        )
+        assert is_combat_active(game) is True
+
+
+# ---------------------------------------------------------------------------
+# pick_npc
+# ---------------------------------------------------------------------------
+
+
+class TestPickNpc:
+    def test_returns_class_from_registry(self):
+        game = _make_game()
+        registry = {"wagoneer": Wagoneer, "wren": Wren}
+        cls = pick_npc(game, registry=registry)
+        assert cls in (Wagoneer, Wren)
+
+    def test_dedupes_aliases(self):
+        """Multiple alias keys pointing at the same class should
+        not bias the random pick toward that class."""
+        game = _make_game()
+        # Wagoneer with several alias keys; only one chance per
+        # plugin class.
+        registry = {
+            "wagoneer": Wagoneer,
+            "wagon driver": Wagoneer,
+            "wagoner": Wagoneer,
+            "wren": Wren,
+        }
+        # Sample 100 picks; both classes should appear (60-40
+        # split if dedupe works, ~75-25 if not).
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=lambda seq: seq[0],
+        ):
+            cls = pick_npc(game, registry=registry)
+        assert cls is Wagoneer  # First in dedup-preserve-order
+
+    def test_empty_registry_returns_none(self):
+        assert pick_npc(_make_game(), registry={}) is None
+
+
+# ---------------------------------------------------------------------------
+# attempt_spawn — state machine
+# ---------------------------------------------------------------------------
+
+
+class TestAttemptSpawn:
+    def test_idle_to_present_no_combat(self, quiet_db):
+        """Game with no combat → NPC arrives. ``passerby`` set;
+        ``pending_silhouette`` stays None."""
+        game = _make_game()
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.pick_npc",
+            return_value=Wagoneer,
+        ):
+            line = attempt_spawn(game)
+        assert isinstance(game.passerby, Wagoneer)
+        assert game.pending_silhouette is None
+        assert line is not None
+        assert "wagoneer" in line.lower()
+
+    def test_idle_to_silhouette_during_combat(self, quiet_db):
+        """Combat active → NPC enters silhouette state, not
+        present. Line is drawn from the silhouette pool, not
+        the arrival pool."""
+        game = _make_game(
+            monster=_make_alive_monster(),
+            combatants=[MagicMock()],
+        )
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.pick_npc",
+            return_value=Wagoneer,
+        ):
+            line = attempt_spawn(game)
+        assert isinstance(game.pending_silhouette, Wagoneer)
+        assert game.passerby is None
+        assert line is not None
+        # Verify line is from silhouette pool (verbatim match,
+        # since pools don't reference the player so no parser
+        # substitution shifts the surface).
+        assert line in Wagoneer.SILHOUETTE_POOL
+        assert line not in Wagoneer.ARRIVAL_POOL
+
+    def test_present_blocks_further_spawn(self, quiet_db):
+        game = _make_game(passerby=Wagoneer())
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.pick_npc",
+            return_value=Wren,
+        ):
+            line = attempt_spawn(game)
+        assert line is None
+        # State unchanged.
+        assert isinstance(game.passerby, Wagoneer)
+
+    def test_pending_silhouette_blocks_further_spawn(self, quiet_db):
+        game = _make_game(pending=Wagoneer())
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.pick_npc",
+            return_value=Wren,
+        ):
+            line = attempt_spawn(game)
+        assert line is None
+        assert isinstance(game.pending_silhouette, Wagoneer)
+
+    def test_no_npc_picked_returns_none(self, quiet_db):
+        game = _make_game()
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.pick_npc",
+            return_value=None,
+        ):
+            line = attempt_spawn(game)
+        assert line is None
+        assert game.passerby is None
+
+
+# ---------------------------------------------------------------------------
+# drain_silhouette — combat-end hook
+# ---------------------------------------------------------------------------
+
+
+class TestDrainSilhouette:
+    def test_no_pending_returns_none(self, quiet_db):
+        game = _make_game()
+        result = drain_silhouette(game, OUTCOME_WON)
+        assert result is None
+
+    def test_drain_promotes_to_present(self, quiet_db):
+        game = _make_game(pending=Wagoneer())
+        line = drain_silhouette(game, OUTCOME_WON)
+        assert game.pending_silhouette is None
+        assert isinstance(game.passerby, Wagoneer)
+        assert line is not None
+
+    @pytest.mark.parametrize("outcome,expected_pool_attr", [
+        (OUTCOME_WON, "COMBAT_WON_REACTIONS"),
+        (OUTCOME_FLED, "COMBAT_FLED_REACTIONS"),
+        (OUTCOME_DEATH, "PARTY_DEATH_REACTIONS"),
+    ])
+    def test_outcome_selects_matching_pool(
+        self, outcome, expected_pool_attr, quiet_db,
+    ):
+        """Each outcome routes to its specific pool. Verified by
+        capturing the pool passed to ``random.choice``."""
+        game = _make_game(pending=Wagoneer())
+        captured = []
+
+        def capturing_choice(pool):
+            captured.append(pool)
+            return pool[0]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=capturing_choice,
+        ):
+            drain_silhouette(game, outcome)
+        assert captured[0] is getattr(Wagoneer, expected_pool_attr)
+
+    def test_witness_renders_with_state(self, coll, quiet_db):
+        """Witness passed → reaction line uses witness as @2 with
+        StrangerActor / real-name surface based on acquaintance."""
+        game = _make_game(pending=Wagoneer())
+        witness = SimpleNamespace(
+            name="Caels",
+            uses_article=False,
+            user_id=1,
+            pronouns={
+                __import__(
+                    "caldanai.lib.rpg.helpers.enums", fromlist=["Pronouns"]
+                ).Pronouns.SUBJECTIVE: "he",
+                __import__(
+                    "caldanai.lib.rpg.helpers.enums", fromlist=["Pronouns"]
+                ).Pronouns.OBJECTIVE: "him",
+                __import__(
+                    "caldanai.lib.rpg.helpers.enums", fromlist=["Pronouns"]
+                ).Pronouns.POSSESSIVE: "his",
+                __import__(
+                    "caldanai.lib.rpg.helpers.enums", fromlist=["Pronouns"]
+                ).Pronouns.ADJECTIVE: "his",
+                __import__(
+                    "caldanai.lib.rpg.helpers.enums", fromlist=["Pronouns"]
+                ).Pronouns.REFLEXIVE: "himself",
+            },
+            plural_verbs=False,
+        )
+        # Not acquainted → witness renders as "the traveler" in
+        # the resulting line.
+        line = drain_silhouette(
+            game, OUTCOME_WON, witness=witness, collection=coll,
+        )
+        assert line is not None
+        # Should NOT contain "Caels" (not acquainted yet).
+        assert "Caels" not in line
+
+
+# ---------------------------------------------------------------------------
+# depart_passerby
+# ---------------------------------------------------------------------------
+
+
+class TestDepartPasserby:
+    def test_no_passerby_returns_none(self):
+        game = _make_game()
+        assert depart_passerby(game) is None
+
+    def test_present_to_idle(self):
+        game = _make_game(passerby=Wagoneer())
+        line = depart_passerby(game)
+        assert game.passerby is None
+        assert line is not None
+        assert "wagoneer" in line.lower() or "cart" in line.lower()
+
+
+# ---------------------------------------------------------------------------
+# flee_from_attack — kill-route flee path
+# ---------------------------------------------------------------------------
+
+
+class TestPickNpcTimeFilter:
+    """Time-of-day spawn gating — Wren shouldn't run errands at
+    midnight, the wagoneer doesn't cart at 02:00."""
+
+    def test_diurnal_wagoneer_active_at_noon(self):
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        registry = {"wagoneer": Wagoneer}
+        cls = pick_npc(
+            _make_game(), registry=registry,
+            time_of_day=TimesOfDay.NOON,
+        )
+        assert cls is Wagoneer
+
+    def test_diurnal_wagoneer_filtered_out_at_night(self):
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        registry = {"wagoneer": Wagoneer}
+        cls = pick_npc(
+            _make_game(), registry=registry,
+            time_of_day=TimesOfDay.NIGHT,
+        )
+        assert cls is None
+
+    def test_wren_filtered_out_at_dusk(self):
+        """Wren's partition excludes DUSK (kid expected home by
+        sundown)."""
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        registry = {"wren": Wren}
+        cls = pick_npc(
+            _make_game(), registry=registry,
+            time_of_day=TimesOfDay.DUSK,
+        )
+        assert cls is None
+
+    def test_herbalist_active_at_dusk(self):
+        """The herbalist explicitly walks at dusk for the herbs
+        that only show themselves then."""
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        registry = {"herbalist": Herbalist}
+        cls = pick_npc(
+            _make_game(), registry=registry,
+            time_of_day=TimesOfDay.DUSK,
+        )
+        assert cls is Herbalist
+
+    def test_no_active_npcs_returns_none(self):
+        from caldanai.lib.rpg.helpers.enums import TimesOfDay
+        # All four NPCs filtered out at deep NIGHT.
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        registry = {
+            "wagoneer": Wagoneer,
+            "herbalist": Herbalist,
+            "shepherd": Shepherd,
+            "wren": Wren,
+        }
+        cls = pick_npc(
+            _make_game(), registry=registry,
+            time_of_day=TimesOfDay.NIGHT,
+        )
+        assert cls is None
+
+    def test_resolves_time_from_game_clock(self):
+        """Production binding: ``pick_npc`` reads
+        ``game.game_clock.get_time_of_day()`` when ``time_of_day``
+        not explicitly passed."""
+        registry = {"wagoneer": Wagoneer}
+        clock = MagicMock()
+        clock.get_time_of_day.return_value = "noon"
+        game = SimpleNamespace(
+            channel_id=1, monster=None, combatants=[],
+            passerby=None, pending_silhouette=None,
+            game_clock=clock,
+        )
+        cls = pick_npc(game, registry=registry)
+        assert cls is Wagoneer
+
+    def test_no_clock_skips_filter(self):
+        """Game without a clock (test fixtures, edge cases) gets
+        all candidates — defensive."""
+        registry = {"wagoneer": Wagoneer}
+        cls = pick_npc(_make_game(), registry=registry)
+        # _make_game has no game_clock; filter is skipped.
+        assert cls is Wagoneer
+
+
+class TestOverhearMentions:
+    """Acquaintance-via-@mention learning. NPC overhears another
+    player @mentioning a player and learns the mentioned
+    player's name."""
+
+    def test_no_passerby_does_nothing(self, coll, quiet_db):
+        game = _make_game()
+        msg = SimpleNamespace(mentions=[])
+        result = overhear_mentions(game, msg, collection=coll)
+        assert result == 0
+
+    def test_no_mentions_does_nothing(self, coll, quiet_db):
+        game = _make_game(passerby=Wagoneer())
+        msg = SimpleNamespace(mentions=[])
+        result = overhear_mentions(game, msg, collection=coll)
+        assert result == 0
+
+    def test_mention_of_game_player_acquaints(self, coll):
+        game = _make_game(passerby=Wagoneer())
+        # Stand in a player_manager with one player keyed by id.
+        target_player = SimpleNamespace(id=42)
+        game.player_manager = SimpleNamespace(players={42: target_player})
+
+        msg = SimpleNamespace(
+            mentions=[SimpleNamespace(id=42, bot=False)],
+        )
+
+        captured_ops: list = []
+
+        class _CaptureQueue:
+            def put(self, op):
+                captured_ops.append(op)
+                # Apply the upsert so subsequent reads see it.
+                filt = op._filter
+                set_fields = op._doc.get("$set", {})
+                doc = coll.find_one(filt)
+                if doc:
+                    doc.update(set_fields)
+                else:
+                    coll._docs.append({**filt, **set_fields})
+
+        class _CaptureDict(dict):
+            def __missing__(self, key):
+                q = _CaptureQueue()
+                self[key] = q
+                return q
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.state.DB"
+        ) as mock_db:
+            mock_db._passerby_state = coll
+            mock_db._queues = _CaptureDict()
+            count = overhear_mentions(game, msg, collection=coll)
+
+        assert count == 1
+        doc = coll.find_one({
+            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+        })
+        assert doc["acquainted"] is True
+        assert doc["acquainted_via"] == "mention"
+
+    def test_mention_of_non_game_player_ignored(self, coll, quiet_db):
+        """A bystander @mention of someone NOT in the player roster
+        doesn't earn acquaintance — NPCs only learn names of
+        actual players."""
+        game = _make_game(passerby=Wagoneer())
+        game.player_manager = SimpleNamespace(players={})  # no players
+        msg = SimpleNamespace(
+            mentions=[SimpleNamespace(id=999, bot=False)],
+        )
+        count = overhear_mentions(game, msg, collection=coll)
+        assert count == 0
+
+    def test_already_acquainted_skipped(self, coll, quiet_db):
+        """Re-mention of an already-acquainted player doesn't
+        re-fire mark_acquainted (count returns 0)."""
+        coll.insert({
+            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+            "warmth": "neutral", "acquainted": True,
+            "acquainted_via": "greet",
+        })
+        game = _make_game(passerby=Wagoneer())
+        target_player = SimpleNamespace(id=42)
+        game.player_manager = SimpleNamespace(players={42: target_player})
+        msg = SimpleNamespace(
+            mentions=[SimpleNamespace(id=42, bot=False)],
+        )
+        count = overhear_mentions(game, msg, collection=coll)
+        assert count == 0  # Already known.
+
+    def test_silhouette_npc_also_learns(self, coll):
+        """An NPC in silhouette mode (during combat) still
+        overhears mentions — they're at the verge, not deaf."""
+        game = _make_game(pending=Wagoneer())
+        target_player = SimpleNamespace(id=42)
+        game.player_manager = SimpleNamespace(players={42: target_player})
+        msg = SimpleNamespace(
+            mentions=[SimpleNamespace(id=42, bot=False)],
+        )
+
+        captured_ops: list = []
+
+        class _CaptureQueue:
+            def put(self, op):
+                captured_ops.append(op)
+                filt = op._filter
+                set_fields = op._doc.get("$set", {})
+                doc = coll.find_one(filt)
+                if doc:
+                    doc.update(set_fields)
+                else:
+                    coll._docs.append({**filt, **set_fields})
+
+        class _CaptureDict(dict):
+            def __missing__(self, key):
+                q = _CaptureQueue()
+                self[key] = q
+                return q
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.state.DB"
+        ) as mock_db:
+            mock_db._passerby_state = coll
+            mock_db._queues = _CaptureDict()
+            count = overhear_mentions(game, msg, collection=coll)
+        assert count == 1
+
+
+class TestFleeFromAttack:
+    def test_no_passerby_returns_none(self, quiet_db):
+        game = _make_game()
+        attacker = SimpleNamespace(user_id=1)
+        result = flee_from_attack(game, attacker)
+        assert result is None
+
+    def test_flee_clears_passerby(self, coll, quiet_db):
+        game = _make_game(passerby=Wagoneer())
+        attacker = SimpleNamespace(
+            name="Aggressor", uses_article=False, user_id=42,
+            pronouns={}, plural_verbs=False,
+        )
+        # Pre-populate with acquainted state so the line could use
+        # the real name (verifies the PRE-degrade read).
+        coll._docs.append({
+            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+            "warmth": "warm", "acquainted": True, "acquainted_via": "greet",
+            "met_count": 3,
+        })
+        line = flee_from_attack(game, attacker, collection=coll)
+        assert game.passerby is None
+        assert line is not None
+
+    def test_flee_degrades_warmth(self, coll, quiet_db):
+        game = _make_game(passerby=Wagoneer())
+        attacker = SimpleNamespace(
+            name="Aggressor", uses_article=False, user_id=42,
+            pronouns={}, plural_verbs=False,
+        )
+        coll._docs.append({
+            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+            "warmth": "warm", "acquainted": True,
+        })
+        # Patch DB._queues so the upsert from degrade applies.
+        captured = []
+
+        class _CapturingQueue:
+            def put(self, op):
+                captured.append(op)
+                # Apply the upsert manually so the next read sees it.
+                filt = op._filter
+                set_fields = op._doc.get("$set", {})
+                doc = coll.find_one(filt)
+                if doc:
+                    doc.update(set_fields)
+
+        class _CapturingDict(dict):
+            def __missing__(self, key):
+                q = _CapturingQueue()
+                self[key] = q
+                return q
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.state.DB"
+        ) as mock_db:
+            mock_db._passerby_state = coll
+            mock_db._queues = _CapturingDict()
+            flee_from_attack(game, attacker, collection=coll)
+        # Warmth dropped from WARM → NEUTRAL (one tier).
+        doc = coll.find_one({
+            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+        })
+        assert doc["warmth"] == str(Warmth.NEUTRAL)

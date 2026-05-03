@@ -23,6 +23,7 @@ name, it lands.
 from typing import Dict, List
 
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+from caldanai.lib.rpg.helpers.enums import TimePartitions
 from caldanai.lib.rpg.helpers.warmth import Warmth
 
 
@@ -32,6 +33,13 @@ class Herbalist(PasserbyPlugin):
     gender = "female"
     pronouns = "she,her,hers,her,herself"
     ALIASES = ["old herbalist", "wise woman", "herb-witch"]
+
+    # The herbalist walks at the edges of the day — gathering in
+    # good light, walking the verges at dusk for the herbs that
+    # only show themselves then. DIURNAL covers dawn through
+    # evening; CREPUSCULAR adds the dusk walk. Excludes deep
+    # night (even mythic figures sleep eventually).
+    time_partition = TimePartitions.DIURNAL | TimePartitions.CREPUSCULAR
 
     # Mostly "traveler" — names land as deliberate weight.
     # Occasional name-use is a *moment*, not a habit. 0.15 means

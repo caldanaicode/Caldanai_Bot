@@ -31,6 +31,7 @@ readily; that's their job. They still occasionally fall back to
 from typing import Dict, List
 
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+from caldanai.lib.rpg.helpers.enums import TimePartitions
 from caldanai.lib.rpg.helpers.warmth import Warmth
 
 
@@ -41,6 +42,12 @@ class Wren(PasserbyPlugin):
     pronouns = "she,her,hers,her,herself"
 
     ALIASES = ["errand-runner", "messenger-child"]
+
+    # Errand-running is daylight work — kids don't run messages
+    # in the dark, even brave ones. Dawn to evening; she's
+    # expected home by sundown. Halrick (whoever he is) wouldn't
+    # like it if she were caught out at dusk.
+    time_partition = TimePartitions.DIURNAL
 
     # Errand-runners use names readily — knowing names is the job.
     # Higher than the wagoneer's 0.85 because she leans even more on

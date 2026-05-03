@@ -95,10 +95,11 @@ from typing import Dict, List, Optional, Type
 
 from caldanai import PluginManager
 from caldanai.lib.rpg.helpers.gender import GenderMixin
+from caldanai.lib.rpg.helpers.spawn_time import SpawnTimeMixin
 from caldanai.lib.rpg.helpers.warmth import Warmth
 
 
-class PasserbyPlugin(GenderMixin):
+class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
     """Base class for passerby NPC plugins.
 
     Subclasses populate the flavor pools as class attributes and
@@ -142,6 +143,28 @@ class PasserbyPlugin(GenderMixin):
     # which handles the comma-separated string format here AND
     # the Dict-form Creature builds at __init__ time
     # transparently.
+
+    def __init__(self) -> None:
+        """Convert class-level pronoun string declarations into the
+        instance-level Dict shape :func:`parser.parse` expects.
+
+        Subclasses declare ``pronouns`` as a comma-separated string
+        for ergonomic plugin authoring (matches
+        :class:`Creature.__init__`'s input format). The parser does
+        ``actor.pronouns[Pronouns.X]`` (square-bracket access on a
+        dict), so an instantiated NPC needs ``self.pronouns`` to be
+        the keyed dict. The :func:`GenderMixin.get_pronoun_dict`
+        accessor parses the class-level string idempotently — if
+        ``self.pronouns`` is already a dict (e.g. a subclass that
+        overrode at instance level), it's returned as-is.
+
+        Mirrors :class:`Creature.__init__`'s pattern of building the
+        pronouns dict once at instantiation. Per-instance dict
+        ensures multiple NPC instances don't share dict mutations
+        (defensive against future state — e.g. a passerby that
+        adopts a player's pronouns post-acquaintance).
+        """
+        self.pronouns = self.get_pronoun_dict()
 
     # Per-NPC bias toward using a player's actual name vs the
     # generic "traveler" form when the NPC is acquainted with that

@@ -19,6 +19,7 @@ player who initiated, and the wagoneer is referenced inline as
 from typing import Dict, List
 
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+from caldanai.lib.rpg.helpers.enums import TimePartitions
 from caldanai.lib.rpg.helpers.warmth import Warmth
 
 
@@ -28,6 +29,11 @@ class Wagoneer(PasserbyPlugin):
     gender = "male"
     pronouns = "he,him,his,his,himself"
     ALIASES = ["wagon driver", "wagoner", "carter"]
+
+    # Wagoneers travel on the road — daylight hours plus a sliver
+    # of evening for "rolling through before sundown." Doesn't
+    # cart at night.
+    time_partition = TimePartitions.DIURNAL
 
     # Functional, road-friendly. Wagoneers acknowledge people by
     # name — it's good business and good road manners. When he
