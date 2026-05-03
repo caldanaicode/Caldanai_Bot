@@ -14,3 +14,9 @@ sweeps/
 .scrub-replacements.txt
 balance-chart.png
 support_evidence/
+# Personal-project tools (Vael agent investigation & related).
+# Moved out of tracked tree because they target a separate
+# workstream from the public bot repo. Gitignoring the directory
+# keeps them on local disk for the operator without leaking into
+# git history or the test suite's auto-collection.
+/personal/

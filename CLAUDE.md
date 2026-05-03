@@ -95,58 +95,6 @@ Existing tools (`python -m tools.<name> --help` for details):
   2026-04-29 for the doppy-clone dup-id investigation; reach
   for it whenever a $sell / $loadout / inventory bug feels
   like an item-state mystery rather than a code mystery.
-- **`vael_thoughts`** — surface another Claude Code agent's
-  in-conversation activity from its session jsonl at
-  ``~/.claude/projects/<workspace-slug>/<session-id>.jsonl``.
-  Default workspace is bg Vael
-  (``E:/dev/Vael-Caldanai/workspace``); pass ``--workspace`` for
-  any other agent. ``--mode`` selects what to surface:
-  ``text`` (default — assistant prose), ``tool-use`` (commands
-  she invoked, rendered as ``name(input_summary)``), or
-  ``user`` (operator prompts + Monitor stream + tool results
-  she was responding to). Filter pipeline: ``--match <regex>``
-  (case-insensitive), ``--min-length`` / ``--max-length``,
-  ``--since <iso>``, ``--longest N`` (top-N by length, where
-  reflective beats live), or ``--tail N``. ``--stats`` swaps
-  the emit for a length histogram; ``--repeats N`` swaps it
-  for top-N most-repeated entries (combat-loop fingerprint).
-  ``--follow`` for live capture. Sidechains (sub-agent
-  conversations) skipped by default. Built 2026-05-02 to
-  capture in-flight character moments and design-seed fallacies
-  that don't survive into the agent's own memory files. Pairs
-  with ``vael_memory_diff`` — that tool catches what an agent
-  writes deliberately, vael_thoughts catches what they say or
-  do moment-to-moment.
-- **`vael_collect`** — periodic data collector designed for
-  Windows Task Scheduler invocation via the venv-aware launcher
-  ``tools/vael_collect.bat``. Each run snapshots bg Vael's memory
-  dir, pulls thoughts + channel chat since the last cursor, and
-  appends a timestamped section to the digest at
-  ``~/.claude/projects/E--dev-Caldanai-Bot/memory/_vael_digest.md``
-  (skipping empty sections so the digest stays signal-only).
-  Cursor lives at ``_vael_collect_cursor`` in the same dir;
-  ``--reset-cursor`` bumps it to now without collecting.
-  ``--show`` prints the tail of the digest for session-start
-  catch-up. The .bat resolves the project root from its own
-  location (``%~dp0..``) — portable across operator-specific
-  drive layouts. Built 2026-05-02 to enable unattended hourly
-  collection without spending Claude tokens per fire.
-- **`vael_memory_diff`** — snapshot bg Vael's memory directory
-  and diff later snapshots against earlier ones. Default mode
-  (no flag): diff current state vs the latest snapshot, then
-  take a fresh snapshot so the next call diffs against this
-  point. Modes: ``--snapshot`` (no-diff capture),
-  ``--diff [TIMESTAMP]`` (inspect against a specific snapshot
-  or latest), ``--list`` (show available snapshots).
-  ``--show-unchanged`` adds unmodified files to the manifest;
-  ``--no-snapshot-after`` prevents the default-mode
-  snapshot-after-diff side effect. Snapshots stored under
-  ``~/.claude/projects/E--dev-Caldanai-Bot/memory/_vael_snapshots/<iso-ts>/``
-  as recursive copies. Built 2026-05-02 for the morning
-  consolidation pass: shows what bg Vael curated (memory
-  writes) since the last check, so the diff isn't a hand-
-  comparison of every file in her tree.
-
 Shape to follow when adding a new tool:
 
 1. Short module docstring that explains *why it exists* (what
