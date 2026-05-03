@@ -194,8 +194,17 @@ class Doppelganger(MonsterPlugin):
         # ``dict(...)`` keeps the two creatures' pronoun maps
         # independent so later updates on either don't bleed.
         self.gender = getattr(target, "gender", self.gender)
-        if hasattr(target, "pronouns") and target.pronouns:
-            self.pronouns = dict(target.pronouns)
+        # Only copy pronouns if the target carries a real instance-
+        # level pronoun Dict. After the GenderMixin extraction,
+        # Creature subclasses still produce a Dict via __init__, but
+        # the class-level inherited default is a string — and
+        # ``MagicMock(spec=Player).pronouns`` returns an auto-Mock
+        # that's truthy but isn't dict-shaped. The isinstance check
+        # keeps us safe from those cases without breaking the real-
+        # Creature copy path.
+        target_pronouns = getattr(target, "pronouns", None)
+        if isinstance(target_pronouns, dict) and target_pronouns:
+            self.pronouns = dict(target_pronouns)
 
         # Adopt the target's RAW base defense / dodge, not the
         # armor-boosted emergent value. The armor itself flows

@@ -4,6 +4,27 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-03 — Passerby NPC foundation + GenderMixin extraction (dormant)
+
+Foundation for non-combatant passerby NPCs — the wagoneer, child, herbalist, shepherd Vael asked for in `project_world_texture_vael_2026-05-03.md`. Plugin classes + flavor pools land first; spawn pipeline / persistence / commands follow in a later commit. Nothing wired into bot startup yet, so this is dormant code: the registry is never loaded, no command routes through, no Discord behavior changes.
+
+- **`PasserbyPlugin` base** at `caldanai/lib/rpg/creatures/passersby/__init__.py` — same plugin/registry/discovery shape as `MonsterPlugin`. Class-level pool slots: `ARRIVAL_POOL` / `AMBIENT_POOL` / `DEPARTURE_POOL` / `SILHOUETTE_POOL` / `COMBAT_WON_REACTIONS` / `COMBAT_FLED_REACTIONS` / `PARTY_DEATH_REACTIONS` / `SOCIAL_REACTIONS` (warmth-keyed) / `DEPART_WHEN_PUSHED_POOL` / `FLEE_FROM_ATTACK_POOL` / `LOOK_LINE`. Hook methods (`on_arrival` / `on_silhouette` / `on_combat_resolved` / `on_attacked` / `on_pushed`) declared with no-op defaults.
+- **Per-NPC `NAMING_BIAS`** — float in [0, 1] controlling how often the NPC uses the player's actual name vs the generic "traveler" surface when acquainted. Wagoneer 0.85 (functional, road-friendly), Wren 0.7 (errand-runner, names are her job), Shepherd 0.3 (rural patient, "friend" feels right), Herbalist 0.15 (mythic, names land as weight). Per-line roll for texture rather than flag.
+- **Acquaintance + name-rendering rule** documented in the base class docstring: pools authored as if fully acquainted (`@1` for player references); the StrangerActor + NAMING_BIAS substitution layer (forthcoming) handles both not-yet-acquainted and within-character-prefers-generic cases without doubling pool authoring.
+- **Four NPCs** with distinct registers, each ~80-100 lines of dense flavor across all pools:
+  - **Wagoneer** (`wagoneer.py`) — grounded, working-class, *"the dirt mends, traveler. So do you. Mind the second part."*
+  - **Herbalist** (`herbalist.py`) — mythic, names Mendholm by name, *"Walk careful in the under-place, traveler. The world will keep your name until you come for it."*
+  - **Shepherd** (`shepherd.py`) — rural patient, addresses sheep more than people, *"You'll do, friend. You'll do."*
+  - **Wren** (`wren.py`) — first NAMED passerby (`uses_article=False`), errand-runner with a satchel of small treasures and a pocketful of gossip-bribes; her dialogue drops names of unseen places (Halrick at the granary, old Marn at the ferry-house, the granny three valleys over) — every line implicitly expands Mendholm without us shipping those places.
+
+### 2026-05-03 — `GenderMixin` extracted
+
+`Creature` and `PasserbyPlugin` both need gender + pronouns; `Creature` had them as instance attributes, `PasserbyPlugin` was duplicating the declaration. Extracted to a composable mixin so any class with personhood (today's Creature subclasses, tomorrow's NPC types, future deity-manifestations / sentient-objects / etc.) can opt in by inheritance.
+
+- **`GenderMixin`** at `caldanai/lib/rpg/helpers/gender.py` — class-level `gender: str` and `pronouns: str` defaults plus `get_pronoun_dict()` accessor that handles both representations (instance Dict, used by Creature post-init; class string, used by PasserbyPlugin). Reflexive computed as `objective + "self"` matching `Creature.__init__`'s parsing convention exactly so the unified accessor produces identical output regardless of internal storage.
+- **`Creature(GenderMixin, HealMixin)`** — adds the mixin to the bases; existing `__init__` behavior unchanged (instance Dict assignments override class string defaults).
+- **Doppelganger imitation hardened.** `imitate()` previously did `dict(target.pronouns)` after a truthy check, which worked when `hasattr(target, "pronouns")` returned False on `MagicMock(spec=Player)` (no class-level pronoun attribute existed). After the mixin extraction, that hasattr returns True (inherited), `MagicMock` auto-generates a Mock for the attribute, and `dict(Mock)` produces `{}` — leading to `KeyError(Pronouns.ADJECTIVE)` in the parser. Fixed: `imitate()` now requires `isinstance(target.pronouns, dict) and target.pronouns` before copying. Real Creature paths unchanged; covers the test-fixture edge case my refactor exposed.
+
 ### 2026-05-02 — Fuzzy-matching unification: shared resolver + Converter family
 
 Eight commands had ad-hoc fuzzy resolution scattered across handlers — substring `in` checks, manual `matches_token` chains, item-name `f.lower() in i.name`. Unified onto one resolver with a tier-aware return shape so every command gets the same "exact wins → prefix wins → substring → optional typo" semantics.

@@ -9,6 +9,7 @@ from discord import Embed, File
 from caldanai.lib.rpg import parse, _INDENT
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.healing import HealMixin
+from caldanai.lib.rpg.helpers.gender import GenderMixin
 from caldanai.lib.rpg.creatures.mixins import (
     Defensive, Equippable, Mobility, Offensive, Sensory,
 )
@@ -114,7 +115,7 @@ def _roll_absorption(defense: int, raw: int) -> int:
     return min(rolled, raw)
 
 
-class Creature(HealMixin):
+class Creature(GenderMixin, HealMixin):
     """
     An instance of a creature object.
     """
