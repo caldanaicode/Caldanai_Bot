@@ -683,3 +683,48 @@ class TestNat1SacrificeSingleTargetRain:
         # line because no one was eligible.
         assert "Sacrifice is demanded" in sent
         assert "is made whole!" not in sent
+
+
+class TestNat17To19SmallInjuryQuarterOne:
+    """Regression: 2026-05-02 live crash. Caels at 19/21 with a few
+    bruised parts, $pray rolled into the 17-19 branch, the heal
+    target's injury surface was small enough that
+    ``ceil(surface/4) == 1``, and ``Dice.quick_roll('1d1')`` returned
+    ``None`` (``Dice.from_ndn`` rejects ``sides < 2``). The
+    subsequent ``None + int`` arithmetic crashed the entire prayer
+    with a ``TypeError`` and no narration reached the channel.
+
+    The heal-amount path now shortcuts ``quarter <= 1`` to ``1``
+    (the only value a 1d1 could roll), matching the same defense
+    used by ``_q7_absorbed_dn`` in ``creatures/__init__.py``."""
+
+    @pytest.mark.asyncio
+    async def test_small_injury_completes_without_crash(self):
+        # Light injury: 1 HP body gap (under the surface/4 ≤ 1
+        # threshold once part gaps are zero). Should not crash.
+        cog = _cog()
+        alice = _make_player("Alice", health=20, health_max=21, uid=1)
+        game = _make_game(monster=None, players=[alice])
+
+        # Patch only Dice.d20 (to control the branch); leave
+        # quick_roll UNPATCHED so the real ``1d1`` → None path
+        # is exercised. If the shortcut isn't in place, this test
+        # crashes with the original TypeError.
+        with (
+            patch.object(
+                _rpg_util_path(),
+                "get_game_and_player",
+                new=AsyncMock(return_value=(game, alice)),
+            ),
+            patch("caldanai.lib.cogs.rpg_user_commands.Dispatcher"),
+            patch(
+                "caldanai.lib.cogs.rpg_user_commands.Dice.d20",
+                return_value=_FakeDice(18, sides=20),
+            ),
+        ):
+            ctx = _make_ctx()
+            # Should complete without raising.
+            await cog.pray.callback(cog, ctx)
+
+        # Heal landed (some HP recovered).
+        assert alice.health > 20

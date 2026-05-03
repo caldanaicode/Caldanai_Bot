@@ -257,9 +257,33 @@ class Inventory:
         return None
 
     def _filter_by_name(self, f: str) -> Tuple[Item]:
-        """Returns a tuple of Items with names containing the provided string."""
-        results = tuple(filter(lambda i: f.lower() in i.name, self.__items.values()))
-        return results
+        """Returns a tuple of Items whose name resolves against
+        ``f`` via the shared fuzzy pass chain
+        (exact → prefix → substring → edit-distance).
+
+        Routes through :func:`fuzzy_match` with the same
+        whitespace-token strategy used everywhere else, so item
+        lookup gets the same prefix-wins / exact-wins invariant
+        that body parts and monster names already enjoy: a literal
+        ``wand`` exact-matches the inventory's ``wand`` and short-
+        circuits past ``magic_wand`` substring noise. ``$equip wnd``
+        catches the typo via edit-distance after the stricter
+        passes return empty.
+
+        ``.tightest`` picks the most-specific tier; the structured
+        :class:`FuzzyResult` is available via :func:`fuzzy_match`
+        directly for callers that want the autocomplete-style union
+        view (none today, but the seam is here for it).
+        """
+        from caldanai.lib.rpg.helpers.fuzzy import fuzzy_match
+        matches = fuzzy_match(
+            f,
+            list(self.__items.values()),
+            keys=lambda i: [i.name] if i is not None else [],
+            strategy="unordered",
+            edit_distance=True,
+        ).tightest
+        return tuple(matches)
 
     def _filter_by_quality(self, f: str) -> Tuple[Item]:
         """Returns of tuple of Items with qualities matching the provided string."""

@@ -528,9 +528,9 @@ class MonsterPlugin(Creature):
         cls, query: str,
     ) -> "List[Type[MonsterPlugin]]":
         """Fuzzy lookup — returns every plugin class whose stem or
-        alias matches ``query`` under the same two-pass rules
-        :meth:`Creature.find_parts` uses: exact, then per-whitespace-
-        token prefix, then per-token substring fallback.
+        alias matches ``query`` under the standard pass chain
+        (exact → prefix → substring) shared with all other lookup
+        helpers via :func:`fuzzy_match`.
 
         Dedupes on the plugin class itself — ``"hydra"`` matches the
         stem AND three of its variant aliases, but returns
@@ -547,54 +547,23 @@ class MonsterPlugin(Creature):
         positional requirement — multi-word display names are
         phrases, not structured paths). Dots are treated as
         whitespace for friendliness since some operators may reach
-        for ``math.teacher`` out of body-part-targeting habit.
+        for ``math.teacher`` out of body-part-targeting habit. The
+        :func:`whitespace_tokens` tokenizer handles all three of
+        whitespace / underscore / dot uniformly.
         """
-        q = query.lower().strip() if query else ""
-        if not q:
-            return []
+        from caldanai.lib.rpg.helpers.fuzzy import fuzzy_match
 
         registry = MonsterPlugin._PLUGIN_REGISTRY
+        # Group registry keys by class so each candidate exposes its
+        # full stem + alias set in one pass — distinct classes in
+        # registry insertion order so result ordering is stable.
+        keys_per_class: Dict[Type["MonsterPlugin"], List[str]] = {}
+        for k, v in registry.items():
+            keys_per_class.setdefault(v, []).append(k)
 
-        # Exact — short-circuit, single-class result.
-        if q in registry:
-            return [registry[q]]
-
-        q_tokens = q.replace(".", " ").split()
-        if not q_tokens or any(not t for t in q_tokens):
-            return []
-
-        def tokens(name: str) -> List[str]:
-            return name.replace("_", " ").replace(".", " ").split()
-
-        from caldanai.lib.rpg.helpers.fuzzy import is_prefix, is_substring
-
-        def matches_any(primitive, name: str) -> bool:
-            # Every query token must satisfy ``primitive`` against
-            # SOME name token. Ordering doesn't matter —
-            # ``"teacher flying"`` should resolve the same as
-            # ``"flying teacher"``.
-            name_tokens = tokens(name)
-            return all(
-                any(primitive(qt, nt) for nt in name_tokens)
-                for qt in q_tokens
-            )
-
-        def unordered_prefix_match(name: str) -> bool:
-            return matches_any(is_prefix, name)
-
-        def unordered_substring_match(name: str) -> bool:
-            return matches_any(is_substring, name)
-
-        def collect(matcher) -> "List[Type[MonsterPlugin]]":
-            seen: set = set()
-            out: "List[Type[MonsterPlugin]]" = []
-            for key, plugin_cls in registry.items():
-                if matcher(key) and plugin_cls not in seen:
-                    seen.add(plugin_cls)
-                    out.append(plugin_cls)
-            return out
-
-        prefix_hits = collect(unordered_prefix_match)
-        if prefix_hits:
-            return prefix_hits
-        return collect(unordered_substring_match)
+        return fuzzy_match(
+            query,
+            list(keys_per_class.keys()),
+            keys=lambda c: keys_per_class[c],
+            strategy="unordered",
+        ).tightest

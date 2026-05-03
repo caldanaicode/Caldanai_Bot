@@ -191,6 +191,35 @@ class TestStripLeadingMonsterToken:
         assert consumed is True
         assert remainder == ""
 
+    def test_monster_word_prefix_beats_edit_distance_part_collision(self):
+        """Regression pin (2026-05-02 OOC playtest): ``$kill hex
+        head.1`` against a hexed hydra MUST peel ``hex`` as the
+        monster-word prefix and target ``head.1`` only — not
+        ``head.1`` AND ``head.2``.
+
+        The pre-fix bug: ``find_parts("hex")`` resolved to
+        ``[head.1, head.2]`` via the edit-distance tier (``"hex"``
+        is one edit from ``"he"``, the 2-char prefix of ``head``).
+        That spurious match made ``conflict_check`` truthy, blocked
+        the monster-prefix peel, and then ``_parse_part_targets``
+        ran ``find_parts`` on every token including ``"hex"`` —
+        dragging in both heads.
+
+        The fix uses a stricter conflict_check that only counts
+        exact / prefix / substring tier hits (no edit-distance).
+        ``$kill h`` part-shortcut defense (single-letter prefix
+        tier match) still works; only the over-eager edit-distance
+        tier is excluded from the peel guard."""
+        m = _make_monster_creature("hexed hydra")
+        remainder, consumed = _cog()._strip_leading_monster_token(
+            "hex head.1", m,
+        )
+        assert consumed is True, (
+            f"expected 'hex' to be peeled as a monster-word prefix; "
+            f"remainder={remainder!r}, consumed={consumed!r}"
+        )
+        assert remainder == "head.1"
+
     def test_fuzzy_typo_match_via_difflib(self):
         """``$kill hdra`` against a "hexed hydra" — the typo path.
         Single dropped character gets caught by

@@ -414,18 +414,18 @@ class RpgAdminCommands(Cog):
             )
             args_list = [a for a in args_list if not a.startswith("<@")]
 
-        # Fuzzy monster-name match if no mention. The monster's name
-        # is matched as a case-insensitive substring against the
-        # first arg; if it hits, that arg is consumed and the rest
-        # are parts.
-        if (
-            target is None
-            and args_list
-            and game.monster is not None
-            and args_list[0].lower() in game.monster.name.lower()
-        ):
-            target = game.monster
-            args_list = args_list[1:]
+        # Fuzzy monster-name match if no mention. Routes through
+        # ``resolve_active_monster`` (the shared spawned-monster
+        # resolver under all targeting commands) instead of an
+        # ad-hoc substring ``in`` check, so ``$creature destroy
+        # hyd head.1`` resolves a hexed hydra the same way ``$kill
+        # hyd`` does.
+        if target is None and args_list:
+            from caldanai.lib.rpg.helpers.resolvers import resolve_active_monster
+            matched = resolve_active_monster(game.monster, args_list[0])
+            if matched is not None:
+                target = matched
+                args_list = args_list[1:]
 
         # Default to the spawned monster.
         if target is None:

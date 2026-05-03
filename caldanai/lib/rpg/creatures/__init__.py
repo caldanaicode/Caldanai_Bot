@@ -2166,8 +2166,10 @@ class Creature(HealMixin):
     def find_parts(self, name: str) -> List[BodyPart]:
         """Fuzzy, case-insensitive lookup over non-destroyed body parts.
 
-        Matches per dotted segment. The resolver runs four passes in
-        order and stops at the first one that returns anything:
+        Routes through the shared :func:`fuzzy_match` resolver with
+        positional dot-segment strategy and edit-distance enabled.
+        The pass chain runs in order and stops at the first one
+        that returns anything:
 
         1. **Exact** — whole-name equality. ``leg.left`` → bare
            ``leg.left``. Short-circuits so a part literally named
@@ -2188,14 +2190,15 @@ class Creature(HealMixin):
            rather than a "no targetable part" error followed by
            random routing. Still per-segment, so ``h`` never matches
            ``arm.right``.
-        4. **Per-segment edit-distance-1 fallback** — each query
-           segment must be within one Levenshtein edit of some
-           prefix of the matching name segment (length matched or
-           one longer). Catches single-character typos: ``forl.r``
-           on a werewolf reaches ``foreleg.right`` because inserting
-           one ``'e'`` makes ``forel``, which is a prefix of
-           ``foreleg``. Min query-segment length 3, so single-char
-           noise in tiny shorthand doesn't smear matches.
+        4. **Per-segment edit-distance-or-prefix fallback** — each
+           query segment must be within one Levenshtein edit of
+           some prefix of the matching name segment, OR a strict
+           prefix of it. Catches single-character typos: ``forl.r``
+           on a werewolf reaches ``foreleg.right``. The disjunction
+           lets a short, valid segment like ``r`` (below the fuzzy
+           primitive's min-query-len floor) still match when a
+           longer typo segment like ``forl`` rides through via
+           edit distance.
 
         The fallback chain keeps the prefix-wins invariant: creatures
         that DO have a literal ``leg`` part still resolve ``leg`` to
@@ -2203,58 +2206,16 @@ class Creature(HealMixin):
         contain ``leg`` as a substring. Only when stricter passes
         fail do we broaden the search.
         """
-        from caldanai.lib.rpg.helpers.fuzzy import (
-            is_prefix,
-            is_substring,
-            is_within_one_edit,
-        )
+        from caldanai.lib.rpg.helpers.fuzzy import dot_segments, fuzzy_match
 
-        q = name.lower().strip()
-        if not q:
-            return []
-        candidates = self.get_targetable_parts()
-        exact = [p for p in candidates if p.name.lower() == q]
-        if exact:
-            return exact
-        query_segs = q.split(".")
-        # A trailing or leading dot (e.g. ``"leg."`` or ``".r"``) leaves
-        # an empty segment that would otherwise prefix-match anything;
-        # treat such queries as non-matches rather than inventing weird
-        # semantics around them.
-        if any(seg == "" for seg in query_segs):
-            return []
-
-        def matches(part: BodyPart, primitive) -> bool:
-            name_segs = part.name.lower().split(".")
-            if len(query_segs) > len(name_segs):
-                return False
-            return all(
-                primitive(qs, ns) for qs, ns in zip(query_segs, name_segs)
-            )
-
-        # Each pass uses a different per-pair primitive but the
-        # outer segment-aligned walk is the same — keeps the
-        # prefix-wins invariant intact.
-        prefix_matches = [p for p in candidates if matches(p, is_prefix)]
-        if prefix_matches:
-            return prefix_matches
-
-        substring_matches = [p for p in candidates if matches(p, is_substring)]
-        if substring_matches:
-            return substring_matches
-
-        # Pass 4 — edit-distance-or-prefix per segment. The
-        # ``is_prefix`` fallback is what lets a short, valid segment
-        # like ``r`` (below the fuzzy primitive's min-query-len
-        # floor) still match while a longer typo segment like
-        # ``forl`` slides through via edit distance. Without the
-        # disjunction, a typo'd query whose OTHER segments are
-        # short prefixes (the common case — ``forl.r``) would never
-        # reach the fuzzy pass, defeating the point.
-        def prefix_or_fuzzy(qs: str, ns: str) -> bool:
-            return is_prefix(qs, ns) or is_within_one_edit(qs, ns)
-
-        return [p for p in candidates if matches(p, prefix_or_fuzzy)]
+        return fuzzy_match(
+            name,
+            self.get_targetable_parts(),
+            keys=lambda p: [p.name],
+            tokenizer=dot_segments,
+            strategy="positional",
+            edit_distance=True,
+        ).tightest
 
     def get_health_scale(self) -> float:
         return self.health / self.get_health_max()

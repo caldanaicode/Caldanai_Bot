@@ -210,7 +210,33 @@ class RpgUserCommands(Cog):
         first = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
 
-        if monster.matches_token(first, conflict_check=monster.find_parts):
+        from caldanai.lib.rpg.helpers.fuzzy import dot_segments, fuzzy_match
+        from caldanai.lib.rpg.helpers.resolvers import resolve_active_monster
+
+        def _strict_part_match(token: str):
+            """Strict-tier (exact / prefix / substring) part lookup —
+            edit-distance matches are excluded so a clear monster-word
+            prefix like ``hex`` (which 1-edit-matches ``head`` on the
+            shared 'h' letter) doesn't accidentally shadow the peel
+            via fuzzy noise. Single-letter shortcuts (``h`` / ``t``)
+            still hit the prefix tier and correctly defend the part
+            interpretation; only the over-eager edit-distance tier is
+            disabled here. Typo tolerance for actual part queries
+            stays intact via ``_parse_part_targets`` ->
+            ``Creature.find_parts``, which keeps ``edit_distance=True``.
+            """
+            return fuzzy_match(
+                token,
+                monster.get_targetable_parts(),
+                keys=lambda p: [p.name],
+                tokenizer=dot_segments,
+                strategy="positional",
+                edit_distance=False,
+            ).tightest
+
+        if resolve_active_monster(
+            monster, first, conflict_check=_strict_part_match,
+        ) is not None:
             return rest, True
         return target_str, False
 
@@ -232,10 +258,11 @@ class RpgUserCommands(Cog):
         if not target_str or not monster.body_parts:
             return []
 
+        from caldanai.lib.rpg.helpers.resolvers import resolve_part
         seen = set()
         matched = []
         for token in target_str.strip().split():
-            for p in monster.find_parts(token):
+            for p in resolve_part(monster, token):
                 if p.name in seen:
                     continue
                 seen.add(p.name)
@@ -663,8 +690,19 @@ class RpgUserCommands(Cog):
             quarter = max(
                 1, math.ceil(heal_target.get_total_injury_surface() / 4)
             )
+            # ``1d1`` is rejected by :meth:`Dice.from_ndn` (sides < 2),
+            # so :func:`Dice.quick_roll` returns ``None`` for that
+            # spec — which previously crashed the heal arithmetic
+            # below with ``None + int``. ``quarter == 1`` happens
+            # whenever the heal target's injury surface is at most 4
+            # (light bruises, minor body gaps), the common state for
+            # most $pray invocations. Shortcut to ``1`` (the only
+            # value a 1d1 can roll) so the deterministic-roll path
+            # produces the right magnitude. Same pattern as
+            # ``_q7_absorbed_dn`` in ``creatures/__init__.py``.
+            rolled_floor = 1 if quarter <= 1 else Dice.quick_roll(f"1d{quarter}")
             total_heal = (
-                Dice.quick_roll(f"1d{quarter}") + quarter * (d20.value - 17)
+                rolled_floor + quarter * (d20.value - 17)
                 if heal_target.get_total_injury_surface() > 0 else 0
             )
 

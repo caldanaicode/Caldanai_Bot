@@ -473,7 +473,11 @@ class RpgInfoCommands(Cog):
 
         (5-second cool-down)
 
-        :param flag: 'all', 'hurt', or 'injured'. If nothing is specified, shows only the calling player's health, regeneration, and per-part injury table. 'all' shows body HP for all players. 'hurt' or 'injured' adds an injured-parts suffix for each listed player.
+        :param flag: 'all', 'hurt', 'injured', 'active', a player's
+            name (mention or fuzzy display-name match), or omit for
+            your own health. Keyword filters are checked first so a
+            player nicknamed ``Active`` doesn't shadow ``$health
+            active`` unintentionally.
         """
         game, player = await RpgUtilities.get_game_and_player(ctx)
 
@@ -481,6 +485,50 @@ class RpgInfoCommands(Cog):
             return
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
+
+        # Fuzzy player path: ``flag`` that isn't a keyword and isn't
+        # a mention may still name a player. Resolve via the shared
+        # PlayerConverter and render that player's health.
+        # Mentions don't reach here (Discord parses them into
+        # ctx.message.mentions), so the mention path is handled
+        # separately below.
+        if (
+            flag
+            and flag.lower() not in ("active", "all", "hurt", "injured")
+            and not ctx.message.mentions
+        ):
+            from caldanai.lib.rpg.helpers.resolvers import resolve_player
+            # Strip a literal leading ``@`` so ``$health @notreal``
+            # (where Discord didn't resolve the mention) still
+            # fuzzy-matches against the raw text rather than failing
+            # on the ``@`` prefix character mismatch.
+            query = flag[1:] if flag.startswith("@") else flag
+            matches = resolve_player(game, query)
+            if len(matches) == 1:
+                Dispatcher.add(channel, _render_health_table(matches[0]))
+                return
+            if len(matches) > 1:
+                names = ", ".join(
+                    p.member.display_name if p.member is not None
+                    else (p.name or "?")
+                    for p in matches
+                )
+                Dispatcher.add(
+                    channel,
+                    f"`{flag}` matches multiple players: {names}.",
+                )
+                return
+            # No match — fall through to the calling-player default
+            # rather than erroring. Keeps ``$health junk_typo``
+            # graceful.
+
+        if ctx.message.mentions:
+            target_player = await RpgUtilities.get_player(
+                ctx.message.mentions[0], game=game, notify=False,
+            )
+            if target_player is not None:
+                Dispatcher.add(channel, _render_health_table(target_player))
+                return
 
         if flag and flag.lower() in ("active", "all", "hurt", "injured"):
             flag_norm = flag.lower()
@@ -723,29 +771,25 @@ class RpgInfoCommands(Cog):
         """Match ``$look <target>`` against the active monster's
         rendered name.
 
-        Delegates to :meth:`Creature.matches_token` (the shared
-        spawned-monster name resolver used by ``$kill`` as well). No
-        ``conflict_check`` is passed: ``$look``'s only target is the
-        spawned monster, so the fuzzy passes match unconditionally
-        after the exact pass — unlike ``$kill``, there are no body-
-        part shortcuts to defend.
+        Routes through :func:`resolve_active_monster` — the shared
+        spawned-monster name resolver under every targeting
+        command. No ``conflict_check`` is passed: ``$look``'s only
+        target is the spawned monster, so the fuzzy passes match
+        unconditionally after the exact pass — unlike ``$kill``,
+        there are no body-part shortcuts to defend.
 
         Future generalization toward multi-monster disambiguation
         belongs to the ``MonsterPlugin.find_plugin_classes`` fuzzy
         resolver (already used by ``$spawn``); this helper stays
         scoped to the lone spawned creature.
         """
-        if monster is None:
-            return False
-        # Unbound call (`Creature.matches_token(monster, ...)` rather
-        # than `monster.matches_token(...)`) is deliberate: existing
-        # ``test_look_target_match.py`` fixtures use
-        # ``SimpleNamespace(name=...)`` duck-types that don't inherit
-        # the bound method. Threading the monster as ``self`` keeps
-        # those fixtures working without a churn-for-aesthetics
-        # rewrite. ``$kill`` always has a real Creature, so it uses
-        # the normal bound form.
-        return Creature.matches_token(monster, target)
+        from caldanai.lib.rpg.helpers.resolvers import resolve_active_monster
+        # ``Creature.matches_token`` underlies the resolver, so
+        # SimpleNamespace duck-typed test fixtures still work — the
+        # resolver calls ``monster.matches_token(...)`` on whatever
+        # gets passed in, and Creature's classmethod-style
+        # invocation isn't required.
+        return resolve_active_monster(monster, target) is not None
 
     @command(name="look", brief="Displays information about the area, a direction, or a creature.")
     async def look(self, ctx: Context, *target: str):

@@ -36,6 +36,7 @@ from discord.ext.commands import (
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
+from caldanai.lib.rpg.helpers.converters import FuzzyMemberConverter
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.helpers.parser import parse
@@ -1754,12 +1755,14 @@ class RpgSocialCommands(Cog):
     @command(name="haunt", brief="Allows the dead to harass the less-dead.")
     async def haunt(self, ctx: Context, target: str = None):
         """
-        Allows the dead to harass the less-dead. When specifying a target, use the @ symbol to target another player.
+        Allows the dead to harass the less-dead. When specifying a target, use the @ symbol to target another player or a fuzzy monster name (e.g. ``$haunt hyd`` against a hexed hydra).
 
         (5-second cool-down)
 
-        :param target: An optional victim of your haunting; either a player using @mentions, or the name of the current monster.
+        :param target: An optional victim of your haunting; either a player using @mentions, or the name (or fuzzy prefix) of the current monster.
         """
+        from caldanai.lib.rpg.helpers.resolvers import resolve_active_monster
+
         game, player = await RpgUtilities.get_game_and_player(ctx)
         haunted = None
 
@@ -1774,8 +1777,11 @@ class RpgSocialCommands(Cog):
                     Dispatcher.add(game.channel, parse("You cannot haunt a figment of your imagination, @1.", player))
                     return
                 haunted = await RpgUtilities.get_player(ctx.message.mentions[0], game=game, notify=False)
-            elif game.monster is not None and game.monster.name == target.lower():
-                haunted = game.monster
+            else:
+                # Fuzzy match against the spawned monster's name —
+                # ``$haunt hyd`` resolves a hexed hydra. Shared
+                # active-monster resolver under all targeting commands.
+                haunted = resolve_active_monster(game.monster, target)
 
             if haunted is None or not isinstance(haunted, Creature):
                 await self.haunt(ctx)
@@ -1863,7 +1869,7 @@ class RpgSocialCommands(Cog):
         ctx: Context,
         cmd: str = None,
         level: str = None,
-        who: Optional[Member] = None,
+        who: FuzzyMemberConverter = None,
     ):
         """
         ``$warmth set <cmd> <level>`` — set your default for one command.
@@ -1967,7 +1973,7 @@ class RpgSocialCommands(Cog):
         self,
         ctx: Context,
         cmd: str = None,
-        who: Optional[Member] = None,
+        who: FuzzyMemberConverter = None,
     ):
         """
         ``$warmth clear <cmd>`` — clear your per-command default

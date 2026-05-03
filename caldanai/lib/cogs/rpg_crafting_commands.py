@@ -120,6 +120,7 @@ class RpgCraftingCommands(Cog):
     @group(
         name="craft",
         invoke_without_command=True,
+        case_insensitive=True,
         brief="Craft an item from materials.",
     )
     @cooldown(1, 2, BucketType.member)
@@ -262,17 +263,43 @@ class RpgCraftingCommands(Cog):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _do_craft(self, channel, player, raw_name: str) -> None:
-        # Lazy ensure recipes are discovered (test fixtures sometimes
-        # bypass the bot startup hook that does it eagerly).
-        stem = _normalize(raw_name)
-        recipe = get_recipe(stem)
-        if recipe is None:
+    @staticmethod
+    def _resolve_recipe_or_notify(channel, raw_name: str):
+        """Resolve a recipe via the shared fuzzy resolver, surfacing
+        no-match and ambiguous-match cases with a Dispatcher message.
+
+        Returns the recipe class on a unique match, or ``None``
+        after dispatching the appropriate error message. Drop-in
+        replacement for the prior ``get_recipe(_normalize(raw_name))``
+        exact-stem lookup — gains prefix / substring / typo
+        tolerance plus a candidate list on ambiguity.
+        """
+        from caldanai.lib.rpg.helpers.resolvers import resolve_recipe
+
+        results = resolve_recipe(raw_name)
+        if not results:
             Dispatcher.add(
                 channel,
                 f"No recipe matches `{raw_name}`. Try `$craft list`.",
             )
+            return None
+        if len(results) > 1:
+            names = ", ".join(sorted(r.display_name() for r in results))
+            Dispatcher.add(
+                channel,
+                f"`{raw_name}` matches multiple recipes: {names}. "
+                f"Be more specific.",
+            )
+            return None
+        return results[0]
+
+    async def _do_craft(self, channel, player, raw_name: str) -> None:
+        # Lazy ensure recipes are discovered (test fixtures sometimes
+        # bypass the bot startup hook that does it eagerly).
+        recipe = self._resolve_recipe_or_notify(channel, raw_name)
+        if recipe is None:
             return
+        stem = recipe.output
 
         # Gate: known?
         if recipe.requires_known and stem not in player.known_recipes:
@@ -397,13 +424,8 @@ class RpgCraftingCommands(Cog):
         )
 
     async def _send_info(self, channel, player, raw_name: str) -> None:
-        stem = _normalize(raw_name)
-        recipe = get_recipe(stem)
+        recipe = self._resolve_recipe_or_notify(channel, raw_name)
         if recipe is None:
-            Dispatcher.add(
-                channel,
-                f"No recipe matches `{raw_name}`. Try `$craft list`.",
-            )
             return
 
         skill_xp = (

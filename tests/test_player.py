@@ -1237,6 +1237,8 @@ class TestPlayerHealFully:
             assert part.health == part.health_max
 
 
+
+
 class TestPlayerStatEmergence:
     """Player dodge / defense now emerge from body parts the same way
     monster stats do, plus armor bonuses on top."""
