@@ -245,6 +245,21 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
     # acknowledgement keyed off the NPC's name.
     LOOK_LINE: str = ""
 
+    # Italicized one-liner dispatched when an NPC learns a player's
+    # name for the first time — fires on the FIRST $greet, the
+    # FIRST overheard @mention, and the moment osmosis acquaintance
+    # flips. Without this cue, acquaintance is invisible to the
+    # player (especially for low-NAMING_BIAS NPCs whose lines rarely
+    # use the name even after they know it). One line per pool;
+    # ``@1`` = the NPC, ``@2`` = the just-recognized player.
+    # Subclasses override for voice; the default is generic enough
+    # to read fine for any NPC.
+    ACQUAINTANCE_CUE_POOL: List[str] = [
+        "*@1np eyes flick to @2 with quiet recognition.*",
+        "*@1d gives @2 a longer second look — the kind that learns a face.*",
+        "*Something settles in @1np expression, the way it does when a name takes.*",
+    ]
+
     # ---------------------------------------------------------------
     # Plugin discovery / registry
     # ---------------------------------------------------------------

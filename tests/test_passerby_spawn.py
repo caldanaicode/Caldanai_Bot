@@ -69,7 +69,9 @@ def _make_dead_monster():
 
 class _FakeCollection:
     """Same shape as the test_passerby_state fixture — minimal
-    pymongo Collection stand-in."""
+    pymongo Collection stand-in. Handles dotted-path ``$set``
+    writes (``players.42`` syntax) so the per-NPC schema's
+    atomic per-player slice writes apply correctly."""
 
     def __init__(self):
         self._docs = []
@@ -83,6 +85,58 @@ class _FakeCollection:
     def insert(self, doc):
         """Test-only helper to seed the collection with prior state."""
         self._docs.append(doc)
+
+    def upsert(self, key: dict, set_fields: dict):
+        """Apply an upsert in the way the state module expects,
+        including Mongo dotted-path semantics for nested writes."""
+        existing = self.find_one(key)
+        if existing is None:
+            existing = {**key}
+            self._docs.append(existing)
+        for path, value in set_fields.items():
+            self._apply_dotted_set(existing, path, value)
+
+    @staticmethod
+    def _apply_dotted_set(doc: dict, path: str, value) -> None:
+        parts = path.split(".")
+        target = doc
+        for part in parts[:-1]:
+            target = target.setdefault(part, {})
+        target[parts[-1]] = value
+
+
+def _seed_player_slice(coll, channel_id, npc_stem, player_id, **slice_fields):
+    """Helper: seed the new per-NPC schema with one player slice.
+    Used by tests that need pre-existing state for verifying mutator
+    behavior."""
+    coll.insert({
+        "channel_id": channel_id,
+        "npc_stem": npc_stem,
+        "players": {str(player_id): dict(slice_fields)},
+    })
+
+
+def _make_capturing_queue_factories(coll):
+    """Build the (FakeQueue, FakeQueuesDict) shape the spawn tests
+    use to apply queued writes to a fake collection synchronously.
+    Centralized here because the same boilerplate appeared in five
+    tests previously."""
+    captured: list = []
+
+    class _CaptureQueue:
+        def put(self, op):
+            captured.append(op)
+            filt = op._filter
+            set_fields = op._doc.get("$set", {})
+            coll.upsert(filt, set_fields)
+
+    class _CaptureDict(dict):
+        def __missing__(self, key):
+            q = _CaptureQueue()
+            self[key] = q
+            return q
+
+    return captured, _CaptureDict()
 
 
 @pytest.fixture
@@ -215,11 +269,17 @@ class TestAttemptSpawn:
         assert isinstance(game.pending_silhouette, Wagoneer)
         assert game.passerby is None
         assert line is not None
-        # Verify line is from silhouette pool (verbatim match,
-        # since pools don't reference the player so no parser
-        # substitution shifts the surface).
-        assert line in Wagoneer.SILHOUETTE_POOL
-        assert line not in Wagoneer.ARRIVAL_POOL
+        # Verify line came from the silhouette pool by parser-
+        # rendering each candidate with the same NPC and checking
+        # for a match. Pool entries since 2026-05-03 use @1-token
+        # forms (@1D, @1S) so pre-render comparison can't be
+        # verbatim — we render then compare.
+        from caldanai.lib.rpg.helpers.parser import parse
+        npc = game.pending_silhouette
+        rendered_silhouette = [parse(p, npc) for p in Wagoneer.SILHOUETTE_POOL]
+        rendered_arrival = [parse(p, npc) for p in Wagoneer.ARRIVAL_POOL]
+        assert line in rendered_silhouette
+        assert line not in rendered_arrival
 
     def test_present_blocks_further_spawn(self, quiet_db):
         game = _make_game(passerby=Wagoneer())
@@ -450,13 +510,13 @@ class TestOverhearMentions:
         game = _make_game()
         msg = SimpleNamespace(mentions=[])
         result = overhear_mentions(game, msg, collection=coll)
-        assert result == 0
+        assert result == []
 
     def test_no_mentions_does_nothing(self, coll, quiet_db):
         game = _make_game(passerby=Wagoneer())
         msg = SimpleNamespace(mentions=[])
         result = overhear_mentions(game, msg, collection=coll)
-        assert result == 0
+        assert result == []
 
     def test_mention_of_game_player_acquaints(self, coll):
         game = _make_game(passerby=Wagoneer())
@@ -468,39 +528,24 @@ class TestOverhearMentions:
             mentions=[SimpleNamespace(id=42, bot=False)],
         )
 
-        captured_ops: list = []
-
-        class _CaptureQueue:
-            def put(self, op):
-                captured_ops.append(op)
-                # Apply the upsert so subsequent reads see it.
-                filt = op._filter
-                set_fields = op._doc.get("$set", {})
-                doc = coll.find_one(filt)
-                if doc:
-                    doc.update(set_fields)
-                else:
-                    coll._docs.append({**filt, **set_fields})
-
-        class _CaptureDict(dict):
-            def __missing__(self, key):
-                q = _CaptureQueue()
-                self[key] = q
-                return q
+        captured_ops, queues_dict = _make_capturing_queue_factories(coll)
 
         with patch(
             "caldanai.lib.rpg.creatures.passersby.state.DB"
         ) as mock_db:
             mock_db._passerby_state = coll
-            mock_db._queues = _CaptureDict()
-            count = overhear_mentions(game, msg, collection=coll)
+            mock_db._queues = queues_dict
+            result = overhear_mentions(game, msg, collection=coll)
 
-        assert count == 1
+        assert result == [42]
+        # Per-NPC parent doc with the player's slice nested under
+        # ``players["42"]``.
         doc = coll.find_one({
-            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+            "channel_id": 1, "npc_stem": "wagoneer",
         })
-        assert doc["acquainted"] is True
-        assert doc["acquainted_via"] == "mention"
+        slice_data = doc["players"]["42"]
+        assert slice_data["acquainted"] is True
+        assert slice_data["acquainted_via"] == "mention"
 
     def test_mention_of_non_game_player_ignored(self, coll, quiet_db):
         """A bystander @mention of someone NOT in the player roster
@@ -511,25 +556,26 @@ class TestOverhearMentions:
         msg = SimpleNamespace(
             mentions=[SimpleNamespace(id=999, bot=False)],
         )
-        count = overhear_mentions(game, msg, collection=coll)
-        assert count == 0
+        result = overhear_mentions(game, msg, collection=coll)
+        assert result == []
 
     def test_already_acquainted_skipped(self, coll, quiet_db):
         """Re-mention of an already-acquainted player doesn't
         re-fire mark_acquainted (count returns 0)."""
-        coll.insert({
-            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
-            "warmth": "neutral", "acquainted": True,
-            "acquainted_via": "greet",
-        })
+        _seed_player_slice(
+            coll, 1, "wagoneer", 42,
+            warmth="neutral",
+            acquainted=True,
+            acquainted_via="greet",
+        )
         game = _make_game(passerby=Wagoneer())
         target_player = SimpleNamespace(id=42)
         game.player_manager = SimpleNamespace(players={42: target_player})
         msg = SimpleNamespace(
             mentions=[SimpleNamespace(id=42, bot=False)],
         )
-        count = overhear_mentions(game, msg, collection=coll)
-        assert count == 0  # Already known.
+        result = overhear_mentions(game, msg, collection=coll)
+        assert result == []  # Already known.
 
     def test_silhouette_npc_also_learns(self, coll):
         """An NPC in silhouette mode (during combat) still
@@ -541,32 +587,15 @@ class TestOverhearMentions:
             mentions=[SimpleNamespace(id=42, bot=False)],
         )
 
-        captured_ops: list = []
-
-        class _CaptureQueue:
-            def put(self, op):
-                captured_ops.append(op)
-                filt = op._filter
-                set_fields = op._doc.get("$set", {})
-                doc = coll.find_one(filt)
-                if doc:
-                    doc.update(set_fields)
-                else:
-                    coll._docs.append({**filt, **set_fields})
-
-        class _CaptureDict(dict):
-            def __missing__(self, key):
-                q = _CaptureQueue()
-                self[key] = q
-                return q
+        captured_ops, queues_dict = _make_capturing_queue_factories(coll)
 
         with patch(
             "caldanai.lib.rpg.creatures.passersby.state.DB"
         ) as mock_db:
             mock_db._passerby_state = coll
-            mock_db._queues = _CaptureDict()
-            count = overhear_mentions(game, msg, collection=coll)
-        assert count == 1
+            mock_db._queues = queues_dict
+            result = overhear_mentions(game, msg, collection=coll)
+        assert result == [42]
 
 
 class TestFleeFromAttack:
@@ -584,11 +613,11 @@ class TestFleeFromAttack:
         )
         # Pre-populate with acquainted state so the line could use
         # the real name (verifies the PRE-degrade read).
-        coll._docs.append({
-            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
-            "warmth": "warm", "acquainted": True, "acquainted_via": "greet",
-            "met_count": 3,
-        })
+        _seed_player_slice(
+            coll, 1, "wagoneer", 42,
+            warmth="warm", acquainted=True, acquainted_via="greet",
+            met_count=3,
+        )
         line = flee_from_attack(game, attacker, collection=coll)
         assert game.passerby is None
         assert line is not None
@@ -599,37 +628,21 @@ class TestFleeFromAttack:
             name="Aggressor", uses_article=False, user_id=42,
             pronouns={}, plural_verbs=False,
         )
-        coll._docs.append({
-            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
-            "warmth": "warm", "acquainted": True,
-        })
-        # Patch DB._queues so the upsert from degrade applies.
-        captured = []
-
-        class _CapturingQueue:
-            def put(self, op):
-                captured.append(op)
-                # Apply the upsert manually so the next read sees it.
-                filt = op._filter
-                set_fields = op._doc.get("$set", {})
-                doc = coll.find_one(filt)
-                if doc:
-                    doc.update(set_fields)
-
-        class _CapturingDict(dict):
-            def __missing__(self, key):
-                q = _CapturingQueue()
-                self[key] = q
-                return q
+        _seed_player_slice(
+            coll, 1, "wagoneer", 42,
+            warmth="warm", acquainted=True,
+        )
+        captured, queues_dict = _make_capturing_queue_factories(coll)
 
         with patch(
             "caldanai.lib.rpg.creatures.passersby.state.DB"
         ) as mock_db:
             mock_db._passerby_state = coll
-            mock_db._queues = _CapturingDict()
+            mock_db._queues = queues_dict
             flee_from_attack(game, attacker, collection=coll)
         # Warmth dropped from WARM → NEUTRAL (one tier).
         doc = coll.find_one({
-            "channel_id": 1, "npc_stem": "wagoneer", "player_id": 42,
+            "channel_id": 1, "npc_stem": "wagoneer",
         })
-        assert doc["warmth"] == str(Warmth.NEUTRAL)
+        slice_data = doc["players"]["42"]
+        assert slice_data["warmth"] == str(Warmth.NEUTRAL)

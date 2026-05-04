@@ -214,11 +214,9 @@ def drain_silhouette(
 
     # Read NPC-toward-witness state so the StrangerActor-vs-real-
     # name decision uses the right acquaintance level.
-    channel_id = getattr(game, "channel_id", 0)
     npc_stem = type(npc).__name__.lower()
-    witness_id = getattr(witness, "user_id", 0)
     state = get_state(
-        channel_id, npc_stem, witness_id, collection=collection,
+        game.channel_id, npc_stem, witness.user_id, collection=collection,
     )
     return render_combat_witness(
         line, npc, witness,
@@ -265,9 +263,7 @@ def flee_from_attack(
     if npc is None:
         return None
 
-    channel_id = getattr(game, "channel_id", 0)
     npc_stem = type(npc).__name__.lower()
-    attacker_id = getattr(attacker, "user_id", 0)
 
     # Read state for line-rendering acquaintance, then apply the
     # warmth degrade. Order matters slightly: we want the line to
@@ -277,7 +273,7 @@ def flee_from_attack(
     # — easy now —" rather than "traveler — no —" if they were
     # acquainted).
     state = get_state(
-        channel_id, npc_stem, attacker_id, collection=collection,
+        game.channel_id, npc_stem, attacker.user_id, collection=collection,
     )
     pool = npc.FLEE_FROM_ATTACK_POOL
     line = (
@@ -289,7 +285,7 @@ def flee_from_attack(
     )
 
     degrade_warmth(
-        channel_id, npc_stem, attacker_id, collection=collection,
+        game.channel_id, npc_stem, attacker.user_id, collection=collection,
     )
     game.passerby = None
     return line
@@ -300,17 +296,16 @@ def overhear_mentions(
     message: Any,
     *,
     collection: Optional[Any] = None,
-) -> int:
+) -> "list[int]":
     """When a player posts an in-channel message that ``<@!id>``-
     mentions other players, and a passerby is present (or
     waiting in silhouette), the NPC learns the mentioned
     players' names.
 
-    Returns the number of players newly marked as acquainted —
-    useful for callers that want to tag the message-handling
-    log or dispatch a quiet "the wagoneer's eyes flick toward
-    you" beat for newly-noticed players. V1 doesn't dispatch
-    anything; the acquaintance is silent.
+    Returns the list of player ids newly marked as acquainted by
+    this call. Callers (the cog ``on_message`` listener) use the
+    list to dispatch the ACQUAINTANCE_CUE_POOL beat per learned
+    player, surfacing the otherwise-silent learning channel.
 
     Side-effects: calls :func:`mark_acquainted` for each
     mentioned player who isn't already known to this NPC.
@@ -325,12 +320,11 @@ def overhear_mentions(
         or getattr(game, "pending_silhouette", None)
     )
     if npc is None:
-        return 0
+        return []
     mentions = getattr(message, "mentions", None) or []
     if not mentions:
-        return 0
+        return []
 
-    channel_id = getattr(game, "channel_id", 0)
     npc_stem = type(npc).__name__.lower()
 
     # Pull the player roster for membership filtering — the NPC
@@ -341,25 +335,29 @@ def overhear_mentions(
     pm = getattr(game, "player_manager", None)
     player_pool = getattr(pm, "players", {}) if pm else {}
 
-    newly_acquainted = 0
-    for mentioned in mentions:
-        mid = getattr(mentioned, "id", None)
-        if mid is None:
-            continue
-        if getattr(mentioned, "bot", False):
-            continue
-        if mid not in player_pool:
-            continue
+    # Set-intersect mention ids against the player_pool BEFORE any
+    # Mongo round-trip — caps the per-message work at the smaller
+    # of (mentions, players) and short-circuits @everyone-style
+    # mention bombs without paying a find_one per non-player id.
+    mention_ids = {
+        m.id for m in mentions
+        if getattr(m, "id", None) is not None
+        and not getattr(m, "bot", False)
+    }
+    candidate_ids = mention_ids & player_pool.keys()
+
+    newly_acquainted: list[int] = []
+    for mid in candidate_ids:
         # Check current state to count only first-time
         # acquaintances; mark_acquainted itself is idempotent.
         prior = get_state(
-            channel_id, npc_stem, mid, collection=collection,
+            game.channel_id, npc_stem, mid, collection=collection,
         )
         if prior.acquainted:
             continue
         mark_acquainted(
-            channel_id, npc_stem, mid, "mention",
+            game.channel_id, npc_stem, mid, "mention",
             collection=collection,
         )
-        newly_acquainted += 1
+        newly_acquainted.append(mid)
     return newly_acquainted

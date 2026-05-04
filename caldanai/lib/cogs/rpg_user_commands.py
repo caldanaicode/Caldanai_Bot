@@ -114,13 +114,23 @@ class RpgUserCommands(Cog):
         if game is None or player is None:
             return
 
-        if game.monster is None:
-            Dispatcher.add(game.channel, "You see nothing to attack!")
-            return
-
+        # Passerby flee path FIRST: if the leading token resolves to
+        # the present passerby, route to ``flee_from_attack`` and
+        # skip the combat pipeline entirely. Has to fire BEFORE the
+        # "no monster" early return so a player can attack a
+        # passerby in a quiet window. Dead-invoker guard runs first
+        # so a corpse can't even attack a passerby (consistent with
+        # corpses-can't-attack-monsters above).
         if RpgUtilities.dead_invoker_guard(
             game.channel, player, _DEAD_INVOKER_ATTACK_FLAVOR,
         ):
+            return
+
+        if self._maybe_flee_passerby(game, player, target):
+            return
+
+        if game.monster is None:
+            Dispatcher.add(game.channel, "You see nothing to attack!")
             return
 
         already_in_combat = player in game.combatants
@@ -239,6 +249,76 @@ class RpgUserCommands(Cog):
         ) is not None:
             return rest, True
         return target_str, False
+
+    def _maybe_flee_passerby(
+        self, game, player, target: Optional[str],
+    ) -> bool:
+        """If a passerby is present AND the leading token in
+        ``target`` resolves to it, route to ``flee_from_attack``
+        and return ``True``. Returns ``False`` otherwise so the
+        caller continues with the combat path.
+
+        Strict matching: the leading token must equal (or alias
+        to, or fuzzy-match) the present NPC's stem / name. Bare
+        ``$kill`` (no target) NEVER routes to passerby flee — too
+        easy to mis-fire, and the monster path is the muscle-
+        memory default.
+
+        Pending-silhouette NPCs are out of reach — they're at
+        distance, watching, not approachable. ``$kill`` against
+        them silently no-ops here and falls through to the
+        normal combat / no-monster path.
+
+        **Confirm gate**: when the player is mid-combat with a
+        monster, ``$kill <npc>`` requires an explicit ``yes`` token
+        (``$kill wagoneer yes``) before the flee fires. Without it,
+        a player typing ``$kill wagoneer`` while a goblin is active
+        could accidentally pre-empt their combat target AND burn an
+        NPC warmth tier — too costly a mis-fire to do silently.
+        """
+        npc = getattr(game, "passerby", None)
+        if npc is None:
+            return False
+        if not target:
+            return False
+
+        tokens = target.split()
+        leading = tokens[0].lower()
+        npc_stem = type(npc).__name__.lower()
+        candidates = {npc.name.lower(), npc_stem}
+        for alias in (getattr(npc, "ALIASES", None) or []):
+            candidates.add(alias.lower())
+        if leading not in candidates:
+            return False
+
+        # Confirm gate: combat-active + NPC-target without explicit
+        # ``yes`` → preflight prompt only. Returns True (consumed)
+        # so the attack pipeline doesn't double-process the input.
+        in_active_combat = (
+            getattr(game, "monster", None) is not None
+            and player in getattr(game, "combatants", [])
+        )
+        confirmed = len(tokens) > 1 and tokens[-1].lower() in ("yes", "confirm")
+        if in_active_combat and not confirmed:
+            Dispatcher.add(
+                game.channel,
+                parse(
+                    "Attacking @1d will end your acquaintance and they will "
+                    "flee — and your active fight will keep going. "
+                    f"Type `{game.prefix}kill {leading} yes` to do it anyway.",
+                    npc,
+                ),
+            )
+            return True
+
+        from caldanai.lib.rpg.creatures.passersby.spawn import (
+            flee_from_attack,
+        )
+
+        line = flee_from_attack(game, player)
+        if line:
+            Dispatcher.add(game.channel, line)
+        return True
 
     def _parse_part_targets(self, target_str, monster):
         """Parse body-part names from the player's command input.

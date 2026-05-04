@@ -137,6 +137,12 @@ _DEAD_INVOKER_FLAVOR: Dict[str, List[str]] = {
         "A fingertip of @1np corpse twitches — almost a wave, not quite.",
         "The remains of @1 greet nobody in particular.",
     ],
+    "greet": [
+        "The shade of @1 mouths a hello that doesn't quite reach the air.",
+        "@1np corpse greets the long road instead.",
+        "A faint sigh slips from @1 — the shape of a hello, lost.",
+        "The remains of @1 try the introduction, but the introduction won't take.",
+    ],
     "bow": [
         "The corpse of @1 is already taking the longest bow of all.",
         "@1np head droops a little further in a last, inadvertent courtesy.",
@@ -1587,13 +1593,51 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def wave(self, ctx: Context):
+    async def wave(self, ctx: Context, *, target: str = None):
         """
         Wave — hello, goodbye, I see you, what have you.
 
+        Bare ``$wave`` is self-directed (the player waves at the
+        clearing). ``$wave <passerby>`` (e.g. ``$wave wagoneer``)
+        routes to the present NPC's warmth-keyed reaction pool.
+        ``$wave <unknown>`` falls back to a self-directed line with
+        a "(at no one in particular)" tag so the gesture isn't
+        silently dropped.
+
         (5-second cool-down)
+
+        :param target: A passerby's name to wave at, or omit to
+            wave at no one in particular.
         """
-        await self._dispatch_self_directed(ctx, "wave")
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+
+        if RpgUtilities.dead_invoker_guard(
+            game.channel, player, _DEAD_INVOKER_FLAVOR.get("wave", []),
+        ):
+            return
+
+        # Passerby first: a present NPC absorbs the gesture if the
+        # text references them. Falls through to self-directed
+        # otherwise, preserving the bare-``$wave`` behavior.
+        if target and self._maybe_route_to_passerby_social(
+            ctx, game, player, "wave",
+        ):
+            return
+
+        # Bare wave → self-directed pool (the original behavior).
+        # ``$wave <text-that-didn't-match>`` → self-directed with
+        # a soft "at no one in particular" tag so the player sees
+        # acknowledgement of the typed gesture without misleading
+        # them into thinking the text was a recognized target.
+        if target:
+            Dispatcher.add(
+                game.channel,
+                f"*{player.name} waves at no one in particular.*",
+            )
+            return
+        Dispatcher.add(game.channel, _render_self_directed("wave", player))
 
     @command(
         name="bow",
@@ -1609,6 +1653,60 @@ class RpgSocialCommands(Cog):
         (5-second cool-down)
         """
         await self._dispatch_self_directed(ctx, "bow")
+
+    @command(
+        name="greet",
+        aliases=["introduce"],
+        brief="Greet a passerby and introduce yourself.",
+    )
+    @guild_only()
+    @cooldown(1, 5, BucketType.member)
+    async def greet(self, ctx: Context, *, target: str = None):
+        """
+        Greet a present passerby NPC. The first greet is the
+        explicit introduction — the NPC learns what to call you.
+        Subsequent greets render with full acquaintance, the way
+        people who know each other meet on the road.
+
+        (5-second cool-down)
+
+        :param target: A passerby's name (e.g. ``$greet wagoneer``).
+        """
+        game, player = await RpgUtilities.get_game_and_player(ctx)
+        if game is None or player is None:
+            return
+
+        if RpgUtilities.dead_invoker_guard(
+            game.channel, player, _DEAD_INVOKER_FLAVOR.get("greet", []),
+        ):
+            return
+
+        if target and self._maybe_route_to_passerby_social(
+            ctx, game, player, "greet",
+        ):
+            return
+
+        # Silhouette-targeted greet: the NPC is visible in $look but
+        # too far away to hear an introduction. Dispatch a "too far
+        # off" line so the player gets a coherent answer instead of
+        # the "introduces to nobody" line that would otherwise fire
+        # while a silhouette is plainly visible in the clearing.
+        if target and self._maybe_route_to_silhouette_too_far(
+            ctx, game, target,
+        ):
+            return
+
+        # No passerby present (or target didn't match present /
+        # silhouette). Greet doesn't have a self-directed pool —
+        # the verb only makes sense with another person. One-line
+        # italic fallback keeps the UX gentle for typos.
+        Dispatcher.add(
+            game.channel,
+            parse(
+                "*@1 introduces @1r to nobody in particular.*",
+                player,
+            ),
+        )
 
     async def _dispatch_self_directed(
         self,
@@ -1655,6 +1753,13 @@ class RpgSocialCommands(Cog):
 
         mentions = ctx.message.mentions or []
         if not mentions:
+            # Passerby first: a present NPC takes priority over the
+            # monster for warmth-aware verbs they handle (e.g.
+            # ``$nod wagoneer``). Falls through to monster / italic
+            # fallback when no passerby is present or the NPC
+            # doesn't define this verb.
+            if self._maybe_route_to_passerby_social(ctx, game, player, cmd):
+                return
             # Monster-name-in-text path: ``$glare golem``, ``$salute
             # dragon``, etc. routes to the monster's ``on_social`` hook
             # before the italicized no-target fallback fires. Mirrors
@@ -2144,6 +2249,136 @@ class RpgSocialCommands(Cog):
             )
         return True
 
+    def _maybe_route_to_passerby_social(
+        self,
+        ctx: Context,
+        game,
+        player: Player,
+        cmd: str,
+    ) -> bool:
+        """If a passerby is present AND the invocation text references
+        the NPC by name / stem / alias AND the NPC has a reaction
+        pool for ``cmd``, render the warmth-keyed reaction and
+        return ``True``. Returns ``False`` otherwise so the caller
+        can fall through to monster routing or no-target flavor.
+
+        Pending-silhouette NPCs are NOT addressable — they're
+        watching from distance and won't respond to gestures until
+        combat resolves and they approach.
+
+        Side-effect for ``$greet``: marks the actor as acquainted via
+        the ``"greet"`` tag (idempotent — already-acquainted players
+        are no-ops). Acquaintance flips after rendering so the line
+        itself uses pre-greet acquaintance — the FIRST greet still
+        renders as a stranger surface; subsequent ones earn the
+        name. This matches "the introduction is the moment of
+        learning, not the prelude to it."
+        """
+        from caldanai.lib.rpg.creatures.passersby.rendering import (
+            render_actor_npc,
+        )
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            get_state, mark_acquainted, mark_encounter,
+        )
+
+        npc = game.passerby
+        if npc is None:
+            return False
+        reactions = npc.SOCIAL_REACTIONS.get(cmd) if npc.SOCIAL_REACTIONS else None
+        if not reactions:
+            return False
+
+        content = (ctx.message.content or "").lower()
+        npc_stem = type(npc).__name__.lower()
+        candidates = {npc.name.lower(), npc_stem}
+        for alias in (getattr(npc, "ALIASES", None) or []):
+            candidates.add(alias.lower())
+        if not any(c and c in content for c in candidates):
+            return False
+
+        # Capture pre-encounter acquaintance so we can detect
+        # first-time-learn moments (osmosis flip during this call,
+        # OR the explicit first $greet). Used to dispatch the
+        # ACQUAINTANCE_CUE_POOL beat that surfaces the otherwise-
+        # invisible state change.
+        prior = get_state(game.channel_id, npc_stem, player.user_id)
+
+        # mark_encounter increments met_count + applies osmosis check
+        # (3+ encounters with NEUTRAL+ warmth flips acquainted). The
+        # returned state reflects the post-increment view, so the
+        # current render uses the just-flipped acquaintance — the
+        # 3rd interaction lands as the moment of recognition.
+        state = mark_encounter(game.channel_id, npc_stem, player.user_id)
+
+        pool = reactions.get(state.warmth, [])
+        if not pool:
+            # NPC has the verb registered but no flavor for this
+            # warmth tier. Treat as "consumed but silent" — the
+            # gesture landed; the NPC didn't respond. Beats the
+            # bland fallback that would otherwise fire here.
+            return True
+
+        line = render_actor_npc(
+            choice(pool), player, npc,
+            acquainted=state.acquainted, naming_bias=npc.NAMING_BIAS,
+        )
+        Dispatcher.add(game.channel, line)
+
+        # Greet always promotes acquaintance regardless of warmth /
+        # met_count, and wins the via-tag race against osmosis.
+        if cmd == "greet" and not state.acquainted:
+            mark_acquainted(
+                game.channel_id, npc_stem, player.user_id, "greet",
+            )
+
+        # First-acquaintance cue — fires on the moment the NPC learns
+        # the name (greet OR osmosis flip during this call). One
+        # italicized line; idempotent because we gate on prior.acquainted.
+        if not prior.acquainted and (state.acquainted or cmd == "greet"):
+            cue_pool = getattr(npc, "ACQUAINTANCE_CUE_POOL", [])
+            if cue_pool:
+                Dispatcher.add(
+                    game.channel,
+                    parse(choice(cue_pool), npc, player),
+                )
+        return True
+
+    def _maybe_route_to_silhouette_too_far(
+        self,
+        ctx: Context,
+        game,
+        target: str,
+    ) -> bool:
+        """If a pending silhouette matches the target token, dispatch
+        a "too far off to hear" line and return ``True``. Otherwise
+        return ``False`` so the caller continues its fallback chain.
+
+        Silhouettes are visible in ``$look`` but can't process social
+        verbs — without this branch, ``$greet wagoneer`` while the
+        wagoneer is in silhouette renders the bare "introduces to
+        nobody" italic, which reads as broken when the silhouette is
+        plainly visible in the clearing.
+        """
+        npc = getattr(game, "pending_silhouette", None)
+        if npc is None or not target:
+            return False
+        leading = target.split(None, 1)[0].lower()
+        npc_stem = type(npc).__name__.lower()
+        candidates = {npc.name.lower(), npc_stem}
+        for alias in (getattr(npc, "ALIASES", None) or []):
+            candidates.add(alias.lower())
+        if leading not in candidates:
+            return False
+        Dispatcher.add(
+            game.channel,
+            parse(
+                "@1Dc is too far off across the clearing to hear; "
+                "wait until @1s approaches.",
+                npc,
+            ),
+        )
+        return True
+
     def _respond(self, ctx: Context, text: str) -> None:
         """Route a warmth-mutation reply (set / clear confirmations,
         malformed-command help, unknown-command / unknown-level
@@ -2250,6 +2485,66 @@ class RpgSocialCommands(Cog):
     @Cog.listener()
     async def on_ready(self):
         _log.info("RpgSocialCommands ready.")
+
+    @Cog.listener()
+    async def on_message(self, message):
+        """Acquaintance-by-mention learning event for any present
+        passerby NPC. When an in-channel message ``<@!id>``-mentions
+        another *registered player* on a channel that has a passerby
+        present (or pending in silhouette), the NPC learns that
+        player's name. Pure mention parsing — no fuzzy-name detection
+        from prose.
+
+        Filtered to channels with a Game routed to them, so the
+        per-message overhead in non-game channels is one ``dict.get``
+        miss. Self-authored messages and bot messages are skipped
+        outright; they don't count as "another player addressed me
+        by name."
+
+        For each newly-acquainted player, dispatches one line from
+        the NPC's ACQUAINTANCE_CUE_POOL — surfaces the otherwise-
+        silent learning channel so the player sees evidence the NPC
+        now knows their name.
+        """
+        if message.author.bot:
+            return
+        if message.guild is None:
+            return
+        # Lazy imports avoid pulling the rpg package into the cog
+        # module-load path. Both modules are cheap to import after
+        # the bot's already running.
+        from caldanai.lib.rpg import Game
+        from caldanai.lib.rpg.creatures.passersby.spawn import overhear_mentions
+
+        game = Game.for_channel(message.channel.id)
+        if game is None:
+            return
+        npc = game.passerby or game.pending_silhouette
+        if npc is None:
+            return
+        try:
+            newly_acquainted = overhear_mentions(game, message)
+        except Exception:
+            _log.exception("overhear_mentions raised; ignoring")
+            return
+
+        # Per-player cue dispatch — one italicized line per newly-
+        # learned face. Resolves the player object from the game's
+        # roster so the parser can render @2 with the right name +
+        # pronouns. Silently skips if the player isn't resolvable
+        # (race condition: player left between mention-overhear and
+        # cue-dispatch).
+        cue_pool = getattr(npc, "ACQUAINTANCE_CUE_POOL", [])
+        if not cue_pool:
+            return
+        for player_id in newly_acquainted:
+            learned_player = game.player_manager.players.get(player_id)
+            if learned_player is None:
+                continue
+            Dispatcher.add(
+                game.channel,
+                parse(choice(cue_pool), npc, learned_player),
+            )
 
 
 async def setup(bot):

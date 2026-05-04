@@ -791,6 +791,37 @@ class RpgInfoCommands(Cog):
         # invocation isn't required.
         return resolve_active_monster(monster, target) is not None
 
+    @staticmethod
+    def _render_passerby_look_line(game) -> Optional[str]:
+        """Return a one-liner describing the present (or pending-
+        silhouette) passerby for the bare ``$look`` view, or
+        ``None`` when no NPC is in either slot.
+
+        Present NPC uses the plugin's ``LOOK_LINE`` if it sets one,
+        else a generic acknowledgement. Pending silhouettes get a
+        terse "watching from distance" tag — they're addressable by
+        sight but not by gesture (see ``_maybe_route_to_passerby_social``).
+        """
+        from caldanai.lib.rpg.creatures.passersby.rendering import (
+            render_npc_only,
+        )
+
+        npc = getattr(game, "passerby", None)
+        if npc is not None:
+            line = (
+                npc.LOOK_LINE
+                or f"@1Dc is here in the clearing."
+            )
+            return render_npc_only(line, npc)
+
+        silhouette = getattr(game, "pending_silhouette", None)
+        if silhouette is not None:
+            return render_npc_only(
+                "@1Dc watches from a careful distance, waiting out the noise.",
+                silhouette,
+            )
+        return None
+
     @command(name="look", brief="Displays information about the area, a direction, or a creature.")
     async def look(self, ctx: Context, *target: str):
         """
@@ -814,6 +845,10 @@ class RpgInfoCommands(Cog):
 
             time = game.game_clock.get_time_of_day()
             msg += f" It appears to be {time}."
+
+            passerby_line = self._render_passerby_look_line(game)
+            if passerby_line:
+                msg += f"\n{passerby_line}"
 
         elif target.upper() in Directions.__members__:
             direction = Directions[target.upper()]

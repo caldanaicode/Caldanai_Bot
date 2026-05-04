@@ -500,13 +500,15 @@ class RpgAdminCommands(Cog):
                 f"No body part matched: {unmatched_str}",
             )
 
-    @group(brief="Displays or sets various spawning options.", case_insensitive=True)
+    @group(brief="Displays or sets monster + passerby spawning options.", case_insensitive=True)
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)
     async def spawn(self, ctx: Context):
         """
-        Used alone, displays the various spawning options and information. See the subcommands for settings those options.
+        Used alone, displays current state + tunables for both
+        monster and passerby spawners. See the subcommands to force
+        a spawn / depart, or ``$spawn config`` to tune timing.
 
         (5-second cool-down server-wide)
         """
@@ -517,178 +519,99 @@ class RpgAdminCommands(Cog):
         if ctx.invoked_subcommand is None:
             guild: Guild = ctx.guild
             game = self.bot.games.get(ctx.channel.id)
-            r, i = game.game_clock.find_routine(game.do_spawn.__qualname__)
-            routine = r[i] if r else None
-
-            embed = Embed(title="Current Spawn Settings")
-            embed.set_thumbnail(url=guild.icon.url)
-            embed.add_field(
-                name="Spawn Timing",
-                value=f"{' - '.join(map(str, game.spawn_timer_range))} seconds",
-                inline=True,
-            )
-            embed.add_field(name="Spawn Duration", value=f"{int(game.spawn_duration / 60)} minutes", inline=True)
-            embed.add_field(name="Loot Duration", value=f"{int(game.loot_duration / 60)} minutes", inline=True)
-            embed.add_field(name="Spawning Enabled", value=str(game.use_spawn_timer), inline=True)
-
-            if routine:
-                next_spawn = routine.time_added - game.game_clock.get_tick_time() + routine.seconds
-                embed.add_field(name="Next Spawn", value=f"{int(next_spawn / 60)} minutes")
-
+            embed = self._build_spawn_overview_embed(game, guild)
             Dispatcher.add(ctx, embed=embed)
 
-    @check_any(is_owner(), has_permissions(manage_guild=True))
-    @spawn.command(
-        aliases=["min"], brief="Sets or displays the minimum time between monster spawns for a game, in minutes"
-    )
-    async def minimum(self, ctx: Context, minutes: int = None):
-        """
-        Sets or displays the minimum time between monster spawns for a game, in minutes
+    def _build_spawn_overview_embed(self, game, guild: Guild) -> Embed:
+        """Compose the bare-``$spawn`` overview: monster + passerby
+        live state and current tunables in one embed."""
+        embed = Embed(title="Spawn Overview")
+        embed.set_thumbnail(url=guild.icon.url)
 
-        :param minutes: The minimum number of minutes before another monster can spawn after the previous monster is removed.
-        """
-
-        game = self.bot.games.get(ctx.channel.id)
-        if not game:
-            return
-        if minutes is None:
-            Dispatcher.add(game.channel, f"Minimum spawn time is {game.spawn_timer_range[0] / 60} minutes.")
-            return
-
-        if minutes <= 1:
-            Dispatcher.add(game.channel, "Minimum spawn time must be more than 1 minute.")
-            return
-
-        if minutes >= game.spawn_timer_range[1] / 60:
-            Dispatcher.add(
-                game.channel,
-                f"Minimum spawn time must be less than the maximum spawn time of {game.spawn_timer_range[1] / 60} minutes.",
+        # Monster column.
+        embed.add_field(
+            name="Monster Timing",
+            value=f"{' - '.join(map(str, game.spawn_timer_range))} seconds",
+            inline=True,
+        )
+        embed.add_field(
+            name="Monster Duration",
+            value=f"{int(game.spawn_duration / 60)} minutes",
+            inline=True,
+        )
+        embed.add_field(
+            name="Loot Duration",
+            value=f"{int(game.loot_duration / 60)} minutes",
+            inline=True,
+        )
+        embed.add_field(
+            name="Monster Spawning",
+            value="enabled" if game.use_spawn_timer else "disabled",
+            inline=True,
+        )
+        m_routine = self._find_routine_remaining(game, game.do_spawn)
+        if m_routine is not None:
+            embed.add_field(
+                name="Next Monster",
+                value=f"{int(m_routine / 60)} minutes",
+                inline=True,
             )
-            return
+        embed.add_field(
+            name="Present Monster",
+            value=str(game.monster.name) if game.monster else "—",
+            inline=True,
+        )
 
-        game.spawn_timer_range = (minutes * 60, game.spawn_timer_range[1])
-        game.save()
-        Dispatcher.add(game.channel, "Minimum spawn time has been set.")
-
-    @check_any(is_owner(), has_permissions(manage_guild=True))
-    @spawn.command(
-        aliases=["max"], brief="Sets or displays the maximum time between monster spawns for a game, in minutes."
-    )
-    async def maximum(self, ctx: Context, minutes: int = None):
-        """
-        Sets or displays the maximum time between monster spawns for a game, in minutes.
-
-        :param minutes: The maximum number of minutes before another monster can be spawned after the previous is removed.
-        """
-
-        game = self.bot.games.get(ctx.channel.id)
-        if not game:
-            return
-        if minutes is None:
-            Dispatcher.add(game.channel, f"Maximum spawn time is {game.spawn_timer_range[1] / 60} minutes.")
-            return
-
-        if minutes <= 1:
-            Dispatcher.add(game.channel, "Maximum spawn time must be more than 1 minute.")
-            return
-
-        if minutes <= game.spawn_timer_range[0] / 60:
-            Dispatcher.add(
-                game.channel,
-                f"Maximum spawn time must be greater than the minimum spawn time of {game.spawn_timer_range[0] / 60} minutes.",
+        # Passerby column.
+        embed.add_field(
+            name="Passerby Timing",
+            value=f"{' - '.join(map(str, game.passerby_spawn_range))} seconds",
+            inline=True,
+        )
+        embed.add_field(
+            name="Passerby Stay",
+            value=f"{int(game.passerby_depart_after / 60)} minutes",
+            inline=True,
+        )
+        embed.add_field(
+            name="Passerby Spawning",
+            value="enabled" if game.use_passerby_timer else "disabled",
+            inline=True,
+        )
+        p_routine = self._find_routine_remaining(game, game.do_passerby_spawn)
+        if p_routine is not None:
+            embed.add_field(
+                name="Next Passerby",
+                value=f"{int(p_routine / 60)} minutes",
+                inline=True,
             )
-            return
+        present = (
+            game.passerby.name if game.passerby is not None
+            else (
+                f"{game.pending_silhouette.name} (silhouette)"
+                if game.pending_silhouette is not None else "—"
+            )
+        )
+        embed.add_field(name="Present Passerby", value=present, inline=True)
+        return embed
 
-        game.spawn_timer_range = (game.spawn_timer_range[0], minutes * 60)
-        game.save()
-        Dispatcher.add(game.channel, "Maximum spawn time has been set.")
+    @staticmethod
+    def _find_routine_remaining(game, routine_method):
+        """Return seconds remaining until ``routine_method`` next
+        fires on the game clock, or ``None`` if it isn't scheduled.
+        Mirrors the lookup in the legacy ``$spawn`` overview."""
+        r, i = game.game_clock.find_routine(routine_method.__qualname__)
+        if not r:
+            return None
+        routine = r[i]
+        return (
+            routine.time_added - game.game_clock.get_tick_time()
+            + routine.seconds
+        )
 
-    @check_any(is_owner(), has_permissions(manage_guild=True))
-    @spawn.command(aliases=["dur", "d"], brief="Sets or displays the spawn duration for a game, in minutes.")
-    async def duration(self, ctx: Context, minutes: int = None):
-        """
-        Sets or displays the spawn duration for a game, in minutes.
-
-        :param minutes: The number of minutes that a monster will wait for combat on the first round. This time is halved for additional rounds of combat.
-        """
-
-        game = self.bot.games.get(ctx.channel.id)
-        if not game:
-            return
-        if minutes is None:
-            Dispatcher.add(game.channel, f"Spawn duration is {int(game.spawn_duration / 60)} minutes.")
-            return
-
-        if minutes <= 1:
-            Dispatcher.add(game.channel, "Spawn duration must be more than 1 minute.")
-            return
-
-        game.spawn_duration = minutes * 60
-        game.save()
-        Dispatcher.add(game.channel, "Spawn duration has been set.")
-
-    @check_any(is_owner(), has_permissions(manage_guild=True))
-    @spawn.command(brief="Sets or displays the loot duration for a game, in minutes.")
-    async def loot(self, ctx: Context, minutes: int = None):
-        """
-        Sets or displays the loot duration, in minutes. If a monster has loot after death, the spawn timer does not begin until after the loot timer expires.
-
-        :param minutes: The number of minutes that loot will be available before removal.
-        """
-
-        game = self.bot.games.get(ctx.channel.id)
-        if not game:
-            return
-        if minutes is None:
-            Dispatcher.add(game.channel, f"Loot duration is {int(game.loot_duration / 60)} minutes.")
-            return
-
-        if minutes <= 1:
-            Dispatcher.add(game.channel, "Loot duration must be more than 1 minute.")
-            return
-
-        game.loot_duration = minutes * 60
-        game.save()
-        Dispatcher.add(game.channel, "Loot duration has been set.")
-
-    @check_any(is_owner(), has_permissions(manage_guild=True))
-    @spawn.command(aliases=["set"], brief="Sets or displays the spawning for a game on or off.")
-    async def spawn_set(self, ctx: Context, msg: str = None):
-        """
-        Sets or displays the spawning for a game on or off.
-
-        :param msg: To enable spawning use 1, on, true, or enabled. To disable, use 0, off, false, or disabled.
-        """
-
-        game = self.bot.games.get(ctx.channel.id)
-        if not game:
-            return
-        if msg is None:
-            Dispatcher.add(game.channel, f"Spawning is currently {'en' if game.use_spawn_timer else 'dis'}abled.")
-            return
-
-        msg = msg.lower()
-        if any(v == msg for v in ["1", "on", "true", "enabled"]):
-            if not game.use_spawn_timer:
-                game.use_spawn_timer = True
-                await game.set_spawn_timer()
-            else:
-                Dispatcher.add(game.channel, "Spawning is already enabled.")
-                return
-
-        elif any(v == msg for v in ["0", "off", "false", "disabled"]):
-            if game.use_spawn_timer:
-                game.use_spawn_timer = False
-                game.game_clock.remove_routine(game.do_spawn)
-            else:
-                Dispatcher.add(game.channel, "Spawning is already disabled.")
-                return
-
-        else:
-            return
-
-        game.save()
-        Dispatcher.add(game.channel, "Spawning has been set.")
+    # -----------------------------------------------------------------
+    # Top-level action verbs: force-spawn / kill / depart / item
+    # -----------------------------------------------------------------
 
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @spawn.command(brief="Forces a monster to spawn.")
@@ -710,6 +633,86 @@ class RpgAdminCommands(Cog):
         Dispatcher.add(game.channel, f"There is already a {game.monster.name} present!")
 
     @check_any(is_owner(), has_permissions(manage_guild=True))
+    @spawn.command(brief="Forces a passerby NPC to arrive.")
+    async def passerby(self, ctx: Context, name: Optional[str] = None):
+        """
+        Forces a passerby NPC to arrive in the present (not silhouette)
+        state, regardless of combat. Skips if a passerby or silhouette
+        is already present.
+
+        :param name: The plugin stem (e.g. ``wagoneer``) or alias of
+            the NPC to spawn. If omitted, picks one at random from
+            the time-of-day-eligible pool.
+        """
+        from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+        from caldanai.lib.rpg.creatures.passersby.spawn import pick_npc
+        from caldanai.lib.rpg.creatures.passersby.rendering import render_npc_only
+        from random import choice as _choice
+
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if game.passerby is not None:
+            Dispatcher.add(
+                game.channel,
+                f"A {game.passerby.name} is already present.",
+            )
+            return
+        if game.pending_silhouette is not None:
+            Dispatcher.add(
+                game.channel,
+                f"A {game.pending_silhouette.name} is already in silhouette.",
+            )
+            return
+
+        # Resolve NPC class — exact match, then fuzzy, then random.
+        npc_cls = None
+        if name:
+            npc_cls = PasserbyPlugin.get_plugin_class(name)
+            if npc_cls is None:
+                candidates = PasserbyPlugin.find_plugin_classes(name)
+                if len(candidates) == 1:
+                    npc_cls = candidates[0]
+                elif len(candidates) > 1:
+                    display = ", ".join(
+                        sorted(c.__module__.rsplit(".", 1)[-1] for c in candidates)
+                    )
+                    Dispatcher.add(
+                        ctx,
+                        f"Did you mean one of: {display}? "
+                        f"(`{name}` matched {len(candidates)} passersby.)"
+                    )
+                    return
+                else:
+                    Dispatcher.add(ctx, f"No passerby matching `{name}`.")
+                    return
+        else:
+            npc_cls = pick_npc(game)
+            if npc_cls is None:
+                Dispatcher.add(
+                    ctx,
+                    "No passersby are eligible for the current time of day.",
+                )
+                return
+
+        npc = npc_cls()
+        game.passerby = npc
+
+        # Dispatch arrival from the present-arrival pool. Force-spawn
+        # always uses ARRIVAL_POOL even if combat is active —
+        # silhouette mode is reachable via the natural timer; this
+        # command is for testing the present-state interaction surface.
+        if npc.ARRIVAL_POOL:
+            Dispatcher.add(
+                game.channel,
+                render_npc_only(_choice(npc.ARRIVAL_POOL), npc),
+            )
+        # Schedule depart so the test NPC doesn't linger forever.
+        game.game_clock.add_routine(
+            game.do_passerby_depart, game.passerby_depart_after, True,
+        )
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
     @spawn.command(brief="Forces the current monster to die.")
     async def kill(self, ctx: Context):
         """
@@ -724,6 +727,274 @@ class RpgAdminCommands(Cog):
             return
 
         await game.kill_monster()
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @spawn.command(brief="Forces the present passerby to depart.")
+    async def depart(self, ctx: Context):
+        """
+        Forces the present passerby to walk off via their
+        DEPARTURE_POOL. No-op if no passerby is present.
+        """
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if game.passerby is None:
+            Dispatcher.add(game.channel, "There is no passerby present.")
+            return
+        await game.do_passerby_depart()
+
+    # -----------------------------------------------------------------
+    # $spawn config — tunables sub-group, split monster vs passerby
+    # -----------------------------------------------------------------
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @spawn.group(name="config", brief="Tune monster or passerby spawn timings.", invoke_without_command=True, case_insensitive=True)
+    async def config(self, ctx: Context):
+        """
+        Tunable settings for the spawn pipelines. See the
+        ``monster`` and ``passerby`` sub-groups for the actual
+        knobs. Bare ``$spawn config`` echoes the same overview
+        as bare ``$spawn``.
+        """
+        if ctx.invoked_subcommand is None:
+            game = self.bot.games.get(ctx.channel.id)
+            if not game:
+                return
+            embed = self._build_spawn_overview_embed(game, ctx.guild)
+            Dispatcher.add(ctx, embed=embed)
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config.group(name="monster", brief="Monster spawn-timing tunables.", invoke_without_command=True, case_insensitive=True)
+    async def config_monster(self, ctx: Context):
+        """Subcommand group for monster timing tunables.
+        ``min`` / ``max`` / ``duration`` / ``loot`` / ``set``."""
+        if ctx.invoked_subcommand is None:
+            game = self.bot.games.get(ctx.channel.id)
+            if not game:
+                return
+            Dispatcher.add(
+                game.channel,
+                f"Monster: spawn `{' - '.join(map(str, game.spawn_timer_range))}` "
+                f"seconds | duration `{int(game.spawn_duration / 60)}` min | "
+                f"loot `{int(game.loot_duration / 60)}` min | "
+                f"{'enabled' if game.use_spawn_timer else 'disabled'}",
+            )
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_monster.command(name="min", aliases=["minimum"], brief="Min minutes between monster spawns.")
+    async def config_monster_min(self, ctx: Context, minutes: int = None):
+        """:param minutes: Minimum minutes before another monster can spawn."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Minimum spawn time is {game.spawn_timer_range[0] / 60} minutes.")
+            return
+        if minutes <= 1:
+            Dispatcher.add(game.channel, "Minimum spawn time must be more than 1 minute.")
+            return
+        if minutes >= game.spawn_timer_range[1] / 60:
+            Dispatcher.add(
+                game.channel,
+                f"Minimum spawn time must be less than the maximum spawn time of {game.spawn_timer_range[1] / 60} minutes.",
+            )
+            return
+        game.spawn_timer_range = (minutes * 60, game.spawn_timer_range[1])
+        game.save()
+        Dispatcher.add(game.channel, "Minimum spawn time has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_monster.command(name="max", aliases=["maximum"], brief="Max minutes between monster spawns.")
+    async def config_monster_max(self, ctx: Context, minutes: int = None):
+        """:param minutes: Maximum minutes before another monster can spawn."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Maximum spawn time is {game.spawn_timer_range[1] / 60} minutes.")
+            return
+        if minutes <= 1:
+            Dispatcher.add(game.channel, "Maximum spawn time must be more than 1 minute.")
+            return
+        if minutes <= game.spawn_timer_range[0] / 60:
+            Dispatcher.add(
+                game.channel,
+                f"Maximum spawn time must be greater than the minimum spawn time of {game.spawn_timer_range[0] / 60} minutes.",
+            )
+            return
+        game.spawn_timer_range = (game.spawn_timer_range[0], minutes * 60)
+        game.save()
+        Dispatcher.add(game.channel, "Maximum spawn time has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_monster.command(name="duration", aliases=["dur", "d"], brief="Minutes a monster waits before combat triggers.")
+    async def config_monster_duration(self, ctx: Context, minutes: int = None):
+        """:param minutes: Minutes a monster waits before combat triggers (halved on subsequent rounds)."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Spawn duration is {int(game.spawn_duration / 60)} minutes.")
+            return
+        if minutes <= 1:
+            Dispatcher.add(game.channel, "Spawn duration must be more than 1 minute.")
+            return
+        game.spawn_duration = minutes * 60
+        game.save()
+        Dispatcher.add(game.channel, "Spawn duration has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_monster.command(name="loot", brief="Minutes that loot remains on the ground.")
+    async def config_monster_loot(self, ctx: Context, minutes: int = None):
+        """:param minutes: Minutes loot stays before sweep."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Loot duration is {int(game.loot_duration / 60)} minutes.")
+            return
+        if minutes <= 1:
+            Dispatcher.add(game.channel, "Loot duration must be more than 1 minute.")
+            return
+        game.loot_duration = minutes * 60
+        game.save()
+        Dispatcher.add(game.channel, "Loot duration has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_monster.command(name="set", brief="Enable / disable monster spawning.")
+    async def config_monster_set(self, ctx: Context, msg: str = None):
+        """:param msg: ``on`` / ``off`` (also accepts 1/0/true/false/enabled/disabled)."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if msg is None:
+            Dispatcher.add(game.channel, f"Monster spawning is currently {'en' if game.use_spawn_timer else 'dis'}abled.")
+            return
+        msg = msg.lower()
+        if msg in ("1", "on", "true", "enabled"):
+            if not game.use_spawn_timer:
+                game.use_spawn_timer = True
+                await game.set_spawn_timer()
+            else:
+                Dispatcher.add(game.channel, "Monster spawning is already enabled.")
+                return
+        elif msg in ("0", "off", "false", "disabled"):
+            if game.use_spawn_timer:
+                game.use_spawn_timer = False
+                game.game_clock.remove_routine(game.do_spawn)
+            else:
+                Dispatcher.add(game.channel, "Monster spawning is already disabled.")
+                return
+        else:
+            return
+        game.save()
+        Dispatcher.add(game.channel, "Monster spawning has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config.group(name="passerby", brief="Passerby spawn-timing tunables.", invoke_without_command=True, case_insensitive=True)
+    async def config_passerby(self, ctx: Context):
+        """Subcommand group for passerby timing tunables.
+        ``min`` / ``max`` / ``duration`` / ``set``."""
+        if ctx.invoked_subcommand is None:
+            game = self.bot.games.get(ctx.channel.id)
+            if not game:
+                return
+            Dispatcher.add(
+                game.channel,
+                f"Passerby: spawn `{' - '.join(map(str, game.passerby_spawn_range))}` "
+                f"seconds | stay `{int(game.passerby_depart_after / 60)}` min | "
+                f"{'enabled' if game.use_passerby_timer else 'disabled'}",
+            )
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_passerby.command(name="min", aliases=["minimum"], brief="Min minutes between passerby spawns.")
+    async def config_passerby_min(self, ctx: Context, minutes: int = None):
+        """:param minutes: Minimum minutes between passerby spawn attempts."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Minimum passerby spawn time is {game.passerby_spawn_range[0] / 60} minutes.")
+            return
+        if minutes < 1:
+            Dispatcher.add(game.channel, "Minimum passerby spawn time must be at least 1 minute.")
+            return
+        if minutes >= game.passerby_spawn_range[1] / 60:
+            Dispatcher.add(
+                game.channel,
+                f"Minimum passerby spawn time must be less than the maximum of {game.passerby_spawn_range[1] / 60} minutes.",
+            )
+            return
+        game.passerby_spawn_range = (minutes * 60, game.passerby_spawn_range[1])
+        game.save()
+        Dispatcher.add(game.channel, "Minimum passerby spawn time has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_passerby.command(name="max", aliases=["maximum"], brief="Max minutes between passerby spawns.")
+    async def config_passerby_max(self, ctx: Context, minutes: int = None):
+        """:param minutes: Maximum minutes between passerby spawn attempts."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Maximum passerby spawn time is {game.passerby_spawn_range[1] / 60} minutes.")
+            return
+        if minutes <= game.passerby_spawn_range[0] / 60:
+            Dispatcher.add(
+                game.channel,
+                f"Maximum passerby spawn time must be greater than the minimum of {game.passerby_spawn_range[0] / 60} minutes.",
+            )
+            return
+        game.passerby_spawn_range = (game.passerby_spawn_range[0], minutes * 60)
+        game.save()
+        Dispatcher.add(game.channel, "Maximum passerby spawn time has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_passerby.command(name="duration", aliases=["dur", "d"], brief="Minutes an arrived passerby lingers before departing.")
+    async def config_passerby_duration(self, ctx: Context, minutes: int = None):
+        """:param minutes: Real minutes an arrived passerby stays before timer-driven departure."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if minutes is None:
+            Dispatcher.add(game.channel, f"Passerby stay duration is {int(game.passerby_depart_after / 60)} minutes.")
+            return
+        if minutes < 1:
+            Dispatcher.add(game.channel, "Passerby stay duration must be at least 1 minute.")
+            return
+        game.passerby_depart_after = minutes * 60
+        game.save()
+        Dispatcher.add(game.channel, "Passerby stay duration has been set.")
+
+    @check_any(is_owner(), has_permissions(manage_guild=True))
+    @config_passerby.command(name="set", brief="Enable / disable passerby spawning.")
+    async def config_passerby_set(self, ctx: Context, msg: str = None):
+        """:param msg: ``on`` / ``off`` (also accepts 1/0/true/false/enabled/disabled)."""
+        game = self.bot.games.get(ctx.channel.id)
+        if not game:
+            return
+        if msg is None:
+            Dispatcher.add(game.channel, f"Passerby spawning is currently {'en' if game.use_passerby_timer else 'dis'}abled.")
+            return
+        msg = msg.lower()
+        if msg in ("1", "on", "true", "enabled"):
+            if not game.use_passerby_timer:
+                game.use_passerby_timer = True
+                await game.set_passerby_timer()
+            else:
+                Dispatcher.add(game.channel, "Passerby spawning is already enabled.")
+                return
+        elif msg in ("0", "off", "false", "disabled"):
+            if game.use_passerby_timer:
+                game.use_passerby_timer = False
+                game.game_clock.remove_routine(game.do_passerby_spawn)
+            else:
+                Dispatcher.add(game.channel, "Passerby spawning is already disabled.")
+                return
+        else:
+            return
+        game.save()
+        Dispatcher.add(game.channel, "Passerby spawning has been set.")
 
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @spawn.command(brief="Spawns the requested item to the given player's inventory.")

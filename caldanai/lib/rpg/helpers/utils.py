@@ -586,6 +586,8 @@ class RpgUtilities:
             cache_auth()
             games: List[Game] = list(DB.find_all_games())
             MonsterPlugin.load_plugins()
+            from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+            PasserbyPlugin.load_plugins()
             for g in games:
                 await RpgUtilities.add_game(game=g)
             _log.info("Starting save_game_data loop")

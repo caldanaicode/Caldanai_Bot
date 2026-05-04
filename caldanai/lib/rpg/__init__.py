@@ -351,6 +351,9 @@ class Game:
         enable_ambience_celestial: bool = True,
         enable_ambience_weather: bool = True,
         game_time: int = 0,
+        use_passerby_timer: bool = True,
+        passerby_spawn_range: Tuple[int, int] = (900, 2700),
+        passerby_depart_after: int = 300,
     ):
         """
         Initialize a new Game object.
@@ -374,6 +377,14 @@ class Game:
         :param enable_ambience_weather: Sub-toggle for weather-
             pattern narration emitted by the ``WeatherDaemon``.
         :param game_time: The game's internal time value.
+        :param use_passerby_timer: Whether to allow periodic
+            passerby NPC spawns. Independent of monster spawn —
+            tunable separately so an admin can disable monsters
+            without losing world-texture or vice-versa.
+        :param passerby_spawn_range: Min/max real-second range
+            between passerby spawn attempts.
+        :param passerby_depart_after: Real seconds an arrived
+            passerby lingers before timer-driven departure.
         """
         self.bot = bot
         self.id = game_id  # Mongo ObjectId — DB document identity only.
@@ -396,6 +407,18 @@ class Game:
         # exists for "death", a fled monster for "flee"). Persists
         # past ``end_combat``; reset only when a new combat starts.
         self.last_combat_outcome: Optional[str] = None
+        # Passerby NPC slots — one of two states at a time. ``passerby``
+        # is the present-and-approachable NPC; ``pending_silhouette``
+        # is an NPC whose spawn timer fired during active combat and
+        # is waiting at distance for the fight to resolve. Both default
+        # ``None`` (idle). The state-machine in
+        # ``caldanai/lib/rpg/creatures/passersby/spawn.py`` mutates
+        # these fields directly via the duck-typed game object.
+        self.passerby = None
+        self.pending_silhouette = None
+        self.use_passerby_timer = use_passerby_timer
+        self.passerby_spawn_range = passerby_spawn_range
+        self.passerby_depart_after = passerby_depart_after
         self.use_spawn_timer = use_spawn_timer
         self.spawn_duration = spawn_duration * 60
         self.loot_duration = loot_duration * 60
@@ -433,6 +456,12 @@ class Game:
 
         if use_spawn_timer:
             self.game_clock.add_routine(self.set_spawn_timer, 5, True)
+        if use_passerby_timer:
+            # Passerby kickoff is gated independently from monster
+            # spawn — admins can disable monsters for narrative-only
+            # play without losing world-texture, or tune them in
+            # opposite directions for testing.
+            self.game_clock.add_routine(self.set_passerby_timer, 5, True)
         # Random-flavor ambience routine. Gated by the combined
         # "master AND local" check so a game created with
         # ``enable_ambience_local=False`` skips scheduling entirely
@@ -532,6 +561,61 @@ class Game:
         r = randint(*self.spawn_timer_range)
         _log.debug(f"Setting spawn timer for {r} seconds.")
         self.game_clock.add_routine(self.do_spawn, r, True)
+
+    async def set_passerby_timer(self):
+        """Schedule the next passerby spawn attempt. Mirrors
+        :meth:`set_spawn_timer`'s one-shot pattern — ``do_passerby_spawn``
+        re-arms after firing so the cadence keeps rolling without a
+        long-running routine."""
+        r = randint(*self.passerby_spawn_range)
+        _log.debug(f"Setting passerby timer for {r} seconds.")
+        self.game_clock.add_routine(self.do_passerby_spawn, r, True)
+
+    async def do_passerby_spawn(self):
+        """Attempt-and-dispatch a passerby spawn, then re-arm the
+        timer.
+
+        The state-machine in
+        :mod:`caldanai.lib.rpg.creatures.passersby.spawn` decides
+        whether this attempt produces a present-arrival or a
+        silhouette (combat-active fallback) or skips entirely
+        (slot already occupied). Whatever the outcome, we schedule
+        the next attempt so the cadence keeps rolling — the timer
+        is the heartbeat, the state-machine is the gate.
+
+        Departure is scheduled here too, when the NPC arrives in
+        the present (not silhouette) state. Silhouettes are
+        promoted to present by :meth:`_finalize_combat`'s
+        ``drain_silhouette`` hook, which schedules its own depart
+        — keeps each promotion path responsible for its own
+        downstream lifecycle event.
+        """
+        from caldanai.lib.rpg.creatures.passersby.spawn import attempt_spawn
+
+        line = attempt_spawn(self)
+        if line:
+            Dispatcher.add(self.channel, line)
+        if self.passerby is not None:
+            # Present-arrival path. Schedule the timer-driven
+            # departure. ``do_passerby_depart`` handles the case
+            # where the NPC has already left (e.g. flee_from_attack
+            # cleared the slot first) by no-op-ing on a None NPC.
+            self.game_clock.add_routine(
+                self.do_passerby_depart,
+                self.passerby_depart_after,
+                True,
+            )
+        await self.set_passerby_timer()
+
+    async def do_passerby_depart(self):
+        """Timer-driven departure for a present passerby. No-op if
+        the NPC slot is already empty (player attack via
+        ``$kill <passerby>`` clears the slot independently)."""
+        from caldanai.lib.rpg.creatures.passersby.spawn import depart_passerby
+
+        line = depart_passerby(self)
+        if line:
+            Dispatcher.add(self.channel, line)
 
     def get_monster(self, monster: Optional[str] = None) -> bool:
         if monster is None:
@@ -680,9 +764,62 @@ class Game:
                 f"\n{self.player_manager.roles[Roles.COMBAT_MAIN].mention}\n"
                 f"There might be something to `{self.prefix}loot`..."
             )
+
+        # Promote any pending passerby silhouette into the present
+        # state with an outcome-aware approach line. Has to fire
+        # BEFORE ``end_combat`` because looters get cleared there;
+        # we want them in scope to pick a witness from. Schedule
+        # the depart timer for the freshly-promoted NPC so it
+        # doesn't linger forever.
+        if self.pending_silhouette is not None:
+            await self._drain_passerby_silhouette(outcome)
+
         await self.end_combat()
         await self.set_spawn_timer()
         return announce
+
+    async def _drain_passerby_silhouette(self, combat_outcome: str) -> None:
+        """Promote a pending silhouette into present-state with the
+        outcome-aware approach line, then schedule the depart timer.
+
+        Outcome mapping (combat side → passerby side): a dead looter
+        is the most-load-bearing signal regardless of monster outcome
+        — a party member fell, the witness reaction should carry
+        that weight. Falls through to WON for a clean kill, FLED for
+        an escape with no party casualties.
+        """
+        from caldanai.lib.rpg.creatures.passersby.spawn import (
+            OUTCOME_DEATH,
+            OUTCOME_FLED,
+            OUTCOME_WON,
+            drain_silhouette,
+        )
+
+        # Witness pickup. Dead looters take precedence regardless of
+        # combat_outcome — see outcome mapping above. For WON / FLED
+        # we pick any alive looter; if there's no looter at all
+        # (silhouette appeared during a combat that nobody joined?),
+        # witness stays None and the line renders without an @2.
+        dead_looters = [p for p in self.looters if p.is_dead()]
+        if dead_looters:
+            outcome = OUTCOME_DEATH
+            witness = dead_looters[0]
+        else:
+            outcome = (
+                OUTCOME_WON if combat_outcome == "death" else OUTCOME_FLED
+            )
+            alive_looters = [p for p in self.looters if not p.is_dead()]
+            witness = alive_looters[0] if alive_looters else None
+
+        line = drain_silhouette(self, outcome, witness=witness)
+        if line:
+            Dispatcher.add(self.channel, line)
+        if self.passerby is not None:
+            self.game_clock.add_routine(
+                self.do_passerby_depart,
+                self.passerby_depart_after,
+                True,
+            )
 
     async def cancel_combat(self) -> str:
         """Monster escapes — thin wrapper over
@@ -1321,6 +1458,9 @@ class Game:
             "enable_ambience_local": self.enable_ambience_local,
             "enable_ambience_celestial": self.enable_ambience_celestial,
             "enable_ambience_weather": self.enable_ambience_weather,
+            "use_passerby_timer": self.use_passerby_timer,
+            "passerby_spawn_range": list(self.passerby_spawn_range),
+            "passerby_depart_after": self.passerby_depart_after,
             "game_time": self.game_clock.get_seconds(),
         }
 
@@ -1386,6 +1526,11 @@ class Game:
             enable_ambience_local=d.get("enable_ambience_local", True),
             enable_ambience_celestial=d.get("enable_ambience_celestial", True),
             enable_ambience_weather=d.get("enable_ambience_weather", True),
+            # Passerby fields default to constructor defaults for
+            # pre-passerby docs so old games load with passersby on.
+            use_passerby_timer=d.get("use_passerby_timer", True),
+            passerby_spawn_range=tuple(d.get("passerby_spawn_range", (900, 2700))),
+            passerby_depart_after=int(d.get("passerby_depart_after", 300)),
             game_time=d["game_time"],
         )
 
