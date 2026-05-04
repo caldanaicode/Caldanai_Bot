@@ -48,6 +48,8 @@ from caldanai.lib.rpg.creatures.passersby.rendering import (
 from caldanai.lib.rpg.creatures.passersby.state import (
     get_state,
     mark_encounter,
+    mark_visit_arrival,
+    mark_visit_depart,
 )
 from caldanai.lib.rpg.helpers.enums import TimesOfDay
 
@@ -159,10 +161,43 @@ def attempt_spawn(game: Any) -> Optional[str]:
     else:
         game.passerby = npc
         pool = npc.ARRIVAL_POOL
+        # NPC is in the Present state — fire visit-arrival on every
+        # existing player slice for this NPC so the per-visit
+        # tracking is fresh (verb-credit dedup, tier-at-visit-start
+        # for the one-tier-shift clamp).
+        _try_mark_arrival(game, type(npc).__name__.lower())
 
     if not pool:
         return None
     return render_npc_only(choice(pool), npc)
+
+
+def _try_mark_arrival(game: Any, npc_stem: str) -> None:
+    """Best-effort wrapper around :func:`mark_visit_arrival`.
+    Catches exceptions so a state-write failure can never block
+    the spawn-arrival narration from going out to the channel."""
+    channel_id = getattr(game, "channel_id", None)
+    if channel_id is None:
+        return
+    try:
+        mark_visit_arrival(channel_id, npc_stem)
+    except Exception:
+        # Persistence layer may be in a transient bad state; we
+        # don't want to swallow the whole spawn over it. The next
+        # interaction will re-read the slice and self-heal.
+        pass
+
+
+def _try_mark_depart(game: Any, npc_stem: str, *, apply_decay: bool) -> None:
+    """Best-effort wrapper around :func:`mark_visit_depart`.
+    See :func:`_try_mark_arrival` for the swallow rationale."""
+    channel_id = getattr(game, "channel_id", None)
+    if channel_id is None:
+        return
+    try:
+        mark_visit_depart(channel_id, npc_stem, apply_decay=apply_decay)
+    except Exception:
+        pass
 
 
 def drain_silhouette(
@@ -194,6 +229,11 @@ def drain_silhouette(
         return None
     game.pending_silhouette = None
     game.passerby = npc
+    # Pending → Present: this is the moment the NPC actually
+    # joins the clearing. Fire visit-arrival now so the per-
+    # visit tracking starts here, not when they were waiting at
+    # distance during combat.
+    _try_mark_arrival(game, type(npc).__name__.lower())
 
     pool = {
         OUTCOME_WON: npc.COMBAT_WON_REACTIONS,
@@ -229,11 +269,17 @@ def depart_passerby(game: Any) -> Optional[str]:
     departure flavor for the dispatcher; sets ``game.passerby``
     to ``None``. Idempotent — safe to call when no NPC is
     present (returns ``None``).
+
+    Fires :func:`mark_visit_depart` so the per-visit tracking
+    resets and decay applies to any player who was acquainted
+    with this NPC but didn't interact this visit.
     """
     npc = getattr(game, "passerby", None)
     if npc is None:
         return None
+    npc_stem = type(npc).__name__.lower()
     game.passerby = None
+    _try_mark_depart(game, npc_stem, apply_decay=True)
     pool = npc.DEPARTURE_POOL
     if not pool:
         return None
@@ -288,6 +334,11 @@ def flee_from_attack(
         game.channel_id, npc_stem, attacker.user_id, collection=collection,
     )
     game.passerby = None
+    # Visit ended early. Reset per-visit state for ALL slices but
+    # don't apply decay — bystanders shouldn't get punished for
+    # the attacker's hostility, and the attacker already paid via
+    # ``degrade_warmth`` above.
+    _try_mark_depart(game, npc_stem, apply_decay=False)
     return line
 
 

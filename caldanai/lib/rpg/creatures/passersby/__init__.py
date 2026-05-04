@@ -91,7 +91,7 @@ optional ``ALIASES`` list; first-write-wins on alias collisions;
 """
 
 from os import sep
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type, Union
 
 from caldanai import PluginManager
 from caldanai.lib.rpg.helpers.gender import GenderMixin
@@ -259,6 +259,24 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
         "*@1d gives @2 a longer second look — the kind that learns a face.*",
         "*Something settles in @1np expression, the way it does when a name takes.*",
     ]
+
+    # Per-NPC override map for what happens when this NPC witnesses
+    # a player kill a passive (non-aggressive) monster.
+    #
+    # Keyed by monster filename stem (``"sheep"`` matches the sheep
+    # plugin); ``"*"`` is a wildcard fallback for any-passive. Value
+    # is either an int credit penalty (negative; e.g. ``-15`` for
+    # extra-hard hit) OR the literal string ``"tier_drop"`` which
+    # drops the player's warmth one tier toward COLD.
+    #
+    # System default (no entry) applies
+    # :data:`state.WITNESS_PASSIVE_KILL_DEFAULT_CREDIT` (``-10``) —
+    # most people don't want to see you slaughter helpless things.
+    # The shepherd's default override is ``{"sheep": "tier_drop"}``;
+    # other NPCs may override differently as their values become
+    # specific (an herbalist might tier-drop on rare-flora killed,
+    # a wagoneer might shrug at most passives, etc.).
+    PASSIVE_KILL_PENALTY: Dict[str, Union[int, str]] = {}
 
     # ---------------------------------------------------------------
     # Plugin discovery / registry

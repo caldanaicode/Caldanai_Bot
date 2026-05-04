@@ -886,6 +886,60 @@ class Game:
             )
         self.loot.clear()
 
+    def _notify_passerby_witnessed_kill(self) -> None:
+        """Apply warmth-credit shifts to every combatant for a
+        kill witnessed by a Present passerby.
+
+        No-op when no passerby is in the Present state (silhouettes
+        don't count — they're at distance and can't recognize what
+        actually happened). Defensive try/except per-player so a
+        single state-write failure can't sabotage the rest of the
+        post-death pipeline.
+        """
+        npc = getattr(self, "passerby", None)
+        if npc is None:
+            return
+        monster = self.monster
+        if monster is None:
+            return
+        looters = self.looters or []
+        if not looters:
+            return
+
+        from caldanai.lib.rpg.creatures.passersby.state import witness_kill
+
+        npc_stem = type(npc).__name__.lower()
+        is_passive = (
+            getattr(monster, "aggression", None) == AggressionLevels.PASSIVE
+        )
+        # Monster filename stem for the per-NPC PASSIVE_KILL_PENALTY
+        # lookup. ``MonsterPlugin`` instances live under
+        # ``caldanai/lib/rpg/creatures/monsters/<stem>.py``; the
+        # class's module's last segment is the canonical key.
+        monster_stem = (
+            type(monster).__module__.rsplit(".", 1)[-1].lower()
+            if hasattr(monster, "__module__")
+            else type(monster).__name__.lower()
+        )
+        penalty_map = getattr(npc, "PASSIVE_KILL_PENALTY", {}) or {}
+
+        for player in looters:
+            user_id = getattr(player, "user_id", None)
+            if user_id is None:
+                continue
+            try:
+                witness_kill(
+                    self.channel_id, npc_stem, user_id,
+                    is_passive=is_passive,
+                    monster_stem=monster_stem,
+                    passive_kill_penalty=penalty_map,
+                )
+            except Exception:
+                _log.exception(
+                    f"witness_kill failed for player {user_id} / "
+                    f"npc {npc_stem} / monster {monster_stem}"
+                )
+
     async def on_monster_death(self) -> str:
         """Death-end of the combat lifecycle: roll fresh death
         loot, sweep undestroyed-part placements for corpse
@@ -952,6 +1006,18 @@ class Game:
             self.loot.setdefault(player.user_id, []).extend(
                 self.monster.get_loot()
             )
+
+        # Passerby witness hook — if an NPC is in the Present state
+        # while combatants kill a monster, every combatant earns
+        # warmth credits with the NPC. Passive kills earn negative
+        # credits (most people don't want to watch you slaughter
+        # helpless things); non-passive kills earn positive credits
+        # ("you protected the clearing"). Per-NPC overrides via
+        # ``PASSIVE_KILL_PENALTY`` map can sharpen the consequence
+        # (e.g. shepherd's "kill a sheep → drop a tier"). Fired
+        # BEFORE _finalize_combat so the looters list is still in
+        # scope.
+        self._notify_passerby_witnessed_kill()
 
         # Universal shutdown — outcome flag, has_loot announce
         # (computed BEFORE ``end_combat`` clears looters), schedule

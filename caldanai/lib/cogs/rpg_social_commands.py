@@ -2341,6 +2341,27 @@ class RpgSocialCommands(Cog):
                     game.channel,
                     parse(choice(cue_pool), npc, player),
                 )
+
+        # Per-visit warmth-credit accumulation. Each verb counts at
+        # most once per visit (the apply_*_credits helpers dedup via
+        # state.visit_warm_verbs / visit_cold_verbs). $greet has its
+        # own +5 path; other verbs route through their warmth-tier
+        # classification in SYSTEM_DEFAULTS. Verbs not registered in
+        # SYSTEM_DEFAULTS (e.g. wave) classify as NEUTRAL → +2.
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            apply_greet_credits, apply_verb_credits,
+        )
+        if cmd == "greet":
+            apply_greet_credits(
+                game.channel_id, npc_stem, player.user_id,
+            )
+        else:
+            verb_tier = warmth.SYSTEM_DEFAULTS.get(
+                cmd, warmth.Warmth.NEUTRAL,
+            )
+            apply_verb_credits(
+                game.channel_id, npc_stem, player.user_id, cmd, verb_tier,
+            )
         return True
 
     def _maybe_route_to_silhouette_too_far(

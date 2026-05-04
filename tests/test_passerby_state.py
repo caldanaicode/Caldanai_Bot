@@ -441,11 +441,14 @@ class TestPersistence:
 
 class TestSchemaRoundTrip:
     def test_to_slice_doc_from_slice_doc_idempotent(self):
+        # warmth is now derived from warmth_credits — set credits
+        # within the WARM band (20..39) so the recomputed tier
+        # lands at WARM.
         original = PasserbyState(
             channel_id=1,
             npc_stem="wagoneer",
             player_id=999,
-            warmth=Warmth.WARM,
+            warmth_credits=25,
             acquainted=True,
             acquainted_via="greet",
             met_count=5,
@@ -460,6 +463,7 @@ class TestSchemaRoundTrip:
         assert recovered.channel_id == 1
         assert recovered.npc_stem == "wagoneer"
         assert recovered.player_id == 999
+        assert recovered.warmth_credits == 25
         assert recovered.warmth == Warmth.WARM
         assert recovered.acquainted is True
         assert recovered.acquainted_via == "greet"
@@ -472,13 +476,14 @@ class TestSchemaRoundTrip:
         that could drift out of sync with the keying."""
         state = PasserbyState(
             channel_id=1, npc_stem="wagoneer", player_id=999,
-            warmth=Warmth.WARM,
+            warmth_credits=25,  # WARM band
         )
         slice_data = state.to_slice_doc()
         assert "channel_id" not in slice_data
         assert "npc_stem" not in slice_data
         assert "player_id" not in slice_data
         assert slice_data["warmth"] == str(Warmth.WARM)
+        assert slice_data["warmth_credits"] == 25
 
     def test_from_slice_doc_tolerates_partial(self):
         """Stale slices missing fields should hydrate to dataclass
@@ -499,3 +504,415 @@ class TestSchemaRoundTrip:
             channel_id=1, npc_stem="x", player_id=1,
         )
         assert state.warmth == Warmth.NEUTRAL
+
+
+# ---------------------------------------------------------------------------
+# Warmth credits — tier derivation, drop-tier, per-visit clamp, decay
+# ---------------------------------------------------------------------------
+
+
+from caldanai.lib.rpg.creatures.passersby.state import (
+    apply_greet_credits,
+    apply_verb_credits,
+    mark_visit_arrival,
+    mark_visit_depart,
+    warmth_from_credits,
+    witness_kill,
+    GREET_CREDIT_DELTA,
+    WITNESS_NON_PASSIVE_KILL_CREDIT,
+    WITNESS_PASSIVE_KILL_DEFAULT_CREDIT,
+    DECAY_PER_NO_INTERACTION_DEPART,
+    TIER_DROP_SENTINEL,
+)
+
+
+class TestWarmthFromCredits:
+    """Tier mapping must match the documented credit bands so
+    everything else (per-visit clamp, drop_tier, set_warmth) lands
+    on intuitive boundaries."""
+
+    @pytest.mark.parametrize("credits,expected", [
+        (-100, Warmth.COLD),
+        (-50, Warmth.COLD),
+        (-40, Warmth.COLD),
+        (-39, Warmth.COOL),
+        (-25, Warmth.COOL),
+        (-20, Warmth.COOL),
+        (-19, Warmth.NEUTRAL),
+        (0, Warmth.NEUTRAL),
+        (19, Warmth.NEUTRAL),
+        (20, Warmth.WARM),
+        (25, Warmth.WARM),
+        (39, Warmth.WARM),
+        (40, Warmth.HOT),
+        (50, Warmth.HOT),
+        (100, Warmth.HOT),
+    ])
+    def test_tier_boundaries(self, credits, expected):
+        assert warmth_from_credits(credits) == expected
+
+    def test_out_of_band_above_clamps_to_hot(self):
+        # Defensive — should never happen via normal API, but
+        # protects inspection tools from crashes on stale data.
+        assert warmth_from_credits(500) == Warmth.HOT
+
+    def test_out_of_band_below_clamps_to_cold(self):
+        assert warmth_from_credits(-500) == Warmth.COLD
+
+
+class TestPasserbyStateRecomputesWarmth:
+    def test_post_init_derives_warmth_from_credits(self):
+        state = PasserbyState(
+            channel_id=1, npc_stem="x", player_id=1,
+            warmth_credits=25,
+        )
+        assert state.warmth == Warmth.WARM
+
+    def test_explicit_warmth_arg_is_overridden_by_credits(self):
+        # warmth is purely derived now — passing a tier directly
+        # without matching credits gets stomped by __post_init__.
+        state = PasserbyState(
+            channel_id=1, npc_stem="x", player_id=1,
+            warmth_credits=0,  # NEUTRAL band
+            warmth=Warmth.HOT,  # ignored
+        )
+        assert state.warmth == Warmth.NEUTRAL
+
+
+class TestApplyVerbCredits:
+    def test_warm_verb_first_use_grants_credits(self, coll, queues_patch):
+        state, delta = apply_verb_credits(
+            1, "wagoneer", 999, "hug", Warmth.WARM, collection=coll,
+        )
+        assert delta == 5
+        assert state.warmth_credits == 5
+        assert state.warmth == Warmth.NEUTRAL  # still in NEUTRAL band
+
+    def test_same_warm_verb_twice_in_visit_only_counts_once(
+        self, coll, queues_patch,
+    ):
+        apply_verb_credits(
+            1, "wagoneer", 999, "hug", Warmth.WARM, collection=coll,
+        )
+        state, delta = apply_verb_credits(
+            1, "wagoneer", 999, "hug", Warmth.WARM, collection=coll,
+        )
+        assert delta == 0  # already used this visit
+        assert state.warmth_credits == 5  # unchanged
+
+    def test_different_warm_verbs_in_visit_each_count(
+        self, coll, queues_patch,
+    ):
+        apply_verb_credits(
+            1, "wagoneer", 999, "hug", Warmth.WARM, collection=coll,
+        )
+        apply_verb_credits(
+            1, "wagoneer", 999, "comfort", Warmth.WARM, collection=coll,
+        )
+        state, delta = apply_verb_credits(
+            1, "wagoneer", 999, "nod", Warmth.NEUTRAL, collection=coll,
+        )
+        # hug (+5) + comfort (+5) + nod (+2) = +12
+        assert state.warmth_credits == 12
+
+    def test_cold_verb_lowers_credits(self, coll, queues_patch):
+        state, delta = apply_verb_credits(
+            1, "wagoneer", 999, "glare", Warmth.COLD, collection=coll,
+        )
+        assert delta == -5
+        assert state.warmth_credits == -5
+
+    def test_per_visit_one_tier_clamp_blocks_two_tier_jump(
+        self, coll, queues_patch,
+    ):
+        # Player starts NEUTRAL (credits=0). Per-visit clamp
+        # ceiling = top of WARM = +39. Pile on credits past that
+        # and verify they cap at 39.
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            _apply_credits_in_memory,
+        )
+        # Use the in-memory helper directly to slam many credits
+        # in one visit and prove the clamp absorbs the excess.
+        state = PasserbyState(
+            channel_id=1, npc_stem="x", player_id=1,
+            warmth_credits=0,
+            tier_at_visit_start=Warmth.NEUTRAL,
+        )
+        applied = _apply_credits_in_memory(state, 100)
+        assert state.warmth_credits == 39  # top of WARM
+        assert applied == 39
+        # A second attempt this visit caps at 0 (already at limit).
+        applied2 = _apply_credits_in_memory(state, 50)
+        assert applied2 == 0
+        assert state.warmth_credits == 39
+
+    def test_per_visit_clamp_works_downward(self, coll, queues_patch):
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            _apply_credits_in_memory,
+        )
+        state = PasserbyState(
+            channel_id=1, npc_stem="x", player_id=1,
+            warmth_credits=0,
+            tier_at_visit_start=Warmth.NEUTRAL,
+        )
+        applied = _apply_credits_in_memory(state, -100)
+        # Bottom of COOL = -39
+        assert state.warmth_credits == -39
+        assert applied == -39
+
+
+class TestApplyGreetCredits:
+    def test_first_greet_grants_5(self, coll, queues_patch):
+        state, delta = apply_greet_credits(
+            1, "wagoneer", 999, collection=coll,
+        )
+        assert delta == GREET_CREDIT_DELTA == 5
+        assert state.warmth_credits == 5
+
+    def test_greet_same_visit_twice_only_once(self, coll, queues_patch):
+        apply_greet_credits(1, "wagoneer", 999, collection=coll)
+        state, delta = apply_greet_credits(1, "wagoneer", 999, collection=coll)
+        assert delta == 0
+        assert state.warmth_credits == 5
+
+
+class TestWitnessKill:
+    def test_non_passive_kill_grants_10(self, coll, queues_patch):
+        state, delta = witness_kill(
+            1, "wagoneer", 999,
+            is_passive=False,
+            monster_stem="bandit",
+            collection=coll,
+        )
+        assert delta == WITNESS_NON_PASSIVE_KILL_CREDIT == 10
+        assert state.warmth_credits == 10
+
+    def test_passive_kill_default_penalty_neg_10(self, coll, queues_patch):
+        state, delta = witness_kill(
+            1, "wagoneer", 999,
+            is_passive=True,
+            monster_stem="sheep",
+            collection=coll,
+        )
+        assert delta == WITNESS_PASSIVE_KILL_DEFAULT_CREDIT == -10
+        assert state.warmth_credits == -10
+
+    def test_passive_kill_per_npc_override_int(self, coll, queues_patch):
+        # Wagoneer-style override: harsher penalty for sheep
+        # specifically (hypothetical, just exercises the int path).
+        state, delta = witness_kill(
+            1, "wagoneer", 999,
+            is_passive=True,
+            monster_stem="sheep",
+            passive_kill_penalty={"sheep": -25},
+            collection=coll,
+        )
+        # Per-visit clamp on a NEUTRAL-start = bottom of COOL = -39.
+        # -25 fits inside, so all of it lands.
+        assert delta == -25
+        assert state.warmth_credits == -25
+
+    def test_shepherd_sheep_tier_drop_from_neutral(self, coll, queues_patch):
+        state, delta = witness_kill(
+            1, "shepherd", 999,
+            is_passive=True,
+            monster_stem="sheep",
+            passive_kill_penalty={"sheep": TIER_DROP_SENTINEL},
+            collection=coll,
+        )
+        # NEUTRAL → tier drop lands at top of COOL = -20.
+        assert state.warmth_credits == -20
+        assert state.warmth == Warmth.COOL
+
+    def test_shepherd_sheep_tier_drop_from_warm(self, coll, queues_patch):
+        _seed_player_slice(
+            coll, 1, "shepherd", 999, warmth_credits=30,
+        )
+        state, delta = witness_kill(
+            1, "shepherd", 999,
+            is_passive=True,
+            monster_stem="sheep",
+            passive_kill_penalty={"sheep": TIER_DROP_SENTINEL},
+            collection=coll,
+        )
+        # WARM → tier drop lands at top of NEUTRAL = +19.
+        assert state.warmth_credits == 19
+        assert state.warmth == Warmth.NEUTRAL
+
+    def test_tier_drop_from_cold_is_noop(self, coll, queues_patch):
+        _seed_player_slice(
+            coll, 1, "shepherd", 999, warmth_credits=-80,
+        )
+        state, delta = witness_kill(
+            1, "shepherd", 999,
+            is_passive=True,
+            monster_stem="sheep",
+            passive_kill_penalty={"sheep": TIER_DROP_SENTINEL},
+            collection=coll,
+        )
+        # Already COLD — nothing colder to drop to.
+        assert delta == 0
+        assert state.warmth_credits == -80
+
+    def test_passive_kill_wildcard_fallback(self, coll, queues_patch):
+        # NPC says "any passive kill is bad" — wildcard.
+        state, delta = witness_kill(
+            1, "herbalist", 999,
+            is_passive=True,
+            monster_stem="squirrel",
+            passive_kill_penalty={"*": -15},
+            collection=coll,
+        )
+        assert delta == -15
+
+    def test_specific_stem_beats_wildcard(self, coll, queues_patch):
+        state, delta = witness_kill(
+            1, "shepherd", 999,
+            is_passive=True,
+            monster_stem="sheep",
+            passive_kill_penalty={"sheep": TIER_DROP_SENTINEL, "*": -5},
+            collection=coll,
+        )
+        # Specific entry wins; should be tier drop (lands at -20)
+        # not the wildcard -5.
+        assert state.warmth_credits == -20
+
+
+class TestVisitLifecycleHooks:
+    def test_arrival_resets_per_visit_state_for_existing_slices(
+        self, coll, queues_patch,
+    ):
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=15,
+            visit_warm_verbs=["hug", "comfort"],
+            visit_credits_delta=10,
+        )
+        count = mark_visit_arrival(1, "wagoneer", collection=coll)
+        assert count == 1
+        # Re-read; per-visit fields should be reset, credits
+        # preserved, tier_at_visit_start captured from current
+        # warmth (15 → NEUTRAL).
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 15
+        assert state.visit_warm_verbs == []
+        assert state.visit_cold_verbs == []
+        assert state.visit_credits_delta == 0
+        assert state.tier_at_visit_start == Warmth.NEUTRAL
+
+    def test_arrival_no_doc_returns_zero(self, coll):
+        count = mark_visit_arrival(1, "wagoneer", collection=coll)
+        assert count == 0
+
+    def test_depart_with_no_interaction_decays(self, coll, queues_patch):
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=15,
+            visit_arrived_at=None,
+            visit_warm_verbs=[],
+            visit_cold_verbs=[],
+            visit_witnessed_kill_count=0,
+        )
+        decayed = mark_visit_depart(1, "wagoneer", collection=coll)
+        assert decayed == 1
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 15 + DECAY_PER_NO_INTERACTION_DEPART
+
+    def test_depart_with_interaction_no_decay(self, coll, queues_patch):
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=15,
+            visit_warm_verbs=["hug"],
+        )
+        decayed = mark_visit_depart(1, "wagoneer", collection=coll)
+        assert decayed == 0
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 15  # no decay
+
+    def test_depart_floors_at_cold(self, coll, queues_patch):
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=-100,  # already at floor
+            visit_warm_verbs=[],
+        )
+        decayed = mark_visit_depart(1, "wagoneer", collection=coll)
+        # No movement possible — credits already at floor.
+        assert decayed == 0
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == -100
+
+    def test_depart_apply_decay_false_skips_decay(self, coll, queues_patch):
+        # Used by flee_from_attack — bystanders shouldn't get
+        # punished when another player attacked the NPC.
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=15,
+            visit_warm_verbs=[],
+        )
+        decayed = mark_visit_depart(
+            1, "wagoneer", apply_decay=False, collection=coll,
+        )
+        assert decayed == 0
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 15
+
+    def test_depart_resets_visit_tracking_regardless(self, coll, queues_patch):
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=15,
+            visit_warm_verbs=["hug"],
+            visit_credits_delta=5,
+        )
+        mark_visit_depart(1, "wagoneer", collection=coll)
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.visit_warm_verbs == []
+        assert state.visit_credits_delta == 0
+        assert state.visit_arrived_at is None
+
+
+class TestLegacyMigration:
+    def test_legacy_warmth_only_doc_derives_credits(self):
+        # Pre-credits doc has only warmth tier. Round-trip through
+        # from_slice_doc should derive credits from the tier
+        # midpoint so the relationship survives the schema change.
+        recovered = PasserbyState.from_slice_doc(
+            {"warmth": "warm", "acquainted": True},
+            channel_id=1, npc_stem="x", player_id=1,
+        )
+        assert recovered.warmth == Warmth.WARM
+        assert recovered.warmth_credits == 25  # WARM midpoint
+
+    def test_legacy_doc_with_no_warmth_at_all(self):
+        recovered = PasserbyState.from_slice_doc(
+            {}, channel_id=1, npc_stem="x", player_id=1,
+        )
+        assert recovered.warmth == Warmth.NEUTRAL
+        assert recovered.warmth_credits == 0
+
+    def test_credits_field_wins_over_legacy_warmth(self):
+        # If both fields are present (e.g. mid-migration), credits
+        # is the source of truth — derived warmth must match.
+        recovered = PasserbyState.from_slice_doc(
+            {"warmth": "warm", "warmth_credits": -30},
+            channel_id=1, npc_stem="x", player_id=1,
+        )
+        assert recovered.warmth_credits == -30
+        assert recovered.warmth == Warmth.COOL  # derived, not stored
+
+
+class TestSetWarmthViaCredits:
+    def test_set_warmth_writes_tier_midpoint_credits(self, coll, queues_patch):
+        state = set_warmth(1, "wagoneer", 999, Warmth.HOT, collection=coll)
+        assert state.warmth == Warmth.HOT
+        assert state.warmth_credits == 50  # HOT midpoint
+
+    def test_degrade_warmth_uses_midpoint(self, coll, queues_patch):
+        _seed_player_slice(coll, 1, "wagoneer", 999, warmth_credits=50)
+        state = degrade_warmth(1, "wagoneer", 999, collection=coll)
+        assert state.warmth == Warmth.WARM
+        assert state.warmth_credits == 25
+
+    def test_promote_warmth_uses_midpoint(self, coll, queues_patch):
+        state = promote_warmth(1, "wagoneer", 999, collection=coll)
+        assert state.warmth == Warmth.WARM
+        assert state.warmth_credits == 25

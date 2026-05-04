@@ -18,7 +18,7 @@ Parser tokens: ``@1`` = the actor (player) when used in social
 reactions. NAMING_BIAS at 0.3 — rural plain-spoken, "friend"
 feels right; uses name when it matters.
 """
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
 from caldanai.lib.rpg.helpers.enums import TimePartitions
@@ -40,6 +40,15 @@ class Shepherd(PasserbyPlugin):
 
     # "Friend" / "you" are home. Names when it matters.
     NAMING_BIAS = 0.3
+
+    # Sheep are HIS — killing one in front of him drops the
+    # offender's warmth a full tier toward COLD. Other passive
+    # creatures hit the system default (-10 credits); a stranger
+    # killing a sheep at the verge of his flock is a different
+    # weight than a stranger pulping a passive squirrel.
+    PASSIVE_KILL_PENALTY: Dict[str, Union[int, str]] = {
+        "sheep": "tier_drop",
+    }
 
     ARRIVAL_POOL: List[str] = [
         "An old shepherd walks into the clearing leaning on a crook worn smooth by his palm. @1S scans the verge with practiced eyes, looking for woolly sign.",
