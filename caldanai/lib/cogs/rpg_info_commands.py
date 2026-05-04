@@ -846,6 +846,27 @@ class RpgInfoCommands(Cog):
             time = game.game_clock.get_time_of_day()
             msg += f" It appears to be {time}."
 
+            # Weather sentence — pulls from the existing daemon's
+            # describe() so the prose matches what ``$weather`` shows.
+            weather = getattr(game, "weather", None)
+            if weather is not None:
+                weather_line = weather.describe()
+                if weather_line:
+                    msg += f" {weather_line}"
+
+            # Static-object look lines come next — these are the
+            # persistent room features (campfire, stone field, etc.).
+            # Each plugin returns a state-aware short line; ``None``
+            # hides that object from $look (rare).
+            if game.room0 is not None:
+                for obj in game.room0.static_objects.values():
+                    obj_line = obj.get_look_line(game)
+                    if obj_line:
+                        msg += f"\n{obj_line}"
+
+            # Present-passerby beat appended after scenery so the
+            # NPC reads as the most recent / dynamic addition rather
+            # than a fixture of the room.
             passerby_line = self._render_passerby_look_line(game)
             if passerby_line:
                 msg += f"\n{passerby_line}"

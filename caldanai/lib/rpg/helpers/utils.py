@@ -273,6 +273,24 @@ class RpgUtilities:
 
         room0 = Area.from_plugin("0")
         game.room0 = room0
+        # Instantiate every loaded static object plugin into this
+        # area. V1 ships baseline objects (campfire, stone field) as
+        # always-present features of the clearing — no per-area
+        # opt-in mechanism yet. When threaded dungeons land, each
+        # area declares which plugins it wants instead.
+        from caldanai.lib.rpg.world.objects import StaticObjectPlugin
+        seen_classes = set()
+        for plugin_cls in StaticObjectPlugin._PLUGIN_REGISTRY.values():
+            if plugin_cls in seen_classes:
+                continue
+            seen_classes.add(plugin_cls)
+            try:
+                room0.add_static_object(plugin_cls())
+            except Exception as e:
+                _log.error(
+                    f"Failed to instantiate static object "
+                    f"{plugin_cls.__name__}: {e}"
+                )
         # Channel routing is populated inside ``Game.__init__`` /
         # ``Game.from_dict`` via ``register_channel``; ``bot.games`` is
         # a read-only live view over that registry, so there's no
@@ -588,6 +606,8 @@ class RpgUtilities:
             MonsterPlugin.load_plugins()
             from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
             PasserbyPlugin.load_plugins()
+            from caldanai.lib.rpg.world.objects import StaticObjectPlugin
+            StaticObjectPlugin.load_plugins()
             for g in games:
                 await RpgUtilities.add_game(game=g)
             _log.info("Starting save_game_data loop")

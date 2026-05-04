@@ -82,6 +82,13 @@ class WeatherDaemon:
         self._duration_remaining: int = 0
         # Guard so we don't announce the initial state as a "change".
         self._announced_initial: bool = False
+        # Listeners notified when weather transitions to a new state.
+        # Each callback receives (old_patterns, new_patterns,
+        # old_severities, new_severities). Used by Game to fan out
+        # to room.static_objects' on_weather_change hooks. Direct
+        # listener-list (rather than EventEmitter) keeps coupling
+        # minimal — daemon doesn't import Game.
+        self.transition_listeners: list = []
 
     # -- Public API -----------------------------------------------------
 
@@ -209,13 +216,37 @@ class WeatherDaemon:
 
         season = self._current_season()
         old_description = self.describe()
+        old_patterns = self.active_patterns
+        old_severities = dict(self.severities)
         self._roll_new_state(season)
         new_description = self.describe()
+        new_patterns = self.active_patterns
+        new_severities = dict(self.severities)
 
         if new_description != old_description:
             # Narrative announcement, not raw state. The describe()
             # output reads as prose, so we can ship it directly.
             Dispatcher.add(self._channel(), new_description)
+
+        # Fan out to transition listeners regardless of description
+        # change — listeners may care about severity-only changes
+        # (e.g. light → moderate rain) even when the prose form
+        # rounds to the same description.
+        if (
+            old_patterns != new_patterns
+            or old_severities != new_severities
+        ):
+            for listener in list(self.transition_listeners):
+                try:
+                    listener(
+                        old_patterns, new_patterns,
+                        old_severities, new_severities,
+                    )
+                except Exception:
+                    _log.exception(
+                        "WeatherDaemon transition listener raised; "
+                        "continuing with remaining listeners",
+                    )
 
     # -- State rolls ----------------------------------------------------
 

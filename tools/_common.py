@@ -68,25 +68,41 @@ for _stream in (sys.stdout, sys.stderr):
 _STATE_DIR = Path(__file__).parent
 
 
-# Shared ``tail_*`` environment shortnames. Operators pass ``LIVE``
-# / ``TEST`` on the command line; tools map that to (env-var-name,
-# default-inspector-port). The default ports are convention-only —
-# overridable via ``--port`` on each tool — but sticking to them
-# keeps "which env is this process tailing?" readable from
-# ``ps``/``tasklist`` alone, because the positional arg is the
-# authoritative tag.
-TAIL_ENVS: "Dict[str, Tuple[str, int]]" = {
-    "LIVE": ("LIVE_DB_NAME", 8765),
-    "TEST": ("TEST_DB_NAME", 8766),
+# Shared environment shortnames. Operators pass ``LIVE`` / ``TEST``
+# / ``MENDHOLM`` on the command line; tools map that to
+# (db-env-var-name, default-inspector-port, optional-channel-env-var).
+# The default ports are convention-only — overridable via ``--port``
+# on each tool — but sticking to them keeps "which env is this
+# process tailing?" readable from ``ps``/``tasklist`` alone, because
+# the positional arg is the authoritative tag.
+#
+# The third tuple element is an env var name whose value (an int
+# Discord channel id) implicitly skips the per-tool channel picker.
+# ``LIVE``/``TEST`` leave it ``None`` (use the picker as before).
+# ``MENDHOLM`` points at Vael's specific channel within the TEST
+# database — same DB as TEST, but pre-resolves the channel so the
+# bg-Vael session never lands on the multi-game picker.
+TAIL_ENVS: "Dict[str, Tuple[str, int, Optional[str]]]" = {
+    "LIVE":     ("LIVE_DB_NAME", 8765, None),
+    # TEST is bound to the OOC channel — the most natural human-
+    # readable channel in the test guild and the place where
+    # backchannel commentary lives. Avoids the multi-game picker
+    # that an unbound TEST used to trigger.
+    "TEST":     ("TEST_DB_NAME", 8766, "OOC_CHANNEL_ID"),
+    "MENDHOLM": ("TEST_DB_NAME", 8767, "MENDHOLM_CHANNEL_ID"),
 }
 
 
 def resolve_tail_env(shortname: str) -> "Tuple[str, int]":
-    """Map a ``LIVE`` / ``TEST`` shortname to ``(env_var, port)``.
+    """Map a shortname to ``(env_var, port)``.
 
     Case-insensitive. Raises :class:`SystemExit` with a clear
     message on an unknown shortname — better than a KeyError
     deep in a tool when the operator typos.
+
+    Backward-compatible 2-tuple return so existing callers don't
+    have to learn the new channel-env-var slot. Use
+    :func:`resolve_implicit_channel_id` to pick that up.
     """
     key = shortname.upper()
     if key not in TAIL_ENVS:
@@ -94,7 +110,39 @@ def resolve_tail_env(shortname: str) -> "Tuple[str, int]":
             f"Unknown tail env {shortname!r}. Valid: "
             f"{', '.join(TAIL_ENVS)}."
         )
-    return TAIL_ENVS[key]
+    db_env, port, _channel_env = TAIL_ENVS[key]
+    return db_env, port
+
+
+def resolve_implicit_channel_id(shortname: str) -> "Optional[int]":
+    """Return the channel id implied by the shortname's env var
+    binding, or ``None`` if the shortname doesn't bind one (LIVE,
+    TEST) or the env var isn't set.
+
+    Raises :class:`SystemExit` if the shortname declares a channel
+    env var but the env isn't set — that's an "operator forgot to
+    configure MENDHOLM" condition that should fail loud rather
+    than silently fall back to the picker.
+    """
+    key = shortname.upper()
+    if key not in TAIL_ENVS:
+        return None
+    _db_env, _port, channel_env = TAIL_ENVS[key]
+    if channel_env is None:
+        return None
+    raw = os.environ.get(channel_env)
+    if not raw:
+        raise SystemExit(
+            f"{shortname} requires {channel_env} env var to be set "
+            f"(should be the Discord channel id for that world). "
+            f"Add it to .env and try again."
+        )
+    try:
+        return int(raw)
+    except ValueError:
+        raise SystemExit(
+            f"{channel_env} is not a valid integer: {raw!r}"
+        )
 
 
 def state_file_path(base_name: str, db_env_var: str) -> Path:

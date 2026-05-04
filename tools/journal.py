@@ -27,7 +27,28 @@ Usage
 
     python -m tools.journal read              # last 5 entries (default)
     python -m tools.journal read --tail 10    # last 10 entries
+
+    # Single-paragraph or short entry — positional arg is fine.
     python -m tools.journal post "It's been raining all night..."
+
+    # Multi-paragraph or long entry — prefer stdin / file. The
+    # positional-arg path depends on shell-quoting and can silently
+    # truncate at unbalanced quotes, ``$()`` substitutions, etc.
+    python -m tools.journal post --stdin <<'EOF'
+    Para 1.
+
+    Para 2.
+
+    Para 3.
+    EOF
+
+    python -m tools.journal post --file path/to/entry.md
+
+The post command logs the content length to stderr at submission
+time so the operator can confirm the script received the full
+content (vs. a shell-truncated subset). If the printed length
+doesn't match what you intended, the truncation happened in the
+shell, not in the tool.
 
 Voice + cadence guidance lives in the project memory file
 ``reference_journal_channel.md``
@@ -40,6 +61,49 @@ import os
 import sys
 
 from tools._common import DiscordRestClient, split_for_discord
+
+
+def _resolve_content(args, *, kind: str) -> str:
+    """Pick the content source per the precedence:
+    ``--stdin`` > ``--file`` > positional. Exactly one source
+    must produce non-empty content; mixed flags are a usage error.
+
+    ``kind`` is ``"entry"`` (post) or ``"replacement"`` (edit) —
+    used in error messages.
+    """
+    sources = [
+        ("stdin", bool(args.stdin)),
+        ("file", bool(args.file)),
+        ("positional", bool(args.content)),
+    ]
+    chosen = [name for name, present in sources if present]
+    if not chosen:
+        raise SystemExit(
+            f"No {kind} content provided. Pass content as a positional "
+            f"argument, via --stdin, or via --file PATH."
+        )
+    if len(chosen) > 1:
+        raise SystemExit(
+            f"Multiple content sources given: {chosen}. Pick one."
+        )
+
+    if args.stdin:
+        content = sys.stdin.read()
+    elif args.file:
+        with open(args.file, "r", encoding="utf-8") as fh:
+            content = fh.read()
+    else:
+        content = args.content
+
+    # Strip a trailing newline (common with stdin / file reads) but
+    # preserve interior structure. Empty content after strip is a
+    # signal-failure — refuse rather than post a blank message.
+    content = content.rstrip("\n")
+    if not content:
+        raise SystemExit(
+            f"Resolved {kind} content is empty after read. Aborting."
+        )
+    return content
 
 
 def _journal_channel_id() -> int:
@@ -114,6 +178,16 @@ async def _post(content: str) -> tuple[dict, int]:
         )
     channel_id = _journal_channel_id()
     chunks = split_for_discord(content)
+    # Stderr log of received-content size so the operator can spot
+    # upstream truncation immediately. If you intended 2300 chars
+    # but this prints 308, the truncation happened in the shell
+    # before the script ran. Use --stdin or --file to bypass the
+    # shell-quoting layer.
+    print(
+        f"[journal] received {len(content)} chars, "
+        f"posting in {len(chunks)} chunk(s)",
+        file=sys.stderr,
+    )
     async with DiscordRestClient(token) as client:
         first_msg: dict | None = None
         for i, chunk in enumerate(chunks):
@@ -166,9 +240,21 @@ def main(argv=None) -> int:
         help="Post a new journal entry to the journal channel.",
     )
     post_p.add_argument(
-        "content",
-        help="Entry text. In-character first-person prose; "
-             "see reference_journal_channel.md for voice guidance.",
+        "content", nargs="?", default=None,
+        help="Entry text. In-character first-person prose; see "
+             "reference_journal_channel.md for voice guidance. "
+             "For multi-paragraph entries prefer --stdin / --file: "
+             "Windows .bat launchers (and some shell-quoting paths) "
+             "silently truncate positional args at the first newline.",
+    )
+    post_p.add_argument(
+        "--stdin", action="store_true",
+        help="Read entry content from stdin. Recommended for "
+             "multi-paragraph entries.",
+    )
+    post_p.add_argument(
+        "--file", default=None,
+        help="Read entry content from this file path.",
     )
 
     edit_p = sub.add_parser(
@@ -181,8 +267,18 @@ def main(argv=None) -> int:
              "only edit messages they authored.",
     )
     edit_p.add_argument(
-        "content",
-        help="Replacement entry text. Replaces the whole body.",
+        "content", nargs="?", default=None,
+        help="Replacement entry text. Replaces the whole body. "
+             "For multi-paragraph replacements prefer --stdin / "
+             "--file (same shell-truncation concern as post).",
+    )
+    edit_p.add_argument(
+        "--stdin", action="store_true",
+        help="Read replacement content from stdin.",
+    )
+    edit_p.add_argument(
+        "--file", default=None,
+        help="Read replacement content from this file path.",
     )
 
     args = ap.parse_args(argv)
@@ -191,7 +287,8 @@ def main(argv=None) -> int:
         asyncio.run(_read(args.tail))
         return 0
     if args.cmd == "post":
-        msg, n_chunks = asyncio.run(_post(args.content))
+        content = _resolve_content(args, kind="entry")
+        msg, n_chunks = asyncio.run(_post(content))
         author = (msg.get("author") or {}).get("username", "?")
         chunk_note = f" [+ {n_chunks - 1} continuation]" if n_chunks > 1 else ""
         print(
@@ -200,7 +297,8 @@ def main(argv=None) -> int:
         )
         return 0
     if args.cmd == "edit":
-        msg = asyncio.run(_edit(args.message_id, args.content))
+        content = _resolve_content(args, kind="replacement")
+        msg = asyncio.run(_edit(args.message_id, content))
         author = (msg.get("author") or {}).get("username", "?")
         print(
             f"edited id={msg['id']} as {author} "

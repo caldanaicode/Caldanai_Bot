@@ -68,7 +68,12 @@ import os
 import sys
 from typing import Optional
 
-from tools._common import DiscordRestClient, live_db, use_db_env_var
+from tools._common import (
+    DiscordRestClient,
+    live_db,
+    resolve_implicit_channel_id,
+    use_db_env_var,
+)
 
 
 def _resolve_test_channel_id(guild_filter: Optional[int] = None) -> int:
@@ -165,6 +170,21 @@ def _resolve_observations_channel_id() -> int:
         raise SystemExit(
             f"OBSERVATIONS_CHANNEL_ID is not a valid integer: {raw!r}"
         ) from e
+
+
+def _add_mendholm_flag(parser) -> None:
+    """Attach the ``--mendholm`` shortcut flag to a subparser.
+    Resolved at dispatch time via :func:`resolve_implicit_channel_id`
+    (reads ``MENDHOLM_CHANNEL_ID`` env). Used by every bot_player
+    subcommand so Vael's bg session can target her world without
+    naming the channel id every call — mirrors the ``$tail_channel
+    MENDHOLM`` ergonomics."""
+    parser.add_argument(
+        "--mendholm", action="store_true",
+        help="Target Vael's MENDHOLM channel from the "
+             "MENDHOLM_CHANNEL_ID env var. Shortcut for "
+             "``--channel-id $MENDHOLM_CHANNEL_ID``.",
+    )
 
 
 async def _post(
@@ -323,6 +343,7 @@ def main(argv=None) -> int:
              "test-channel lookup. For posting to non-combat channels "
              "(e.g. a journal channel) the tester bot has access to.",
     )
+    _add_mendholm_flag(send_p)
     if not minimal:
         send_p.add_argument(
             "--ooc", action="store_true",
@@ -362,6 +383,7 @@ def main(argv=None) -> int:
         help="React in a specific channel id, skipping "
              "the DB-based test-channel lookup.",
     )
+    _add_mendholm_flag(react_p)
     if not minimal:
         react_p.add_argument(
             "--ooc", action="store_true",
@@ -400,6 +422,7 @@ def main(argv=None) -> int:
              "the DB-based test-channel lookup. Required when "
              "editing messages outside the test-combat channel.",
     )
+    _add_mendholm_flag(edit_p)
     if not minimal:
         edit_p.add_argument(
             "--ooc", action="store_true",
@@ -451,6 +474,7 @@ def main(argv=None) -> int:
             help="Target the observations channel from "
                  "OBSERVATIONS_CHANNEL_ID env var.",
         )
+        _add_mendholm_flag(thread_p)
         thread_p.add_argument(
             "--pacing-seconds", type=float, default=0.6,
             help=(
@@ -484,13 +508,16 @@ def main(argv=None) -> int:
     # semantics). --ooc and --obs are mutually exclusive — pick one.
     ooc = getattr(args, "ooc", False)
     obs = getattr(args, "obs", False)
-    if ooc and obs:
-        ap.error("--ooc and --obs are mutually exclusive")
+    mendholm = getattr(args, "mendholm", False)
+    if sum(bool(x) for x in (ooc, obs, mendholm)) > 1:
+        ap.error("--ooc, --obs, and --mendholm are mutually exclusive")
     if args.channel_id is None:
         if ooc:
             args.channel_id = _resolve_ooc_channel_id()
         elif obs:
             args.channel_id = _resolve_observations_channel_id()
+        elif mendholm:
+            args.channel_id = resolve_implicit_channel_id("MENDHOLM")
 
     if args.cmd == "send":
         msg = asyncio.run(_post(args.content, args.guild, args.channel_id))

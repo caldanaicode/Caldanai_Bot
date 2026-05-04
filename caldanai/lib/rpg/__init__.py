@@ -492,11 +492,52 @@ class Game:
             if self.weather is not None and self.ambience_enabled("weather"):
                 from caldanai.lib.rpg.helpers.enums import Seasons
                 self.weather.start(Seasons(self.game_clock.get_season()))
+                # Register the static-object weather fan-out as a
+                # transition listener. WeatherDaemon doesn't import
+                # static objects directly — Game owns the wiring.
+                self.weather.transition_listeners.append(
+                    self._on_weather_change
+                )
             # Sunrise/sunset narration is a separate daemon now
             # (previously inline in do_ambience); gated by the
             # combined master + celestial flags.
             if self.celestial is not None and self.ambience_enabled("celestial"):
                 self.celestial.start()
+
+    def _on_weather_change(
+        self,
+        old_patterns,
+        new_patterns,
+        old_severities,
+        new_severities,
+    ) -> None:
+        """Fan out a WeatherDaemon transition to every static object
+        in the active room. Each plugin's ``on_weather_change`` may
+        return a narration line; collect and dispatch as a single
+        message (newline-joined) so a multi-object reaction reads
+        as one weather beat rather than several.
+
+        Defensive: catches plugin exceptions so a single broken
+        plugin doesn't break the whole transition fan-out."""
+        if self.room0 is None:
+            return
+        lines = []
+        for obj in self.room0.static_objects.values():
+            try:
+                line = obj.on_weather_change(
+                    self,
+                    old_patterns, new_patterns,
+                    old_severities, new_severities,
+                )
+            except Exception:
+                _log.exception(
+                    f"static_object {type(obj).__name__}.on_weather_change raised"
+                )
+                continue
+            if line:
+                lines.append(line)
+        if lines:
+            Dispatcher.add(self.channel, "\n".join(lines))
 
     @staticmethod
     def if_connected(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -1404,45 +1445,51 @@ class Game:
                 Dispatcher.add(self.channel, msg)
 
     async def do_ambience(self):
-        """Small chance to display a random flavor ambience message.
+        """Per-tick ambience orchestration. Delegates source-collection
+        to the active area (so room-flavor pools and per-static-object
+        emissions stay in the room layer) and combines whatever
+        emitted this tick into a single dispatched message.
 
         Sunrise/sunset transition narration used to also flow through
         here; it now lives on a dedicated ``CelestialDaemon``
-        scheduled directly on the clock. This method is the random
-        flavor-choice roll only — kill-switch guard + the roll.
+        scheduled directly on the clock. This method gates on the
+        ``local`` subsystem flag, asks the area for emissions, and
+        dispatches the combined result.
 
         Gated by the ``local`` ambience subsystem, which ANDs with
         the master ``enable_ambience``. Toggling either off self-
         removes this routine the next time it fires.
+
+        When multiple sources emit on the same tick (a wildlife
+        beat plus the campfire's crackle plus the stone-field's
+        silence), they're spliced into one paragraph via
+        :func:`combine_ambience_lines` rather than dispatched as
+        separate messages — keeps the channel from feeling like
+        the world is talking over itself.
         """
+        from caldanai.lib.rpg.ambience import combine_ambience_lines
 
         if not self.ambience_enabled("local"):
             _log.info(f"Removing ambience loop for game on {self.guild.name}.")
             self.game_clock.remove_routine(self.do_ambience)
             return
 
-        if random.randint(1, 3000) != 3000:
+        if self.room0 is None:
             return
 
-        msg = choice(
-            [
-                "A squirrel bounds across the ground, and up a nearby tree.",
-                "A bush rustles as something skitters unseen within.",
-                f"A lonesome howl floats in from the {get_random_direction()}.",
-                "Happy warbling resounds as a songbird flits across the area.",
-                f"A pack of wolves serenades from the {get_random_direction()}.",
-                "At the edge of the wood-line, a bear trundles about curiously for a moment before disappearing into"
-                " the trees.",
-                "The ground trembles slightly for a moment, though whether from earthquake or monstrosity is"
-                " impossible to determine.",
-                "A choir of insectile sound rises, thousands of tiny voices calling out to each other.",
-                f"A {choice('gentle|strong|slow|light|moderate'.split('|'))} breeze stirs the area, bringing the"
-                f" scent of {choice('the sea|dust|pine|animal musk|death'.split('|'))} with it.",
-                "Some unknown creature blazes a trail throughout the tall grasses nearby.",
-            ]
-        )
+        emissions = self.room0.collect_ambience(self)
+        if not emissions:
+            return
 
-        Dispatcher.add(self.channel, msg)
+        # Pass active player names so the combining heuristic doesn't
+        # decap a leading proper noun ("Wren writes..." stays capped
+        # when spliced mid-sentence).
+        known_names = [
+            p.name for p in self.player_manager.players.values()
+        ]
+        msg = combine_ambience_lines(emissions, known_names=known_names)
+        if msg:
+            Dispatcher.add(self.channel, msg)
 
     def to_dict(self):
         """Returns the database friendly dictionary for this game."""
@@ -1572,6 +1619,16 @@ class Game:
             game.weather.load_dict(d["weather"])
         if game.ambience_enabled("weather"):
             game.weather.start(Seasons(game.game_clock.get_season()))
+            # Re-register the static-object weather fan-out on the
+            # daemon instance we just constructed. The ``__init__``
+            # path also adds this listener, but ``from_dict``
+            # *replaces* ``game.weather`` with a fresh daemon (above)
+            # to bind the persisted state, so the listener registered
+            # in ``__init__`` was on the original now-orphaned
+            # daemon. Without re-registering here, on-load games
+            # (i.e. every game after a bot restart) would silently
+            # lose all weather-reactive static-object behavior.
+            game.weather.transition_listeners.append(game._on_weather_change)
         if game.ambience_enabled("celestial"):
             game.celestial.start()
 

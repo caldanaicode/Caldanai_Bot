@@ -68,6 +68,7 @@ __all__ = [
     "PartConverter",
     "PlayerConverter",
     "RecipeConverter",
+    "StaticObjectConverter",
     "resolve_active_monster",
     "resolve_monster_class",
     "resolve_part",
@@ -307,6 +308,42 @@ class FuzzyMemberConverter(Converter):
                 f"server roster.",
             )
         return member
+
+
+class StaticObjectConverter(Converter):
+    """Resolves a static object present in the active room from a
+    fuzzy name query.
+
+    Used by world-verb commands (``$light``, ``$feed``, ``$gaze``,
+    ``$touch``, ``$listen``) when a target argument is supplied.
+    Matches name + aliases via :meth:`Area.find_static_object`'s
+    fuzzy pass chain.
+
+    Raises ``BadArgument`` on no-match. The world cog catches and
+    converts to an italic fallback line so the player gets a clean
+    "nothing here by that name" response rather than discord.py's
+    raw error.
+
+    By design, static objects are matched LAST in any cog whose
+    verb could plausibly target multiple kinds of entity (a future
+    `$gaze companion` should hit the player before a similarly-named
+    object). Cogs that mix entity types should call player /
+    passerby resolvers first and only fall through to this
+    converter when those return nothing.
+    """
+
+    async def convert(self, ctx: Context, argument: str):
+        from caldanai.lib.rpg.world.objects import StaticObjectPlugin
+
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.room0 is None:
+            raise BadArgument("No active room in this channel.")
+        obj = game.room0.find_static_object(argument)
+        if obj is None:
+            raise BadArgument(
+                f"Nothing here matching `{argument}`.",
+            )
+        return obj
 
 
 class RecipeConverter(Converter):

@@ -81,6 +81,7 @@ from tools._common import (
     DiscordRestClient,
     get_auth,
     live_db,
+    resolve_implicit_channel_id,
     resolve_tail_env,
     TAIL_ENVS,
     use_db_env_var,
@@ -1082,9 +1083,10 @@ def main() -> int:
         choices=list(TAIL_ENVS.keys()),
         metavar="ENV",
         help=(
-            "REQUIRED. LIVE or TEST. Picks the DB env var "
-            "(LIVE_DB_NAME / TEST_DB_NAME) and the default inspector "
-            "port (LIVE=8765, TEST=8766)."
+            "REQUIRED. LIVE / TEST / MENDHOLM. Picks the DB env "
+            "var and inspector port. MENDHOLM is TEST_DB_NAME with "
+            "channel pre-resolved via MENDHOLM_CHANNEL_ID — skips "
+            "the multi-game picker for Vael's bg session."
         ),
     )
     parser.add_argument(
@@ -1222,6 +1224,15 @@ def main() -> int:
     effective_port = args.port if args.port is not None else default_port
     args.port = effective_port
     use_db_env_var(env_var)
+
+    # Shortname-implied channel id: MENDHOLM (and any future named
+    # world bound to a specific channel) skips the picker by reading
+    # its env var. ``--channel-id`` takes precedence — explicit
+    # operator override wins over the implicit binding.
+    if args.channel_id is None:
+        implicit = resolve_implicit_channel_id(args.env)
+        if implicit is not None:
+            args.channel_id = implicit
 
     auth = get_auth()
     token = auth.get("TOKEN")

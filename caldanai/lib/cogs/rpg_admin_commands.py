@@ -1279,14 +1279,23 @@ class RpgAdminCommands(Cog):
     @command(name="reload_plugins", aliases=["rp"], brief="Reloads monster and item plugins.")
     async def reload_plugins(self, ctx: Context, target: str = None):
         """
-        Reloads monster and/or item plugins from disk.
+        Reloads monster, passerby, static-object, and/or item plugins from disk.
 
-        :param target: 'monsters', 'items', or omit for both.
+        :param target: 'monsters', 'passersby', 'objects', 'items', or omit for all.
         """
+        from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+        from caldanai.lib.rpg.world.objects import StaticObjectPlugin
+
         reloaded = []
         if target is None or target.lower() == "monsters":
             MonsterPlugin.load_plugins()
             reloaded.append("monsters")
+        if target is None or target.lower() in ("passersby", "passerbys"):
+            PasserbyPlugin.load_plugins()
+            reloaded.append("passersby")
+        if target is None or target.lower() in ("objects", "static_objects", "static-objects"):
+            StaticObjectPlugin.load_plugins()
+            reloaded.append("objects")
         if target is None or target.lower() == "items":
             Inventory.ITEMS.clear()
             Inventory.discover_items()
@@ -1295,7 +1304,7 @@ class RpgAdminCommands(Cog):
         if reloaded:
             Dispatcher.add(ctx, f"Reloaded: {', '.join(reloaded)}.")
         else:
-            Dispatcher.add(ctx, f"Unknown target '{target}'. Use 'monsters', 'items', or omit for both.")
+            Dispatcher.add(ctx, f"Unknown target '{target}'. Use 'monsters', 'passersby', 'objects', 'items', or omit for all.")
 
     # Additional maintenance after cog loads.
     @Cog.listener()
