@@ -146,12 +146,16 @@ class TestFinalizeCombatDrainsSilhouette:
         self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
     ):
         """Monster died, all looters alive → OUTCOME_WON — wagoneer
-        promotes from silhouette to present and dispatches the
-        WON-reaction line."""
+        promotes from silhouette to present and the WON-reaction
+        line lands in the announce string the caller will dispatch
+        as part of the round-output narration."""
         game = _make_finalize_game(mock_db, mock_gc_cls)
         npc = Wagoneer()
         game.pending_silhouette = npc
         game.looters = [_FakePlayer(1, dead=False)]
+        # Force loot present so announce is non-empty for the
+        # silhouette-prepend path.
+        game.loot = {1: ["fake_item"]}
 
         with patch(
             "caldanai.lib.rpg.creatures.passersby.spawn.get_state"
@@ -159,17 +163,24 @@ class TestFinalizeCombatDrainsSilhouette:
             mock_get_state.return_value = SimpleNamespace(
                 acquainted=False, warmth=Warmth.NEUTRAL,
             )
-            await game._finalize_combat(outcome="death")
+            announce = await game._finalize_combat(outcome="death")
 
         assert game.pending_silhouette is None
         assert game.passerby is npc
-        # Some line was dispatched — content varies by random pool
-        # pick, but the dispatch happened.
-        added_msgs = [
-            c.args[1] for c in mock_dispatch.add.call_args_list
-            if len(c.args) >= 2
-        ]
-        assert any(added_msgs), "expected drain_silhouette dispatch"
+        # Silhouette line landed in announce (NOT dispatched
+        # directly) so the caller can splice it after the round
+        # narration. Content varies by random pool pick — verify
+        # the prepend happened by asserting some non-empty
+        # silhouette-line content sits AHEAD of the loot prompt.
+        assert announce
+        assert "loot" in announce  # loot prompt still present
+        # Silhouette line should appear before "There might be"
+        # (the loot prompt's signature) — drop empty/blank lines
+        # for a robust order check.
+        loot_idx = announce.find("There might be")
+        assert loot_idx > 0, "silhouette line should prepend loot prompt"
+        prefix = announce[:loot_idx].strip()
+        assert prefix, "silhouette line should be non-empty"
 
     @pytest.mark.asyncio
     @patch("caldanai.lib.rpg.Dispatcher")
@@ -215,22 +226,20 @@ class TestFinalizeCombatDrainsSilhouette:
             _FakePlayer(2, dead=False, name="Caels"),
         ]
 
+        # Force loot so announce is non-empty.
+        game.loot = {1: ["fake_item"]}
         with patch(
             "caldanai.lib.rpg.creatures.passersby.spawn.get_state"
         ) as mock_get_state:
             mock_get_state.return_value = SimpleNamespace(
                 acquainted=False, warmth=Warmth.NEUTRAL,
             )
-            await game._finalize_combat(outcome="death")
+            announce = await game._finalize_combat(outcome="death")
 
         assert game.passerby is npc
-        # Verify the line came from PARTY_DEATH_REACTIONS — match
-        # against the wagoneer's signature death-pool fragment.
-        added_msgs = [
-            c.args[1] for c in mock_dispatch.add.call_args_list
-            if len(c.args) >= 2
-        ]
-        blob = "\n".join(str(m) for m in added_msgs)
+        # Verify the line came from PARTY_DEATH_REACTIONS — content
+        # rides in the announce string, not the direct dispatch.
+        blob = announce or ""
         # Match against a unique-fragment from each line in
         # Wagoneer.PARTY_DEATH_REACTIONS (one phrase per line so a
         # different random pick still satisfies the assertion).
@@ -466,6 +475,33 @@ class TestSocialPasserbyRouting:
         player = _FakePlayer(1)
 
         assert not cog._maybe_route_to_passerby_social(ctx, game, player, "wave")
+
+    def test_token_matching_prefix_resolves(self):
+        """Caels caught this: ``$greet herba`` against the herbalist
+        used to fail because the matcher checked ``candidate in
+        content`` (substring of message), not whether the user's
+        token was a prefix/substring of any candidate. Now lives in
+        ``PasserbyPlugin.matches_token`` + ``resolve_passerby``."""
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
+        npc = Herbalist()
+        game = SimpleNamespace(passerby=npc, pending_silhouette=None)
+
+        assert resolve_passerby(game, "herba") is npc
+        assert resolve_passerby(game, "herbalist") is npc
+        assert resolve_passerby(game, "herb") is npc
+        # Alias prefix.
+        assert resolve_passerby(game, "wise") is npc  # "wise woman"
+        # Typo tolerance via fuzzy_match's edit-distance pass
+        # (single-character drop = 1 edit).
+        assert resolve_passerby(game, "herbalst") is npc
+        # Unrelated tokens don't match.
+        assert resolve_passerby(game, "dragon") is None
+        assert resolve_passerby(game, "") is None
+        assert resolve_passerby(game, None) is None
+        # Direct PasserbyPlugin.matches_token contract.
+        assert npc.matches_token("herba")
+        assert not npc.matches_token("dragon")
 
     def _make_state(self, *, acquainted=False, warmth=Warmth.NEUTRAL, met_count=1):
         """Build a PasserbyState-shaped stub for mark_encounter /

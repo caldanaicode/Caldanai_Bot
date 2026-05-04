@@ -144,6 +144,40 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
     # the Dict-form Creature builds at __init__ time
     # transparently.
 
+    def matches_token(self, token: str) -> bool:
+        """Fuzzy, case-insensitive match for the player-typed token
+        against this NPC's identity. Mirrors
+        :meth:`Creature.matches_token`'s shape — used by the
+        ``resolve_passerby`` / ``resolve_pending_silhouette`` path
+        in :mod:`caldanai.lib.rpg.helpers.resolvers`.
+
+        Routes through the project's :func:`fuzzy_match` resolver
+        (exact → prefix → substring → typo passes) against three
+        key sources:
+
+        - ``self.name`` — the in-fiction display label (e.g. ``"Wren"``,
+          ``"wagoneer"``).
+        - The plugin's class name (e.g. ``"Wagoneer"``) — equivalent
+          to the filename stem the registry uses.
+        - Each entry in ``ALIASES`` (e.g. ``"wagon driver"``,
+          ``"old shepherd"``).
+
+        Empty token returns ``False``.
+        """
+        from caldanai.lib.rpg.helpers.fuzzy import fuzzy_match
+        if not token:
+            return False
+        keys_for = lambda npc: [
+            npc.name,
+            type(npc).__name__,
+            *(getattr(npc, "ALIASES", None) or []),
+        ]
+        result = fuzzy_match(
+            token, [self], keys=keys_for,
+            strategy="unordered", edit_distance=True,
+        )
+        return bool(result.tightest)
+
     def __init__(self) -> None:
         """Convert class-level pronoun string declarations into the
         instance-level Dict shape :func:`parser.parse` expects.

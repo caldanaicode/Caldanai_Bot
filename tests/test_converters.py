@@ -459,6 +459,75 @@ class TestRecipeConverter:
 
 
 # ---------------------------------------------------------------------------
+# PasserbyConverter / PendingSilhouetteConverter
+# ---------------------------------------------------------------------------
+
+
+class TestPasserbyConverter:
+    @pytest.mark.asyncio
+    async def test_no_passerby_raises(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        game = _make_game()
+        game.passerby = None
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument, match="No passerby"):
+                await PasserbyConverter().convert(MagicMock(), "wagoneer")
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_prefix_resolves(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        npc = Herbalist()
+        game = _make_game()
+        game.passerby = npc
+        with _patch_get_game(game):
+            result = await PasserbyConverter().convert(MagicMock(), "herba")
+            assert result is npc
+
+    @pytest.mark.asyncio
+    async def test_no_match_raises_with_npc_name(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        npc = Herbalist()
+        game = _make_game()
+        game.passerby = npc
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument) as excinfo:
+                await PasserbyConverter().convert(MagicMock(), "dragon")
+            assert "herbalist" in str(excinfo.value)
+
+
+class TestPendingSilhouetteConverter:
+    @pytest.mark.asyncio
+    async def test_no_silhouette_raises(self):
+        from caldanai.lib.rpg.helpers.converters import (
+            PendingSilhouetteConverter,
+        )
+        game = _make_game()
+        game.pending_silhouette = None
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument, match="No silhouette"):
+                await PendingSilhouetteConverter().convert(
+                    MagicMock(), "wagoneer",
+                )
+
+    @pytest.mark.asyncio
+    async def test_silhouette_fuzzy_resolves(self):
+        from caldanai.lib.rpg.helpers.converters import (
+            PendingSilhouetteConverter,
+        )
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        npc = Shepherd()
+        game = _make_game()
+        game.pending_silhouette = npc
+        with _patch_get_game(game):
+            result = await PendingSilhouetteConverter().convert(
+                MagicMock(), "shep",
+            )
+            assert result is npc
+
+
+# ---------------------------------------------------------------------------
 # FuzzyMemberConverter
 # ---------------------------------------------------------------------------
 

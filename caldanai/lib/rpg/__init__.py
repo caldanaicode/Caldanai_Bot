@@ -812,16 +812,39 @@ class Game:
         # we want them in scope to pick a witness from. Schedule
         # the depart timer for the freshly-promoted NPC so it
         # doesn't linger forever.
+        #
+        # The approach line APPENDS to ``announce`` (which the
+        # caller renders inside the round-output loot-hint slot)
+        # rather than dispatching directly. Direct dispatch would
+        # send the line immediately, landing it ABOVE the round-
+        # output narration the caller produces afterwards — the
+        # shepherd would extol the victory before the players even
+        # saw the killing blow narrate. Riding along with announce
+        # keeps the silhouette beat in proper chronological order:
+        # round → death → silhouette approach → loot prompt.
         if self.pending_silhouette is not None:
-            await self._drain_passerby_silhouette(outcome)
+            silhouette_line = await self._drain_passerby_silhouette(outcome)
+            if silhouette_line:
+                announce = (
+                    f"\n{silhouette_line}{announce}" if announce
+                    else f"\n{silhouette_line}"
+                )
 
         await self.end_combat()
         await self.set_spawn_timer()
         return announce
 
-    async def _drain_passerby_silhouette(self, combat_outcome: str) -> None:
-        """Promote a pending silhouette into present-state with the
-        outcome-aware approach line, then schedule the depart timer.
+    async def _drain_passerby_silhouette(self, combat_outcome: str) -> Optional[str]:
+        """Promote a pending silhouette into present-state and
+        return the outcome-aware approach line. Schedules the
+        depart timer as a side effect.
+
+        Returns the line for the caller to splice into its own
+        narration (typically appended to ``_finalize_combat``'s
+        ``announce`` so it lands chronologically AFTER the round-
+        output's death / flee narration). Returns ``None`` when
+        no silhouette was pending or the NPC's outcome pool is
+        empty.
 
         Outcome mapping (combat side → passerby side): a dead looter
         is the most-load-bearing signal regardless of monster outcome
@@ -853,14 +876,13 @@ class Game:
             witness = alive_looters[0] if alive_looters else None
 
         line = drain_silhouette(self, outcome, witness=witness)
-        if line:
-            Dispatcher.add(self.channel, line)
         if self.passerby is not None:
             self.game_clock.add_routine(
                 self.do_passerby_depart,
                 self.passerby_depart_after,
                 True,
             )
+        return line
 
     async def cancel_combat(self) -> str:
         """Monster escapes — thin wrapper over

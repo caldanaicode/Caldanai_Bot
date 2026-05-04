@@ -402,6 +402,13 @@ def _make_game(monster, combatants):
     game.combatants = list(combatants)
     game.combat_targets = {}
     game.channel = MagicMock()
+    # Explicit None — kill-grammar tests don't exercise the passerby
+    # flee path. Auto-mocked truthy attrs would now match the new
+    # ``resolve_passerby`` fuzzy matcher (a Mock answers anything),
+    # routing into ``_maybe_flee_passerby`` and crashing on real-DB
+    # access from ``flee_from_attack``.
+    game.passerby = None
+    game.pending_silhouette = None
     return game
 
 

@@ -76,16 +76,20 @@ class _FakeCollection:
         """Test-only helper to seed the collection with prior state."""
         self._docs.append(doc)
 
-    def upsert(self, key: dict, set_fields: dict):
+    def upsert(self, key: dict, set_fields: dict, addtoset_fields: dict = None):
         """Apply an upsert in the way the state module expects.
         Mimics the queue's eventual-write effect, including the
-        Mongo dotted-path semantics for nested writes."""
+        Mongo dotted-path semantics for nested writes and
+        ``$addToSet`` semantics for unique-append into list fields.
+        """
         existing = self.find_one(key)
         if existing is None:
             existing = {**key}
             self._docs.append(existing)
-        for path, value in set_fields.items():
+        for path, value in (set_fields or {}).items():
             self._apply_dotted_set(existing, path, value)
+        for path, value in (addtoset_fields or {}).items():
+            self._apply_dotted_addtoset(existing, path, value)
 
     @staticmethod
     def _apply_dotted_set(doc: dict, path: str, value) -> None:
@@ -97,6 +101,19 @@ class _FakeCollection:
         for part in parts[:-1]:
             target = target.setdefault(part, {})
         target[parts[-1]] = value
+
+    @staticmethod
+    def _apply_dotted_addtoset(doc: dict, path: str, value) -> None:
+        """Append ``value`` to the list at ``path`` if not already
+        present. Mirrors Mongo's ``$addToSet`` semantics. Creates
+        intermediate dicts and the target list as needed."""
+        parts = path.split(".")
+        target = doc
+        for part in parts[:-1]:
+            target = target.setdefault(part, {})
+        existing = target.setdefault(parts[-1], [])
+        if value not in existing:
+            existing.append(value)
 
 
 def _seed_player_slice(coll: _FakeCollection, channel_id, npc_stem, player_id, **slice_fields):
@@ -125,12 +142,14 @@ def queues_patch(coll):
     class _FakeQueue:
         def put(self, op):
             # ``op`` is a pymongo ``UpdateOne``. Extract the filter
-            # + $set fields and apply them to the fake collection.
+            # + $set / $addToSet fields and apply them to the fake
+            # collection.
             captured.append(op)
             filt = op._filter
             update = op._doc
             set_fields = update.get("$set", {})
-            coll.upsert(filt, set_fields)
+            addtoset_fields = update.get("$addToSet", {})
+            coll.upsert(filt, set_fields, addtoset_fields)
 
     fake_queues = {coll: _FakeQueue()}
 
@@ -357,46 +376,68 @@ class TestPersistence:
         assert doc is not None
         assert doc["players"]["999"]["met_count"] == 1
 
-    def test_warmth_persisted_on_first_encounter(self, coll, queues_patch):
-        """Bug-fix verification (2026-05-03 schema restructure):
-        warmth must land in the doc on the FIRST write, not only
-        when set_warmth/degrade/promote is called explicitly. The
-        previous schema persisted only met_count + acquainted +
-        last_seen on mark_encounter, leaving warmth as the in-
-        memory default that never reached disk."""
+    def test_mark_encounter_writes_only_its_own_fields(
+        self, coll, queues_patch,
+    ):
+        """Per-field write contract: ``mark_encounter`` only touches
+        ``met_count`` and ``last_seen`` (plus acquainted/via on
+        osmosis flip). It must NOT write ``warmth`` or other fields
+        — that's the whole point of the per-field refactor: leave
+        sibling fields intact so concurrent helpers don't clobber
+        each other.
+
+        Inspection-via-Compass concern (the original bug from the
+        2026-05-03 schema restructure) is addressed differently
+        now: ``from_slice_doc`` fills missing fields with sensible
+        defaults, so a partial slice still hydrates to a coherent
+        in-memory state. Lifecycle hooks (mark_visit_arrival /
+        mark_visit_depart / set_warmth) write the full slice and
+        keep on-disk slices uniform after any visit cycle."""
         mark_encounter(1, "wagoneer", 999, collection=coll)
         doc = coll.find_one({
             "channel_id": 1, "npc_stem": "wagoneer",
         })
         assert doc is not None
         slice_data = doc["players"]["999"]
-        assert "warmth" in slice_data
-        assert slice_data["warmth"] == str(Warmth.NEUTRAL)
+        assert slice_data["met_count"] == 1
+        assert "warmth" not in slice_data
+        assert "warmth_credits" not in slice_data
+        # Sibling field-write happens during osmosis flip
+        # specifically — first encounter (met_count=1) doesn't
+        # trigger it.
+        assert "acquainted" not in slice_data
 
-    def test_warmth_persisted_on_mark_acquainted(self, coll, queues_patch):
-        """Same bug-fix: mark_acquainted must persist warmth too."""
+    def test_mark_acquainted_writes_only_its_own_fields(
+        self, coll, queues_patch,
+    ):
         mark_acquainted(1, "wagoneer", 999, "greet", collection=coll)
         doc = coll.find_one({
             "channel_id": 1, "npc_stem": "wagoneer",
         })
         slice_data = doc["players"]["999"]
-        assert "warmth" in slice_data
-        assert slice_data["warmth"] == str(Warmth.NEUTRAL)
+        assert slice_data["acquainted"] is True
+        assert slice_data["acquainted_via"] == "greet"
+        # Did NOT touch met_count or warmth — those belong to other
+        # mutators and stay independent.
+        assert "met_count" not in slice_data
+        assert "warmth" not in slice_data
 
-    def test_full_slice_persisted_on_every_write(self, coll, queues_patch):
-        """Every persisted slice should contain ALL the fields the
-        dataclass declares — no partial-write surprises during
-        Mongo-Compass inspection."""
+    def test_partial_slice_hydrates_with_defaults(
+        self, coll, queues_patch,
+    ):
+        """A field-by-field-built slice can be missing fields the
+        dataclass declares; ``from_slice_doc`` MUST fill defaults
+        so the in-memory state is coherent even when the on-disk
+        doc is partial."""
         mark_encounter(1, "wagoneer", 999, collection=coll)
-        doc = coll.find_one({
-            "channel_id": 1, "npc_stem": "wagoneer",
-        })
-        slice_data = doc["players"]["999"]
-        for required in (
-            "warmth", "acquainted", "acquainted_via", "met_count",
-            "first_met", "last_seen",
-        ):
-            assert required in slice_data, f"missing {required}"
+        # Round-trip through get_state — should fill missing
+        # warmth_credits / warmth / etc. with defaults.
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.met_count == 1
+        assert state.warmth == Warmth.NEUTRAL
+        assert state.warmth_credits == 0
+        assert state.acquainted is False
+        assert state.acquainted_via is None
 
     def test_two_players_same_npc_share_one_doc(self, coll, queues_patch):
         """Three players acquainted with the shepherd should be
@@ -898,6 +939,75 @@ class TestLegacyMigration:
         )
         assert recovered.warmth_credits == -30
         assert recovered.warmth == Warmth.COOL  # derived, not stored
+
+
+class TestQueuedWriteIndependence:
+    """Regression for the bug Caels caught playtesting Wren-greeting:
+    consecutive helpers in the same code path used to each issue
+    full-slice writes that read stale collection state — the
+    ``$greet`` flow chained mark_encounter → mark_acquainted →
+    apply_greet_credits, and the third write overwrote the second's
+    ``acquainted_via="greet"`` because all three read the empty
+    pre-write state and replaced the whole slice on flush.
+
+    Per-field ``$set`` (with ``$addToSet`` for the verb-tracking
+    list) means each helper only writes the fields it actually
+    changed; sibling fields written by other helpers survive even
+    when the queue defers all three writes."""
+
+    def test_greet_flow_preserves_all_three_helpers_changes(
+        self, coll, queues_patch,
+    ):
+        """Replays the cog's $greet sequence and asserts every
+        helper's intended change is reflected on disk after all
+        three queue ops have applied."""
+        # 1. mark_encounter — bumps met_count.
+        mark_encounter(1, "wren", 999, collection=coll)
+        # 2. mark_acquainted — sets acquainted + via.
+        mark_acquainted(1, "wren", 999, "greet", collection=coll)
+        # 3. apply_greet_credits — bumps credits + records verb.
+        apply_greet_credits(1, "wren", 999, collection=coll)
+
+        state = get_state(1, "wren", 999, collection=coll)
+        # All three changes must be visible — no helper clobbered
+        # another's fields by writing the whole slice from a stale
+        # read.
+        assert state.met_count == 1, "mark_encounter's met_count was clobbered"
+        assert state.acquainted is True, "mark_acquainted's acquainted was clobbered"
+        assert state.acquainted_via == "greet", "mark_acquainted's via was clobbered"
+        assert state.warmth_credits == 5, "apply_greet_credits's credits were clobbered"
+        assert "greet" in state.visit_warm_verbs
+
+    def test_witness_kill_preserves_acquaintance(
+        self, coll, queues_patch,
+    ):
+        """A witnessed kill on a player who was just greeted
+        shouldn't lose the acquaintance — the witness write only
+        touches credit fields."""
+        mark_acquainted(1, "wren", 999, "greet", collection=coll)
+        witness_kill(
+            1, "wren", 999,
+            is_passive=False,
+            monster_stem="bandit",
+            collection=coll,
+        )
+        state = get_state(1, "wren", 999, collection=coll)
+        assert state.acquainted is True
+        assert state.acquainted_via == "greet"
+        assert state.warmth_credits == 10
+
+    def test_apply_verb_credits_preserves_acquaintance(
+        self, coll, queues_patch,
+    ):
+        mark_acquainted(1, "wren", 999, "greet", collection=coll)
+        apply_verb_credits(
+            1, "wren", 999, "hug", Warmth.WARM, collection=coll,
+        )
+        state = get_state(1, "wren", 999, collection=coll)
+        assert state.acquainted is True
+        assert state.acquainted_via == "greet"
+        assert state.warmth_credits == 5
+        assert "hug" in state.visit_warm_verbs
 
 
 class TestSetWarmthViaCredits:

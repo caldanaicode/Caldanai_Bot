@@ -48,10 +48,13 @@ from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
 from caldanai.lib.rpg.helpers.resolvers import (
     resolve_active_monster,
     resolve_monster_class,
     resolve_part,
+    resolve_passerby,
+    resolve_pending_silhouette,
     resolve_player,
     resolve_recipe,
 )
@@ -66,12 +69,16 @@ __all__ = [
     "MonsterClassConverter",
     "MonsterConverter",
     "PartConverter",
+    "PasserbyConverter",
+    "PendingSilhouetteConverter",
     "PlayerConverter",
     "RecipeConverter",
     "StaticObjectConverter",
     "resolve_active_monster",
     "resolve_monster_class",
     "resolve_part",
+    "resolve_passerby",
+    "resolve_pending_silhouette",
     "resolve_player",
     "resolve_recipe",
 ]
@@ -308,6 +315,65 @@ class FuzzyMemberConverter(Converter):
                 f"server roster.",
             )
         return member
+
+
+class PasserbyConverter(Converter):
+    """Resolves the present passerby NPC from a fuzzy name query.
+
+    Used by commands targeting the currently-Present passerby
+    (``$greet``, ``$wave``, ``$nod``, ``$kill <npc>``, etc.).
+    Matches NPC name + class stem + ``ALIASES`` via the
+    project-standard fuzzy_match (exact → prefix → substring →
+    typo) through :meth:`PasserbyPlugin.matches_token`.
+
+    Raises ``BadArgument`` when no passerby is present OR the
+    query doesn't fuzzy-match the present NPC. Most cog call
+    sites prefer to invoke :func:`resolve_passerby` directly so
+    they can compose with silhouette / monster / italic-fallback
+    chains without converting the no-match case to an exception
+    — use this Converter only when the command genuinely REQUIRES
+    a present-passerby target.
+    """
+
+    async def convert(
+        self, ctx: Context, argument: str,
+    ) -> PasserbyPlugin:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.passerby is None:
+            raise BadArgument("No passerby present in the clearing.")
+        npc = resolve_passerby(game, argument)
+        if npc is None:
+            raise BadArgument(
+                f"`{argument}` doesn't match the present "
+                f"{game.passerby.name}."
+            )
+        return npc
+
+
+class PendingSilhouetteConverter(Converter):
+    """Resolves the at-distance silhouette NPC from a fuzzy name
+    query — the slot used while combat is active.
+
+    Same shape as :class:`PasserbyConverter` but reads
+    ``game.pending_silhouette``. Used when a command needs to
+    address a silhouette specifically (e.g. the ``$greet``
+    silhouette-too-far branch). Raises ``BadArgument`` on no
+    silhouette OR no fuzzy-match.
+    """
+
+    async def convert(
+        self, ctx: Context, argument: str,
+    ) -> PasserbyPlugin:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.pending_silhouette is None:
+            raise BadArgument("No silhouette at the verge.")
+        npc = resolve_pending_silhouette(game, argument)
+        if npc is None:
+            raise BadArgument(
+                f"`{argument}` doesn't match the silhouette of "
+                f"{game.pending_silhouette.name}."
+            )
+        return npc
 
 
 class StaticObjectConverter(Converter):

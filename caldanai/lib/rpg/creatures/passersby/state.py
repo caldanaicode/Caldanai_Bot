@@ -405,15 +405,22 @@ def _upsert_player_slice(
     """Queue an atomic per-player slice write via the existing DB
     write-buffer pattern.
 
-    Writes the FULL slice (every field on the dataclass) every
-    time — guarantees that warmth, acquaintance, met_count, etc.
-    all stay in sync between memory and disk. Per-player atomicity
-    via dotted-path ``$set`` means concurrent writes for different
-    players (player A waving while player B greets) don't clobber
-    each other's slices.
+    Writes the FULL slice every time — used by lifecycle hooks
+    (:func:`mark_visit_arrival`, :func:`mark_visit_depart`,
+    :func:`set_warmth`, :func:`degrade_warmth`,
+    :func:`promote_warmth`) where many fields change at once and a
+    coherent snapshot is the natural shape.
 
-    The DB queue machinery handles retries / connection-failure
-    backoff transparently for us.
+    For per-call mutators that only touch a few fields
+    (:func:`mark_encounter`, :func:`mark_acquainted`,
+    :func:`apply_verb_credits`, :func:`apply_greet_credits`,
+    :func:`witness_kill`), prefer :func:`_upsert_player_fields` so
+    concurrent helpers in the same code path don't overwrite each
+    other's changes via stale-read-and-replace-whole-slice. The
+    bug that motivated the split: ``$greet`` queued three full-
+    slice writes back-to-back; the second and third read stale
+    state because the queue hadn't drained between them, then
+    their writes wiped out fields the first write had set.
     """
     state.last_seen = state.last_seen or datetime.now(timezone.utc)
     state._recompute_warmth()
@@ -421,6 +428,55 @@ def _upsert_player_slice(
         UpdateOne(
             _npc_key(channel_id, npc_stem),
             {"$set": {_player_slice_path(player_id): state.to_slice_doc()}},
+            upsert=True,
+        )
+    )
+
+
+def _upsert_player_fields(
+    coll,
+    channel_id: int,
+    npc_stem: str,
+    player_id: int,
+    set_fields: Optional[dict] = None,
+    addtoset_fields: Optional[dict] = None,
+) -> None:
+    """Queue a per-field upsert that only writes the listed fields,
+    leaving sibling fields on the slice intact.
+
+    Use this for mutators that change a small subset of fields —
+    e.g. ``mark_acquainted`` only touches ``acquainted`` /
+    ``acquainted_via`` / ``last_seen``. Compared to writing the
+    whole slice, this preserves any changes made by other helpers
+    whose writes are still queued — ``mark_encounter`` setting
+    ``met_count=1`` survives even if ``mark_acquainted`` reads a
+    stale slice and would otherwise have written ``met_count=0``
+    via :func:`_upsert_player_slice`.
+
+    ``set_fields`` keys are slice-relative names (e.g.
+    ``"acquainted"``); they're rewritten to the dotted Mongo path
+    ``"players.<pid>.acquainted"`` automatically.
+
+    ``addtoset_fields`` uses Mongo's ``$addToSet`` semantics for
+    list fields where idempotent-append is the right semantics
+    (e.g. recording that a verb was used this visit).
+    """
+    if not set_fields and not addtoset_fields:
+        return
+    pid = int(player_id)
+    update: dict = {}
+    if set_fields:
+        update["$set"] = {
+            f"players.{pid}.{k}": v for k, v in set_fields.items()
+        }
+    if addtoset_fields:
+        update["$addToSet"] = {
+            f"players.{pid}.{k}": v for k, v in addtoset_fields.items()
+        }
+    DB._queues[coll].put(
+        UpdateOne(
+            _npc_key(channel_id, npc_stem),
+            update,
             upsert=True,
         )
     )
@@ -446,6 +502,10 @@ def mark_encounter(
     state = get_state(channel_id, npc_stem, player_id, collection=coll)
     state.met_count += 1
     state.last_seen = datetime.now(timezone.utc)
+    set_fields = {
+        "met_count": state.met_count,
+        "last_seen": state.last_seen,
+    }
 
     # Osmosis check — passive acquaintance when the NPC and player
     # have crossed paths enough times with at-or-above-neutral
@@ -458,8 +518,10 @@ def mark_encounter(
     ):
         state.acquainted = True
         state.acquainted_via = "osmosis"
+        set_fields["acquainted"] = True
+        set_fields["acquainted_via"] = "osmosis"
 
-    _upsert_player_slice(coll, channel_id, npc_stem, player_id, state)
+    _upsert_player_fields(coll, channel_id, npc_stem, player_id, set_fields)
     return state
 
 
@@ -484,7 +546,14 @@ def mark_acquainted(
     state.acquainted = True
     state.acquainted_via = via
     state.last_seen = datetime.now(timezone.utc)
-    _upsert_player_slice(coll, channel_id, npc_stem, player_id, state)
+    _upsert_player_fields(
+        coll, channel_id, npc_stem, player_id,
+        {
+            "acquainted": True,
+            "acquainted_via": via,
+            "last_seen": state.last_seen,
+        },
+    )
     return state
 
 
@@ -616,13 +685,23 @@ def apply_verb_credits(
 
     is_warm = delta > 0
     bucket = state.visit_warm_verbs if is_warm else state.visit_cold_verbs
+    bucket_field = "visit_warm_verbs" if is_warm else "visit_cold_verbs"
     if verb in bucket:
         return state, 0
     bucket.append(verb)
 
     actual = _apply_credits_in_memory(state, delta)
     state.last_seen = datetime.now(timezone.utc)
-    _upsert_player_slice(coll, channel_id, npc_stem, player_id, state)
+    _upsert_player_fields(
+        coll, channel_id, npc_stem, player_id,
+        set_fields={
+            "warmth_credits": state.warmth_credits,
+            "warmth": str(state.warmth),
+            "visit_credits_delta": state.visit_credits_delta,
+            "last_seen": state.last_seen,
+        },
+        addtoset_fields={bucket_field: verb},
+    )
     return state, actual
 
 
@@ -645,7 +724,16 @@ def apply_greet_credits(
     state.visit_warm_verbs.append("greet")
     actual = _apply_credits_in_memory(state, GREET_CREDIT_DELTA)
     state.last_seen = datetime.now(timezone.utc)
-    _upsert_player_slice(coll, channel_id, npc_stem, player_id, state)
+    _upsert_player_fields(
+        coll, channel_id, npc_stem, player_id,
+        set_fields={
+            "warmth_credits": state.warmth_credits,
+            "warmth": str(state.warmth),
+            "visit_credits_delta": state.visit_credits_delta,
+            "last_seen": state.last_seen,
+        },
+        addtoset_fields={"visit_warm_verbs": "greet"},
+    )
     return state, actual
 
 
@@ -692,7 +780,16 @@ def witness_kill(
         actual = _apply_credits_in_memory(state, WITNESS_NON_PASSIVE_KILL_CREDIT)
 
     state.last_seen = datetime.now(timezone.utc)
-    _upsert_player_slice(coll, channel_id, npc_stem, player_id, state)
+    _upsert_player_fields(
+        coll, channel_id, npc_stem, player_id,
+        set_fields={
+            "warmth_credits": state.warmth_credits,
+            "warmth": str(state.warmth),
+            "visit_witnessed_kill_count": state.visit_witnessed_kill_count,
+            "visit_credits_delta": state.visit_credits_delta,
+            "last_seen": state.last_seen,
+        },
+    )
     return state, actual
 
 

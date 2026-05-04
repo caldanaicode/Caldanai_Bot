@@ -22,6 +22,7 @@ from caldanai.lib.rpg.crafting.recipe import RecipePlugin, list_recipes
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.helpers.fuzzy import fuzzy_match
 
@@ -34,6 +35,36 @@ def resolve_monster_class(query: str) -> List[Type[MonsterPlugin]]:
     Used at spawn time (``$spawn <name>``) where the result is a
     class to instantiate, not a live creature in the channel."""
     return MonsterPlugin.find_plugin_classes(query)
+
+
+def resolve_passerby(game, query: str) -> Optional[PasserbyPlugin]:
+    """Returns ``game.passerby`` if its identity fuzzy-matches
+    ``query``, else ``None``. Mirrors :func:`resolve_active_monster`'s
+    single-target shape — single-passerby slot today; multi-passerby
+    will extend this to scan the slot list when that lands.
+
+    Uses :meth:`PasserbyPlugin.matches_token` for the fuzzy logic
+    (project-standard fuzzy_match: exact → prefix → substring →
+    typo). Empty query or absent passerby returns ``None``.
+    """
+    npc = getattr(game, "passerby", None)
+    if npc is None or not query:
+        return None
+    if npc.matches_token(query):
+        return npc
+    return None
+
+
+def resolve_pending_silhouette(game, query: str) -> Optional[PasserbyPlugin]:
+    """Same shape as :func:`resolve_passerby`, but matches against
+    ``game.pending_silhouette`` (the at-distance NPC slot used while
+    combat is active). Returns the silhouetted NPC or ``None``."""
+    npc = getattr(game, "pending_silhouette", None)
+    if npc is None or not query:
+        return None
+    if npc.matches_token(query):
+        return npc
+    return None
 
 
 def resolve_active_monster(

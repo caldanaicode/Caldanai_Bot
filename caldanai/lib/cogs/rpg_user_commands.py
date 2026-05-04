@@ -276,6 +276,8 @@ class RpgUserCommands(Cog):
         could accidentally pre-empt their combat target AND burn an
         NPC warmth tier — too costly a mis-fire to do silently.
         """
+        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
+
         npc = getattr(game, "passerby", None)
         if npc is None:
             return False
@@ -283,12 +285,8 @@ class RpgUserCommands(Cog):
             return False
 
         tokens = target.split()
-        leading = tokens[0].lower()
-        npc_stem = type(npc).__name__.lower()
-        candidates = {npc.name.lower(), npc_stem}
-        for alias in (getattr(npc, "ALIASES", None) or []):
-            candidates.add(alias.lower())
-        if leading not in candidates:
+        leading = tokens[0]
+        if resolve_passerby(game, leading) is None:
             return False
 
         # Confirm gate: combat-active + NPC-target without explicit

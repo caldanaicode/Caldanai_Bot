@@ -2249,6 +2249,27 @@ class RpgSocialCommands(Cog):
             )
         return True
 
+    @staticmethod
+    def _extract_target_token(ctx: Context) -> str:
+        """Pull the player-typed target token out of the message
+        content, stripping the command prefix and command name.
+        Returns the leading word of what remains — for
+        ``$greet herba``, returns ``"herba"``; for ``$nod wagoneer
+        the long way``, returns ``"wagoneer"``. Returns empty
+        string when no target text follows the command.
+
+        Used by the passerby-routing helpers when a target hasn't
+        been parsed by Discord.py's converter chain (e.g.
+        :meth:`_dispatch_two_actor_social` doesn't take a target
+        kwarg; mention-less invocation falls through to the
+        passerby text-path).
+        """
+        content = (ctx.message.content or "").strip()
+        parts = content.split(None, 2)
+        if len(parts) < 2:
+            return ""
+        return parts[1].strip()
+
     def _maybe_route_to_passerby_social(
         self,
         ctx: Context,
@@ -2281,6 +2302,8 @@ class RpgSocialCommands(Cog):
             get_state, mark_acquainted, mark_encounter,
         )
 
+        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
+
         npc = game.passerby
         if npc is None:
             return False
@@ -2288,13 +2311,10 @@ class RpgSocialCommands(Cog):
         if not reactions:
             return False
 
-        content = (ctx.message.content or "").lower()
-        npc_stem = type(npc).__name__.lower()
-        candidates = {npc.name.lower(), npc_stem}
-        for alias in (getattr(npc, "ALIASES", None) or []):
-            candidates.add(alias.lower())
-        if not any(c and c in content for c in candidates):
+        token = self._extract_target_token(ctx)
+        if resolve_passerby(game, token) is None:
             return False
+        npc_stem = type(npc).__name__.lower()
 
         # Capture pre-encounter acquaintance so we can detect
         # first-time-learn moments (osmosis flip during this call,
@@ -2380,15 +2400,13 @@ class RpgSocialCommands(Cog):
         nobody" italic, which reads as broken when the silhouette is
         plainly visible in the clearing.
         """
+        from caldanai.lib.rpg.helpers.resolvers import resolve_pending_silhouette
+
         npc = getattr(game, "pending_silhouette", None)
         if npc is None or not target:
             return False
-        leading = target.split(None, 1)[0].lower()
-        npc_stem = type(npc).__name__.lower()
-        candidates = {npc.name.lower(), npc_stem}
-        for alias in (getattr(npc, "ALIASES", None) or []):
-            candidates.add(alias.lower())
-        if leading not in candidates:
+        leading = target.split(None, 1)[0]
+        if resolve_pending_silhouette(game, leading) is None:
             return False
         Dispatcher.add(
             game.channel,
