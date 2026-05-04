@@ -562,7 +562,7 @@ from caldanai.lib.rpg.creatures.passersby.state import (
     GREET_CREDIT_DELTA,
     WITNESS_NON_PASSIVE_KILL_CREDIT,
     WITNESS_PASSIVE_KILL_DEFAULT_CREDIT,
-    DECAY_PER_NO_INTERACTION_DEPART,
+    DECAY_STEP_TOWARD_NEUTRAL,
     TIER_DROP_SENTINEL,
 )
 
@@ -845,7 +845,12 @@ class TestVisitLifecycleHooks:
         count = mark_visit_arrival(1, "wagoneer", collection=coll)
         assert count == 0
 
-    def test_depart_with_no_interaction_decays(self, coll, queues_patch):
+    def test_depart_with_no_interaction_decays_positive_toward_zero(
+        self, coll, queues_patch,
+    ):
+        """Positive credits step DOWN by 1 toward 0 on a missed
+        visit — relationship cools toward neutral when not
+        maintained."""
         _seed_player_slice(
             coll, 1, "wagoneer", 999,
             warmth_credits=15,
@@ -857,7 +862,66 @@ class TestVisitLifecycleHooks:
         decayed = mark_visit_depart(1, "wagoneer", collection=coll)
         assert decayed == 1
         state = get_state(1, "wagoneer", 999, collection=coll)
-        assert state.warmth_credits == 15 + DECAY_PER_NO_INTERACTION_DEPART
+        assert state.warmth_credits == 14  # 15 - 1 toward 0
+
+    def test_depart_with_no_interaction_decays_negative_toward_zero(
+        self, coll, queues_patch,
+    ):
+        """Negative credits step UP by 1 toward 0 on a missed
+        visit — hostile relationships also soften with absence
+        (you're not actively building grudges with someone who
+        isn't there)."""
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=-15,
+            visit_warm_verbs=[],
+        )
+        decayed = mark_visit_depart(1, "wagoneer", collection=coll)
+        assert decayed == 1
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == -14  # -15 + 1 toward 0
+
+    def test_depart_at_zero_credits_no_op(self, coll, queues_patch):
+        """Credits already at the NEUTRAL center don't move on a
+        missed visit — there's nowhere to step toward 0 from 0."""
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=0,
+            visit_warm_verbs=[],
+        )
+        decayed = mark_visit_depart(1, "wagoneer", collection=coll)
+        assert decayed == 0
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 0
+
+    def test_depart_decay_does_not_cross_zero_from_positive(
+        self, coll, queues_patch,
+    ):
+        """A player at +1 credits decays to 0 (not -1). Decay is
+        floored at the NEUTRAL center — absence pulls toward
+        neutral, never past it."""
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=1,
+            visit_warm_verbs=[],
+        )
+        mark_visit_depart(1, "wagoneer", collection=coll)
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 0  # capped at NEUTRAL center
+
+    def test_depart_decay_does_not_cross_zero_from_negative(
+        self, coll, queues_patch,
+    ):
+        """A player at -1 credits decays to 0 (not +1). Same cap
+        on the cold side — decay never overshoots the center."""
+        _seed_player_slice(
+            coll, 1, "wagoneer", 999,
+            warmth_credits=-1,
+            visit_warm_verbs=[],
+        )
+        mark_visit_depart(1, "wagoneer", collection=coll)
+        state = get_state(1, "wagoneer", 999, collection=coll)
+        assert state.warmth_credits == 0  # capped at NEUTRAL center
 
     def test_depart_with_interaction_no_decay(self, coll, queues_patch):
         _seed_player_slice(
@@ -869,18 +933,6 @@ class TestVisitLifecycleHooks:
         assert decayed == 0
         state = get_state(1, "wagoneer", 999, collection=coll)
         assert state.warmth_credits == 15  # no decay
-
-    def test_depart_floors_at_cold(self, coll, queues_patch):
-        _seed_player_slice(
-            coll, 1, "wagoneer", 999,
-            warmth_credits=-100,  # already at floor
-            visit_warm_verbs=[],
-        )
-        decayed = mark_visit_depart(1, "wagoneer", collection=coll)
-        # No movement possible — credits already at floor.
-        assert decayed == 0
-        state = get_state(1, "wagoneer", 999, collection=coll)
-        assert state.warmth_credits == -100
 
     def test_depart_apply_decay_false_skips_decay(self, coll, queues_patch):
         # Used by flee_from_attack — bystanders shouldn't get

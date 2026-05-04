@@ -161,11 +161,16 @@ WITNESS_NON_PASSIVE_KILL_CREDIT: int = +10
 WITNESS_PASSIVE_KILL_DEFAULT_CREDIT: int = -10
 TIER_DROP_SENTINEL: str = "tier_drop"
 
-# Decay applied per NPC visit where the player had a slice (was
-# known to this NPC) but didn't interact at all this visit. Tiny
-# per-visit amount lets relationships slowly cool over absence
-# without punishing one missed visit.
-DECAY_PER_NO_INTERACTION_DEPART: int = -1
+# Decay step magnitude applied per NPC visit where the player had
+# a slice (was known to this NPC) but didn't interact at all this
+# visit. Pulls credits TOWARD 0 — positive credits drop by 1,
+# negative credits rise by 1, credits already at 0 don't move.
+# Time-as-leveler, not time-as-cooler: hostile relationships also
+# soften with absence (you're not actively building grudges with
+# someone who isn't there), and warm relationships cool toward
+# neutral when not maintained. Floors at 0 in either direction —
+# decay never pushes a player across the NEUTRAL center.
+DECAY_STEP_TOWARD_NEUTRAL: int = 1
 
 
 def warmth_from_credits(credits: int) -> Warmth:
@@ -909,9 +914,11 @@ def mark_visit_depart(
 
     Players who DID interact (any verb, any witnessed kill) reset
     the visit-tracking fields without applying decay. Players who
-    didn't interact get -1 credit applied (per
-    :data:`DECAY_PER_NO_INTERACTION_DEPART`), capped at the COLD
-    floor so a long absence can't drop someone below COLD.
+    didn't interact get a 1-credit step TOWARD 0 (per
+    :data:`DECAY_STEP_TOWARD_NEUTRAL`) — positive credits drop by
+    1, negative credits rise by 1, credits at 0 don't move. Decay
+    never crosses the NEUTRAL center; a long absence pulls a
+    relationship to neutral and stops there.
 
     ``apply_decay=False`` (used by :func:`flee_from_attack`) skips
     the no-interaction decay — the visit was cut short by another
@@ -944,10 +951,21 @@ def mark_visit_depart(
             player_id=player_id,
         )
         if apply_decay and not state.had_interaction_this_visit():
-            new_credits = max(
-                WARMTH_CREDITS_FLOOR,
-                state.warmth_credits + DECAY_PER_NO_INTERACTION_DEPART,
-            )
+            # Step toward 0 — positive credits decrement, negative
+            # credits increment. Floors at 0 in either direction so
+            # decay never pushes a player across the NEUTRAL center.
+            if state.warmth_credits > 0:
+                new_credits = max(
+                    0,
+                    state.warmth_credits - DECAY_STEP_TOWARD_NEUTRAL,
+                )
+            elif state.warmth_credits < 0:
+                new_credits = min(
+                    0,
+                    state.warmth_credits + DECAY_STEP_TOWARD_NEUTRAL,
+                )
+            else:
+                new_credits = 0  # already at center; no-op
             if new_credits != state.warmth_credits:
                 state.warmth_credits = new_credits
                 state._recompute_warmth()
