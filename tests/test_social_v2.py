@@ -553,7 +553,7 @@ class TestInteractiveCommandDispatch:
             patch(
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
-            patch("caldanai.lib.cogs.rpg_social_commands.Dispatcher"),
+            patch("caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher"),
             patch("caldanai.lib.rpg.helpers.utils.Dispatcher") as util_disp,
         ):
             handler = getattr(cog, cmd)
@@ -602,7 +602,7 @@ class TestInteractiveCommandDispatch:
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
             patch(
-                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
             ) as dispatcher,
         ):
             handler = getattr(cog, cmd)
@@ -654,7 +654,7 @@ class TestInteractiveCommandDispatch:
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
                 return_value="rendered",
             ) as render_mock,
-            patch("caldanai.lib.cogs.rpg_social_commands.Dispatcher"),
+            patch("caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher"),
         ):
             handler = getattr(cog, cmd)
             await handler.callback(cog, ctx)
@@ -687,7 +687,7 @@ class TestInteractiveCommandDispatch:
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
             patch(
-                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
             ) as dispatcher,
         ):
             handler = getattr(cog, cmd)
@@ -708,11 +708,22 @@ class TestInteractiveCommandDispatch:
     async def test_bot_mention_emits_scripted_reply(self, cmd):
         """Mentioning the bot short-circuits to a scripted reply; the
         resolver must not fire (warmth against the bot is never
-        consulted)."""
+        consulted).
+
+        Real Discord delivers @-mentions as fresh ``Member`` objects
+        — same id as ``ctx.bot.user`` (a cached ``User``) but a
+        different Python object. The mention-detection in the
+        dispatcher uses ``.id`` comparison rather than ``is`` for
+        exactly this reason; this test mirrors the real shape so
+        we'd catch a regression to ``is``-comparison.
+        """
         cog = RpgSocialCommands(bot=MagicMock())
+        cog.bot.user.id = 99999
         actor = _make_player("Alice", uid=1)
-        # Mention the bot itself.
-        ctx = _make_ctx(actor, mentions=[cog.bot.user])
+        bot_mention = MagicMock()
+        bot_mention.id = 99999  # same user id, distinct Python object
+        ctx = _make_ctx(actor, mentions=[bot_mention])
+        ctx.bot = cog.bot
         ctx.invoked_with = cmd
         game = MagicMock()
         game.channel = MagicMock()
@@ -725,15 +736,31 @@ class TestInteractiveCommandDispatch:
             patch(
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
+            # Bot-mention scripted reply now lands via the unified
+            # verb dispatcher's BotResponder path. $hug's HAL-gif
+            # file branch dispatches inline through bot_responder's
+            # local Dispatcher import. Patch all three so the
+            # captured output covers every code path that might
+            # fire for any verb.
+            patch(
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
+            ) as dispatcher,
             patch(
                 "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
-            ) as dispatcher,
+            ) as cog_dispatcher,
+            patch(
+                "caldanai.lib.rpg.creatures.bot_responder.Dispatcher",
+            ) as bot_dispatcher,
         ):
             handler = getattr(cog, cmd)
             await handler.callback(cog, ctx)
 
         render_mock.assert_not_called()
-        pairs = _dispatched(dispatcher)
+        pairs = (
+            _dispatched(dispatcher)
+            + _dispatched(cog_dispatcher)
+            + _dispatched(bot_dispatcher)
+        )
         assert pairs, f"{cmd} bot-mention path produced no output"
 
 
@@ -753,14 +780,24 @@ class TestSelfDirectedCommandDispatch:
                 _rpg_util(), "get_game_and_player",
                 new=AsyncMock(return_value=(game, actor)),
             ),
+            # Patch BOTH dispatch paths — $wave migrated to the
+            # unified verb dispatcher (helpers/verb_dispatch),
+            # while $pose / $cheer / $cry / $bow still go through
+            # the cog's local _dispatch_self_directed (cogs/
+            # rpg_social_commands). The patches don't interfere
+            # with each other; whichever path actually fires for
+            # this command lands its dispatch in the matching mock.
+            patch(
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
+            ) as dispatcher,
             patch(
                 "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
-            ) as dispatcher,
+            ) as cog_dispatcher,
         ):
             handler = getattr(cog, cmd)
             await handler.callback(cog, ctx)
 
-        pairs = _dispatched(dispatcher)
+        pairs = _dispatched(dispatcher) + _dispatched(cog_dispatcher)
         assert pairs, f"{cmd} produced no output"
         emitted = [t for _, t in pairs if t]
         # The emitted line must come from this command's pool
@@ -790,7 +827,7 @@ class TestSelfDirectedCommandDispatch:
                 _rpg_util(), "get_game_and_player",
                 new=AsyncMock(return_value=(game, actor)),
             ),
-            patch("caldanai.lib.cogs.rpg_social_commands.Dispatcher"),
+            patch("caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher"),
             patch("caldanai.lib.rpg.helpers.utils.Dispatcher") as util_disp,
         ):
             handler = getattr(cog, cmd)
@@ -830,16 +867,21 @@ class TestSelfDirectedCommandDispatch:
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
             patch(
-                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
             ) as dispatcher,
+            patch(
+                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+            ) as cog_dispatcher,
         ):
             handler = getattr(cog, cmd)
             await handler.callback(cog, ctx)
 
         # render_social is for two-actor commands; must not fire here.
         render_mock.assert_not_called()
-        # Output still came through.
-        pairs = _dispatched(dispatcher)
+        # Output still came through (either via the unified
+        # dispatcher for migrated $wave OR via the cog's
+        # _dispatch_self_directed for $pose / $cheer / $cry / $bow).
+        pairs = _dispatched(dispatcher) + _dispatched(cog_dispatcher)
         assert pairs
         # And is a self-directed line, not a two-actor line.
         emitted = [t for _, t in pairs if t]

@@ -449,32 +449,28 @@ class TestSocialPasserbyRouting:
         return ctx
 
     def test_returns_false_when_no_passerby(self):
-        cog = self._make_cog()
-        game = SimpleNamespace(
-            channel_id=222, channel=MagicMock(),
-            passerby=None, pending_silhouette=None,
-        )
-        ctx = self._make_ctx("$wave wagoneer")
-        player = _FakePlayer(1)
-
-        assert not cog._maybe_route_to_passerby_social(ctx, game, player, "wave")
+        """No passerby in the slot → resolver yields nothing.
+        Verified directly through ``resolve_passerby`` rather than
+        the deleted cog helper."""
+        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
+        game = SimpleNamespace(passerby=None, pending_silhouette=None)
+        assert resolve_passerby(game, "wagoneer") is None
 
     def test_returns_false_when_npc_lacks_verb(self):
-        cog = self._make_cog()
-        game = self._make_game_with_passerby()
-        ctx = self._make_ctx("$shank wagoneer")
-        player = _FakePlayer(1)
-
+        """``handle_verb`` returns ``None`` when the verb isn't in
+        the NPC's SOCIAL_REACTIONS — cog falls through to the next
+        responder."""
+        npc = Wagoneer()
+        game = self._make_game_with_passerby(npc)
         # Wagoneer's SOCIAL_REACTIONS is wave/nod/greet only.
-        assert not cog._maybe_route_to_passerby_social(ctx, game, player, "shank")
+        assert npc.handle_verb("shank", game, _FakePlayer(1), invocation="shank") is None
 
     def test_returns_false_when_text_doesnt_match(self):
-        cog = self._make_cog()
+        """``resolve_passerby`` rejects a token that doesn't fuzzy-
+        match the NPC name / aliases."""
+        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
         game = self._make_game_with_passerby()
-        ctx = self._make_ctx("$wave herbalist")
-        player = _FakePlayer(1)
-
-        assert not cog._maybe_route_to_passerby_social(ctx, game, player, "wave")
+        assert resolve_passerby(game, "herbalist") is None
 
     def test_token_matching_prefix_resolves(self):
         """Caels caught this: ``$greet herba`` against the herbalist
@@ -507,17 +503,25 @@ class TestSocialPasserbyRouting:
         """Build a PasserbyState-shaped stub for mark_encounter /
         get_state mocks. mark_encounter mutates met_count and may
         flip acquainted via osmosis, so the stub needs the full
-        field set the cog reads."""
-        from caldanai.lib.rpg.creatures.passersby.state import PasserbyState
+        field set the cog reads.
+
+        warmth is derived from warmth_credits in the post-credits
+        schema; pass the desired tier here and we'll pick a
+        representative midpoint credit value to land in that band."""
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            PasserbyState, _credits_from_warmth_tier,
+        )
         return PasserbyState(
             channel_id=222, npc_stem="wagoneer", player_id=1,
-            warmth=warmth, acquainted=acquainted, met_count=met_count,
+            warmth_credits=_credits_from_warmth_tier(warmth),
+            acquainted=acquainted, met_count=met_count,
         )
 
     def test_routes_with_name_match(self):
-        cog = self._make_cog()
-        game = self._make_game_with_passerby()
-        ctx = self._make_ctx("$wave wagoneer")
+        """``handle_verb("wave", ...)`` returns a rendered line when
+        the verb is in SOCIAL_REACTIONS for the NPC's current warmth."""
+        npc = Wagoneer()
+        game = self._make_game_with_passerby(npc)
         player = _FakePlayer(1)
 
         with patch(
@@ -525,38 +529,41 @@ class TestSocialPasserbyRouting:
         ) as mock_get_state, patch(
             "caldanai.lib.rpg.creatures.passersby.state.mark_encounter"
         ) as mock_mark_enc, patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
-        ) as mock_dispatch:
-            mock_get_state.return_value = self._make_state()
-            mock_mark_enc.return_value = self._make_state(met_count=1)
-            assert cog._maybe_route_to_passerby_social(
-                ctx, game, player, "wave",
-            )
-            mock_dispatch.add.assert_called_once()
-
-    def test_routes_with_alias_match(self):
-        cog = self._make_cog()
-        game = self._make_game_with_passerby()
-        ctx = self._make_ctx("$wave carter")  # carter is a wagoneer alias
-        player = _FakePlayer(1)
-
-        with patch(
-            "caldanai.lib.rpg.creatures.passersby.state.get_state"
-        ) as mock_get_state, patch(
-            "caldanai.lib.rpg.creatures.passersby.state.mark_encounter"
-        ) as mock_mark_enc, patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
+            "caldanai.lib.rpg.creatures.passersby.state.apply_verb_credits"
         ):
             mock_get_state.return_value = self._make_state()
             mock_mark_enc.return_value = self._make_state(met_count=1)
-            assert cog._maybe_route_to_passerby_social(
-                ctx, game, player, "wave",
-            )
+            line = npc.handle_verb("wave", game, player, invocation="wave")
+            assert line  # non-empty rendered string
+
+    def test_routes_with_alias_match(self):
+        """Alias resolution ("carter" → wagoneer) is the resolver's
+        job — verified separately. ``handle_verb`` itself doesn't
+        care about the token; this asserts the alias lookup pre-step
+        finds the NPC, then a wave through it renders."""
+        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
+        npc = Wagoneer()
+        game = self._make_game_with_passerby(npc)
+        # carter is a wagoneer alias.
+        assert resolve_passerby(game, "carter") is npc
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.state.get_state"
+        ) as mock_get_state, patch(
+            "caldanai.lib.rpg.creatures.passersby.state.mark_encounter"
+        ) as mock_mark_enc, patch(
+            "caldanai.lib.rpg.creatures.passersby.state.apply_verb_credits"
+        ):
+            mock_get_state.return_value = self._make_state()
+            mock_mark_enc.return_value = self._make_state(met_count=1)
+            line = npc.handle_verb("wave", game, _FakePlayer(1), invocation="wave")
+            assert line
 
     def test_greet_marks_acquainted(self):
-        cog = self._make_cog()
-        game = self._make_game_with_passerby()
-        ctx = self._make_ctx("$greet wagoneer")
+        """``handle_verb("greet", ...)`` flips acquainted=True via
+        the 'greet' tag (the explicit-introduction path)."""
+        npc = Wagoneer()
+        game = self._make_game_with_passerby(npc)
         player = _FakePlayer(1)
 
         with patch(
@@ -566,14 +573,13 @@ class TestSocialPasserbyRouting:
         ) as mock_mark_enc, patch(
             "caldanai.lib.rpg.creatures.passersby.state.mark_acquainted"
         ) as mock_mark, patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
+            "caldanai.lib.rpg.creatures.passersby.state.apply_greet_credits"
         ):
             mock_get_state.return_value = self._make_state()
             mock_mark_enc.return_value = self._make_state(met_count=1)
 
-            assert cog._maybe_route_to_passerby_social(
-                ctx, game, player, "greet",
-            )
+            line = npc.handle_verb("greet", game, player, invocation="greet")
+            assert line  # rendered something
             mock_mark.assert_called_once()
             args = mock_mark.call_args
             assert args.args[0] == 222  # channel_id
@@ -582,12 +588,11 @@ class TestSocialPasserbyRouting:
             assert args.args[3] == "greet"  # via tag
 
     def test_wave_does_not_mark_acquainted(self):
-        """Only greet is the explicit acquaintance trigger.
-        Wave / nod don't flip the bit themselves — the on_message
-        overhear path / time osmosis do."""
-        cog = self._make_cog()
-        game = self._make_game_with_passerby()
-        ctx = self._make_ctx("$wave wagoneer")
+        """Only greet is the explicit acquaintance trigger. Wave /
+        nod don't flip the bit themselves — the on_message overhear
+        path / time osmosis do."""
+        npc = Wagoneer()
+        game = self._make_game_with_passerby(npc)
         player = _FakePlayer(1)
 
         with patch(
@@ -597,28 +602,37 @@ class TestSocialPasserbyRouting:
         ) as mock_mark_enc, patch(
             "caldanai.lib.rpg.creatures.passersby.state.mark_acquainted"
         ) as mock_mark, patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
+            "caldanai.lib.rpg.creatures.passersby.state.apply_verb_credits"
         ):
             mock_get_state.return_value = self._make_state()
             mock_mark_enc.return_value = self._make_state(met_count=1)
-            cog._maybe_route_to_passerby_social(ctx, game, player, "wave")
+            npc.handle_verb("wave", game, player, invocation="wave")
             mock_mark.assert_not_called()
 
-    def test_silhouette_npc_not_addressable(self):
+    def test_silhouette_not_addressable_by_default(self):
         """Pending-silhouette NPCs aren't reachable by social verbs
-        — they're at distance, watching."""
-        cog = self._make_cog()
+        through the default resolution chain — they're at distance,
+        watching. The unified verb dispatcher's ``include_silhouette``
+        flag defaults to False; the social cog wrapper does not opt
+        in. Verified via ``walk_token_chain`` directly so the test
+        doesn't depend on cog-side wiring."""
+        from caldanai.lib.rpg.helpers.verbs import walk_token_chain
         game = SimpleNamespace(
             channel_id=222, channel=MagicMock(),
             passerby=None,
             pending_silhouette=Wagoneer(),
+            monster=None, room0=None,
+            player_manager=SimpleNamespace(players={}),
         )
-        ctx = self._make_ctx("$wave wagoneer")
-        player = _FakePlayer(1)
-
-        assert not cog._maybe_route_to_passerby_social(
-            ctx, game, player, "wave",
-        )
+        # Default chain (no silhouette inclusion) returns nothing
+        # for the wagoneer token.
+        candidates = list(walk_token_chain(game, "wagoneer"))
+        assert candidates == []
+        # Opt-in path finds the silhouette.
+        candidates = list(walk_token_chain(
+            game, "wagoneer", include_silhouette=True,
+        ))
+        assert candidates == [game.pending_silhouette]
 
 
 # ---------------------------------------------------------------------------
@@ -804,47 +818,44 @@ class TestKillConfirmGate:
 
 
 class TestGreetSilhouetteFallback:
-    def _make_cog(self):
-        from caldanai.lib.cogs.rpg_social_commands import RpgSocialCommands
-        return RpgSocialCommands(bot=MagicMock())
+    """``$greet <silhouette>`` renders an explicit "too far off"
+    line rather than falling through to the standard miss. The
+    check now lives inline at the top of the ``$greet`` command
+    body — these tests verify the underlying resolver, and the
+    rendered template, that the inline branch depends on."""
 
-    def test_returns_false_when_no_silhouette(self):
-        cog = self._make_cog()
-        game = SimpleNamespace(
-            channel=MagicMock(), pending_silhouette=None,
+    def test_returns_none_when_no_silhouette(self):
+        from caldanai.lib.rpg.helpers.resolvers import (
+            resolve_pending_silhouette,
         )
-        ctx = MagicMock()
-        assert not cog._maybe_route_to_silhouette_too_far(
-            ctx, game, "wagoneer",
-        )
+        game = SimpleNamespace(pending_silhouette=None)
+        assert resolve_pending_silhouette(game, "wagoneer") is None
 
-    def test_returns_false_when_target_doesnt_match(self):
-        cog = self._make_cog()
-        game = SimpleNamespace(
-            channel=MagicMock(), pending_silhouette=Wagoneer(),
+    def test_returns_none_when_target_doesnt_match(self):
+        from caldanai.lib.rpg.helpers.resolvers import (
+            resolve_pending_silhouette,
         )
-        ctx = MagicMock()
-        assert not cog._maybe_route_to_silhouette_too_far(
-            ctx, game, "herbalist",
-        )
+        game = SimpleNamespace(pending_silhouette=Wagoneer())
+        assert resolve_pending_silhouette(game, "herbalist") is None
 
-    def test_dispatches_too_far_line_when_match(self):
-        cog = self._make_cog()
-        game = SimpleNamespace(
-            channel=MagicMock(), pending_silhouette=Wagoneer(),
+    def test_resolver_returns_silhouette_when_match(self):
+        from caldanai.lib.rpg.helpers.resolvers import (
+            resolve_pending_silhouette,
         )
-        ctx = MagicMock()
-        with patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
-        ) as mock_dispatch:
-            assert cog._maybe_route_to_silhouette_too_far(
-                ctx, game, "wagoneer",
-            )
-            mock_dispatch.add.assert_called_once()
-            blob = " ".join(
-                str(a) for a in mock_dispatch.add.call_args.args
-            )
-            assert "too far" in blob.lower() or "approaches" in blob.lower()
+        npc = Wagoneer()
+        game = SimpleNamespace(pending_silhouette=npc)
+        assert resolve_pending_silhouette(game, "wagoneer") is npc
+        # The literal template the cog renders when the resolver
+        # lands. Smoke-check the rendered output so a future template
+        # rewrite doesn't silently lose the "too far / approaches"
+        # signal players read on.
+        from caldanai.lib.rpg.helpers.parser import parse
+        line = parse(
+            "@1Dc is too far off across the clearing to hear; "
+            "wait until @1s approaches.",
+            npc,
+        )
+        assert "too far" in line.lower() or "approaches" in line.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -855,17 +866,19 @@ class TestGreetSilhouetteFallback:
 class TestAcquaintanceCue:
     """The first time an NPC learns a player's name (greet OR
     osmosis OR overhear), an italicized ACQUAINTANCE_CUE_POOL line
-    fires so the player gets a visible state-change beat."""
-
-    def _make_cog(self):
-        from caldanai.lib.cogs.rpg_social_commands import RpgSocialCommands
-        return RpgSocialCommands(bot=MagicMock())
+    fires so the player gets a visible state-change beat. After
+    the verb-unification refactor, ``handle_verb`` concatenates
+    the cue line below the main reaction line (newline-separated)
+    so the cog dispatcher renders both as a single message."""
 
     def _make_state(self, *, acquainted=False, warmth=Warmth.NEUTRAL, met_count=1):
-        from caldanai.lib.rpg.creatures.passersby.state import PasserbyState
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            PasserbyState, _credits_from_warmth_tier,
+        )
         return PasserbyState(
             channel_id=222, npc_stem="wagoneer", player_id=1,
-            warmth=warmth, acquainted=acquainted, met_count=met_count,
+            warmth_credits=_credits_from_warmth_tier(warmth),
+            acquainted=acquainted, met_count=met_count,
         )
 
     def _make_game(self, npc=None):
@@ -875,17 +888,9 @@ class TestAcquaintanceCue:
             pending_silhouette=None, monster=None,
         )
 
-    def _make_ctx(self, content):
-        ctx = MagicMock()
-        ctx.message = MagicMock()
-        ctx.message.content = content
-        ctx.message.mentions = []
-        return ctx
-
     def test_first_greet_dispatches_cue(self):
-        cog = self._make_cog()
-        game = self._make_game()
-        ctx = self._make_ctx("$greet wagoneer")
+        npc = Wagoneer()
+        game = self._make_game(npc)
         player = _FakePlayer(1)
 
         with patch(
@@ -895,24 +900,26 @@ class TestAcquaintanceCue:
         ) as mock_mark_enc, patch(
             "caldanai.lib.rpg.creatures.passersby.state.mark_acquainted"
         ), patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
-        ) as mock_dispatch:
+            "caldanai.lib.rpg.creatures.passersby.state.apply_greet_credits"
+        ):
             # Pre-greet: not acquainted. Post mark_encounter:
-            # still not (greet handles its own flip downstream).
+            # still not — greet handles its own flip explicitly,
+            # so the renderer sees acquainted=False, the prior was
+            # also False, and the cue dispatches via the
+            # ``verb == "greet"`` branch in handle_verb.
             mock_get_state.return_value = self._make_state(acquainted=False)
             mock_mark_enc.return_value = self._make_state(
                 acquainted=False, met_count=1,
             )
-            cog._maybe_route_to_passerby_social(ctx, game, player, "greet")
+            line = npc.handle_verb("greet", game, player, invocation="greet")
 
-        # Two dispatches: the greet line + the cue. Order is greet
-        # first, cue second.
-        assert mock_dispatch.add.call_count == 2
+        # Greet line + cue, joined by newline.
+        assert line
+        assert "\n" in line, f"expected greet+cue split by newline; got:\n{line}"
 
     def test_subsequent_greet_does_not_re_dispatch_cue(self):
-        cog = self._make_cog()
-        game = self._make_game()
-        ctx = self._make_ctx("$greet wagoneer")
+        npc = Wagoneer()
+        game = self._make_game(npc)
         player = _FakePlayer(1)
 
         with patch(
@@ -922,23 +929,23 @@ class TestAcquaintanceCue:
         ) as mock_mark_enc, patch(
             "caldanai.lib.rpg.creatures.passersby.state.mark_acquainted"
         ), patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
-        ) as mock_dispatch:
+            "caldanai.lib.rpg.creatures.passersby.state.apply_greet_credits"
+        ):
             mock_get_state.return_value = self._make_state(acquainted=True)
             mock_mark_enc.return_value = self._make_state(
                 acquainted=True, met_count=5,
             )
-            cog._maybe_route_to_passerby_social(ctx, game, player, "greet")
+            line = npc.handle_verb("greet", game, player, invocation="greet")
 
         # Only the greet line — no cue, since prior.acquainted was True.
-        assert mock_dispatch.add.call_count == 1
+        assert line
+        assert "\n" not in line, f"expected single greet line; got:\n{line}"
 
     def test_osmosis_flip_dispatches_cue(self):
         """3rd+ encounter with NEUTRAL+ warmth flips acquainted via
         osmosis. The cue should fire on that exact interaction."""
-        cog = self._make_cog()
-        game = self._make_game()
-        ctx = self._make_ctx("$wave wagoneer")  # not greet
+        npc = Wagoneer()
+        game = self._make_game(npc)
         player = _FakePlayer(1)
 
         with patch(
@@ -948,8 +955,8 @@ class TestAcquaintanceCue:
         ) as mock_mark_enc, patch(
             "caldanai.lib.rpg.creatures.passersby.state.mark_acquainted"
         ), patch(
-            "caldanai.lib.cogs.rpg_social_commands.Dispatcher"
-        ) as mock_dispatch:
+            "caldanai.lib.rpg.creatures.passersby.state.apply_verb_credits"
+        ):
             # Pre: 2 encounters, not acquainted. Post: 3 encounters,
             # osmosis just flipped it.
             mock_get_state.return_value = self._make_state(
@@ -958,10 +965,12 @@ class TestAcquaintanceCue:
             mock_mark_enc.return_value = self._make_state(
                 acquainted=True, met_count=3,
             )
-            cog._maybe_route_to_passerby_social(ctx, game, player, "wave")
+            line = npc.handle_verb("wave", game, player, invocation="wave")
 
-        # Wave line + cue.
-        assert mock_dispatch.add.call_count == 2
+        # Wave line + cue (osmosis flipped acquainted between prior
+        # and current state).
+        assert line
+        assert "\n" in line, f"expected wave+cue split by newline; got:\n{line}"
 
 
 # ---------------------------------------------------------------------------

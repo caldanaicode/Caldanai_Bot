@@ -1117,9 +1117,16 @@ class TestSocialCog:
             patch(
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
+            # Dead-target dispatch now lives in Player.handle_verb,
+            # invoked by the unified verb dispatcher — capture both
+            # the helper's Dispatcher (where the rendered line
+            # lands) and the cog's local Dispatcher (legacy paths).
+            patch(
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
+            ) as dispatcher_mock,
             patch(
                 "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
-            ) as dispatcher_mock,
+            ) as cog_dispatcher,
         ):
             await cog.hug.callback(cog, ctx)
 
@@ -1127,7 +1134,7 @@ class TestSocialCog:
         render_mock.assert_not_called()
         # A Dispatcher.add should have been called with the
         # on_hugged-rendered corpse line.
-        pairs = _dispatched(dispatcher_mock)
+        pairs = _dispatched(dispatcher_mock) + _dispatched(cog_dispatcher)
         assert any(
             text and "corpse" in text
             for _, text in pairs
@@ -1168,13 +1175,16 @@ class TestSocialCog:
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
             patch(
-                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
             ) as dispatcher_mock,
+            patch(
+                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+            ) as cog_dispatcher,
         ):
             await cog.high_five.callback(cog, ctx)
 
         render_mock.assert_not_called()
-        pairs = _dispatched(dispatcher_mock)
+        pairs = _dispatched(dispatcher_mock) + _dispatched(cog_dispatcher)
         # Any dead-target high-five line should contain "corpse" or
         # the unreachable keywords matching the _DEAD_TARGET_FLAVOR.
         assert _DEAD_TARGET_FLAVOR["high_five"], "pool must be non-empty"
@@ -1223,13 +1233,16 @@ class TestSocialCog:
                 "caldanai.lib.cogs.rpg_social_commands._render_social",
             ) as render_mock,
             patch(
-                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+                "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
             ) as dispatcher_mock,
+            patch(
+                "caldanai.lib.cogs.rpg_social_commands.Dispatcher",
+            ) as cog_dispatcher,
         ):
             await cog.fistbump.callback(cog, ctx)
 
         render_mock.assert_not_called()
-        pairs = _dispatched(dispatcher_mock)
+        pairs = _dispatched(dispatcher_mock) + _dispatched(cog_dispatcher)
         assert _DEAD_TARGET_FLAVOR["fistbump"], "pool must be non-empty"
         assert any(
             text and (

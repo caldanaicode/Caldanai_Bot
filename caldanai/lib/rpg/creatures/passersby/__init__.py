@@ -178,6 +178,134 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
         )
         return bool(result.tightest)
 
+    def handle_verb(
+        self,
+        verb: str,
+        game,
+        actor,
+        *,
+        invocation: str = "",
+        **kwargs,
+    ) -> Optional[str]:
+        """:class:`VerbResponder` Protocol entrypoint for passersby.
+
+        Reads warmth state for ``actor``, picks a line from
+        ``SOCIAL_REACTIONS[verb][warmth_tier]``, renders via the
+        StrangerActor-aware actor-NPC renderer, applies all the
+        relationship side-effects (``mark_encounter``, warmth
+        credits via ``apply_verb_credits`` / ``apply_greet_credits``,
+        first-greet ``mark_acquainted`` via ``"greet"`` tag,
+        first-acquaintance cue dispatch), and returns the rendered
+        line for the cog's verb dispatcher.
+
+        Three return states (per the :class:`VerbResponder` contract):
+
+        - ``None`` — this NPC doesn't have ``verb`` in
+          ``SOCIAL_REACTIONS`` at all. Cog falls through to next
+          responder.
+        - ``""`` — NPC has the verb but no flavor for this warmth
+          tier (e.g. wagoneer has ``wave`` but no COLD-tier wave
+          response). Treated as "consumed silent" — the gesture
+          landed; the NPC didn't respond. Cog dispatches nothing
+          but does NOT fall through.
+        - non-empty ``str`` — render this. Includes any acquaintance
+          cue line concatenated below the main line (newline-
+          separated) so the dispatcher renders both as one
+          message.
+
+        Side-effects fire ONLY when the NPC handles the verb
+        (return is not ``None``) — no warmth-credit or acquaintance
+        leakage when falling through to other responders.
+        """
+        # Lazy imports to avoid circulars (state module imports
+        # PasserbyPlugin via the resolvers module's chain).
+        from random import choice
+        from caldanai.lib.rpg.creatures.passersby.rendering import (
+            render_actor_npc,
+        )
+        from caldanai.lib.rpg.creatures.passersby.state import (
+            apply_greet_credits,
+            apply_verb_credits,
+            get_state,
+            mark_acquainted,
+            mark_encounter,
+        )
+        from caldanai.lib.rpg.helpers import warmth as warmth_helpers
+        from caldanai.lib.rpg.helpers.parser import parse
+
+        reactions = (self.SOCIAL_REACTIONS or {}).get(verb)
+        if not reactions:
+            # Verb isn't in this NPC's repertoire — fall through.
+            return None
+
+        npc_stem = type(self).__name__.lower()
+        channel_id = getattr(game, "channel_id", None)
+        actor_id = getattr(actor, "user_id", None)
+        if channel_id is None or actor_id is None:
+            # Defensive: missing identifiers mean we can't read or
+            # write state. Skip gracefully — caller will treat as
+            # silent consume.
+            return ""
+
+        # Capture pre-encounter acquaintance so we can detect a
+        # first-time-learn moment (osmosis flip during this call,
+        # OR an explicit first $greet). Used to dispatch the
+        # ACQUAINTANCE_CUE_POOL beat that surfaces the otherwise-
+        # invisible state change.
+        prior = get_state(channel_id, npc_stem, actor_id)
+
+        # mark_encounter increments met_count + applies osmosis
+        # (3+ encounters with NEUTRAL+ warmth flips acquainted).
+        # The returned state reflects the post-increment view, so
+        # the current render uses the just-flipped acquaintance —
+        # the 3rd interaction lands as the moment of recognition.
+        state = mark_encounter(channel_id, npc_stem, actor_id)
+
+        pool = reactions.get(state.warmth, [])
+        if not pool:
+            # NPC has the verb but no flavor for this warmth tier.
+            # Treat as "consumed silent" — gesture landed; NPC
+            # didn't respond. Beats falling through to monster /
+            # static-object / italic miss.
+            return ""
+
+        line = render_actor_npc(
+            choice(pool), actor, self,
+            acquainted=state.acquainted, naming_bias=self.NAMING_BIAS,
+        )
+
+        # Greet always promotes acquaintance regardless of warmth /
+        # met_count, and wins the via-tag race against osmosis.
+        if verb == "greet" and not state.acquainted:
+            mark_acquainted(channel_id, npc_stem, actor_id, "greet")
+
+        # First-acquaintance cue — fires on the moment the NPC
+        # learns the name (greet OR osmosis flip during this call).
+        # One italicized line; idempotent because we gate on
+        # prior.acquainted.
+        if not prior.acquainted and (state.acquainted or verb == "greet"):
+            cue_pool = getattr(self, "ACQUAINTANCE_CUE_POOL", []) or []
+            if cue_pool:
+                cue_line = parse(choice(cue_pool), self, actor)
+                line = f"{line}\n{cue_line}"
+
+        # Per-visit warmth-credit accumulation. Each verb counts
+        # at most once per visit. $greet uses its own +5 path;
+        # other verbs route through their warmth-tier
+        # classification in SYSTEM_DEFAULTS. Verbs not registered
+        # in SYSTEM_DEFAULTS classify as NEUTRAL → +2.
+        if verb == "greet":
+            apply_greet_credits(channel_id, npc_stem, actor_id)
+        else:
+            verb_tier = warmth_helpers.SYSTEM_DEFAULTS.get(
+                verb, warmth_helpers.Warmth.NEUTRAL,
+            )
+            apply_verb_credits(
+                channel_id, npc_stem, actor_id, verb, verb_tier,
+            )
+
+        return line
+
     def __init__(self) -> None:
         """Convert class-level pronoun string declarations into the
         instance-level Dict shape :func:`parser.parse` expects.

@@ -132,6 +132,65 @@ class StaticObjectPlugin:
         return None
 
     # ---------------------------------------------------------------
+    # VerbResponder Protocol — unified verb-dispatch entrypoint.
+    # ---------------------------------------------------------------
+
+    def matches_token(self, token: str) -> bool:
+        """Token-match for the unified verb resolver. Static objects
+        are looked up via ``Area.find_static_object``, but the
+        VerbResponder Protocol still requires a ``matches_token``
+        method on every responder. Delegates to the same name +
+        alias logic the area-side resolver uses, so direct calls
+        and area-resolved lookups produce the same answer.
+        """
+        if not token:
+            return False
+        token_lower = token.strip().lower()
+        if not token_lower:
+            return False
+        if (self.name or "").lower() == token_lower:
+            return True
+        if (self.name or "").lower().startswith(token_lower):
+            return True
+        for alias in self.aliases or []:
+            if not alias:
+                continue
+            alias_lower = alias.lower()
+            if alias_lower == token_lower or alias_lower.startswith(token_lower):
+                return True
+        return False
+
+    def handle_verb(
+        self,
+        verb: str,
+        game,
+        actor,
+        *,
+        invocation: str = "",
+        **kwargs,
+    ) -> Optional[str]:
+        """Unified verb-dispatch entrypoint required by the
+        :class:`VerbResponder` Protocol. Thin wrapper around
+        :meth:`on_verb`: gates on :attr:`SUPPORTED_VERBS` first,
+        then forwards.
+
+        Verb-specific extras travel through ``kwargs``. Today only
+        $feed uses this (``fuel_arg``); the wrapper passes the dict
+        through as positional ``*args`` for back-compat with
+        existing ``on_verb`` signatures that take ``(verb, game,
+        actor, fuel_arg)``.
+        """
+        if verb not in (self.SUPPORTED_VERBS or []):
+            return None
+        # Existing on_verb signatures take *args (the campfire
+        # uses ``args[0]`` for fuel_arg). Pass kwargs.values() in
+        # insertion order so $feed's fuel_arg lands as args[0].
+        # Future verbs that take multiple kwargs should register
+        # them in deterministic order on the cog side.
+        extra_args = tuple(kwargs.values())
+        return self.on_verb(verb, game, actor, *extra_args)
+
+    # ---------------------------------------------------------------
     # $look hook — subclasses override.
     # ---------------------------------------------------------------
 

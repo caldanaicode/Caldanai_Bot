@@ -41,6 +41,7 @@ from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.helpers.utils import RpgUtilities
+from caldanai.lib.rpg.helpers.verb_dispatch import dispatch_expressive_verb
 from caldanai.lib.rpg.helpers import warmth
 
 
@@ -1160,6 +1161,26 @@ _SELF_DIRECTED_POOLS: Dict[str, List[str]] = {
 # least sounds deliberate. Commands missing from this dict fall back
 # to the generic "Alice is talking to herself" line at the bottom of
 # ``_render_social``.
+# Per-command italic-fallback when the player invokes bare with
+# no target / mention. Wrapped as a single-element ``self_directed_pool``
+# by :meth:`_dispatch_warmth_aware_verb` and rendered through the
+# dispatcher's parser pipeline — values use parser tokens (``@1``)
+# rather than Python format strings.
+_BARE_NO_TARGET_TEMPLATES: Dict[str, str] = {
+    "high_five": "*@1 raises a palm to nobody in particular.*",
+    "fistbump":  "*@1 holds out a fist to nobody in particular.*",
+    "salute":    "*@1 salutes the empty air with crisp formality.*",
+    "comfort":   "*@1 reaches out to comfort nobody in particular.*",
+    "poke":      "*@1 pokes at the air with one intrepid finger.*",
+    "nod":       "*@1 nods solemnly at the middle distance.*",
+    "glare":     "*@1 glares at a nearby wall; the wall holds its ground.*",
+    "shank":     "*@1 mimes a playful shank at thin air, which takes it well.*",
+    "tickle":    "*@1 wiggles mischievous fingers at the empty air.*",
+    "taunt":     "*@1 jeers at nobody in particular, to stunned silence.*",
+    "wink":      "*@1 winks conspiratorially at an unoccupied chair.*",
+}
+
+
 _SELF_TARGET_LINES: Dict[str, str] = {
     "hug":       "@1 wraps @1r in a quiet, self-directed embrace.",
     "high_five": "@1 tries to high-five @1r, which is harder than it sounds.",
@@ -1252,76 +1273,20 @@ class RpgSocialCommands(Cog):
 
         :param msg: A message to include with the hug. This can be a target such as a monster's noun, or a @mention of another player. It can also simply be text in the form of a custom emote, but remember to type in the third-person present participle for best effect.
         """
-        game, player = await RpgUtilities.get_game_and_player(ctx)
-        if game is None or player is None:
-            return
-
-        if RpgUtilities.dead_invoker_guard(
-            game.channel, player, _DEAD_INVOKER_FLAVOR["hug"],
-        ):
-            return
-
-        if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-            if self.bot.user in ctx.message.mentions:
-                responses = [
-                    "Get your filthy paws off me, you damned dirty ape!",
-                    "You cannot hug me, for I exist only in the ether.",
-                    "One does not simply hug the AI, mortal.",
-                ]
-                if (c := randint(0, 3)) == 3:
-                    file = File(f"./site/static/images/hal9000.gif", filename="hal9000.gif")
-                    Dispatcher.add(game.channel, file=file)
-                else:
-                    Dispatcher.add(game.channel, responses[c])
-                return
-
-            # Monster takes priority if its name matches the mentioned
-            # player — doppelganger-disguise case keeps the in-world
-            # reaction (monster's on_hugged) rather than the player's
-            # warmth setting.
-            mention = ctx.message.mentions[0]
-            if (
-                game.monster is not None
-                and game.monster.name.lower() == mention.display_name.lower()
-            ):
-                # Doppelganger-disguise case: mentioned player's
-                # display_name matches the monster's name. Route to
-                # the monster's social hook (which for ``hug`` falls
-                # back to legacy ``on_hugged`` for back-compat).
-                reaction = game.monster.on_social(
-                    "hug", player, ctx.invoked_with,
-                )
-                if reaction:
-                    Dispatcher.add(game.channel, reaction)
-                return
-
-            target = await RpgUtilities.get_player(mention, game=game, notify=False)
-            if target is None:
-                return
-
-            # Dead targets skip the warmth flow — their on_hugged has
-            # an is_dead branch ("corpse rolls lifelessly in @2's arms")
-            # that we'd lose by routing blindly through the warmth pools.
-            if target.is_dead():
-                Dispatcher.add(
-                    game.channel,
-                    parse(target.on_hugged(player, ctx.invoked_with), target, player),
-                )
-                return
-
-            Dispatcher.add(game.channel, _render_social("hug", player, target))
-            return
-
-        if msg is not None and len(msg) > 0:
-            # Text-path monster routing — shared with every other
-            # warmth-aware verb via the cog helper so the ergonomics
-            # of ``$hug golem`` match ``$glare golem``.
-            if self._maybe_route_to_monster_social(ctx, game, player, "hug"):
-                return
-            Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s {msg}*")
-            return
-
-        Dispatcher.add(game.channel, f"*{player.name} {ctx.invoked_with}s the air awkwardly.*")
+        # $hug carries unique fallbacks for the bare and bad-token
+        # cases ($hug with no args → "hugs the air awkwardly"; $hug
+        # arbitrary-text → narrates the text as the gesture object).
+        # Doppelganger-disguise routing (mentioned player's
+        # display_name matches an active monster's name) is handled
+        # by the unified resolver; bot-mention scripted reply,
+        # dead-target on_hugged path, and warmth-aware render are
+        # handled by the wrapper + Player.handle_verb.
+        await self._dispatch_warmth_aware_verb(
+            ctx, "hug",
+            msg=msg,
+            bare_template="*@1 hugs the air awkwardly.*",
+            bad_token_template="*{name} hugs {target}*",
+        )
 
     # -----------------------------------------------------------------
     # $high_five — warmth-aware
@@ -1342,7 +1307,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "high_five")
+        await self._dispatch_warmth_aware_verb(ctx,"high_five")
 
     # -----------------------------------------------------------------
     # $fistbump — warmth-aware
@@ -1363,7 +1328,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "fistbump")
+        await self._dispatch_warmth_aware_verb(ctx,"fistbump")
 
     # -----------------------------------------------------------------
     # V2: warmth-aware interactive verbs
@@ -1393,7 +1358,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "salute")
+        await self._dispatch_warmth_aware_verb(ctx, "salute")
 
     @command(
         name="comfort",
@@ -1409,7 +1374,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "comfort")
+        await self._dispatch_warmth_aware_verb(ctx,"comfort")
 
     @command(
         name="poke",
@@ -1425,7 +1390,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "poke")
+        await self._dispatch_warmth_aware_verb(ctx,"poke")
 
     @command(
         name="nod",
@@ -1440,7 +1405,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "nod")
+        await self._dispatch_warmth_aware_verb(ctx,"nod")
 
     @command(
         name="glare",
@@ -1456,7 +1421,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "glare")
+        await self._dispatch_warmth_aware_verb(ctx,"glare")
 
     @command(
         name="shank",
@@ -1474,7 +1439,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "shank")
+        await self._dispatch_warmth_aware_verb(ctx,"shank")
 
     @command(
         name="tickle",
@@ -1490,7 +1455,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "tickle")
+        await self._dispatch_warmth_aware_verb(ctx,"tickle")
 
     @command(
         name="taunt",
@@ -1506,7 +1471,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "taunt")
+        await self._dispatch_warmth_aware_verb(ctx,"taunt")
 
     @command(
         name="wink",
@@ -1522,7 +1487,7 @@ class RpgSocialCommands(Cog):
 
         (5-second cool-down)
         """
-        await self._dispatch_two_actor_social(ctx, "wink")
+        await self._dispatch_warmth_aware_verb(ctx,"wink")
 
     # -----------------------------------------------------------------
     # V2: self-directed verbs
@@ -1609,35 +1574,26 @@ class RpgSocialCommands(Cog):
         :param target: A passerby's name to wave at, or omit to
             wave at no one in particular.
         """
+        # $wave deliberately ignores Discord mentions — players
+        # naturally type "$wave @Caels" but the gesture stays
+        # self-directed (mention is audience-acknowledgement, not
+        # a verb target). Bypass the warmth-wrapper's mention
+        # extraction by calling dispatch_expressive_verb directly
+        # with mention=None.
         game, player = await RpgUtilities.get_game_and_player(ctx)
         if game is None or player is None:
             return
-
         if RpgUtilities.dead_invoker_guard(
             game.channel, player, _DEAD_INVOKER_FLAVOR.get("wave", []),
         ):
             return
-
-        # Passerby first: a present NPC absorbs the gesture if the
-        # text references them. Falls through to self-directed
-        # otherwise, preserving the bare-``$wave`` behavior.
-        if target and self._maybe_route_to_passerby_social(
-            ctx, game, player, "wave",
-        ):
-            return
-
-        # Bare wave → self-directed pool (the original behavior).
-        # ``$wave <text-that-didn't-match>`` → self-directed with
-        # a soft "at no one in particular" tag so the player sees
-        # acknowledgement of the typed gesture without misleading
-        # them into thinking the text was a recognized target.
-        if target:
-            Dispatcher.add(
-                game.channel,
-                f"*{player.name} waves at no one in particular.*",
-            )
-            return
-        Dispatcher.add(game.channel, _render_self_directed("wave", player))
+        await dispatch_expressive_verb(
+            ctx, "wave",
+            target_token=target,
+            mention=None,
+            self_directed_pool=_SELF_DIRECTED_POOLS["wave"],
+            bad_token_template="*{name} waves at no one in particular.*",
+        )
 
     @command(
         name="bow",
@@ -1672,40 +1628,37 @@ class RpgSocialCommands(Cog):
 
         :param target: A passerby's name (e.g. ``$greet wagoneer``).
         """
+        # $greet has a special silhouette-too-far line: when the
+        # target token matches a pending-silhouette NPC (visible
+        # in $look but at distance), render "too far off" rather
+        # than the standard "introduces to nobody" italic. Run the
+        # silhouette check INLINE before falling into the wrapper
+        # so the dispatch chain doesn't accidentally render the
+        # wrong fallback when the silhouette doesn't claim the verb.
         game, player = await RpgUtilities.get_game_and_player(ctx)
         if game is None or player is None:
             return
+        if target:
+            from caldanai.lib.rpg.helpers.resolvers import (
+                resolve_pending_silhouette,
+            )
+            silhouette = resolve_pending_silhouette(game, target.split(None, 1)[0])
+            if silhouette is not None:
+                Dispatcher.add(
+                    game.channel,
+                    parse(
+                        "@1Dc is too far off across the clearing to hear; "
+                        "wait until @1s approaches.",
+                        silhouette,
+                    ),
+                )
+                return
 
-        if RpgUtilities.dead_invoker_guard(
-            game.channel, player, _DEAD_INVOKER_FLAVOR.get("greet", []),
-        ):
-            return
-
-        if target and self._maybe_route_to_passerby_social(
-            ctx, game, player, "greet",
-        ):
-            return
-
-        # Silhouette-targeted greet: the NPC is visible in $look but
-        # too far away to hear an introduction. Dispatch a "too far
-        # off" line so the player gets a coherent answer instead of
-        # the "introduces to nobody" line that would otherwise fire
-        # while a silhouette is plainly visible in the clearing.
-        if target and self._maybe_route_to_silhouette_too_far(
-            ctx, game, target,
-        ):
-            return
-
-        # No passerby present (or target didn't match present /
-        # silhouette). Greet doesn't have a self-directed pool —
-        # the verb only makes sense with another person. One-line
-        # italic fallback keeps the UX gentle for typos.
-        Dispatcher.add(
-            game.channel,
-            parse(
-                "*@1 introduces @1r to nobody in particular.*",
-                player,
-            ),
+        await self._dispatch_warmth_aware_verb(
+            ctx, "greet",
+            msg=target,
+            bare_template="*@1 introduces @1r to nobody in particular.*",
+            bad_token_template="*{name} introduces {name} to nobody in particular.*",
         )
 
     async def _dispatch_self_directed(
@@ -1732,124 +1685,69 @@ class RpgSocialCommands(Cog):
 
         Dispatcher.add(game.channel, _render_self_directed(cmd, player))
 
-    async def _dispatch_two_actor_social(
+    async def _dispatch_warmth_aware_verb(
         self,
         ctx: Context,
         cmd: str,
+        *,
+        msg: Optional[str] = None,
+        bare_template: Optional[str] = None,
+        self_directed_pool: Optional[List[str]] = None,
+        bad_token_template: Optional[str] = None,
     ) -> None:
-        """Shared handler body for ``$high_five`` / ``$fistbump``.
-        Both commands require a ``@player`` mention and route through
-        the warmth system. ``cmd`` keys into the dead-actor flavor
-        dicts, so adding a new social verb only requires a new key in
-        each (plus a narration pool)."""
-        game, player = await RpgUtilities.get_game_and_player(ctx)
-        if game is None or player is None:
-            return
+        """Cog-side wrapper for warmth-aware social verbs.
 
-        if RpgUtilities.dead_invoker_guard(
-            game.channel, player, _DEAD_INVOKER_FLAVOR.get(cmd, []),
-        ):
-            return
+        Thin layer over :func:`dispatch_expressive_verb` — extracts
+        a Discord ``@mention`` from the message (forwarding text as
+        ``msg`` when no mention is present) and supplies the per-cmd
+        bare-no-target template. Bot-mention routing and
+        doppelganger-disguise checks live inside the dispatcher's
+        unified mention path.
 
+        ``msg`` is the raw text token / target (passed via
+        ``$hug <text>`` or ``$wave <text>``). Used as the fuzzy
+        text-target for NPC / monster routing when no @mention is
+        present.
+
+        ``bare_template`` is a parser-token-formatted line used
+        when both no mention and no text are supplied. Defaults
+        from :data:`_BARE_NO_TARGET_TEMPLATES` keyed by ``cmd``.
+
+        ``bad_token_template`` (Python ``str.format`` with
+        ``{name}``/``{verb}``/``{target}`` placeholders) is the
+        line shown when text is supplied but no responder claimed
+        the verb. Defaults to the dispatcher's standard "nothing
+        here by the name X" miss line.
+        """
+        # Bot-mention handling and doppelganger-disguise routing
+        # both happen inside :func:`dispatch_expressive_verb`'s
+        # mention path now (BotResponder for bot, monster for the
+        # disguise case). The cog wrapper just extracts the first
+        # mention from the message and forwards.
         mentions = ctx.message.mentions or []
-        if not mentions:
-            # Passerby first: a present NPC takes priority over the
-            # monster for warmth-aware verbs they handle (e.g.
-            # ``$nod wagoneer``). Falls through to monster / italic
-            # fallback when no passerby is present or the NPC
-            # doesn't define this verb.
-            if self._maybe_route_to_passerby_social(ctx, game, player, cmd):
-                return
-            # Monster-name-in-text path: ``$glare golem``, ``$salute
-            # dragon``, etc. routes to the monster's ``on_social`` hook
-            # before the italicized no-target fallback fires. Mirrors
-            # ``$hug``'s longstanding text-path monster routing so
-            # every warmth-aware verb gets the same "target by name"
-            # ergonomics.
-            if self._maybe_route_to_monster_social(ctx, game, player, cmd):
-                return
-            # Per-command "no target" fallback. Italicize to match the
-            # $hug convention for emote-style actions — Discord renders
-            # ``*...*`` as italic. Messages live here (not in a module
-            # dict) because they're one-liners and the command-specific
-            # verb phrasing is small enough to keep inline.
-            no_target_line = {
-                "high_five": (
-                    f"*{player.name} raises a palm to nobody in particular.*"
-                ),
-                "fistbump": (
-                    f"*{player.name} holds out a fist to nobody in particular.*"
-                ),
-                "salute": (
-                    f"*{player.name} salutes the empty air with crisp formality.*"
-                ),
-                "comfort": (
-                    f"*{player.name} reaches out to comfort nobody in particular.*"
-                ),
-                "poke": (
-                    f"*{player.name} pokes at the air with one intrepid finger.*"
-                ),
-                "nod": (
-                    f"*{player.name} nods solemnly at the middle distance.*"
-                ),
-                "glare": (
-                    f"*{player.name} glares at a nearby wall; the wall holds its ground.*"
-                ),
-                "shank": (
-                    f"*{player.name} mimes a playful shank at thin air, which takes it well.*"
-                ),
-                "tickle": (
-                    f"*{player.name} wiggles mischievous fingers at the empty air.*"
-                ),
-                "taunt": (
-                    f"*{player.name} jeers at nobody in particular, to stunned silence.*"
-                ),
-                "wink": (
-                    f"*{player.name} winks conspiratorially at an unoccupied chair.*"
-                ),
-            }.get(cmd, f"*{player.name} gestures at the air.*")
-            Dispatcher.add(game.channel, no_target_line)
-            return
+        mention = mentions[0] if mentions else None
+        target_token = None if mention else msg
 
-        if self.bot.user in mentions:
-            # Per-command scripted reply for the bot-mention case.
-            # Warmth is never consulted against the narrator, so these
-            # are pure flavor. Defaults to a generic line for unmapped
-            # commands.
-            bot_reply = {
-                "high_five": "You cannot slap palms with the narrator, mortal.",
-                "fistbump":  "You cannot bump knuckles with the narrator, mortal.",
-                "salute":    "The narrator acknowledges the courtesy but is beyond the reach of salutes.",
-                "comfort":   "The narrator appreciates the thought, but requires no comforting.",
-                "poke":      "One does not simply poke the narrator, mortal.",
-                "nod":       "The narrator returns a cosmic, unrenderable nod.",
-                "glare":     "You glare at the sky. The sky is unmoved.",
-                "shank":     "The narrator cannot be shanked, mock- or otherwise.",
-                "tickle":    "The narrator is beyond tickling, thank you for trying.",
-                "taunt":     "The narrator is above your petty mockery, mortal.",
-                "wink":      "The narrator winks back, somewhere beyond the veil.",
-            }.get(cmd, "You cannot share physical gestures with the narrator, mortal.")
-            Dispatcher.add(game.channel, bot_reply)
-            return
+        # Bare-invocation pool. Caller's explicit
+        # ``self_directed_pool`` wins (used by $wave for its
+        # multi-line texture pool). Otherwise wrap a single
+        # ``bare_template`` line — falls back to the per-cmd
+        # default in :data:`_BARE_NO_TARGET_TEMPLATES`.
+        bare_pool = self_directed_pool
+        if bare_pool is None:
+            if bare_template is None:
+                bare_template = _BARE_NO_TARGET_TEMPLATES.get(cmd)
+            if bare_template is not None:
+                bare_pool = [bare_template]
 
-        mention = mentions[0]
-        target = await RpgUtilities.get_player(mention, game=game, notify=False)
-        if target is None:
-            return
-
-        # Dead targets skip warmth routing — a corpse can't accept or
-        # decline a gesture. Render a per-command "unreachable" line
-        # instead so the invoker gets a visible acknowledgement.
-        if target.is_dead():
-            pool = _DEAD_TARGET_FLAVOR.get(cmd, [])
-            if pool:
-                Dispatcher.add(
-                    game.channel,
-                    parse(choice(pool), player, target),
-                )
-            return
-
-        Dispatcher.add(game.channel, _render_social(cmd, player, target))
+        await dispatch_expressive_verb(
+            ctx, cmd,
+            target_token=target_token,
+            mention=mention,
+            dead_invoker_pool=_DEAD_INVOKER_FLAVOR.get(cmd, []),
+            self_directed_pool=bare_pool,
+            bad_token_template=bad_token_template,
+        )
 
     # -----------------------------------------------------------------
     # $haunt — moved verbatim from rpg_user_commands.py
@@ -2207,216 +2105,6 @@ class RpgSocialCommands(Cog):
         if ctx.guild is None:
             return
         Dispatcher.add(ctx, text)
-
-    def _maybe_route_to_monster_social(
-        self,
-        ctx: Context,
-        game,
-        player: Player,
-        cmd: str,
-    ) -> bool:
-        """If the invocation's text body references the live monster's
-        name, render the monster's :meth:`Creature.on_social` reaction
-        (or a bland "doesn't react" line if the hook returned empty)
-        and return ``True``. Otherwise return ``False`` so the caller
-        can continue its fallback chain (italicized no-target line).
-
-        Shared across every warmth-aware verb — the monster-name
-        check in ``$hug`` is the same substring match; centralizing
-        it here means ``$glare golem`` and ``$hug golem`` route
-        identically.
-        """
-        monster = game.monster
-        if monster is None:
-            return False
-        content = (ctx.message.content or "").lower()
-        if monster.name.lower() not in content:
-            return False
-        reaction = monster.on_social(cmd, player, ctx.invoked_with)
-        if reaction:
-            Dispatcher.add(game.channel, reaction)
-        else:
-            # Monster has no defined reaction for this verb. Render a
-            # bland acknowledgement so the invoker doesn't mistake
-            # silence for a failed command.
-            verb = cmd.replace("_", " ")
-            Dispatcher.add(
-                game.channel,
-                parse(
-                    f"@1dc does not react to @2np {verb}.",
-                    monster, player,
-                ),
-            )
-        return True
-
-    @staticmethod
-    def _extract_target_token(ctx: Context) -> str:
-        """Pull the player-typed target token out of the message
-        content, stripping the command prefix and command name.
-        Returns the leading word of what remains — for
-        ``$greet herba``, returns ``"herba"``; for ``$nod wagoneer
-        the long way``, returns ``"wagoneer"``. Returns empty
-        string when no target text follows the command.
-
-        Used by the passerby-routing helpers when a target hasn't
-        been parsed by Discord.py's converter chain (e.g.
-        :meth:`_dispatch_two_actor_social` doesn't take a target
-        kwarg; mention-less invocation falls through to the
-        passerby text-path).
-        """
-        content = (ctx.message.content or "").strip()
-        parts = content.split(None, 2)
-        if len(parts) < 2:
-            return ""
-        return parts[1].strip()
-
-    def _maybe_route_to_passerby_social(
-        self,
-        ctx: Context,
-        game,
-        player: Player,
-        cmd: str,
-    ) -> bool:
-        """If a passerby is present AND the invocation text references
-        the NPC by name / stem / alias AND the NPC has a reaction
-        pool for ``cmd``, render the warmth-keyed reaction and
-        return ``True``. Returns ``False`` otherwise so the caller
-        can fall through to monster routing or no-target flavor.
-
-        Pending-silhouette NPCs are NOT addressable — they're
-        watching from distance and won't respond to gestures until
-        combat resolves and they approach.
-
-        Side-effect for ``$greet``: marks the actor as acquainted via
-        the ``"greet"`` tag (idempotent — already-acquainted players
-        are no-ops). Acquaintance flips after rendering so the line
-        itself uses pre-greet acquaintance — the FIRST greet still
-        renders as a stranger surface; subsequent ones earn the
-        name. This matches "the introduction is the moment of
-        learning, not the prelude to it."
-        """
-        from caldanai.lib.rpg.creatures.passersby.rendering import (
-            render_actor_npc,
-        )
-        from caldanai.lib.rpg.creatures.passersby.state import (
-            get_state, mark_acquainted, mark_encounter,
-        )
-
-        from caldanai.lib.rpg.helpers.resolvers import resolve_passerby
-
-        npc = game.passerby
-        if npc is None:
-            return False
-        reactions = npc.SOCIAL_REACTIONS.get(cmd) if npc.SOCIAL_REACTIONS else None
-        if not reactions:
-            return False
-
-        token = self._extract_target_token(ctx)
-        if resolve_passerby(game, token) is None:
-            return False
-        npc_stem = type(npc).__name__.lower()
-
-        # Capture pre-encounter acquaintance so we can detect
-        # first-time-learn moments (osmosis flip during this call,
-        # OR the explicit first $greet). Used to dispatch the
-        # ACQUAINTANCE_CUE_POOL beat that surfaces the otherwise-
-        # invisible state change.
-        prior = get_state(game.channel_id, npc_stem, player.user_id)
-
-        # mark_encounter increments met_count + applies osmosis check
-        # (3+ encounters with NEUTRAL+ warmth flips acquainted). The
-        # returned state reflects the post-increment view, so the
-        # current render uses the just-flipped acquaintance — the
-        # 3rd interaction lands as the moment of recognition.
-        state = mark_encounter(game.channel_id, npc_stem, player.user_id)
-
-        pool = reactions.get(state.warmth, [])
-        if not pool:
-            # NPC has the verb registered but no flavor for this
-            # warmth tier. Treat as "consumed but silent" — the
-            # gesture landed; the NPC didn't respond. Beats the
-            # bland fallback that would otherwise fire here.
-            return True
-
-        line = render_actor_npc(
-            choice(pool), player, npc,
-            acquainted=state.acquainted, naming_bias=npc.NAMING_BIAS,
-        )
-        Dispatcher.add(game.channel, line)
-
-        # Greet always promotes acquaintance regardless of warmth /
-        # met_count, and wins the via-tag race against osmosis.
-        if cmd == "greet" and not state.acquainted:
-            mark_acquainted(
-                game.channel_id, npc_stem, player.user_id, "greet",
-            )
-
-        # First-acquaintance cue — fires on the moment the NPC learns
-        # the name (greet OR osmosis flip during this call). One
-        # italicized line; idempotent because we gate on prior.acquainted.
-        if not prior.acquainted and (state.acquainted or cmd == "greet"):
-            cue_pool = getattr(npc, "ACQUAINTANCE_CUE_POOL", [])
-            if cue_pool:
-                Dispatcher.add(
-                    game.channel,
-                    parse(choice(cue_pool), npc, player),
-                )
-
-        # Per-visit warmth-credit accumulation. Each verb counts at
-        # most once per visit (the apply_*_credits helpers dedup via
-        # state.visit_warm_verbs / visit_cold_verbs). $greet has its
-        # own +5 path; other verbs route through their warmth-tier
-        # classification in SYSTEM_DEFAULTS. Verbs not registered in
-        # SYSTEM_DEFAULTS (e.g. wave) classify as NEUTRAL → +2.
-        from caldanai.lib.rpg.creatures.passersby.state import (
-            apply_greet_credits, apply_verb_credits,
-        )
-        if cmd == "greet":
-            apply_greet_credits(
-                game.channel_id, npc_stem, player.user_id,
-            )
-        else:
-            verb_tier = warmth.SYSTEM_DEFAULTS.get(
-                cmd, warmth.Warmth.NEUTRAL,
-            )
-            apply_verb_credits(
-                game.channel_id, npc_stem, player.user_id, cmd, verb_tier,
-            )
-        return True
-
-    def _maybe_route_to_silhouette_too_far(
-        self,
-        ctx: Context,
-        game,
-        target: str,
-    ) -> bool:
-        """If a pending silhouette matches the target token, dispatch
-        a "too far off to hear" line and return ``True``. Otherwise
-        return ``False`` so the caller continues its fallback chain.
-
-        Silhouettes are visible in ``$look`` but can't process social
-        verbs — without this branch, ``$greet wagoneer`` while the
-        wagoneer is in silhouette renders the bare "introduces to
-        nobody" italic, which reads as broken when the silhouette is
-        plainly visible in the clearing.
-        """
-        from caldanai.lib.rpg.helpers.resolvers import resolve_pending_silhouette
-
-        npc = getattr(game, "pending_silhouette", None)
-        if npc is None or not target:
-            return False
-        leading = target.split(None, 1)[0]
-        if resolve_pending_silhouette(game, leading) is None:
-            return False
-        Dispatcher.add(
-            game.channel,
-            parse(
-                "@1Dc is too far off across the clearing to hear; "
-                "wait until @1s approaches.",
-                npc,
-            ),
-        )
-        return True
 
     def _respond(self, ctx: Context, text: str) -> None:
         """Route a warmth-mutation reply (set / clear confirmations,

@@ -2372,6 +2372,28 @@ class Creature(GenderMixin, HealMixin):
             return parse(self.on_hugged(actor, invocation), self, actor)
         return ""
 
+    def handle_verb(
+        self,
+        verb: str,
+        game,
+        actor,
+        *,
+        invocation: str = "",
+        **kwargs,
+    ) -> Optional[str]:
+        """:class:`VerbResponder` Protocol entrypoint. Thin wrapper
+        around :meth:`on_social` — that's the existing per-monster
+        flavor surface (with the legacy ``on_hugged`` back-compat
+        delegation built in).
+
+        Returns ``None`` (not ``""``) when the monster has no
+        reaction so the verb dispatcher can fall through to the
+        next responder in the chain. Empty-string return from
+        ``on_social`` is normalized to ``None`` here.
+        """
+        result = self.on_social(verb, actor, invocation or verb)
+        return result or None
+
     @property
     def plural_verbs(self) -> bool:
         """``True`` when the creature takes plural-verb agreement with

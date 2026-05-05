@@ -515,6 +515,64 @@ class Player(Creature):
 
         return "\n".join([*drop_lines, tail]) if drop_lines else tail
 
+    def handle_verb(
+        self,
+        verb: str,
+        game,
+        actor,
+        *,
+        invocation: str = "",
+        **kwargs,
+    ) -> "Optional[str]":
+        """:class:`VerbResponder` Protocol entrypoint for Player.
+
+        Player rendering is the two-layer compose unique to
+        player-vs-player social verbs: the actor's intent
+        (``warmth.resolve(self, actor, verb)[1]``) tints the
+        attempt beat; the target's acceptance (``[0]``) governs
+        the response beat. Self-target short-circuits to the
+        single-actor line.
+
+        Returns ``None`` for verbs not in the player narration
+        registry (e.g. $touch / $light / $lean — those route to
+        objects or NPCs, not players). The cog's verb dispatcher
+        treats ``None`` as "I don't handle this verb" and falls
+        through to the next responder in the chain — which is
+        usually the italic miss for verbs that have no in-pool
+        coverage.
+
+        Dead-target cases: ``$hug`` has a back-compat path
+        through :meth:`on_hugged` that produces "corpse rolls
+        lifelessly in @2's arms" etc. — preserved here so the
+        unified dispatcher doesn't lose it. Other warmth-aware
+        verbs render from ``_DEAD_TARGET_FLAVOR`` (per-verb pool
+        of "you can't gesture at a corpse" lines).
+
+        Lazy-imports the cog's narration registry to avoid the
+        circular import ``cogs/rpg_social_commands → creatures →
+        player → cogs``.
+        """
+        from random import choice
+        from caldanai.lib.cogs.rpg_social_commands import (
+            _DEAD_TARGET_FLAVOR,
+            _NARRATION_POOLS,
+            _render_social,
+        )
+        from caldanai.lib.rpg.helpers.parser import parse
+        if verb not in _NARRATION_POOLS:
+            return None
+        if self.is_dead():
+            if verb == "hug":
+                return parse(
+                    self.on_hugged(actor, invocation),
+                    self, actor,
+                )
+            pool = _DEAD_TARGET_FLAVOR.get(verb, [])
+            if not pool:
+                return None
+            return parse(choice(pool), actor, self)
+        return _render_social(verb, actor, self)
+
     # ------------------------------------------------------------------
     # Equipment access (Phase B3)
     #

@@ -585,6 +585,18 @@ class TestWorldCogDispatch:
         game.game_clock = MagicMock()
         game.game_clock.get_time_of_day.return_value = "NOON"
         game.weather = None
+        # Explicit None for entity slots — auto-Mock attrs would
+        # return truthy fakes that intercept the verb-resolver
+        # chain BEFORE static objects (passerby/monster come
+        # earlier in priority order). The unified dispatcher
+        # walks passerby → silhouette → monster → static_object,
+        # so these must be unset for the chain to reach static
+        # objects.
+        game.passerby = None
+        game.pending_silhouette = None
+        game.monster = None
+        game.player_manager = MagicMock()
+        game.player_manager.players = {}
         room = Area()
         room.add_static_object(Campfire())
         room.add_static_object(StoneField())
@@ -599,10 +611,10 @@ class TestWorldCogDispatch:
         ctx = self._make_ctx()
 
         with patch(
-            "caldanai.lib.cogs.rpg_world_commands.RpgUtilities.get_game_and_player",
+            "caldanai.lib.rpg.helpers.verb_dispatch.RpgUtilities.get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
         ), patch(
-            "caldanai.lib.cogs.rpg_world_commands.Dispatcher",
+            "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
         ) as mock_dispatch:
             await cog.touch.callback(cog, ctx, target=None)
 
@@ -620,10 +632,10 @@ class TestWorldCogDispatch:
         ctx = self._make_ctx()
 
         with patch(
-            "caldanai.lib.cogs.rpg_world_commands.RpgUtilities.get_game_and_player",
+            "caldanai.lib.rpg.helpers.verb_dispatch.RpgUtilities.get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
         ), patch(
-            "caldanai.lib.cogs.rpg_world_commands.Dispatcher",
+            "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
         ) as mock_dispatch:
             await cog.gaze.callback(cog, ctx, target=None)
 
@@ -638,10 +650,10 @@ class TestWorldCogDispatch:
         ctx = self._make_ctx()
 
         with patch(
-            "caldanai.lib.cogs.rpg_world_commands.RpgUtilities.get_game_and_player",
+            "caldanai.lib.rpg.helpers.verb_dispatch.RpgUtilities.get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
         ), patch(
-            "caldanai.lib.cogs.rpg_world_commands.Dispatcher",
+            "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
         ) as mock_dispatch:
             await cog.light.callback(cog, ctx, target="campfire")
 
@@ -655,10 +667,10 @@ class TestWorldCogDispatch:
         ctx = self._make_ctx()
 
         with patch(
-            "caldanai.lib.cogs.rpg_world_commands.RpgUtilities.get_game_and_player",
+            "caldanai.lib.rpg.helpers.verb_dispatch.RpgUtilities.get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
         ), patch(
-            "caldanai.lib.cogs.rpg_world_commands.Dispatcher",
+            "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
         ) as mock_dispatch:
             await cog.light.callback(cog, ctx, target="dragon")
 
@@ -678,10 +690,10 @@ class TestWorldCogDispatch:
         ctx = self._make_ctx()
 
         with patch(
-            "caldanai.lib.cogs.rpg_world_commands.RpgUtilities.get_game_and_player",
+            "caldanai.lib.rpg.helpers.verb_dispatch.RpgUtilities.get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
         ), patch(
-            "caldanai.lib.cogs.rpg_world_commands.Dispatcher",
+            "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
         ) as mock_dispatch:
             await cog.light.callback(cog, ctx, target="stones")
 
@@ -706,10 +718,10 @@ class TestWorldCogDispatch:
         cf.on_verb = MagicMock(return_value="fed")
 
         with patch(
-            "caldanai.lib.cogs.rpg_world_commands.RpgUtilities.get_game_and_player",
+            "caldanai.lib.rpg.helpers.verb_dispatch.RpgUtilities.get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
         ), patch(
-            "caldanai.lib.cogs.rpg_world_commands.Dispatcher",
+            "caldanai.lib.rpg.helpers.verb_dispatch.Dispatcher",
         ):
             await cog.feed.callback(cog, ctx, target="campfire stick")
 
