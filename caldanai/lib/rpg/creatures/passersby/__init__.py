@@ -243,9 +243,13 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
         actor_id = getattr(actor, "user_id", None)
         if channel_id is None or actor_id is None:
             # Defensive: missing identifiers mean we can't read or
-            # write state. Skip gracefully — caller will treat as
-            # silent consume.
-            return ""
+            # write state. Return ``None`` so the dispatcher falls
+            # through to the next responder rather than silently
+            # consuming the verb. The defensive case is rare (real
+            # Game always supplies these); fall-through is the safer
+            # default. Was ``""`` (silent consume) — switched to
+            # ``None`` per retrospective review 2026-05-06.
+            return None
 
         # Capture pre-encounter acquaintance so we can detect a
         # first-time-learn moment (osmosis flip during this call,

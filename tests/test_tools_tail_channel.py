@@ -1153,3 +1153,64 @@ class TestDiscordMessageToRaw:
         msg = self._msg(ts=ts)
         raw = tail_channel._discord_message_to_raw(msg)
         assert raw["timestamp"].startswith("2026-04-27T17:30:15")
+
+
+# ---------------------------------------------------------------------------
+# _should_filter_self_event — Gateway --exclude-self filter
+# ---------------------------------------------------------------------------
+
+
+class TestShouldFilterSelfEvent:
+    """The Gateway --exclude-self flag suppresses events authored
+    by the client's own user (the tester bot), so an agent that's
+    both running tail_channel AND posting via bot_player doesn't
+    see its own posts echo back into its Monitor stream.
+
+    Compares by integer id, not Python identity — same lesson as
+    the verb-dispatch refactor's ``mention is bot_user`` regression
+    where MagicMock identity hid a real-Discord-shape bug.
+    """
+
+    def test_disabled_never_filters(self):
+        assert not tail_channel._should_filter_self_event(
+            exclude_self=False, client_user_id=12345, event_author_id=12345,
+        )
+        assert not tail_channel._should_filter_self_event(
+            exclude_self=False, client_user_id=12345, event_author_id=99999,
+        )
+
+    def test_enabled_filters_matching_id(self):
+        assert tail_channel._should_filter_self_event(
+            exclude_self=True, client_user_id=12345, event_author_id=12345,
+        )
+
+    def test_enabled_does_not_filter_other_authors(self):
+        assert not tail_channel._should_filter_self_event(
+            exclude_self=True, client_user_id=12345, event_author_id=99999,
+        )
+
+    def test_unknown_client_user_fails_open(self):
+        """Pre-on_ready race: client.user is None. Don't filter
+        when we don't yet know who we are — better to leak a few
+        events at startup than to silently drop a real player's
+        early message because the comparison saw None == None."""
+        assert not tail_channel._should_filter_self_event(
+            exclude_self=True, client_user_id=None, event_author_id=12345,
+        )
+
+    def test_string_id_coerces_to_int_match(self):
+        """discord.py exposes id as int, but defensive: ensure a
+        string-shaped author id (REST-coming-back) still matches."""
+        assert tail_channel._should_filter_self_event(
+            exclude_self=True, client_user_id=12345, event_author_id="12345",
+        )
+
+    def test_unparseable_id_does_not_match(self):
+        """Garbage id in an event payload shouldn't crash the
+        callback or accidentally suppress a real event."""
+        assert not tail_channel._should_filter_self_event(
+            exclude_self=True, client_user_id=12345, event_author_id="not-a-number",
+        )
+        assert not tail_channel._should_filter_self_event(
+            exclude_self=True, client_user_id=12345, event_author_id=None,
+        )

@@ -279,7 +279,7 @@ class TestCampfireVerbs:
         actor = MagicMock(name="player")
         actor.name = "Caels"
         actor.uses_article = False
-        line = cf.on_verb("feed", _make_game(), actor, None)
+        line = cf.on_verb("feed", _make_game(), actor, fuel_arg=None)
         assert line is not None
         assert "cold" in line.lower() or "fail" in line.lower() or "striker" in line.lower()
 
@@ -301,7 +301,7 @@ class TestCampfireVerbs:
         actor.is_equipped = MagicMock(return_value=False)
         actor.take_item = MagicMock(return_value=stick)
 
-        cf.on_verb("feed", _make_game(), actor, None)
+        cf.on_verb("feed", _make_game(), actor, fuel_arg=None)
         actor.take_item.assert_called_once_with(stick)
         assert cf.fuel == 10 + FUEL_PER_STICK
 
@@ -326,7 +326,7 @@ class TestCampfireVerbs:
         actor.is_equipped = MagicMock(return_value=False)
 
         # Should NOT raise — should call .all() and resolve cleanly.
-        cf.on_verb("feed", _make_game(), actor, None)
+        cf.on_verb("feed", _make_game(), actor, fuel_arg=None)
         inv.all.assert_called()
 
     def test_gaze_returns_state_aware_line(self):
@@ -517,9 +517,16 @@ class TestCampfireWeatherReactivity:
 
 
 class TestStoneField:
-    def test_supports_three_sensory_verbs(self):
+    def test_supports_sensory_and_presence_verbs(self):
         sf = StoneField()
-        assert sf.SUPPORTED_VERBS == ["gaze", "touch", "listen"]
+        # Sensory verbs (V1) plus presence verbs added 2026-05-04
+        # with the new presence cog. $bite intentionally excluded
+        # — stones do not invite the absurd the way the campfire
+        # does (Caels' direction).
+        assert sf.SUPPORTED_VERBS == [
+            "gaze", "touch", "listen",
+            "lean", "sit", "rest", "ponder", "tend",
+        ]
 
     def test_gaze_returns_line(self):
         sf = StoneField()
@@ -725,9 +732,13 @@ class TestWorldCogDispatch:
         ):
             await cog.feed.callback(cog, ctx, target="campfire stick")
 
-        # on_verb called with verb='feed', fuel arg='stick'
+        # on_verb called with verb='feed', fuel_arg='stick' as kwarg.
+        # The dispatcher forwards extras by name through StaticObject's
+        # handle_verb → on_verb path (per #63 fix 2026-05-07; was
+        # positional, fragile). The cog passes fuel_arg=<token> on the
+        # call to dispatch_expressive_verb.
         cf.on_verb.assert_called_once()
         args = cf.on_verb.call_args.args
+        kwargs = cf.on_verb.call_args.kwargs
         assert args[0] == "feed"
-        # Last positional is the fuel arg
-        assert args[-1] == "stick"
+        assert kwargs.get("fuel_arg") == "stick"

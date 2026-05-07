@@ -517,11 +517,43 @@ def _format_initial(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _should_filter_self_event(
+    exclude_self: bool,
+    client_user_id,
+    event_author_id,
+) -> bool:
+    """Decide whether to suppress a Gateway event whose author is
+    the client itself.
+
+    Compares by integer id (not Python identity) — the lesson from
+    the verb-dispatch refactor's ``mention is bot_user`` regression
+    is generalized here. ``client.user`` is None until ``on_ready``
+    fires; pass ``None`` and the call fails-open (does not filter)
+    so the early-startup race doesn't accidentally drop events.
+
+    Args:
+        exclude_self: master switch. When False, never filter.
+        client_user_id: the Gateway client's own user id, or None
+            if not yet known.
+        event_author_id: the author id from the incoming event.
+    """
+    if not exclude_self:
+        return False
+    if client_user_id is None:
+        return False
+    try:
+        return int(event_author_id) == int(client_user_id)
+    except (TypeError, ValueError):
+        return False
+
+
 async def _gateway_loop(
     token: str,
     channel_id: int,
     buffer: Optional["TailBuffer"] = None,
     mention_map: Optional[dict] = None,
+    exclude_self: bool = False,
+    debug_log_path: Optional[str] = None,
 ) -> None:
     """Stream message + edit + reaction events from the channel via
     a Discord Gateway WebSocket using a tester-bot token.
@@ -545,6 +577,21 @@ async def _gateway_loop(
     without it, ``MESSAGE_CREATE`` / ``MESSAGE_UPDATE`` events
     arrive with empty content fields. ``GUILD_MESSAGE_REACTIONS``
     is non-privileged and works either way.
+
+    ``exclude_self``: when True, suppress events authored by the
+    Gateway client's own user (the tester bot). Use when this
+    process and a ``bot_player`` posting process share an agent —
+    the agent already knows what it sent and re-rendering its
+    own posts is noise. Default False preserves the prior contract
+    where every event reaches stdout.
+
+    ``debug_log_path``: when set, append per-event timing telemetry
+    (Discord-emit timestamp, callback-entry timestamp, gap-ms before
+    stdout print) to that path. File-only — does NOT touch stdout
+    or stderr, so a Monitor watching this process won't see the
+    telemetry. Used to isolate where event lag accumulates when
+    Monitor sees clumped notifications without corresponding
+    Discord-side bursts.
     """
     import discord  # type: ignore
 
@@ -561,16 +608,76 @@ async def _gateway_loop(
         file=sys.stderr,
     )
 
+    # Optional debug-log file. Opened in append mode; one line per
+    # event. Use line-buffering (buffering=1) so an external `tail
+    # -f` sees writes in real time. Closed via try/finally below.
+    debug_log = (
+        open(debug_log_path, "a", encoding="utf-8", buffering=1)
+        if debug_log_path else None
+    )
+    if debug_log is not None:
+        debug_log.write(
+            f"# tail_channel gateway session start "
+            f"channel={channel_id} at "
+            f"{datetime.now(timezone.utc).isoformat()}\n"
+        )
+
     @client.event
     async def on_ready() -> None:
         print(
-            f"[gateway connected as {client.user}]",
+            f"[gateway connected as {client.user}"
+            f"{' — excluding self-authored events' if exclude_self else ''}"
+            f"{' — debug-log: ' + debug_log_path if debug_log_path else ''}]",
             file=sys.stderr,
+        )
+
+    def _is_self(author_id) -> bool:
+        # client.user is None until on_ready fires; tolerate the race
+        # by failing-open (don't filter when we don't yet know who
+        # we are).
+        me = getattr(client, "user", None)
+        client_user_id = me.id if me is not None else None
+        return _should_filter_self_event(
+            exclude_self, client_user_id, author_id,
+        )
+
+    def _log_timing(
+        event_kind: str,
+        msg_id,
+        author_id,
+        discord_ts: Optional[datetime],
+        t_recv: datetime,
+    ) -> None:
+        """Write one timing record. ``t_recv`` is when the discord.py
+        callback was entered; we capture ``t_print`` here right
+        before the stdout print, so the file shows recv→print gap
+        AND emit→recv gap when the Discord timestamp is present."""
+        if debug_log is None:
+            return
+        t_print = datetime.now(timezone.utc)
+        emit_to_recv_ms = (
+            (t_recv - discord_ts).total_seconds() * 1000.0
+            if discord_ts else None
+        )
+        recv_to_print_ms = (t_print - t_recv).total_seconds() * 1000.0
+        emit_str = discord_ts.isoformat() if discord_ts else "?"
+        emit_gap_str = (
+            f"{emit_to_recv_ms:.1f}" if emit_to_recv_ms is not None else "?"
+        )
+        debug_log.write(
+            f"{t_print.isoformat()} kind={event_kind} "
+            f"msg_id={msg_id} author={author_id} "
+            f"discord_emit={emit_str} "
+            f"emit_to_recv_ms={emit_gap_str} "
+            f"recv_to_print_ms={recv_to_print_ms:.1f}\n"
         )
 
     @client.event
     async def on_message(msg: "discord.Message") -> None:
+        t_recv = datetime.now(timezone.utc)
         if msg.channel.id != channel_id:
+            return
+        if _is_self(msg.author.id):
             return
         # Build a Discord-REST-compatible dict so the existing
         # ``_make_buffer_entry`` and ``_format_message`` paths
@@ -578,6 +685,9 @@ async def _gateway_loop(
         raw = _discord_message_to_raw(msg)
         if buffer is not None:
             buffer.append(_make_buffer_entry(raw, mention_map=mention_map))
+        _log_timing(
+            "message", msg.id, msg.author.id, msg.created_at, t_recv,
+        )
         for line in _format_message(raw, mention_map=mention_map):
             print(line, flush=True)
 
@@ -585,7 +695,10 @@ async def _gateway_loop(
     async def on_message_edit(
         before: "discord.Message", after: "discord.Message",
     ) -> None:
+        t_recv = datetime.now(timezone.utc)
         if after.channel.id != channel_id:
+            return
+        if _is_self(after.author.id):
             return
         raw = _discord_message_to_raw(after)
         # Tag the author so the reader can distinguish a new
@@ -595,6 +708,10 @@ async def _gateway_loop(
         raw["author"] = {"username": edited_author}
         if buffer is not None:
             buffer.append(_make_buffer_entry(raw, mention_map=mention_map))
+        _log_timing(
+            "edit", after.id, after.author.id,
+            after.edited_at or after.created_at, t_recv,
+        )
         for line in _format_message(raw, mention_map=mention_map):
             print(line, flush=True)
 
@@ -602,7 +719,10 @@ async def _gateway_loop(
     async def on_raw_reaction_add(
         payload: "discord.RawReactionActionEvent",
     ) -> None:
+        t_recv = datetime.now(timezone.utc)
         if payload.channel_id != channel_id:
+            return
+        if _is_self(payload.user_id):
             return
         # Resolve the user — payload.member is set when the
         # event fires from a guild we share. Fall back to the
@@ -624,6 +744,11 @@ async def _gateway_loop(
                 "author": actor,
                 "content": f"reacted with {emoji} to {payload.message_id}",
             })
+        # Reactions don't carry a Discord-emit timestamp; we record
+        # recv→print and leave emit→recv as "?".
+        _log_timing(
+            "reaction", payload.message_id, payload.user_id, None, t_recv,
+        )
         print(line, flush=True)
 
     try:
@@ -631,6 +756,16 @@ async def _gateway_loop(
     except KeyboardInterrupt:
         await client.close()
         return
+    finally:
+        if debug_log is not None:
+            try:
+                debug_log.write(
+                    f"# tail_channel gateway session end at "
+                    f"{datetime.now(timezone.utc).isoformat()}\n"
+                )
+                debug_log.close()
+            except Exception:
+                pass
 
 
 def _discord_message_to_raw(msg) -> dict:
@@ -1047,6 +1182,8 @@ async def _run(args: argparse.Namespace, token: str) -> int:
                     await _gateway_loop(
                         gateway_token, game["channel_id"],
                         buffer=buffer, mention_map=mention_map,
+                        exclude_self=args.exclude_self,
+                        debug_log_path=args.debug_log,
                     )
                 else:
                     await _tail_loop(
@@ -1140,6 +1277,38 @@ def main() -> int:
             "MESSAGE_CONTENT privileged intent enabled in the dev "
             "portal. Adds visibility into edits and reactions that "
             "REST polling can't see. Implies --follow."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-self",
+        action="store_true",
+        help=(
+            "Drop messages / edits / reactions authored by the "
+            "Gateway client itself (the tester bot). Use when "
+            "tail_channel is running inside the same agent that's "
+            "ALSO posting via bot_player — the agent already knows "
+            "what it sent, and re-printing its own posts becomes "
+            "noise the operator has to recognize-and-skip every "
+            "time. Default off so external Monitors retain visibility "
+            "of the tester bot's actions. Only meaningful with "
+            "``--gateway``; ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--debug-log",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Append per-event timing telemetry (Discord-emit "
+            "timestamp, callback-entry timestamp, gap in ms before "
+            "stdout print) to PATH for post-hoc correlation against "
+            "Discord-side delivery. File-only — does NOT go through "
+            "stdout (Monitor) or stderr (Monitor's task output), so "
+            "the agent running the Monitor stays unaware. Used to "
+            "isolate where event lag accumulates when Monitor sees "
+            "clumped notifications without corresponding Discord-side "
+            "bursts. Only meaningful with ``--gateway``."
         ),
     )
     parser.add_argument(

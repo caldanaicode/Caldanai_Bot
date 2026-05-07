@@ -108,6 +108,26 @@ _V2_INTERACTIVE_COMMANDS = (
     "wink",
 )
 
+# Verbs whose narration / dead pools are stubbed pending writer-
+# agent fill. They route correctly through the dispatcher (so
+# routing-shape tests still parametrize over them via
+# ``_V2_BOT_MENTION_REPLIED_COMMANDS``), but content-shape
+# assertions (pool-tier coverage, cold-rejection, dead-pool size)
+# would fail until the writer's pass lands. Move into
+# ``_V2_INTERACTIVE_COMMANDS`` once the pools are filled.
+_V2_INTERACTIVE_COMMANDS_PENDING_WRITER = (
+    "thank",
+)
+
+# Bot-mention scripted-reply sweep: warmth-aware verbs whose command
+# bodies live on RpgSocialCommands. Presence verbs (lean/sit/rest/
+# ponder/tend/bite) also have BotResponder scripted replies but
+# their command bodies live on RpgPresenceCommands; their parallel
+# bot-mention sweep is in tests/test_presence_commands.py.
+_V2_BOT_MENTION_REPLIED_COMMANDS = (
+    _V2_INTERACTIVE_COMMANDS + _V2_INTERACTIVE_COMMANDS_PENDING_WRITER
+)
+
 
 _V2_SELF_DIRECTED_COMMANDS = (
     "pose",
@@ -704,7 +724,7 @@ class TestInteractiveCommandDispatch:
         ), f"{cmd} no-target line not italicized: {texts}"
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("cmd", _V2_INTERACTIVE_COMMANDS)
+    @pytest.mark.parametrize("cmd", _V2_BOT_MENTION_REPLIED_COMMANDS)
     async def test_bot_mention_emits_scripted_reply(self, cmd):
         """Mentioning the bot short-circuits to a scripted reply; the
         resolver must not fire (warmth against the bot is never

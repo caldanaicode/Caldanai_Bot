@@ -17,17 +17,19 @@ This module collapses that into one shape:
   it is. ``None`` return = "I don't handle this verb" (caller
   walks to the next responder in the chain).
 
-- :func:`resolve_verb_target` — the unified resolution chain.
-  Mention path (with doppelganger-disguise) for direct @-targeting,
-  text-token path (passerby → silhouette → monster → static_object
-  → player_fuzzy) for everything else. Cogs can opt out of entity
-  types via ``include_*`` flags.
-
 - :func:`walk_token_chain` — generator yielding token-matching
-  responders in priority order so the dispatcher can try each
+  responders in priority order (passerby → silhouette → monster
+  → static_object → player_fuzzy) so the dispatcher can try each
   until one returns a non-None ``handle_verb`` result. Preserves
-  today's "passerby falls through to monster when the NPC has no
-  reaction for the verb" behavior.
+  the "passerby falls through to monster when the NPC has no
+  reaction for the verb" behavior. Cogs opt out of entity types
+  via ``include_*`` flags.
+
+  An earlier ``resolve_verb_target`` helper (single-target
+  resolver, with mention/doppelganger handling inline) lived
+  alongside the chain walker but had no callers — the dispatcher
+  reimplements the mention path inline. Removed 2026-05-07 per
+  the verb-dispatch retrospective review (#66).
 
 Cog-side dispatch helpers (the ``dispatch_expressive_verb``
 function) live alongside the cog mixin in ``cogs/_verb_dispatch.py``
@@ -98,64 +100,6 @@ class VerbResponder(Protocol):
         ...
 
 
-def resolve_verb_target(
-    game,
-    *,
-    token: Optional[str] = None,
-    mention: Optional[Any] = None,
-    include_passerby: bool = True,
-    include_silhouette: bool = False,
-    include_monster: bool = True,
-    include_static_object: bool = True,
-    include_player_fuzzy: bool = True,
-) -> Optional[VerbResponder]:
-    """Resolve a single target via mention or token.
-
-    Mention path (``mention`` is a Discord ``Member``): unambiguous,
-    with one exception — **doppelganger-disguise**. If the active
-    monster's name matches the mentioned player's display_name,
-    return the monster instead. The disguise is real all the way
-    down; whoever bears the name receives the verb.
-
-    Token path: walks priority order (passerby → silhouette →
-    monster → static_object → player_fuzzy), returning the FIRST
-    entity whose ``matches_token`` accepts. Use
-    :func:`walk_token_chain` instead if the caller needs to try
-    multiple responders (e.g. when the first match doesn't handle
-    the verb and the dispatcher should fall through).
-
-    ``include_*`` flags let cogs exclude entity types — combat
-    cogs exclude static_object, world cogs may exclude player_fuzzy
-    to keep $touch from accidentally matching player names, etc.
-
-    Returns ``None`` if no responder matched.
-    """
-    if mention is not None:
-        if include_monster and game.monster is not None:
-            try:
-                if game.monster.name.lower() == mention.display_name.lower():
-                    return game.monster
-            except AttributeError:
-                pass
-        if include_player_fuzzy:
-            return _player_from_mention(game, mention)
-        return None
-
-    if not token:
-        return None
-
-    for candidate in walk_token_chain(
-        game, token,
-        include_passerby=include_passerby,
-        include_silhouette=include_silhouette,
-        include_monster=include_monster,
-        include_static_object=include_static_object,
-        include_player_fuzzy=include_player_fuzzy,
-    ):
-        return candidate
-    return None
-
-
 def walk_token_chain(
     game,
     token: str,
@@ -219,16 +163,3 @@ def walk_token_chain(
             yield results[0]
 
 
-def _player_from_mention(game, mention) -> Optional[Any]:
-    """Resolve a Discord mention to the in-game ``Player`` instance.
-    Returns ``None`` if the mention isn't a registered player in
-    this game's player_manager.
-    """
-    pm = getattr(game, "player_manager", None)
-    if pm is None:
-        return None
-    players = getattr(pm, "players", {}) or {}
-    mention_id = getattr(mention, "id", None)
-    if mention_id is None:
-        return None
-    return players.get(mention_id)

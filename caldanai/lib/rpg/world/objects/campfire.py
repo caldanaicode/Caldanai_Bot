@@ -108,7 +108,11 @@ class Campfire(StaticObjectPlugin):
     name = "campfire"
     aliases = ["fire", "flames", "embers"]
 
-    SUPPORTED_VERBS = ["light", "feed", "gaze", "touch", "listen"]
+    SUPPORTED_VERBS = [
+        "light", "feed", "gaze", "touch", "listen",
+        # Presence verbs (added 2026-05-04 with the new presence cog).
+        "sit", "rest", "lean", "tend", "ponder", "bite",
+    ]
 
     # ---------------------------------------------------------------
     # Lifecycle
@@ -212,12 +216,17 @@ class Campfire(StaticObjectPlugin):
     # ---------------------------------------------------------------
 
     def on_verb(
-        self, verb: str, game, actor, *args,
+        self, verb: str, game, actor, **kwargs,
     ) -> Optional[str]:
         if verb == "light":
             return self._on_light(game, actor)
         if verb == "feed":
-            fuel_arg = args[0] if args else None
+            # ``fuel_arg`` arrives as a kwarg from the cog via the
+            # unified dispatcher's ``handle_verb`` → ``on_verb``
+            # forwarding path. By-name extraction (vs. positional
+            # ``args[0]``) is order-independent and survives future
+            # verbs adding more kwargs alongside.
+            fuel_arg = kwargs.get("fuel_arg")
             return self._on_feed(game, actor, fuel_arg)
         if verb == "gaze":
             return self._on_gaze(game, actor)
@@ -225,6 +234,19 @@ class Campfire(StaticObjectPlugin):
             return self._on_touch(game, actor)
         if verb == "listen":
             return self._on_listen(game, actor)
+        # Presence verbs.
+        if verb == "sit":
+            return self._on_sit(game, actor)
+        if verb == "rest":
+            return self._on_rest(game, actor)
+        if verb == "lean":
+            return self._on_lean(game, actor)
+        if verb == "tend":
+            return self._on_tend(game, actor)
+        if verb == "ponder":
+            return self._on_ponder(game, actor)
+        if verb == "bite":
+            return self._on_bite(game, actor)
         return None
 
     def _on_light(self, game, actor) -> Optional[str]:
@@ -449,6 +471,136 @@ class Campfire(StaticObjectPlugin):
                 self, actor,
             )
         return None
+
+    # ---------------------------------------------------------------
+    # Presence-verb hooks (added with rpg_presence_commands cog)
+    # ---------------------------------------------------------------
+
+    def _on_sit(self, game, actor) -> Optional[str]:
+        if self.is_lit:
+            pool = [
+                "@2 settles down beside @1d. The flames lean toward @2o, glad of the company.",
+                "@2 lowers @2r onto a ring-stone, palms held out to the warmth.",
+                "@2 sits with @2a knees bent toward @1d, the firelight finding the lines of @2np face.",
+            ]
+        elif self.is_embers:
+            pool = [
+                "@2 settles by the ember-bed of @1d. The glow is low and patient — companionable as a cat.",
+                "@2 lowers @2r onto a warm ring-stone and lets the embers do their slow work on @2np hands.",
+                "@2 sits cross-legged at the edge of @1d. The embers tick and settle, keeping @2o quiet company.",
+            ]
+        else:  # OUT
+            pool = [
+                "@2 settles down beside the cold ring of stones. The ash is grey, the warmth is gone, and the place where @1d was holds @2o anyway.",
+                "@2 sits at the dead hearth of @1d. The stones are cool through @2np cloak; the silence is its own kind of sitting.",
+                "@2 lowers @2r onto a ring-stone gone cold. The clearing keeps its quiet around @2np small still shape.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_rest(self, game, actor) -> Optional[str]:
+        if self.is_lit:
+            pool = [
+                "@2 rests by @1d, eyes half-closing in the heat. The fire keeps watch in @2np stead.",
+                "@2 stretches out beside @1d and lets the warmth do the work of holding @2o together.",
+                "@2 settles back near @1d with a long slow exhale. The flames soften @2np shoulders one by one.",
+            ]
+        elif self.is_embers:
+            pool = [
+                "@2 rests by the ember-bed of @1d. The glow holds steady on @2np cheek and asks nothing more.",
+                "@2 stretches out near @1d and lets the embers be the loudest thing in the world for a beat.",
+                "@2 closes @2a eyes by the embers, breath slow, the warmth a held hand on @2np back.",
+            ]
+        else:  # OUT
+            pool = [
+                "@2 rests by the dead hearth of @1d. There is no warmth to lean into — only the shape of where the warmth was.",
+                "@2 closes @2a eyes beside the cold ring of stones. The clearing holds the rest in the fire's place.",
+                "@2 lets @2r settle by the ash of @1d. Cold-stones rest is rest of a different sort, but rest still.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_lean(self, game, actor) -> Optional[str]:
+        if self.is_lit:
+            pool = [
+                "@2 leans toward the warmth of @1d, hands held open to the flame.",
+                "@2 props @2a forearms on a knee and tilts @2r closer to @1d. The fire welcomes the angle.",
+                "@2 leans into the heat-line of @1d. The flames lift a fraction toward @2np face.",
+            ]
+        elif self.is_embers:
+            pool = [
+                "@2 leans toward the embers of @1d, palms held a careful hand's breadth above the glow.",
+                "@2 props @2r on a ring-stone and tips @2a body toward what warmth remains.",
+                "@2 leans low over the ember-bed of @1d. The glow finds @2np jaw and stays there.",
+            ]
+        else:  # OUT
+            pool = [
+                "@2 leans toward the cold ring of stones. There is no warmth waiting; the lean is its own quiet ceremony.",
+                "@2 props @2r on a ring-stone gone cold. The fire is not there to lean into. @2 leans anyway.",
+                "@2 tilts @2r toward where @1d used to be. The ash does not stir.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_tend(self, game, actor) -> Optional[str]:
+        if self.is_lit:
+            pool = [
+                "@2 nudges a coal back into place at the edge of @1d with the side of a stick. The fire takes the small correction without comment.",
+                "@2 reaches in with a careful stick and rolls a half-burned log a quarter-turn. @1Dc settles into the new arrangement.",
+                "@2 brushes a stray ember back into the ring with a flick of a twig. @1Dc accepts the tidying.",
+            ]
+        elif self.is_embers:
+            pool = [
+                "@2 stirs the ember-bed of @1d gently with a stick, coaxing the glow to spread. The embers brighten a moment in answer.",
+                "@2 banks a small heap of warm ash over the brightest coals of @1d. The embers will hold longer for it.",
+                "@2 turns a glowing coal with a careful twig. @1Dc sighs back a brief lift of orange light.",
+            ]
+        else:  # OUT
+            pool = [
+                "@2 brushes cold ash to one side with the edge of @2a hand. @1Dc stays cold and still — but the hearth is tidier for the gesture.",
+                "@2 sweeps loose ash out of the ring of @1d, settling the dead place a little more decently.",
+                "@2 squares the cooled stones of @1d with a patient hand. Nothing kindles. The care lands anyway.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_ponder(self, game, actor) -> Optional[str]:
+        if self.is_lit:
+            pool = [
+                "@2 watches @1d, letting thoughts catch like sparks and rise.",
+                "@2 stares into the flames of @1d. Shapes form, unform, almost-mean something, and don't.",
+                "@2 holds @2a gaze on @1d. The fire does the thinking for @2o, in the way fire does.",
+            ]
+        elif self.is_embers:
+            pool = [
+                "@2 watches the ember-bed of @1d. The slow glow makes a slow place in @2np head for thought to settle.",
+                "@2 sits with @2a thoughts beside the embers of @1d. The glow ticks and settles; so does whatever @2 was turning over.",
+                "@2 considers the dim heart of @1d. The embers consider back, in their own ember way.",
+            ]
+        else:  # OUT
+            pool = [
+                "@2 looks at the cold ring of @1d. The stones hold no answer; the holding is its own.",
+                "@2 ponders the ash of @1d. The fire is gone; the place where the fire was is full of what's missing.",
+                "@2 stands quiet at the dead hearth of @1d, weighing something the cold stones won't quite speak to.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_bite(self, game, actor) -> Optional[str]:
+        if self.is_lit:
+            pool = [
+                "@2 bites at @1d. The fire is delighted, and flares a hand higher in approval.",
+                "@2 leans in and snaps @2a teeth at the flame of @1d. @1Dc throws a bright pop of sparks, charmed.",
+                "@2 nips at the air over @1d. The fire crackles back like it's been waiting to be invited.",
+            ]
+        elif self.is_embers:
+            pool = [
+                "@2 bites at the ember-bed of @1d. The embers wake briefly, an orange wink, and settle again.",
+                "@2 snaps @2a teeth playfully toward the embers. @1Dc breathes a small bright tick of acknowledgement.",
+                "@2 leans in and mock-bites at the glow. The embers shift like a cat being scratched.",
+            ]
+        else:  # OUT
+            pool = [
+                "@2 bites at the cold hearth of @1d. The ash is not amused. Neither, frankly, is @2.",
+                "@2 leans in and snaps @2a teeth at the dead ring of stones. The cold stones decline to participate.",
+                "@2 nips at the ash where @1d used to be. The mouthful is cold and chalky and instructive.",
+            ]
+        return parse(random.choice(pool), self, actor)
 
     def _on_listen(self, game, actor) -> Optional[str]:
         if self.is_out:

@@ -205,6 +205,59 @@ _DEAD_INVOKER_FLAVOR: Dict[str, List[str]] = {
         "A single closed lid on @1np corpse twitches meaningfully at no one.",
         "The ghost of @1 throws a wink across the veil, and the veil declines to wink back.",
     ],
+    "thank": [
+        "The shade of @1 mouths a quiet thanks the air won't quite carry.",
+        "A faint warmth gathers above the corpse of @1 — gratitude with no breath behind it.",
+        "@1np stilled lips shape \"thank you\" once, soundless, and settle again.",
+        "Something gentle ripples off the body of @1 — the shape of a thank-you, unsent.",
+    ],
+    # ---- Presence-verb dead-invoker pools ------------------------
+    # Voice = a corpse attempting the presence-action: poignant,
+    # ghostly, the gesture outliving the body. @1 = the dead invoker
+    # (no article — players are named). Per-verb tone:
+    # - lean: corpse propped, finally at rest against something
+    # - sit: settled where they fell, the way the dirt holds them
+    # - rest: the stillness that cannot deepen further
+    # - ponder: the thought that doesn't finish
+    # - tend: a last attempt at small care that doesn't land
+    # - bite: emotion-neutral (per `project_verb_adverb_coloring.md`);
+    #   teeth set in death, a fidget-shape that outlives the fidget
+    "lean":   [
+        "The body of @1 lists slowly sideways and finds something to rest against.",
+        "@1 leans where @1 fell, propped at last against the dirt that holds @1o.",
+        "The corpse of @1 settles into a final lean, weight given over entirely.",
+        "@1np shoulder finds the ground and stays there, the lean become permanent.",
+    ],
+    "sit":    [
+        "The corpse of @1 is already sat, and shows no sign of getting up.",
+        "@1 sits where @1 came down, the dirt holding @1o the way the dirt does.",
+        "The body of @1 settles a fraction lower, taking its place among the still things.",
+        "@1np remains keep their seat without ceremony.",
+    ],
+    "rest":   [
+        "The corpse of @1 is at rest, and the rest goes no deeper than this.",
+        "@1np stillness can't deepen — @1 has rested all the way through.",
+        "The body of @1 holds the kind of quiet only the dead carry.",
+        "@1 lies where @1 lies, beyond troubling.",
+    ],
+    "ponder": [
+        "@1np eyes hold a thought the body can no longer finish.",
+        "The corpse of @1 stares at something a long way past the ceiling.",
+        "@1 considers the dark with the slow patience of a body done with hurry.",
+        "The shade of @1 turns a question over once and lets it lie.",
+    ],
+    "tend":   [
+        "@1np hand twitches toward a buckle that doesn't need straightening anymore.",
+        "The corpse of @1 lifts a finger half an inch, as if to fix something, and stops.",
+        "A small gesture of caretaking flickers across @1np stilled hand and fades.",
+        "@1np fingers curl in the dust the way they used to curl around someone else's sleeve.",
+    ],
+    "bite":   [
+        "@1np teeth are set, the jaw closed in a fidget the body forgot to release.",
+        "The corpse of @1 has its lip caught in its teeth and won't be letting go.",
+        "@1np jaw clicks shut once in the cold and stays that way.",
+        "A last small bite-shape holds in @1np mouth, neither finished nor undone.",
+    ],
 }
 
 _DEAD_TARGET_FLAVOR: Dict[str, List[str]] = {
@@ -265,6 +318,55 @@ _DEAD_TARGET_FLAVOR: Dict[str, List[str]] = {
         "@1 winks at the body of @2 — a small, private goodbye.",
         "@1 lowers one eyelid toward @2np corpse, a last secret between them.",
         "@1 throws a quiet wink at @2np stillness; the dead keep their counsel.",
+    ],
+    "thank": [
+        "@1 kneels by @2np body and says \"thank you\" the way one says it to a closed door — quiet, complete, meant.",
+        "@1 lays a hand on @2np stilled shoulder and offers @2o a thanks the dark can carry the rest of the way.",
+        "@1 murmurs a final \"thank you\" to the corpse of @2, soft enough that only the dirt hears.",
+    ],
+    # ---- Presence-verb dead-target pools -------------------------
+    # Voice = a living actor performing the presence-action toward
+    # a corpse: tender, final, the body still present in some
+    # functional way (still sittable-near, still leanable-against,
+    # still a thing one can ponder). @1 = living actor; @2 = dead
+    # target. Per-verb tone:
+    # - lean: actor leans on or near the body, a vigil-shape
+    # - sit: actor sits beside the corpse, the way you keep watch
+    # - rest: actor rests by them, the held quiet two bodies make
+    # - ponder: actor considers them — a last thought offered
+    # - tend: actor brushes hair from forehead, smooths a sleeve;
+    #   small caretaking that lands gently on the still
+    # - bite: emotion-neutral (per `project_verb_adverb_coloring.md`);
+    #   actor catches their own lip in their teeth, looking at @2
+    "lean":   [
+        "@1 leans against the dirt beside @2np body and lets the silence stand.",
+        "@1 sets a shoulder near @2np and holds the lean a long while.",
+        "@1 rests @1a back against the same ground that holds @2 and stays there.",
+    ],
+    "sit":    [
+        "@1 sits down beside the body of @2 and keeps the watch.",
+        "@1 settles in the dirt next to @2np remains, neither speaking nor leaving.",
+        "@1 takes a place beside @2np stillness and stays.",
+    ],
+    "rest":   [
+        "@1 rests beside the body of @2, the quiet two bodies make holding.",
+        "@1 lays @1r down within reach of @2np remains and lets the dark have them both for a while.",
+        "@1 keeps a still, breathing watch beside @2np corpse.",
+    ],
+    "ponder": [
+        "@1 looks down at the body of @2 a long time, holding a thought @1s won't say.",
+        "@1 considers @2np stillness the way one considers a closed letter.",
+        "@1 stands over the corpse of @2 and turns something over carefully in @1a head.",
+    ],
+    "tend":   [
+        "@1 brushes hair from @2np forehead with the back of one careful knuckle.",
+        "@1 smooths a fold in @2np sleeve, settling the cloth the way @2 might have liked.",
+        "@1 closes @2np eyes with two fingers and lets @1a hand linger a beat.",
+    ],
+    "bite":   [
+        "@1 catches @1a own lip in @1a teeth, eyes on the body of @2.",
+        "@1 sets @1a jaw, looking at @2np stillness and not looking away.",
+        "@1 holds @1a own thumb between @1a teeth and watches @2np corpse for a long beat.",
     ],
 }
 
@@ -1058,6 +1160,504 @@ _WINK_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
 }
 
 
+# ---- $thank ---------------------------------------------------------
+#
+# Voice: gratitude is sincere by default; the warmth tiers tune *how*
+# the actor expressed it (HOT = effusive, public; WARM = heartfelt;
+# NEUTRAL = polite; COOL = perfunctory; COLD = grudging / sarcastic)
+# and *how* the target received it (HOT = embraces it back, makes a
+# moment of it; WARM = accepts warmly; NEUTRAL = acknowledges; COOL =
+# brushes off; COLD = rejects / refuses). @1 = actor (intent), @2 =
+# target.
+
+_THANK_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 thanks @2 through gritted teeth, the words doing the work and nothing more.",
+        "@1 mutters a flat \"thanks\" in @2np general direction without quite looking at @2o.",
+        "@1 offers @2 the most begrudging acknowledgement a thank-you can carry.",
+        "@1 says \"thanks\" to @2 in the tone people reserve for a debt they didn't want to owe.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 offers @2 a perfunctory thanks and a small, formal nod.",
+        "@1 thanks @2 in the brisk economy of someone with somewhere else to be.",
+        "@1 produces a short, polite \"my thanks\" for @2 and leaves it there.",
+        "@1 dispatches a clipped acknowledgement of thanks toward @2.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 thanks @2.",
+        "@1 inclines @1a head and says \"thank you\" to @2 plainly.",
+        "@1 offers @2 a clean, unembellished word of thanks.",
+        "@1 catches @2np eye and says \"thanks for that\" with no fuss.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 thanks @2 with quiet sincerity, the kind that lands.",
+        "@1 meets @2np eyes and says \"truly — thank you,\" voice low and warm.",
+        "@1 lays a hand briefly on @2np shoulder and offers @2o a heartfelt thanks.",
+        "@1 thanks @2 with the unhurried weight of someone who means each word.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 thanks @2 with both hands and a long bow, loud enough that the whole clearing turns.",
+        "@1 throws @1a arms wide and declares @2np kindness to anyone within earshot.",
+        "@1 grips @2np shoulders, beaming, and tells @2o exactly how much it meant.",
+        "@1 sweeps @2 into a thanks so effusive @1s nearly forgets to breathe between sentences.",
+    ],
+}
+
+_THANK_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 doesn't acknowledge it; the gratitude lands on stone.",
+        "@2 looks past @1 as if no thanks had been offered at all.",
+        "@2 turns a shoulder and the thank-you finds nowhere to settle.",
+        "@2 shakes @2a head once — \"don't\" — and walks @2a attention elsewhere.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 brushes the thanks off with a small, quick \"don't make it a thing.\"",
+        "@2 waves @1np gratitude aside with a tight, unembarrassed gesture.",
+        "@2 nods once, briskly, and changes the subject before @1 can extend it.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 inclines @2a head in acknowledgement.",
+        "@2 nods and says \"of course\" the way one ticks off a small completed thing.",
+        "@2 returns a short, even \"any time\" and lets the moment close.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 smiles and waves it off, warm and easy. \"Glad to.\"",
+        "@2 meets @1np eyes and says \"truly — any time,\" and means it.",
+        "@2 clasps @1np forearm briefly. \"Don't mention it. Or do. Either way, glad of it.\"",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 lights up and clasps @1np hand in both of @2a own, holding on a long beat.",
+        "@2 sweeps @1 into a quick fierce embrace and announces to nobody in particular that @1 is good people.",
+        "@2 grips @1np shoulders, eyes bright, and gives the thanks back twice as warm.",
+        "@2 throws @2a arm around @1 and makes a whole moment of it, refusing to let @1 minimize the gesture.",
+    ],
+}
+
+
+# ---- Presence verbs ($lean / $sit / $rest / $ponder / $tend / $bite)
+#
+# Per-warmth-tier intent + acceptance beats for each of the 6
+# presence verbs (10 dicts; pools below). Voice rules:
+#
+# - Presence verbs share a "low-energy occupying space" register
+#   (per `caldanai/lib/cogs/rpg_presence_commands.py` docstring).
+#   The intent beat captures HOW the actor performed the gesture
+#   toward @2; the acceptance beat captures HOW @2 received it.
+# - **Emotion-neutral by default for $bite, $lean, $rest, $ponder**
+#   (per `project_verb_adverb_coloring.md`). Stick to physical
+#   action + observable detail; let warmth-tier do the tonal work
+#   without painting emotion adverbs onto the line.
+# - $tend / $sit can carry mild affection at HOT/WARM (small care,
+#   companionable settling). $bite is the awkward one — stays
+#   physical-fidget across all tiers; HOT/WARM reads as playful,
+#   COOL/COLD reads as performed-aggression-or-rejection.
+# - Match the intent/acceptance asymmetry from existing pools:
+#   intent = actor's projected gesture; acceptance = target's
+#   independent response. Never echo the actor's tier in the
+#   acceptance line.
+# - Rendering convention: ``@1`` = actor, ``@2`` = target. Use
+#   ``@1np`` / ``@2a`` for possessives, etc. Italic asterisks are
+#   the social-cog convention but presence beats may run
+#   non-italic (match existing $hug et al. shape — they're not
+#   italic).
+
+_LEAN_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 leans against the far wall, well clear of @2.",
+        "@1 props a shoulder against the nearest surface that isn't @2.",
+        "@1 angles @1r away from @2 and leans into nothing in particular.",
+        "@1 picks a lean that puts @2 squarely behind @1np shoulder.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 leans at arm's length from @2, weight on one foot.",
+        "@1 sets a shoulder against the wall a measured pace from @2.",
+        "@1 leans nearby with @1a arms folded and @1a eyes on the middle distance.",
+        "@1 settles into a lean that keeps @2 in @1a peripheral vision.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 leans against the same wall as @2.",
+        "@1 props @1r near @2 and lets the lean settle.",
+        "@1 takes up a lean within easy speaking distance of @2.",
+        "@1 sets @1a back against something solid alongside @2.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 leans in close enough to @2 that @1np shoulder almost brushes @2np.",
+        "@1 settles into a lean beside @2 with the easy posture of company.",
+        "@1 props @1r against the same beam as @2, shoulder a hand's width away.",
+        "@1 leans toward @2 the way one leans into a familiar quiet.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 sets @1a shoulder flush against @2np and lets the weight of the lean carry through.",
+        "@1 leans into @2 with the unconsidered familiarity of long company.",
+        "@1 props @1r against @2 the way one leans against a wall — and stays.",
+        "@1 lets @1a head come to rest against @2np shoulder without hesitation.",
+    ],
+}
+
+_LEAN_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 shifts a half-pace clear and the lean has nothing to land against.",
+        "@2 straightens off the wall and walks @2a lean elsewhere.",
+        "@2 stiffens and the air between them gets pointedly wider.",
+        "@2 turns a shoulder away and the contact does not happen.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 holds @2a ground without closing the gap.",
+        "@2 keeps @2a own lean and lets @1np stand on its own.",
+        "@2 acknowledges the proximity with the smallest tilt of @2a head.",
+        "@2 stays put — neither leaning in nor pulling away.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 lets the lean be what it is.",
+        "@2 stays leaned where @2 was and the moment holds.",
+        "@2 makes no particular accommodation, and no particular refusal.",
+        "@2 keeps @2a stance and the two leans share the wall.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 settles a fraction closer, the lean shared between them.",
+        "@2 lets @2a own weight come to rest against @1np shoulder.",
+        "@2 angles toward @1 just enough that the leans meet.",
+        "@2 leans back into @1np quiet and lets it stand.",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 leans back into @1np weight without thinking about it.",
+        "@2 settles @2a head against @1np shoulder and breathes out.",
+        "@2 sinks into the shared lean and stays there a long, unhurried while.",
+        "@2 catches @1np shoulder with @2a own and lets the lean become a held thing.",
+    ],
+}
+
+_SIT_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 picks a seat well across the room from @2.",
+        "@1 sits down with @1a back to @2.",
+        "@1 chooses a place on the bench that puts a careful gap between @1r and @2.",
+        "@1 finds a seat at the far edge of the firelight, @2 left to the other side.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 sits within reach of @2 without closing the gap.",
+        "@1 takes a seat one place removed from @2.",
+        "@1 lowers @1r onto the bench with a deliberate hand-span between @1r and @2.",
+        "@1 settles into a seat near enough to talk, far enough not to.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 sits down beside @2.",
+        "@1 takes the seat next to @2 and lets the silence be silence.",
+        "@1 settles onto the bench alongside @2.",
+        "@1 lowers @1r into the place beside @2 without ceremony.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 sits beside @2 and lets the moment hold.",
+        "@1 settles in close enough to @2 that the warmth of the bench is shared.",
+        "@1 takes the seat at @2np elbow and breathes out.",
+        "@1 lowers @1r beside @2 with the easy slowness of company kept often.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 plants @1r shoulder-to-shoulder with @2 and breathes out.",
+        "@1 drops onto the bench so close to @2 that their knees knock and stay touching.",
+        "@1 sits down against @2np side and lets @1a weight come to rest there.",
+        "@1 takes the seat against @2np shoulder the way kin takes a seat against kin.",
+    ],
+}
+
+_SIT_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 stands and finds reason to be elsewhere.",
+        "@2 gathers @2a things and moves to the far end of the bench.",
+        "@2 rises, brushes off, and crosses the room.",
+        "@2 turns @2a back and the seat beside goes unanswered.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 acknowledges the company with the smallest tilt of @2a head.",
+        "@2 keeps @2a seat and @2a own counsel.",
+        "@2 nods once at the new neighbor and goes back to what held @2o.",
+        "@2 stays put without comment, neither welcoming nor objecting.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 makes room on the bench without comment.",
+        "@2 shifts a fraction to give @1 a clean place to sit.",
+        "@2 stays where @2 is and the two seats sit alongside.",
+        "@2 acknowledges the seat-taking with a small, even nod.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 settles deeper into @2a own seat, the silence between them companionable.",
+        "@2 leans a fraction toward @1, glad of the company.",
+        "@2 lets the shoulders nearly touch and stays there.",
+        "@2 angles @2a knees toward @1np in the unhurried language of welcome.",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 leans into the shared seat, quiet as old habit.",
+        "@2 hooks an elbow over @1np shoulder and stays put a long while.",
+        "@2 lets @2a weight rest against @1np side and breathes out.",
+        "@2 settles into the bench like the bench was always meant to hold both of them.",
+    ],
+}
+
+_REST_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 picks a place to rest with @2 well outside @1np line of sight.",
+        "@1 settles in to rest with @2 pointedly to @1np back.",
+        "@1 lays @1r down at the far edge of the firelight from @2.",
+        "@1 takes @1a rest where @2 is just a shape in the dark.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 rests within sight of @2, not within reach.",
+        "@1 lays @1r down a measured distance from @2 and keeps one eye half-open.",
+        "@1 takes @1a rest with @2 across the firelight, neither close nor strange.",
+        "@1 settles for a rest at the edge of @2np pace.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 rests near @2, eyes half-closing.",
+        "@1 lays @1r down within hearing of @2 and lets @1a breath even out.",
+        "@1 settles in for a rest beside @2np spot.",
+        "@1 takes @1a rest at the same fire as @2.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 rests near @2 the way one rests where one is safe.",
+        "@1 lays @1r down within arm's length of @2 and lets @1a guard ease.",
+        "@1 settles into rest with @2 close enough to hear breathing.",
+        "@1 takes @1a rest beside @2 and the held quiet welcomes both.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 lets @1r go fully unguarded near @2 — the trust whole.",
+        "@1 lays @1r down against @2np side and the breathing slows immediately.",
+        "@1 rests with @1a head a hand's width from @2np and sleeps the deep sleep of safety.",
+        "@1 settles into rest with @2np presence the only watch needed.",
+    ],
+}
+
+_REST_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 keeps @2a back to @1 and does not soften.",
+        "@2 stays awake, listening, with @2a hand near @2a hilt.",
+        "@2 holds @2a own watch and offers no quiet in return.",
+        "@2 turns @2a face away and the rest is taken alone.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 stays alert the way one stays alert near a stranger at rest.",
+        "@2 keeps half an eye open and lets @1 sleep light.",
+        "@2 doesn't rest in answer, but doesn't make a thing of @1np resting either.",
+        "@2 stays seated with @2a back straight and the quiet kept careful.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 lets @1 rest, untroubled.",
+        "@2 keeps a small steady watch while @1 settles.",
+        "@2 makes no fuss of @1np resting and no fuss of @2a own.",
+        "@2 stays as @2 was, the rest a private thing held in the same room.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 keeps a quiet watch while @1 rests, the trust returning.",
+        "@2 settles into @2a own rest a hand's width from @1np.",
+        "@2 lets the watch shift to @2a shoulders and breathes out.",
+        "@2 stays close while @1 sleeps, breathing in the same slow rhythm.",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 rests in answer, the two of them holding the quiet between them.",
+        "@2 lays @2a head against @1np and the both of them go under at once.",
+        "@2 settles fully unguarded beside @1, the trust returned in full.",
+        "@2 sleeps with @2a hand resting on @1np forearm, breathing slow.",
+    ],
+}
+
+_PONDER_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 considers @2 as one considers a closed door.",
+        "@1 looks at @2 with the flat attention reserved for problems.",
+        "@1 weighs @2 in @1a head and arrives at nothing flattering.",
+        "@1 turns a long, unsmiling thought over about @2.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 ponders @2 at a measured remove.",
+        "@1 watches @2 from across the firelight, a thought held at arm's length.",
+        "@1 considers @2 the way one considers an unopened note.",
+        "@1 turns @2 over in @1a thinking and keeps the conclusion to @1r.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 ponders the space near @2 for a long beat.",
+        "@1 looks at @2 a moment longer than is purely casual.",
+        "@1 holds a quiet thought about @2 and lets it sit.",
+        "@1 turns a half-formed question over in @1a head, eyes on @2.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 ponders @2 with the soft attention of someone holding a thought about them.",
+        "@1 watches @2 a while, a small private consideration settling behind @1a eyes.",
+        "@1 turns a kind thought over about @2 and keeps it to @1r.",
+        "@1 holds @1a gaze on @2 the way one holds a pleasant memory.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 looks at @2 long enough that the looking itself becomes the thought.",
+        "@1 ponders @2 with the slow certainty of knowing them through.",
+        "@1 watches @2 the way one watches kin do the small ordinary things.",
+        "@1 holds @2 in @1a thinking unhurried, the thought already half a memory.",
+    ],
+}
+
+_PONDER_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 doesn't return the look.",
+        "@2 keeps @2a face turned and offers nothing back.",
+        "@2 lets the consideration pass straight through without registering.",
+        "@2 holds @2a own counsel and the look finds no purchase.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 lets the consideration pass without acknowledging it.",
+        "@2 catches the look out of the corner of @2a eye and keeps moving.",
+        "@2 notices and chooses not to.",
+        "@2 keeps @2a own thoughts and gives @1 no opening into them.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 lets @1 think, untroubled by being seen.",
+        "@2 catches the look once and goes back to what held @2o.",
+        "@2 stays as @2 was, neither inviting the thought nor refusing it.",
+        "@2 returns the gaze briefly and lets it close.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 meets the look briefly, accepts it, lets it go.",
+        "@2 catches @1np eye and a small smile passes between them.",
+        "@2 returns the look long enough to be seen back.",
+        "@2 lets the thought land, lets @1 keep it.",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 holds @1np gaze with the unhurried recognition of being known.",
+        "@2 returns the look the way old kin return a look — already in on the thought.",
+        "@2 lets @1 think, and lets @1 see @2 thinking the same thing back.",
+        "@2 meets @1np eyes and the silence between them does the rest.",
+    ],
+}
+
+_TEND_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 reaches to tend @2 and stops short of touching.",
+        "@1 makes the gesture of caretaking but lets the hand fall before it lands.",
+        "@1 lifts a hand toward @2np cloak and thinks better of it.",
+        "@1 starts to fix something on @2 and pulls back, hand half-curled.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 offers @2 a small, careful caretaking gesture from a distance.",
+        "@1 reaches across the space to flick a leaf off @2np shoulder, hand barely there.",
+        "@1 nudges @2np strap straight with the back of one knuckle.",
+        "@1 picks at a stray thread on @2np sleeve and lets the hand withdraw.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 tends to a strap on @2np shoulder, brief and practical.",
+        "@1 fixes a buckle on @2np pack with quiet efficiency.",
+        "@1 straightens @2np collar with two fingers and steps back.",
+        "@1 picks a burr from @2np sleeve and flicks it aside.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 brushes a smudge of dirt from @2np cheek with the back of one wrist.",
+        "@1 settles @2np hood for @2o with both hands, careful at the cloth.",
+        "@1 picks a leaf out of @2np hair, taking the time to do it gently.",
+        "@1 smooths @2np collar with the unhurried hand of someone glad to.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 takes the edge of @2np cloak and resettles it for @2o, unhurried.",
+        "@1 sits @2 down and works a knot out of @2np shoulder with both thumbs.",
+        "@1 takes @2np hand and turns it over, tending a scrape without asking.",
+        "@1 fusses with @2np collar and hair and sleeve in the practiced order of long care.",
+    ],
+}
+
+_TEND_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 steps clear before the gesture lands.",
+        "@2 turns @2a shoulder away and the hand finds nothing.",
+        "@2 lifts a palm — \"don't\" — and the caretaking stops.",
+        "@2 brushes the reach aside and keeps moving.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 lets the gesture happen without quite welcoming it.",
+        "@2 holds still for the fix and goes back to what held @2o.",
+        "@2 tolerates the small caretaking with a brief, neutral nod.",
+        "@2 allows the touch a beat, then steps a half-pace clear.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 holds still for the moment of caretaking, then nods @1 off.",
+        "@2 lets the small fix happen and offers a quiet \"thanks.\"",
+        "@2 stays put for the gesture and goes on with @2a evening.",
+        "@2 accepts the small care plainly and moves on.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 lets @1 do the small thing, the gesture received the way it was meant.",
+        "@2 leans into the touch a fraction and lets the cloth be set right.",
+        "@2 catches @1np wrist and squeezes once in thanks before letting go.",
+        "@2 stays still and lets the caretaking land, fond.",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 lets @1 tend without comment, the way old kin lets old kin.",
+        "@2 closes @2a eyes and lets @1 work the knot out, unhurried.",
+        "@2 sets @2a hand over @1np a moment in the middle of it, and lets the work continue.",
+        "@2 lets @1 fuss the whole circuit — collar, hair, cuffs — and breathes out at the end.",
+    ],
+}
+
+_BITE_INTENT_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@1 nips at the air sharply in @2np direction.",
+        "@1 clicks @1a teeth shut once toward @2.",
+        "@1 bares @1a teeth in a brief, pointed snap aimed at @2.",
+        "@1 makes a sharp little bite-shape in the air between @1r and @2.",
+    ],
+    warmth.Warmth.COOL: [
+        "@1 catches @1a own lip and looks at @2 sidelong.",
+        "@1 sets @1a teeth in @1a own knuckle, eyes flicking to @2.",
+        "@1 worries the inside of @1a cheek and glances at @2.",
+        "@1 nibbles the edge of @1a thumb and watches @2 from the corner of @1a eye.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@1 nips at the air near @2.",
+        "@1 catches @1a own thumb between @1a teeth, half-attentive to @2.",
+        "@1 chews the inside of @1a lip, eyes on @2.",
+        "@1 makes a small, idle bite-shape in @2np general direction.",
+    ],
+    warmth.Warmth.WARM: [
+        "@1 catches @1a own thumb in @1a teeth, eyes on @2.",
+        "@1 mock-bites at the air a hand's width from @2np shoulder.",
+        "@1 nips lightly at @1a own lip and glances at @2.",
+        "@1 makes a small play-bite shape in @2np direction.",
+    ],
+    warmth.Warmth.HOT: [
+        "@1 mock-snaps in @2np direction with the easy threat of long companionship.",
+        "@1 nips at the air a finger-width from @2np ear and shows teeth.",
+        "@1 clacks @1a teeth shut at @2 in the long-running joke between them.",
+        "@1 bares @1a teeth in @2np direction the way kin bares teeth at kin — full play.",
+    ],
+}
+
+_BITE_ACCEPTANCE_BEATS: Dict[str, List[str]] = {
+    warmth.Warmth.COLD: [
+        "@2 turns @2a face fully aside; the gesture finds nothing to land on.",
+        "@2 steps a half-pace clear and gives the snap nowhere to go.",
+        "@2 levels a flat look at @1 and the bite-shape dies in the air.",
+        "@2 doesn't dignify it, and the snap goes unanswered.",
+    ],
+    warmth.Warmth.COOL: [
+        "@2 lets it pass without engaging.",
+        "@2 catches the gesture out of the corner of @2a eye and ignores it.",
+        "@2 stays unbothered and goes back to what held @2o.",
+        "@2 acknowledges the snap with the smallest dry blink.",
+    ],
+    warmth.Warmth.NEUTRAL: [
+        "@2 raises an eyebrow, unbothered.",
+        "@2 catches the snap and lets it land on nothing in particular.",
+        "@2 huffs once through @2a nose and stays where @2 is.",
+        "@2 acknowledges the gesture with a small, even tilt of @2a head.",
+    ],
+    warmth.Warmth.WARM: [
+        "@2 huffs a small dry laugh.",
+        "@2 swats at @1np shoulder, the corner of @2a mouth twitching up.",
+        "@2 returns the bite-shape lazily — a slow chew on @2a own lip.",
+        "@2 catches @1np eye and shakes @2a head.",
+    ],
+    warmth.Warmth.HOT: [
+        "@2 mock-snaps back, the play long since established between them.",
+        "@2 clacks @2a teeth at @1 twice in answer and grins.",
+        "@2 catches @1np shoulder and pretend-bites at it, both of them laughing.",
+        "@2 nips at the air a finger-width from @1np jaw, fully in on the joke.",
+    ],
+}
+
+
 # Bundles so lookups stay tidy. One entry per registered command.
 _NARRATION_POOLS: Dict[str, Tuple[Dict[str, List[str]], Dict[str, List[str]]]] = {
     "hug":       (_HUG_INTENT_BEATS, _HUG_ACCEPTANCE_BEATS),
@@ -1072,6 +1672,15 @@ _NARRATION_POOLS: Dict[str, Tuple[Dict[str, List[str]], Dict[str, List[str]]]] =
     "tickle":    (_TICKLE_INTENT_BEATS, _TICKLE_ACCEPTANCE_BEATS),
     "taunt":     (_TAUNT_INTENT_BEATS, _TAUNT_ACCEPTANCE_BEATS),
     "wink":      (_WINK_INTENT_BEATS, _WINK_ACCEPTANCE_BEATS),
+    "thank":     (_THANK_INTENT_BEATS, _THANK_ACCEPTANCE_BEATS),
+    # Presence verbs (V2 warmth-aware, 2026-05-06 — see
+    # `project_presence_verbs_with_target.md`).
+    "lean":      (_LEAN_INTENT_BEATS, _LEAN_ACCEPTANCE_BEATS),
+    "sit":       (_SIT_INTENT_BEATS, _SIT_ACCEPTANCE_BEATS),
+    "rest":      (_REST_INTENT_BEATS, _REST_ACCEPTANCE_BEATS),
+    "ponder":    (_PONDER_INTENT_BEATS, _PONDER_ACCEPTANCE_BEATS),
+    "tend":      (_TEND_INTENT_BEATS, _TEND_ACCEPTANCE_BEATS),
+    "bite":      (_BITE_INTENT_BEATS, _BITE_ACCEPTANCE_BEATS),
 }
 
 
@@ -1178,6 +1787,7 @@ _BARE_NO_TARGET_TEMPLATES: Dict[str, str] = {
     "tickle":    "*@1 wiggles mischievous fingers at the empty air.*",
     "taunt":     "*@1 jeers at nobody in particular, to stunned silence.*",
     "wink":      "*@1 winks conspiratorially at an unoccupied chair.*",
+    "thank":     "*@1 murmurs a quiet thanks to no one in particular.*",
 }
 
 
@@ -1194,6 +1804,17 @@ _SELF_TARGET_LINES: Dict[str, str] = {
     "tickle":    "@1 tries to tickle @1r and discovers it doesn't work from the inside.",
     "taunt":     "@1 mutters a scathing insult directed squarely at @1r.",
     "wink":      "@1 winks at @1r in a passing windowpane.",
+    "thank":     "@1 thanks @1r quietly for whatever it was. The thanks holds.",
+    # Presence verbs — self-target short-circuit. Emotion-neutral
+    # per `project_verb_adverb_coloring.md`; bare-self-directed
+    # pools in rpg_presence_commands.py already carry richer
+    # texture, so these are deliberately spare.
+    "lean":      "@1 leans against @1a own arm a moment.",
+    "sit":       "@1 sits down where @1s is.",
+    "rest":      "@1 rests for a beat, eyes half-closing.",
+    "ponder":    "@1 ponders the middle distance.",
+    "tend":      "@1 tends to a strap on @1a own coat.",
+    "bite":      "@1 worries at @1a lower lip.",
 }
 
 
@@ -1488,6 +2109,27 @@ class RpgSocialCommands(Cog):
         (5-second cool-down)
         """
         await self._dispatch_warmth_aware_verb(ctx,"wink")
+
+    @command(
+        name="thank",
+        aliases=["thanks", "ty"],
+        brief="Offer thanks to another player or NPC.",
+    )
+    @guild_only()
+    @cooldown(1, 5, BucketType.member)
+    async def thank(self, ctx: Context, *, msg: str = None):
+        """
+        Thank another player, monster, or passerby. WARM by default —
+        most targets accept gratitude graciously, though a player who
+        prefers stoicism can tune ``$warmth set thank cool``.
+
+        (5-second cool-down)
+
+        :param msg: Either a target (a passerby's name, a monster's
+            noun) or a @mention of another player. Bare ``$thank``
+            offers a quiet, self-directed thanks.
+        """
+        await self._dispatch_warmth_aware_verb(ctx, "thank", msg=msg)
 
     # -----------------------------------------------------------------
     # V2: self-directed verbs

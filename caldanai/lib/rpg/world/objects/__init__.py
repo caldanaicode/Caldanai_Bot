@@ -182,13 +182,15 @@ class StaticObjectPlugin:
         """
         if verb not in (self.SUPPORTED_VERBS or []):
             return None
-        # Existing on_verb signatures take *args (the campfire
-        # uses ``args[0]`` for fuel_arg). Pass kwargs.values() in
-        # insertion order so $feed's fuel_arg lands as args[0].
-        # Future verbs that take multiple kwargs should register
-        # them in deterministic order on the cog side.
-        extra_args = tuple(kwargs.values())
-        return self.on_verb(verb, game, actor, *extra_args)
+        # Forward kwargs by name. ``on_verb`` subclasses accept
+        # ``**kwargs`` and pull verb-specific extras by keyword
+        # (e.g. campfire's ``_on_feed`` reads ``fuel_arg``). The
+        # earlier shape passed ``kwargs.values()`` as positional
+        # args, which was order-fragile (worked only because
+        # ``$feed``'s single ``fuel_arg`` happened to land as
+        # ``args[0]``). Switched to **kwargs forwarding 2026-05-07
+        # per the verb-dispatch retrospective review (#63).
+        return self.on_verb(verb, game, actor, **kwargs)
 
     # ---------------------------------------------------------------
     # $look hook — subclasses override.

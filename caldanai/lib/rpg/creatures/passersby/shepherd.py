@@ -194,6 +194,114 @@ class Shepherd(PasserbyPlugin):
                 "@2D lets the silence speak. The silence is not warm.",
             ],
         },
+        "thank": {
+            Warmth.HOT: [
+                "@2D laughs his weathered laugh and claps @1d on the shoulder. \"Friend, the hills don't keep accounts and neither do I. But I'll remember the face. That's better than coin.\"",
+                "@2D crinkles his whole face. \"Aye, @1, aye. Had a ewe once who used to nudge my elbow when I'd done right by her. Felt about like that. Glad of you.\"",
+                "@2D plants his crook and grins. \"Don't make a thing of it, friend. The dirt is owed. I just walk on it. But — aye. Glad.\"",
+            ],
+            Warmth.WARM: [
+                "@2D dips his crook in answer. \"Aye, friend. Walk well. That's all the thanks I'd want — knowing you're still walking next time we cross.\"",
+                "@2D nods slow. \"The hills don't keep accounts, friend. But they remember a kindness given on them. So do I.\"",
+                "@2D touches his hat brim. \"Aye. Take care on the road. The country is friendlier with you on it.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D nods. \"Aye, friend. Walk well.\"",
+                "@2D dips his hat brim. \"Right enough. Mind the road.\"",
+                "@2D plants his crook and gives a slow, polite \"Aye.\"",
+            ],
+            Warmth.COOL: [
+                "@2D grunts a syllable, eyes still on the treeline.",
+                "@2D shrugs. \"The hills don't keep accounts, friend. Don't ask me to.\"",
+                "@2D adjusts his grip on the crook and says nothing else.",
+            ],
+            Warmth.COLD: [
+                "@2D does not answer. He plants his crook firmly and watches a different stretch of country.",
+                "@2D fixes his eyes on the south path and lets the silence hold.",
+                "@2D turns his back deliberately, the way a man turns his back when he's decided.",
+            ],
+        },
+        "sit": {
+            Warmth.HOT: [
+                "@2D lowers himself beside @1d on the verge with the careful slowness of his joints. \"Aye, friend. The wool can wait. Sit a while. Tell me what you've seen on the road.\"",
+                "@2D plants his crook and folds down beside @1d like he's been waiting all day for an excuse. \"Good. Good. Sheep'll find me when they want me.\"",
+                "@2D grins his weathered grin and settles in. \"There's a moss-patch by the willow that's the right shape for two old backs. Come on, friend.\"",
+            ],
+            Warmth.WARM: [
+                "@2D nods, satisfied, and lowers himself onto a stone within easy talking distance. \"Aye. Rest the legs, friend.\"",
+                "@2D plants his crook and settles down beside @1d at his country pace. \"The road's a long one. Sit's earned.\"",
+                "@2D dips his hat brim. \"Aye, friend. The dirt holds.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D nods at @1np sitting form. \"Rest the legs, friend.\"",
+                "@2D acknowledges the sit with a small, polite tip of his hat and goes back to his watching.",
+                "@2D leans on his crook, comfortable enough that @1np sit doesn't need answering further.",
+            ],
+            Warmth.COOL: [
+                "@2D plants his crook a deliberate pace away and adjusts his stance. The space between them stays.",
+                "@2D shifts his attention pointedly to a tuft of grass he was not previously concerned about.",
+                "@2D inclines his head a fraction without quite looking @1np way, and stays standing.",
+            ],
+            Warmth.COLD: [
+                "@2D plants his crook between himself and @1d — not in defiance, in geometry — and remains standing.",
+                "@2D ambles a few paces along the verge, putting weather between his patch of dirt and @1np.",
+                "@2D fixes his eyes on the south path and pretends @1np sitting is happening to a different clearing.",
+            ],
+        },
+        "rest": {
+            Warmth.HOT: [
+                "@2D smiles broad and gestures grandly to a flat patch of grass beside him. \"Aye, friend. Rest. The country won't go anywhere without us — it never does.\"",
+                "@2D lowers his crook and folds down nearby. \"Good. Good. A rested traveler outwalks a hurried one. Old shepherd-saying. Mostly true.\"",
+                "@2D crinkles his face up. \"Sit, friend. Rest. The wool can wait. The wool's never in a hurry, and neither am I when I've good company.\"",
+            ],
+            Warmth.WARM: [
+                "@2D nods slowly. \"Aye, friend. Rest. The road's a long one.\"",
+                "@2D plants his crook and leans on it, content. \"The dirt holds while you mend, friend. Take what it offers.\"",
+                "@2D dips his hat. \"Aye. The hills won't begrudge a rested back.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D nods. \"Aye. Rest the legs.\"",
+                "@2D goes back to his watching. The clearing makes its own room.",
+                "@2D plants his crook and lets the moment be what it is.",
+            ],
+            Warmth.COOL: [
+                "@2D grunts something noncommittal, attention on the treeline.",
+                "@2D shifts a careful pace further along the verge.",
+                "@2D lets the silence answer for him. The silence is polite enough, and no warmer.",
+            ],
+            Warmth.COLD: [
+                "@2D doesn't answer. He turns his attention to a stretch of country where @1d is not.",
+                "@2D plants his crook firmly and walks back the way he came at his unhurried country pace.",
+                "@2D fixes his eyes on the horizon and lets @1np resting happen to somebody else's clearing.",
+            ],
+        },
+        "lean": {
+            Warmth.HOT: [
+                "@2D laughs and plants his crook beside @1d's chosen leaning-spot. \"Aye, friend, two of us at it now. The country can't outwait the both of us.\"",
+                "@2D leans his shoulder companionably against the same upright. \"Good. Good. A leaned man hears the country better. My granny used to say.\"",
+                "@2D crinkles his face. \"There's a stone by the willow that takes a lean better than this one, friend. But this one'll do, with company.\"",
+            ],
+            Warmth.WARM: [
+                "@2D plants his crook and leans the way old shepherds lean — settled, satisfied. \"Aye, friend. The country leans back, when you let it.\"",
+                "@2D dips his hat brim and adjusts his own lean to share the willow's root. \"Aye.\"",
+                "@2D nods slow. \"Good thing to lean on, that. Hills made it.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D acknowledges with a small, polite tip of his crook.",
+                "@2D leans on his own crook a comfortable distance off and returns to his watching.",
+                "@2D nods once. \"Aye, friend.\"",
+            ],
+            Warmth.COOL: [
+                "@2D plants his crook a careful pace further along the verge.",
+                "@2D adjusts his stance pointedly and goes back to scanning the treeline.",
+                "@2D lets the silence stand. He does not lean closer.",
+            ],
+            Warmth.COLD: [
+                "@2D ambles back the way he came, leaving the leaned-on thing to @1d alone.",
+                "@2D plants his crook firmly and turns his shoulder. The shared lean does not happen.",
+                "@2D fixes his eyes on the south path and pretends not to notice the leaning at all.",
+            ],
+        },
     }
 
     DEPART_WHEN_PUSHED_POOL: List[str] = [

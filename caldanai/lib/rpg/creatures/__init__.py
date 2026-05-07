@@ -2329,20 +2329,31 @@ class Creature(GenderMixin, HealMixin):
         invocation: str,
     ) -> str:
         """Reaction narration when a social command targets this
-        creature. Default: look up ``cmd`` in the class-level
-        ``SOCIAL_REACTIONS`` dict (if defined). Empty return = the
-        caller renders a bland "doesn't react" line.
+        creature. Resolution order:
+
+        1. Class-level ``SOCIAL_REACTIONS`` dict (if defined and
+           contains ``cmd``).
+        2. ``$hug`` back-compat: delegates to :meth:`on_hugged` so
+           existing monster plugins (Dragon, Golem, etc.) don't
+           need to be touched — they gain the new hook "for free"
+           on the hug path and opt into other commands at their
+           own pace.
+        3. **Last fallback**: if ``cmd`` is a registered warmth-
+           aware social verb (``warmth.SOCIAL_COMMANDS``), return
+           a bland *"the bandit does not react"* line so the
+           player sees the monster acknowledged the gesture
+           rather than getting a "nothing here by that name" miss.
+           Restored 2026-05-07 per the verb-dispatch retrospective
+           review (#61); pre-refactor this line was rendered by
+           the social cog's deleted ``_dispatch_two_actor_social``.
 
         Subclasses can either declare a ``SOCIAL_REACTIONS`` dict
         (keyed by warmth-aware command name) for sparse per-command
         flavor, or override this method wholesale for dynamic
-        reactions that depend on creature state.
-
-        For backwards compatibility, ``cmd == "hug"`` with no
-        matching dict entry delegates to :meth:`on_hugged` so
-        existing monster plugins (Dragon, Golem, etc.) don't need
-        to be touched — they gain the new hook "for free" on the
-        hug path and opt into other commands at their own pace.
+        reactions that depend on creature state. Wholesale overrides
+        should ``return super().on_social(cmd, actor, invocation)``
+        for the unhandled-verb path so the bland-line fallback fires
+        consistently (Bandit's high-five branch follows this shape).
 
         :param cmd: The warmth-aware command name (``"hug"``,
             ``"salute"``, ``"glare"``, etc.). Lowercase.
@@ -2354,7 +2365,8 @@ class Creature(GenderMixin, HealMixin):
             ``"salute"`` / ``"sal"`` for salute; etc.). Monsters
             rarely need this but some flavor lines use the verb.
         :return: A narration string (runs through ``parse`` by
-            the caller), or ``""`` for no reaction.
+            the caller), or ``""`` for non-warmth-aware verbs the
+            creature doesn't handle (chain falls through).
         """
         reactions = getattr(self, "SOCIAL_REACTIONS", None) or {}
         if cmd in reactions:
@@ -2370,6 +2382,17 @@ class Creature(GenderMixin, HealMixin):
             # parsing habits. Double-parsing already-rendered text
             # is a no-op (no tokens remain).
             return parse(self.on_hugged(actor, invocation), self, actor)
+        # Last fallback: known warmth-aware verb without a creature-
+        # specific reaction. Lazy-import to avoid the import-time
+        # cycle (warmth.py imports from helpers.parser via nothing,
+        # but we keep the lazy form for symmetry with other rare-
+        # path lookups in this module).
+        from caldanai.lib.rpg.helpers import warmth as warmth_helpers
+        if cmd in warmth_helpers.SOCIAL_COMMANDS:
+            return parse(
+                f"@1Dc does not react to @2np {cmd}.",
+                self, actor,
+            )
         return ""
 
     def handle_verb(

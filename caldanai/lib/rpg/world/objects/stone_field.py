@@ -34,7 +34,13 @@ class StoneField(StaticObjectPlugin):
     name = "stone field"
     aliases = ["stones", "stone-field", "field of stones", "standing stones"]
 
-    SUPPORTED_VERBS = ["gaze", "touch", "listen"]
+    SUPPORTED_VERBS = [
+        "gaze", "touch", "listen",
+        # Presence verbs (added 2026-05-04 with the new presence
+        # cog). $bite intentionally omitted — Caels: stones do not
+        # invite the absurd the way the fire does.
+        "lean", "sit", "rest", "ponder", "tend",
+    ]
 
     # ---------------------------------------------------------------
     # $look
@@ -57,13 +63,24 @@ class StoneField(StaticObjectPlugin):
     # Verb handlers
     # ---------------------------------------------------------------
 
-    def on_verb(self, verb: str, game, actor, *args) -> Optional[str]:
+    def on_verb(self, verb: str, game, actor, **kwargs) -> Optional[str]:
         if verb == "gaze":
             return self._on_gaze(game, actor)
         if verb == "touch":
             return self._on_touch(game, actor)
         if verb == "listen":
             return self._on_listen(game, actor)
+        # Presence verbs.
+        if verb == "lean":
+            return self._on_lean(game, actor)
+        if verb == "sit":
+            return self._on_sit(game, actor)
+        if verb == "rest":
+            return self._on_rest(game, actor)
+        if verb == "ponder":
+            return self._on_ponder(game, actor)
+        if verb == "tend":
+            return self._on_tend(game, actor)
         return None
 
     def _on_gaze(self, game, actor) -> Optional[str]:
@@ -111,12 +128,91 @@ class StoneField(StaticObjectPlugin):
         line = random.choice([
             "@2 listens at @1d. Silence — but a deep silence, the kind "
             "you can fall into.",
-            "@2 stops, listens. The stones hold quiet around @1m, the "
+            "@2 stops, listens. The stones hold quiet around @1d, the "
             "way a still pool holds depth.",
             "@2 listens. The stones do not speak. They are very good "
             "at not speaking.",
         ])
         return parse(line, self, actor)
+
+    # ---------------------------------------------------------------
+    # Presence-verb hooks (added with rpg_presence_commands cog)
+    # ---------------------------------------------------------------
+
+    def _on_lean(self, game, actor) -> Optional[str]:
+        if self._is_night(game):
+            pool = [
+                "@2 leans against a half-buried stone. The stone is patient. The stone is also cold, and the cold goes through @2np cloak in slow steps.",
+                "@2 props @2a shoulder against an upright. The dark settles around the lean. The stone holds.",
+                "@2 leans into the night-cold of a glyph-marked stone. The mark, faint and patient, sits under @2np shoulder-blade.",
+            ]
+        else:
+            pool = [
+                "@2 leans against a sun-warm stone. The warmth keeps a slow promise against @2np spine.",
+                "@2 props @2r against an upright. Lichen catches at @2np cloak. The stone is patient, the way stones are.",
+                "@2 settles @2a weight against a half-buried stone. The stone takes the lean as it takes everything else: without comment.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_sit(self, game, actor) -> Optional[str]:
+        if self._is_night(game):
+            pool = [
+                "@2 settles on a low stone. The cold is the cold of patience, and goes through @2np cloak slowly.",
+                "@2 lowers @2r onto a flat stone-top. The dark is total beyond the field; the stones hold a quiet that holds @2o back.",
+                "@2 finds a stone the right shape for sitting and sits. A faint glyph-glow catches at the edge of @2np vision and is gone again.",
+            ]
+        else:
+            pool = [
+                "@2 settles on a sun-warm stone. The top is warm, the sides are cool, the way old stones are.",
+                "@2 lowers @2r onto a moss-soft stone. Lichen prints itself faintly into @2np palm.",
+                "@2 finds a flat stone-top in the sun and accepts the offer. The stone holds @2np weight as if it has held weights longer than the clearing has been a clearing.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_rest(self, game, actor) -> Optional[str]:
+        if self._is_night(game):
+            pool = [
+                "@2 rests among the stones. The dark is deep, the stones are patient, and the place holds @2o between them.",
+                "@2 lets the stone-field hold @2o a while. The cold of the stones is steady; @2np breathing slows to match it.",
+                "@2 stretches out near a leaning upright and closes @2a eyes. The faint glyph-glow keeps watch in @2np stead.",
+            ]
+        else:
+            pool = [
+                "@2 rests among the stones, sun warm on @2np cloak, lichen-smell in the air. The clearing keeps its quiet.",
+                "@2 settles back against a sun-warmed upright. The stones do the work of holding @2o still.",
+                "@2 lets the stone-field be the loudest thing in the world for a beat — which is to say, very quiet indeed.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_ponder(self, game, actor) -> Optional[str]:
+        if self._is_night(game):
+            pool = [
+                "@2 considers @1d. Each stone waits to wake. None do. The waiting is older than @2 is.",
+                "@2 stands among the stones and lets @2a thoughts move at the stones' pace, which is slower than thought generally moves.",
+                "@2 watches the faint glyph-glow shift under the dark. Whatever @2 came here to weigh, the stones have weighed longer.",
+            ]
+        else:
+            pool = [
+                "@2 considers @1d. The sun is on the tops of the stones, and the stones are considering back, in their own slow way.",
+                "@2 stands among the half-buried ranks and lets the stones hold the thought longer than @2 could alone.",
+                "@2 watches the lichen on a glyph and feels the slow weight of a thing waiting. Each stone waits to wake. The thought waits with them.",
+            ]
+        return parse(random.choice(pool), self, actor)
+
+    def _on_tend(self, game, actor) -> Optional[str]:
+        if self._is_night(game):
+            pool = [
+                "@2 brushes lichen aside from a glyph by feel as much as sight. The mark glows the faintest fraction brighter under @2np thumb. Maybe.",
+                "@2 wipes night-damp from a tilted stone-top with the edge of @2a sleeve. The stone takes the gesture without acknowledgement.",
+                "@2 traces a chiseled line clear of moss in the dark. The dirt accepts. The stone, as ever, keeps its counsel.",
+            ]
+        else:
+            pool = [
+                "@2 brushes lichen aside from a glyph in the sun. The mark catches the light a little better for it.",
+                "@2 wipes a smear of dirt from a stone-face with @2a thumb, working the line of an old chiseled mark. The stone is indifferent. The gesture lands anyway.",
+                "@2 straightens a small leaned-aside fragment, settling it back among its ranks. The stone-field accepts the small care without comment.",
+            ]
+        return parse(random.choice(pool), self, actor)
 
     # ---------------------------------------------------------------
     # Helpers

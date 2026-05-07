@@ -35,24 +35,7 @@ from caldanai.lib.rpg.helpers.utils import RpgUtilities
 from caldanai.lib.rpg.helpers.verbs import (
     VerbResponder,
     walk_token_chain,
-    resolve_verb_target,
 )
-
-
-# Per-verb italic fallback when the player invokes bare with no
-# target AND the cog hasn't supplied a self-directed pool. Cog
-# can override per-call via the ``self_directed_pool`` argument.
-_GENERIC_BARE_FALLBACK: Dict[str, str] = {
-    # Most verbs reasonable as bare-action italics.
-    "lean":     "*{name} leans against the air, which holds.*",
-    "sit":      "*{name} sits down where they stand.*",
-    "rest":     "*{name} rests for a moment, eyes half-closing.*",
-    "ponder":   "*{name} ponders the middle distance.*",
-    "thank":    "*{name} murmurs a quiet thanks to no one in particular.*",
-    "tend":     "*{name} tends to themselves a moment.*",
-    "bite":     "*{name} bites at nothing in particular.*",
-    "bow":      "*{name} bows to the empty clearing.*",
-}
 
 
 async def dispatch_expressive_verb(
@@ -65,6 +48,7 @@ async def dispatch_expressive_verb(
     dead_invoker_pool: Optional[List[str]] = None,
     require_target: bool = False,
     bad_token_template: Optional[str] = None,
+    with_target_template: Optional[str] = None,
     include_passerby: bool = True,
     include_silhouette: bool = False,
     include_monster: bool = True,
@@ -158,8 +142,29 @@ async def dispatch_expressive_verb(
             invocation=ctx.invoked_with or verb,
             **kwargs,
         )
-        if result:
-            Dispatcher.add(game.channel, result)
+        if result is not None:
+            # Responder claimed the verb. ``""`` = consumed silent;
+            # non-empty = render. Either way, return.
+            if result:
+                Dispatcher.add(game.channel, result)
+            return
+        # Responder didn't claim the verb (returned ``None``). For
+        # cogs whose verbs aren't part of the responder's repertoire
+        # (e.g. presence verbs like $lean against Player.handle_verb,
+        # which only handles warmth-aware verbs in _NARRATION_POOLS),
+        # the cog can supply a ``with_target_template`` — a parser-
+        # token line rendered with @1=actor, @2=target. Used to give
+        # ``$lean @player`` a sensible "leans-near-them" beat instead
+        # of a silent swallow. Targeted-pool authoring per
+        # ``project_npc_weight_and_clearing_integration.md`` is the
+        # long-term direction; this is the V1 single-line shape.
+        if with_target_template is not None:
+            Dispatcher.add(
+                game.channel,
+                parse(with_target_template, player, target),
+            )
+            return
+        # No template, nothing to dispatch — silent.
         return
 
     # Token path.
@@ -214,15 +219,13 @@ async def dispatch_expressive_verb(
         )
         return
 
-    fallback = _GENERIC_BARE_FALLBACK.get(verb)
-    if fallback:
-        Dispatcher.add(
-            game.channel,
-            fallback.format(name=player.name),
-        )
-        return
-
+    # Catch-all for bare invocation when the cog hasn't supplied a
+    # self-directed pool. Every current cog DOES supply one for
+    # bare-friendly verbs (presence cog's `_LEAN_FLAVOR` etc.,
+    # social cog's `_BARE_NO_TARGET_TEMPLATES`); this line fires
+    # only when a caller forgets, which reads as a deliberate
+    # author-side oversight rather than a player-facing feature.
     Dispatcher.add(
         game.channel,
-        f"*{player.name} {verb}s, vaguely.*",
+        parse(f"*@1 {verb}s, vaguely.*", player),
     )

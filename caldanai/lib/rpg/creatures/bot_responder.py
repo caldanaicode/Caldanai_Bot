@@ -65,6 +65,17 @@ _BOT_MENTION_REPLIES = {
     "wink":      "The narrator winks back, somewhere beyond the veil.",
     "wave":      "The narrator waves back from beyond the veil.",
     "greet":     "The narrator acknowledges the introduction, but is unfortunately beyond the reach of new acquaintances.",
+    "thank":     "The narrator accepts your thanks with grave, cosmic dignity. (You're welcome.)",
+    # Presence verbs — narrator is the lean / the sit / etc.
+    # Voice register: dry, weighted, slightly amused at the
+    # category error of trying to share a body-in-space with
+    # something that has no body.
+    "lean":      "The narrator does not lean. The narrator IS the lean.",
+    "sit":       "The narrator sits beyond the chair, beyond the room, beyond the having-of-rooms.",
+    "rest":      "The narrator rests in the way the sky rests — which is to say, not at all and constantly.",
+    "ponder":    "The narrator was already pondering you, mortal. Carry on.",
+    "tend":      "The narrator requires no tending. The narrator IS the tending.",
+    "bite":      "The narrator cannot be bitten, and gently declines the gesture.",
 }
 
 

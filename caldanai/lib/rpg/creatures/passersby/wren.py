@@ -201,6 +201,87 @@ class Wren(PasserbyPlugin):
                 "\"Working,\" @2 says flatly, and resumes counting feathers with the air of someone rewriting an unfavorable rumor in her head.",
             ],
         },
+        "thank": {
+            Warmth.HOT: [
+                "@2 puffs up so fast her satchel rattles. \"Halrick says a thank-you well-given is worth a copper, @1d, and I've never heard him wrong.\" She salutes for emphasis.",
+                "@2 beams, plants both hands on her hips. \"Old Marn says you don't count thanks, you remember them. I'll remember.\" She nods like she's just sworn an oath.",
+                "@2 dips into a too-formal little bow she's clearly copied from somebody. \"The granny says a thank-you is the smallest coin and the longest spent. So. Spent.\"",
+            ],
+            Warmth.WARM: [
+                "@2 nods with the gravity of a small ambassador. \"Halrick says you take thanks like coin: count it, pocket it, don't spend it twice. I'll keep it, @1d.\"",
+                "@2 ducks her head, suddenly shy. \"Aye, traveler. Old Marn says the road remembers a kindness longer than a slight. So.\" She shrugs, satisfied.",
+                "@2 tips an imaginary hat. \"Greetings noted and gratitude accepted. The granny says that's how it's done.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2 nods professionally. \"Noted, traveler.\" She's clearly imitating somebody important.",
+                "@2 returns the thanks with a brisk \"Aye,\" already half-back to her satchel.",
+                "@2 dips her chin once. \"Right. Mind the road.\"",
+            ],
+            Warmth.COOL: [
+                "@2 narrows her eyes a touch. \"What for?\" she says, suspicious of unsolicited credit.",
+                "@2 turns the thank-you over like she's checking it for trick-coins. \"Mm,\" she says, and goes back to her feathers.",
+                "@2 shrugs, unconvinced. \"Halrick says don't trust thanks you didn't earn. I'm thinking.\"",
+            ],
+            Warmth.COLD: [
+                "@2 doesn't answer. She bends over her satchel and counts feathers with great deliberation.",
+                "@2 fixes her eyes on the south path. \"I'm working,\" she mutters, and that's the whole reply.",
+                "@2 closes her satchel pointedly. The thanks goes in the pile of things she's chosen not to hear.",
+            ],
+        },
+        "ponder": {
+            Warmth.HOT: [
+                "@2 perches on her stump beside @1d and drops to a confidential whisper: \"You think slower than the cooper. That's a compliment. The cooper doesn't think at all.\"",
+                "@2 mimics @1np stance with great seriousness, hand on chin. \"Old Marn says the people worth knowing are the ones who pause. So we're pausing. I'm pausing.\"",
+                "@2 settles cross-legged at @1np feet, satchel hugged. \"Halrick goes still like that before he says something good. I'll wait. I'm patient. I can be patient.\"",
+            ],
+            Warmth.WARM: [
+                "@2 plants herself nearby and watches @1d with quiet interest. \"You've got a thinking-face. The granny says those are the faces worth bothering.\"",
+                "@2 nods sagely from her stump. \"Aye. Thinking's good. Halrick says ponder costs no copper. Ponder away.\"",
+                "@2 settles in to wait @1d out, satchel in lap, eyes wide and patient.",
+            ],
+            Warmth.NEUTRAL: [
+                "@2 glances over briefly. \"Halrick says ponder costs no copper.\" She returns to counting feathers.",
+                "@2 acknowledges the moment with a brief professional nod and goes back to her satchel.",
+                "@2 perches on her stump and minds her own business while @1d minds @1np.",
+            ],
+            Warmth.COOL: [
+                "@2 makes a great show of not watching @1d, counting feathers with elaborate concentration.",
+                "@2 turns her stump a fraction so her back is mostly to @1d.",
+                "@2 tips her chin up at the sky, suddenly fascinated by clouds.",
+            ],
+            Warmth.COLD: [
+                "@2 doesn't look up. She is, suddenly, very busy with the contents of her satchel.",
+                "@2 fixes her eyes on the south path and counts the trees on the horizon, lips moving.",
+                "@2 closes her satchel with a small definitive snap and pretends to listen for messenger-birds.",
+            ],
+        },
+        "tend": {
+            Warmth.HOT: [
+                "@2 stands very still for the gesture, satchel held flat. When @1d is done she beams. \"Old Marn does that. She'd like you.\"",
+                "@2 ducks her head obligingly while @1d works, and offers a small ceremonial \"Thanks, that,\" when it's done. \"Halrick'd want me looking proper.\"",
+                "@2 grins crookedly. \"Aye. Going to tell the granny somebody fussed over me proper. She'll make a face, but she'll like it.\"",
+            ],
+            Warmth.WARM: [
+                "@2 holds still and lets @1d adjust the strap, watching with quiet curiosity. \"Aye. Thanks, traveler. Old Marn does that, sometimes.\"",
+                "@2 dips her head obediently, satchel up. \"Mm. The granny says a kept-tidy runner is a trusted runner. So. Tidied.\"",
+                "@2 accepts the gesture with grave practical thanks. \"Right. That'll do me to the ferry-house.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2 lifts her satchel to make the strap easier to reach, brisk and professional. \"Aye. Thanks.\"",
+                "@2 holds still for the gesture, says \"Right,\" and is back to her satchel-counting before @1d's hands have lowered.",
+                "@2 nods once. \"Halrick says a runner who can't fix her own straps doesn't run far. But — aye. Thanks.\"",
+            ],
+            Warmth.COOL: [
+                "@2 steps back a half-pace, satchel pulled close. \"I've got it, traveler. Thanks.\" The thanks is doing a lot of work.",
+                "@2 twists her shoulder out of easy reach. \"Mm. I can do mine.\"",
+                "@2 fends @1np hand off with a quick small motion. \"It's fine. It's fine.\"",
+            ],
+            Warmth.COLD: [
+                "@2 jerks her satchel away and steps clear. \"DON'T,\" she says, sharp as a struck flint, and watches @1d with wide unhappy eyes.",
+                "@2 twists clean out of reach. \"Halrick says don't let strangers handle the bag. So.\" She glares, satchel hugged to her chest.",
+                "@2 steps back two full paces. \"My satchel,\" she says firmly, the way an adult might say \"my house.\" \"Mine.\"",
+            ],
+        },
     }
 
     # DEPART_WHEN_PUSHED — convention matches future on_pushed

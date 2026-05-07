@@ -208,6 +208,33 @@ class Wagoneer(PasserbyPlugin):
                 "\"I'm working,\" @2d says flatly, and leaves it there.",
             ],
         },
+        "thank": {
+            Warmth.HOT: [
+                "@2D laughs and waves both hands. \"Hells, @1, sit down. Sit. You thank me by sharing a heel of bread and telling me what's south of here. That's the trade.\"",
+                "@2D claps @1d on the shoulder hard enough to rattle a barrel-strap. \"That'll buy you a ride next time we cross paths. The road keeps that ledger, not me.\"",
+                "@2D grins broad, tips his hat back. \"Aye, well. Don't make me a hero of it, @1. Tell me about the south road and we'll call it square.\"",
+            ],
+            Warmth.WARM: [
+                "@2D nods slow, satisfied. \"Aye, friend. Glad to. The road's a long one — you do what you can for who's on it with you.\"",
+                "@2D claps a calloused hand on @1np shoulder once. \"Don't mention it,\" he says. \"Or do, next inn we both end up at. Either way.\"",
+                "@2D dips his hat brim. \"Aye. Take care on the road. That's all the thanks I want — knowing you're still on it next time.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D nods once, all business. \"Aye. Mind the road.\"",
+                "@2D touches his hat brim briefly. \"Right enough.\"",
+                "@2D grunts a short \"Aye\" and goes back to his strap.",
+            ],
+            Warmth.COOL: [
+                "@2D shrugs without quite looking up. \"Don't make it a thing.\"",
+                "@2D waves a flat hand without turning. \"Aye, aye. We're square.\"",
+                "@2D grunts something that might be acknowledgement and tightens a knot.",
+            ],
+            Warmth.COLD: [
+                "@2D doesn't answer. He keeps his eyes on the wagon-pole and his hands on the strap.",
+                "@2D snorts once and turns @1np way deliberately to check the horse's traces. The thanks lands nowhere.",
+                "@2Np jaw tightens. \"Cart's expected,\" he says flat, and that's all he says.",
+            ],
+        },
     }
 
     # DEPART_WHEN_PUSHED — fires when a player tries to engage the

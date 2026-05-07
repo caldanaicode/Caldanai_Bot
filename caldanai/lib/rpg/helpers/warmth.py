@@ -92,6 +92,18 @@ SYSTEM_DEFAULTS: Dict[str, Warmth] = {
     "tickle":    Warmth.COOL,
     "taunt":     Warmth.COLD,
     "wink":      Warmth.NEUTRAL,
+    "thank":     Warmth.WARM,     # gratitude is warm by default; refusing it is the exception
+    # Presence verbs — warmth-aware path lives parallel to social
+    # cog's flow (presence cog command body still emits self-directed
+    # bare flavor; mention/token paths route through _NARRATION_POOLS
+    # via Player.handle_verb's existing lookup). See
+    # ``project_presence_verbs_with_target.md`` V2 direction.
+    "lean":      Warmth.NEUTRAL,  # quiet companionable presence; refusing is opt-out
+    "sit":       Warmth.NEUTRAL,
+    "rest":      Warmth.NEUTRAL,
+    "ponder":    Warmth.NEUTRAL,  # considering someone in thought; default-neutral acceptance
+    "tend":      Warmth.WARM,     # small caretaking — most accept; brushing dirt off a sleeve is intimate
+    "bite":      Warmth.NEUTRAL,  # ambiguous-emotion verb; default to neutral so adverb-coloring (backlogged) sets the read
 }
 
 
@@ -114,6 +126,13 @@ SOCIAL_COMMANDS: Tuple[str, ...] = (
     "tickle",
     "taunt",
     "wink",
+    "thank",
+    "lean",
+    "sit",
+    "rest",
+    "ponder",
+    "tend",
+    "bite",
 )
 
 

@@ -189,6 +189,141 @@ class Herbalist(PasserbyPlugin):
                 "@2D lays her hand on the dirt and lets that be her response.",
             ],
         },
+        "thank": {
+            Warmth.HOT: [
+                "@2D meets @1np eyes a long quiet beat, then dips her head. \"Thank the dirt, @1. The dirt is owed. I am only the thing it sent.\"",
+                "@2D presses her palm briefly to @1np forearm. \"Mendholm hears. That is the only thanks worth keeping. It already has it.\"",
+                "@2D smiles her slow smile. \"Aye, @1. I will carry your thanks down to the ground for you. The ground will know what to do with it.\"",
+            ],
+            Warmth.WARM: [
+                "@2D inclines her head slowly. \"The dirt is owed, traveler — not me. But I will pass the word on.\"",
+                "@2D nods, weighted. \"Walk careful. That is thanks enough returned.\"",
+                "\"Aye,\" @2d says simply. \"The world was a little less without the asking. Now it is a little more.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D dips her chin once. \"Mendholm holds.\"",
+                "@2D acknowledges without claiming. \"The dirt did its part. I did mine.\"",
+                "@2D nods. \"Aye, traveler.\"",
+            ],
+            Warmth.COOL: [
+                "@2D regards @1d a long beat, then looks down at her satchel. \"Thank the dirt, traveler. Not me.\"",
+                "@2D lays her hand flat on the ground. \"Tell it to this,\" she says quietly, and says no more.",
+                "@2Np eyes flick to @1d and away. \"Some thanks finds the wrong door.\"",
+            ],
+            Warmth.COLD: [
+                "@2D closes her eyes briefly, the way you'd shut a window against weather, and does not answer.",
+                "@2D turns her face deliberately to the willow. The thanks, undelivered, settles on the dirt instead.",
+                "@2D lays her palm on the ground and leaves it there. The ground takes the thanks. She does not.",
+            ],
+        },
+        "rest": {
+            Warmth.HOT: [
+                "@2D folds herself down beside @1d at her unhurried pace and lays her satchel between them. \"Aye. Rest, @1. The dirt is glad of weight on it. So am I.\"",
+                "@2D pats the moss beside her, slow and certain. \"Sit a while. The clearing holds longer when good people rest in it.\"",
+                "@2D smiles her quiet smile and gestures to a flat place at her side. \"Mendholm mends faster when you stay still in it a beat. Stay.\"",
+            ],
+            Warmth.WARM: [
+                "@2D nods slowly. \"Rest as long as you need, traveler. The dirt is patient. So am I.\"",
+                "@2D lays her satchel aside and leaves a quiet space at her side. \"Aye. The ground holds.\"",
+                "@2D dips her chin. \"Mendholm doesn't begrudge a rested body. Take what the clearing offers.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D acknowledges without comment. The clearing makes room.",
+                "@2D nods once and goes back to her satchel. The space is shared without being shared.",
+                "@2D lets @1d rest where @1s is. The dirt, she would say, knows what to do.",
+            ],
+            Warmth.COOL: [
+                "@2D shifts a careful half-pace, leaving a thin polite space that doesn't quite invite.",
+                "@2D regards @1np resting form a moment, says nothing, and turns back to her satchel.",
+                "@2Np gaze brushes @1d once. The space between them stays as it was.",
+            ],
+            Warmth.COLD: [
+                "@2D stands and walks the perimeter slowly, putting weather between herself and @1d.",
+                "@2D closes her eyes briefly and does not look @1np way again.",
+                "@2D gathers her satchel without fuss and finds a different patch of dirt to attend to.",
+            ],
+        },
+        "ponder": {
+            Warmth.HOT: [
+                "@2D settles cross-legged near @1d, satchel in lap, and breathes with @1np pace. \"Aye, @1. The dirt is thinking with you. Listen for it.\"",
+                "@2D lays her hand flat on the ground and says, soft as a leaf turning: \"What you ask, the ground has been asking longer. Sit with it.\"",
+                "@2D meets @1np eyes briefly, nods. \"Mendholm thinks slowly. So do good travelers. We are in good company, you and I.\"",
+            ],
+            Warmth.WARM: [
+                "@2D nods, weighted, and says nothing else for a long moment. The silence between them is companionable.",
+                "@2D murmurs, mostly to the dirt: \"Aye. Some questions root before they answer.\"",
+                "@2D inclines her head once and lets @1d ponder. The clearing holds the quiet for both of them.",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D continues her slow attention to her satchel. The silence between them is silence; it is enough.",
+                "@2D acknowledges with a barely-there shift of her gaze and lets @1d be.",
+                "@2D works her cuttings unhurried, and the moment passes between them without weight.",
+            ],
+            Warmth.COOL: [
+                "@2D turns her shoulder a careful fraction and bends to her satchel. The silence is not shared.",
+                "@2Np eyes pass over @1d as if @1s were one more shape of bracken.",
+                "@2D shifts her attention pointedly to a tuft of grass. The pondering is @1np alone.",
+            ],
+            Warmth.COLD: [
+                "@2D closes her eyes and lets the air between them cool perceptibly.",
+                "@2D walks a slow perimeter without looking back, satchel in hand. The pondering finds nowhere to settle.",
+                "@2D lays her hand on the dirt and lets that be her answer to nothing in particular.",
+            ],
+        },
+        "tend": {
+            Warmth.HOT: [
+                "@2D holds still while @1d works, eyes briefly closed. \"Aye, @1. The dirt tends through you today. I am glad of the hand.\"",
+                "@2D catches @1np wrist when @1s is done, presses it once. \"Who tends whom, traveler. Mendholm passes the kindness through.\"",
+                "@2D smiles slow and warm. \"Aye. The world tends itself in small hands, when it remembers to.\"",
+            ],
+            Warmth.WARM: [
+                "@2D inclines her head and lets @1d adjust whatever needs adjusting. \"Aye. The dirt tends. So do you. Both work.\"",
+                "@2D dips her chin in quiet thanks. \"Walk careful, traveler. You've a gentle hand. The world will use it.\"",
+                "@2D pats the back of @1np hand briefly when @1s is done. \"Aye. That's done.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D allows the gesture without remark, attention half-elsewhere.",
+                "@2D dips her head once in unspoken acknowledgement.",
+                "@2D lets the small care happen and goes back to her cuttings.",
+            ],
+            Warmth.COOL: [
+                "@2D steps back a careful half-pace. \"The dirt tends, traveler. Not you. Not yet.\"",
+                "@2D shakes her head slowly. \"Mind your own,\" she says, not unkindly. \"I am tended.\"",
+                "@2D lays her hand on her own satchel — claim, gentle but firm — and the gesture finds nowhere to land.",
+            ],
+            Warmth.COLD: [
+                "@2D closes her eyes and turns her shoulder. The reaching hand finds only the air she has left for it.",
+                "@2D steps back without sound. The clearing between her and @1d widens by a slow careful pace.",
+                "@2D lays her palm on the ground. \"The dirt holds,\" she says, and says no more. The hand of @1 has nothing to do.",
+            ],
+        },
+        "lean": {
+            Warmth.HOT: [
+                "@2D smiles her slow smile. \"Aye, @1. The stones hold what's leaned on them. So does the world. Lean well.\"",
+                "@2D nods, weighted. \"The ground beneath you, the stone behind you. That's all most days need, traveler.\"",
+                "@2D watches @1d a long moment and says, quietly: \"You lean like someone who has finally given up the pretense of standing alone. Aye. Mendholm allows it.\"",
+            ],
+            Warmth.WARM: [
+                "@2D inclines her head. \"The ground holds, traveler. Always has.\"",
+                "@2D nods at the leaning. \"Aye. Borrow what the world offers.\"",
+                "@2D murmurs, mostly to the willow: \"Stone is patient. So is the dirt.\"",
+            ],
+            Warmth.NEUTRAL: [
+                "@2D acknowledges with a small dip of her chin. The clearing makes room.",
+                "@2D returns her attention to her satchel. The lean is not remarked upon, and that is its own welcome.",
+                "@2D nods once, unhurried, and goes back to her work.",
+            ],
+            Warmth.COOL: [
+                "@2D regards @1d a beat, says nothing, looks back at the dirt.",
+                "@2Np eyes flick to the leaning form and away. The silence is not warm.",
+                "@2D adjusts her satchel a careful pace further from @1d's chosen spot.",
+            ],
+            Warmth.COLD: [
+                "@2D closes her eyes briefly and does not acknowledge the leaning at all.",
+                "@2D walks a slow circle to the far side of the clearing without comment.",
+                "@2D lays her hand flat on the dirt and lets that be the only answer the moment receives.",
+            ],
+        },
     }
 
     # DEPART_WHEN_PUSHED — convention matches future on_pushed
