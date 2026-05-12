@@ -106,11 +106,22 @@ def syntax(cmd: Command, prefix: str, verbose: bool = False, filtered_subs=None)
 
 
 def _render_command_line(cmd: Command, prefix: str) -> str:
-    """One-line render for inside a category page. Groups surface
+    """One-line render for the value of an embed field inside a
+    category page. The bold command-prefix isn't included — the
+    embed's field NAME already renders ``$<cmd>``; duplicating it in
+    the value reads as a double-render to players (caught live in
+    playtest within hours of the help rework shipping). Groups surface
     their subcommand list inline so players see the verb's surface at
-    a glance without leaving the listing."""
+    a glance without leaving the listing.
+
+    ``prefix`` retained as a parameter for forward compatibility — a
+    future render path may want the prefixed form again (e.g. a flat
+    cheat-sheet that doesn't use field names per command)."""
+    del prefix  # unused in current render shape; preserved for the
+    # signature so callers don't break if the bolded-prefix variant
+    # comes back.
     brief = (cmd.brief or "").strip() or "(no description)"
-    parts = [f"**{prefix}{cmd.name}** — {brief}"]
+    parts = [brief]
     if cmd.aliases:
         parts.append(f" *(aliases: {', '.join(sorted(cmd.aliases))})*")
     if isinstance(cmd, Group) and cmd.commands:

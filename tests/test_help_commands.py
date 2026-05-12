@@ -122,30 +122,39 @@ class TestRenderCommandLine:
     def test_basic_command_no_aliases(self):
         cmd = _make_command("attack", brief="Attacks a monster.")
         line = _render_command_line(cmd, "$")
-        assert "**$attack**" in line
         assert "Attacks a monster." in line
         assert "aliases" not in line
         assert "group:" not in line
+        # Command name does NOT appear in the value — the embed field's
+        # name renders it; duplicating in the value double-renders
+        # player-side. Player report 2026-05-12.
+        assert "**$attack**" not in line
+        assert "$attack" not in line
 
     def test_command_with_aliases(self):
         cmd = _make_command("attack", brief="Attacks a monster.", aliases=["kill", "slay"])
         line = _render_command_line(cmd, "$")
-        assert "**$attack**" in line
+        assert "Attacks a monster." in line
         # Aliases listed alphabetically
         assert "(aliases: kill, slay)" in line
+        # Same no-double-render assertion as above
+        assert "$attack" not in line
 
     def test_group_shows_subcommand_surface_inline(self):
         grp = _make_group("warmth", brief="Manage social warmth.", subcommand_names=["set", "list", "default"])
         line = _render_command_line(grp, "$")
-        assert "**$warmth**" in line
         assert "Manage social warmth." in line
         # Subcommands sorted alphabetically inside [group: ...]
         assert "[group: default, list, set]" in line
+        # Group name does NOT appear in the value — same rule as
+        # plain commands.
+        assert "$warmth" not in line
 
     def test_missing_brief_falls_back_to_placeholder(self):
         cmd = _make_command("mystery", brief="")
         line = _render_command_line(cmd, "$")
         assert "(no description)" in line
+        assert "$mystery" not in line
 
 
 # ---------------------------------------------------------------------------
