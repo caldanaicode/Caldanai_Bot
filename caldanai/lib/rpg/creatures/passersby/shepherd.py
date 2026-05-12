@@ -50,6 +50,27 @@ class Shepherd(PasserbyPlugin):
         "sheep": "tier_drop",
     }
 
+    # Reactive flavor for sheep-kill (his flock, the most-acute
+    # passive-kill case in the bestiary today). ``"*"`` wildcard
+    # holds a generic-disapproval pool for any future passive
+    # creature he might witness someone kill. Authored as a starting
+    # point — refine voice as desired; the wiring honors any pool
+    # length 1+.
+    PASSIVE_KILL_REACTIONS: Dict[str, List[str]] = {
+        "sheep": [
+            "@1D walks into the clearing, sees the carcass, and stops. He kneels beside the sheep, lays a hand on its flank, and says nothing for a long while. When he speaks, it is to the willow, not to @2: \"That was one of mine.\"",
+            "@1D arrives at the kill the way he arrives at any kill — slow. But this time he does not look at @2. He gathers the body in his arms and carries it back the way he came without a word.",
+            "@1D plants his crook beside the dead sheep, sets his hat on the ground beside it, and stands a long beat. When he finally turns to @2, his face has gone old. \"They were under my care.\"",
+            "@1D stares at the carcass, then at @2, then at the carcass again. \"I didn't know your hand yet,\" he says, voice level and far away. \"I know it now.\" He kneels and gathers the sheep without further word.",
+            "@1D doesn't kneel. Doesn't speak. He walks past @2 to the body, lifts the sheep, and walks back the way he came. The silence is the answer.",
+        ],
+        "*": [
+            "@1Np expression closes. \"That wasn't a fight,\" he says, quiet. \"That was a chore. The country grew smaller for it.\"",
+            "@1D shakes his head once at the kill, and once at @2. \"Quiet things have their own work. You've stopped that work for no reason I can see.\"",
+            "@1D stands a long beat over the body without speaking. Then: \"There's harder things you could've spent that swing on, friend. Plenty of them.\"",
+        ],
+    }
+
     ARRIVAL_POOL: List[str] = [
         "An old shepherd walks into the clearing leaning on a crook worn smooth by his palm. @1S scans the verge with practiced eyes, looking for woolly sign.",
         "A shepherd ambles in from the south, whistles two notes that hang in the air a moment, and listens for whatever might whistle back.",

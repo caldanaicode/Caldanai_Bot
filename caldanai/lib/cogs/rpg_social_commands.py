@@ -1920,15 +1920,24 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def high_five(self, ctx: Context):
+    async def high_five(self, ctx: Context, *, msg: str = None):
         """
-        Raises a palm for another player to meet. The way the
-        exchange actually reads depends on the *target's* warmth
-        preference for ``high_five`` and the *actor's* intent.
+        Raises a palm for another player or NPC to meet. The way the
+        exchange reads depends on the *target's* warmth preference
+        for ``high_five`` and the *actor's* intent.
+
+        Bare ``$high_five`` is self-directed. ``$high_five @player``
+        routes via @-mention. ``$high_five <token>`` (e.g. a passerby
+        name or active monster) routes through the verb-dispatch
+        chain — falls through to the "doesn't react" miss line if
+        the responder doesn't carry a ``high_five`` reaction.
 
         (5-second cool-down)
+
+        :param msg: A target name to high-five, or omit for self-
+            directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"high_five")
+        await self._dispatch_warmth_aware_verb(ctx, "high_five", msg=msg)
 
     # -----------------------------------------------------------------
     # $fistbump — warmth-aware
@@ -1941,15 +1950,21 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def fistbump(self, ctx: Context):
+    async def fistbump(self, ctx: Context, *, msg: str = None):
         """
-        Offers a knuckle for another player to meet. The way the
-        exchange actually reads depends on the *target's* warmth
+        Offers a knuckle for another player or NPC to meet. The way
+        the exchange reads depends on the *target's* warmth
         preference for ``fistbump`` and the *actor's* intent.
 
+        Bare ``$fistbump`` is self-directed. ``$fistbump @player``
+        routes via @-mention. ``$fistbump <token>`` (passerby /
+        monster) routes through the verb-dispatch chain.
+
         (5-second cool-down)
+
+        :param msg: A target name to bump, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"fistbump")
+        await self._dispatch_warmth_aware_verb(ctx, "fistbump", msg=msg)
 
     # -----------------------------------------------------------------
     # V2: warmth-aware interactive verbs
@@ -1971,15 +1986,21 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def salute(self, ctx: Context):
+    async def salute(self, ctx: Context, *, msg: str = None):
         """
-        Salutes another player — military / chivalric in tone. The
-        exact reading depends on the target's ``salute`` warmth
+        Salutes another player or NPC — military / chivalric in tone.
+        The exact reading depends on the target's ``salute`` warmth
         (which governs acceptance) and the actor's intent.
 
+        Bare ``$salute`` is self-directed. ``$salute @player`` routes
+        via @-mention. ``$salute <token>`` (passerby / monster) routes
+        through the verb-dispatch chain.
+
         (5-second cool-down)
+
+        :param msg: A target name to salute, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx, "salute")
+        await self._dispatch_warmth_aware_verb(ctx, "salute", msg=msg)
 
     @command(
         name="comfort",
@@ -1988,14 +2009,21 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def comfort(self, ctx: Context):
+    async def comfort(self, ctx: Context, *, msg: str = None):
         """
-        Offers comfort to another player — a hand on the shoulder, a
-        gentle word. Defaults warm: comfort is usually accepted.
+        Offers comfort to another player or NPC — a hand on the
+        shoulder, a gentle word. Defaults warm: comfort is usually
+        accepted.
+
+        Bare ``$comfort`` is self-directed. ``$comfort @player``
+        routes via @-mention. ``$comfort <token>`` (passerby /
+        monster) routes through the verb-dispatch chain.
 
         (5-second cool-down)
+
+        :param msg: A target name to comfort, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"comfort")
+        await self._dispatch_warmth_aware_verb(ctx, "comfort", msg=msg)
 
     @command(
         name="poke",
@@ -2004,14 +2032,20 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def poke(self, ctx: Context):
+    async def poke(self, ctx: Context, *, msg: str = None):
         """
-        Pokes another player. Mildly annoying by default — tune your
-        warmth if you invite pokes routinely.
+        Pokes another player or NPC. Mildly annoying by default —
+        tune your warmth if you invite pokes routinely.
+
+        Bare ``$poke`` is self-directed. ``$poke @player`` routes via
+        @-mention. ``$poke <token>`` (passerby / monster) routes
+        through the verb-dispatch chain.
 
         (5-second cool-down)
+
+        :param msg: A target name to poke, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"poke")
+        await self._dispatch_warmth_aware_verb(ctx, "poke", msg=msg)
 
     @command(
         name="nod",
@@ -2020,13 +2054,20 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def nod(self, ctx: Context):
+    async def nod(self, ctx: Context, *, msg: str = None):
         """
-        Nods at another player — a small, silent acknowledgement.
+        Nods at another player or NPC — a small, silent acknowledgement.
+
+        Bare ``$nod`` is self-directed. ``$nod @player`` routes via
+        @-mention. ``$nod <passerby>`` (e.g. ``$nod wagoneer``) routes
+        to the present NPC's warmth-keyed reaction pool.
 
         (5-second cool-down)
+
+        :param msg: A passerby's name to nod at, or omit to nod at
+            no one in particular.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"nod")
+        await self._dispatch_warmth_aware_verb(ctx, "nod", msg=msg)
 
     @command(
         name="glare",
@@ -2035,14 +2076,22 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def glare(self, ctx: Context):
+    async def glare(self, ctx: Context, *, msg: str = None):
         """
-        Glares at another player. Hostile by default — cold-accept
-        reads as stare-back-match.
+        Glares at another player or NPC. Hostile by default —
+        cold-accept reads as stare-back-match.
+
+        Bare ``$glare`` is self-directed. ``$glare @player`` routes
+        via @-mention. ``$glare <token>`` (e.g. ``$glare bandit``)
+        routes through the verb-dispatch chain — monsters without a
+        ``glare`` SOCIAL_REACTION fall through to the bland
+        "doesn't react" miss line.
 
         (5-second cool-down)
+
+        :param msg: A target name to glare at, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"glare")
+        await self._dispatch_warmth_aware_verb(ctx, "glare", msg=msg)
 
     @command(
         name="shank",
@@ -2051,16 +2100,22 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def shank(self, ctx: Context):
+    async def shank(self, ctx: Context, *, msg: str = None):
         """
-        Mimes a playful stabbing motion at another player. Most
-        players default to rejecting the bit — flip your warmth to
-        ``warm`` or ``hot`` to opt in to the full Shakespearean
+        Mimes a playful stabbing motion at another player or NPC.
+        Most players default to rejecting the bit — flip your warmth
+        to ``warm`` or ``hot`` to opt in to the full Shakespearean
         death-scene treatment.
 
+        Bare ``$shank`` is self-directed. ``$shank @player`` routes
+        via @-mention. ``$shank <token>`` (passerby / monster) routes
+        through the verb-dispatch chain.
+
         (5-second cool-down)
+
+        :param msg: A target name to shank, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"shank")
+        await self._dispatch_warmth_aware_verb(ctx, "shank", msg=msg)
 
     @command(
         name="tickle",
@@ -2069,14 +2124,20 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def tickle(self, ctx: Context):
+    async def tickle(self, ctx: Context, *, msg: str = None):
         """
-        Tickles another player. Tolerated from close friends,
+        Tickles another player or NPC. Tolerated from close friends,
         rejected by most — tune your warmth accordingly.
 
+        Bare ``$tickle`` is self-directed. ``$tickle @player`` routes
+        via @-mention. ``$tickle <token>`` (passerby / monster) routes
+        through the verb-dispatch chain.
+
         (5-second cool-down)
+
+        :param msg: A target name to tickle, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"tickle")
+        await self._dispatch_warmth_aware_verb(ctx, "tickle", msg=msg)
 
     @command(
         name="taunt",
@@ -2085,14 +2146,20 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def taunt(self, ctx: Context):
+    async def taunt(self, ctx: Context, *, msg: str = None):
         """
-        Taunts another player. Hostile by default; warm targets treat
-        it as banter.
+        Taunts another player or NPC. Hostile by default; warm
+        targets treat it as banter.
+
+        Bare ``$taunt`` is self-directed. ``$taunt @player`` routes
+        via @-mention. ``$taunt <token>`` (passerby / monster) routes
+        through the verb-dispatch chain.
 
         (5-second cool-down)
+
+        :param msg: A target name to taunt, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"taunt")
+        await self._dispatch_warmth_aware_verb(ctx, "taunt", msg=msg)
 
     @command(
         name="wink",
@@ -2101,14 +2168,20 @@ class RpgSocialCommands(Cog):
     )
     @guild_only()
     @cooldown(1, 5, BucketType.member)
-    async def wink(self, ctx: Context):
+    async def wink(self, ctx: Context, *, msg: str = None):
         """
-        Winks at another player — could be flirty, could be
+        Winks at another player or NPC — could be flirty, could be
         conspiratorial, depends on who you ask.
 
+        Bare ``$wink`` is self-directed. ``$wink @player`` routes via
+        @-mention. ``$wink <token>`` (passerby / monster) routes
+        through the verb-dispatch chain.
+
         (5-second cool-down)
+
+        :param msg: A target name to wink at, or omit for self-directed.
         """
-        await self._dispatch_warmth_aware_verb(ctx,"wink")
+        await self._dispatch_warmth_aware_verb(ctx, "wink", msg=msg)
 
     @command(
         name="thank",

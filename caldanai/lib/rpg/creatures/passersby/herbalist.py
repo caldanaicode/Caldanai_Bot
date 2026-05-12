@@ -83,6 +83,20 @@ class Herbalist(PasserbyPlugin):
         "@1D halts at the verge, eyes the clearing, and folds her hands in front of her — patient as a hill.",
     ]
 
+    # Reactive flavor for witnessing a passive-monster kill (sheep
+    # today). Herbalist's voice is mythic-disapproval — the dirt
+    # knows, Mendholm watches, the act stands. Authored as starting
+    # voice; revise to taste.
+    PASSIVE_KILL_REACTIONS: Dict[str, List[str]] = {
+        "*": [
+            "@1D looks at the body for a long beat, then at @2. \"The dirt takes everything,\" she says, slow. \"It does not always thank you for what you give it.\"",
+            "@1D crosses to the body, kneels, and lays a hand briefly over its eye — closing it. She stands, dusts her palms on her satchel-strap, and walks away without looking at @2.",
+            "@1D does not approach. From where she stands at the verge, she says, evenly: \"That was not a thing of the dirt's making, what you just did. The dirt knows.\"",
+            "@1Np face does not move. \"Mendholm holds,\" she says, evenly, \"and Mendholm watches. There is no hiding what was done here.\"",
+            "@1D plucks a single leaf from a low branch as she passes the body, tucks it into her satchel, and tells @2 quietly: \"Some weights you will carry yourself. The dirt will not take this one for you.\"",
+        ],
+    }
+
     COMBAT_WON_REACTIONS: List[str] = [
         "@1D comes in unhurried after the dust settles, looks the kill over with a clinical sympathy, and tells @2: \"The dirt knows what it knows. It will keep what's worth keeping.\"",
         "@1D crosses to where @2 is standing, lays a thumb against @2np pulse without asking, nods at what she finds, and says, \"Mendholm doesn't waste good blood. Yours is good.\"",

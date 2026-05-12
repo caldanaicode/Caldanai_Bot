@@ -347,8 +347,9 @@ class PlayerManager:
             was_dead = player.is_dead()
             body_before = player.health
 
+            m = ""
             if body_needs:
-                m = player.apply_damage(-player.health_regen)
+                m = player.apply_damage(-player.health_regen) or ""
                 if m:
                     msg += f"\n{m}"
 
@@ -373,13 +374,24 @@ class PlayerManager:
             # player back from is_dead. Emits BEFORE the recovery
             # line in narrative order so readers see "X gasps as
             # life returns" then the per-part transition that
-            # enabled it. ``apply_damage``'s HP-only tail already
-            # narrates the body-HP revive case (body crossed 0),
-            # so we only fire here for cascade-only revives where
-            # body HP didn't transition through 0 — otherwise the
-            # gasp narrates twice.
-            body_hp_revived = body_before <= 0 < player.health
-            if was_dead and not player.is_dead() and not body_hp_revived:
+            # enabled it. ``apply_damage``'s tail already narrates
+            # the body-HP revive when both pre-conditions hold —
+            # so we suppress here only when that tail actually
+            # fired (detected by the rez phrase in the returned
+            # message). Inferring narration from "body HP crossed
+            # 0" was the prior 2026-05-12 bug: the body-heal can
+            # move health 0 → positive in the legacy no-target
+            # path while the critical-part-destroyed state still
+            # marks the player dead, so ``apply_damage``'s tail
+            # check ``not was_alive and not self.is_dead()`` fails
+            # to fire. The part-heal that follows un-destroys the
+            # critical part, but the HP transition has already
+            # happened invisibly. Checking the actual returned
+            # narration catches that case cleanly — silent rez no
+            # longer falls between the body-heal tail and the
+            # cascade-revive gate.
+            body_revive_narrated = bool(m) and "gasps raggedly" in m
+            if was_dead and not player.is_dead() and not body_revive_narrated:
                 mention = (
                     f"<@!{player.member.id}>"
                     if getattr(player, "member", None) is not None

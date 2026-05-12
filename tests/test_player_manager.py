@@ -726,3 +726,155 @@ class TestDoHealthRegen:
         player.apply_damage.assert_called_once_with(-2)
         assert player.health_regen == 4
         mock_dispatch.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Dispatcher")
+    async def test_cascade_revive_fires_when_critical_part_restored_and_body_silent(
+        self, mock_dispatch,
+    ):
+        """Regression for the 2026-05-12 Serena rez bug: a player
+        dead from critical-part destruction (neck USELESS) gets a
+        regen tick that simultaneously moves body HP 0 → positive
+        (no rez narration in Player.apply_damage's tail because
+        is_dead is still True at that point — critical part still
+        destroyed) AND lifts the critical part out of USELESS via
+        the most-injured-part heal. Without the fix, the
+        cascade-revive gate incorrectly inferred "body fired the
+        tail" from "body HP transitioned through 0" — but the body
+        tail had been suppressed by the still-destroyed critical
+        part. Result: silent rez. Fix: the cascade-revive gate now
+        checks whether the body's actual return value contains
+        the rez phrase, not whether HP moved.
+
+        Construction: mock player.apply_damage to return "" (the
+        no-rez-narration case from Player.apply_damage when was_alive
+        was False AND is_dead is still True post-heal). Mock
+        is_dead() to flip True → False mid-tick after the part heal
+        executes. Verify the cascade-revive narration lands.
+        """
+        from caldanai.lib.rpg.creatures.body_part import BodyPart
+        from caldanai.lib.rpg.helpers.enums import InjuryLevels
+        channel = MagicMock()
+        pm = PlayerManager(channel=channel)
+
+        # Real part so the recovery-line path exercises BodyPart's
+        # apply_damage. Neck at 0/10 = USELESS; mock part.is_critical
+        # so destruction marks the player dead. Healing by 3 lands
+        # at 3/10 = SEVERE (transition out of USELESS).
+        neck = BodyPart(name="neck", health_max=10)
+        neck.health = 0
+        neck.is_critical = True
+
+        # Construct a player mock that:
+        # - reports is_dead()=True until the part heals out of USELESS
+        # - mocks Member for the mention rendering
+        player = MagicMock()
+        player.health = 0  # zeroed by the critical-part safety sweep
+        player.health_regen = 3
+        player.get_health_max.return_value = 20
+        player.body_parts = [neck]
+        member = MagicMock()
+        member.id = 12345
+        player.member = member
+        player.user_id = 12345
+        player.name = "Serena"
+        player.uses_article = False
+        # Pronouns for parser @ token resolution
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+        player.pronouns = {
+            Pronouns.SUBJECTIVE: "she",
+            Pronouns.OBJECTIVE: "her",
+            Pronouns.POSSESSIVE: "hers",
+            Pronouns.ADJECTIVE: "her",
+            Pronouns.REFLEXIVE: "herself",
+        }
+        player.plural_verbs = False
+        # apply_damage returns empty string (the silent-rez case):
+        # mimics Player.apply_damage's tail returning "" when
+        # was_alive=False AND post-heal is_dead=True. The part-heal
+        # later in the tick will be the actual revive — flipping
+        # is_dead from True to False.
+        player.apply_damage.return_value = ""
+        # is_dead() must change behavior: True at top-of-tick
+        # snapshot, then True during body apply_damage's evaluation,
+        # then False after the part heal restores the neck. We model
+        # this by deriving from neck state on each call.
+        player.is_dead = MagicMock(
+            side_effect=lambda: any(
+                p.get_injury_level() == InjuryLevels.USELESS and p.is_critical
+                for p in player.body_parts
+            )
+        )
+
+        pm.players = {1: player}
+        await pm.do_health_regen()
+
+        # The dispatcher should have been called and the message
+        # should include the rez phrase (cascade-revive fired).
+        assert mock_dispatch.add.called, (
+            "expected cascade-revive dispatch when critical part "
+            "restored while body's apply_damage was silent"
+        )
+        call_args = mock_dispatch.add.call_args
+        msg_text = (
+            call_args.args[1] if len(call_args.args) > 1
+            else call_args.kwargs.get("text", "")
+        )
+        assert "gasps raggedly" in msg_text, (
+            f"expected 'gasps raggedly' rez phrase; got:\n{msg_text}"
+        )
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Dispatcher")
+    async def test_no_double_rez_narration_when_body_already_fired_tail(
+        self, mock_dispatch,
+    ):
+        """Companion to the cascade-revive test: when
+        ``Player.apply_damage`` actually fires the rez tail (the
+        canonical body-HP-revive case where the player was dead by
+        HP only — no critical part destroyed — and the heal brought
+        them back), the cascade-revive gate must NOT fire a second
+        "gasps raggedly" line. Detection key is the rez phrase in
+        the body return string, not the HP transition."""
+        channel = MagicMock()
+        pm = PlayerManager(channel=channel)
+
+        player = MagicMock()
+        player.health = 0
+        player.health_regen = 3
+        player.get_health_max.return_value = 20
+        player.body_parts = []
+        # Body's apply_damage narrates the rez itself (the normal
+        # body-HP-only revive). Player goes from is_dead=True to
+        # is_dead=False after the body heal.
+        player.apply_damage.return_value = (
+            "<@!12345> suddenly gasps raggedly as life returns to her!"
+        )
+        is_dead_calls = {"count": 0}
+
+        def is_dead_side_effect():
+            is_dead_calls["count"] += 1
+            # True for the first call (top-of-tick snapshot),
+            # False for subsequent calls (after body heal).
+            return is_dead_calls["count"] == 1
+
+        player.is_dead = MagicMock(side_effect=is_dead_side_effect)
+
+        pm.players = {1: player}
+        await pm.do_health_regen()
+
+        # Exactly one dispatch (the body tail), no cascade-revive
+        # duplicate.
+        assert mock_dispatch.add.call_count == 1, (
+            f"expected single rez narration; got "
+            f"{mock_dispatch.add.call_count} dispatches"
+        )
+        call_args = mock_dispatch.add.call_args
+        msg_text = (
+            call_args.args[1] if len(call_args.args) > 1
+            else call_args.kwargs.get("text", "")
+        )
+        # Phrase appears exactly once
+        assert msg_text.count("gasps raggedly") == 1, (
+            f"expected exactly one 'gasps raggedly'; got:\n{msg_text}"
+        )

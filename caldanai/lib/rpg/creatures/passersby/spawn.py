@@ -51,7 +51,7 @@ from caldanai.lib.rpg.creatures.passersby.state import (
     mark_visit_arrival,
     mark_visit_depart,
 )
-from caldanai.lib.rpg.helpers.enums import TimesOfDay
+from caldanai.lib.rpg.helpers.enums import AggressionLevels, TimesOfDay
 
 
 # Outcome constants for :func:`drain_silhouette`.
@@ -235,11 +235,34 @@ def drain_silhouette(
     # distance during combat.
     _try_mark_arrival(game, type(npc).__name__.lower())
 
-    pool = {
-        OUTCOME_WON: npc.COMBAT_WON_REACTIONS,
-        OUTCOME_FLED: npc.COMBAT_FLED_REACTIONS,
-        OUTCOME_DEATH: npc.PARTY_DEATH_REACTIONS,
-    }.get(outcome, [])
+    # Passive-kill detection: when the resolved combat killed a
+    # passive (non-aggressive) monster, prefer the NPC's
+    # PASSIVE_KILL_REACTIONS pool over the generic COMBAT_WON praise
+    # pool. Mirrors the PASSIVE_KILL_PENALTY warmth-state shift —
+    # data fires on passive kills, prose fires too. Bypassing this
+    # branch (e.g. NPC has no entry) falls through to the standard
+    # outcome pool below; if THAT'S also empty, ARRIVAL_POOL.
+    pool: List[str] = []
+    if outcome == OUTCOME_WON:
+        monster = getattr(game, "monster", None)
+        is_passive = monster is not None and (
+            getattr(monster, "aggression", None)
+            == AggressionLevels.PASSIVE
+        )
+        if is_passive:
+            monster_stem = (
+                type(monster).__module__.rsplit(".", 1)[-1].lower()
+                if hasattr(monster, "__module__")
+                else type(monster).__name__.lower()
+            )
+            pool = npc.get_passive_kill_pool(monster_stem)
+
+    if not pool:
+        pool = {
+            OUTCOME_WON: npc.COMBAT_WON_REACTIONS,
+            OUTCOME_FLED: npc.COMBAT_FLED_REACTIONS,
+            OUTCOME_DEATH: npc.PARTY_DEATH_REACTIONS,
+        }.get(outcome, [])
 
     if not pool:
         # No reaction pool for this outcome — fall through to a

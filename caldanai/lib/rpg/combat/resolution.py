@@ -140,6 +140,44 @@ class MultiVictimResolutionResult:
     any_critical_part_kill: bool = False
 
 
+def accumulate_bleed_sum(iterable) -> float:
+    """Sum ``damage * bleed_rate`` across an iterable of attack results,
+    returning the running float so callers can aggregate across
+    attackers before the final ``int()`` truncation.
+
+    Parts with ``target_part is None`` (partless / legacy whole-body)
+    bleed at the neutral 1.0 rate. Negative or zero ``damage`` results
+    are skipped (misses don't bleed).
+    """
+    total = 0.0
+    for r in iterable:
+        damage = getattr(r, "damage", 0)
+        if damage <= 0:
+            continue
+        part = getattr(r, "target_part", None)
+        rate = getattr(part, "bleed_rate", 1.0) if part is not None else 1.0
+        total += damage * rate
+    return total
+
+
+def apply_body_hp_floor(
+    bleed_total: float,
+    num_hits: int,
+    victim: "Creature",
+) -> int:
+    """Apply the Q.6.2 body-HP floor (``max(num_hits, int(bleed_total *
+    BLEED_MOD))``) to a pre-summed bleed total. Single ``int()``
+    truncation point — pair with :func:`accumulate_bleed_sum` to
+    aggregate across multiple attackers before the truncation, so
+    per-attacker ``int()`` drops don't compound (an N-attacker round
+    can lose up to N-1 units of body-HP damage to per-call truncation).
+    """
+    if num_hits <= 0:
+        return 0
+    bleed_mod = getattr(victim, "BLEED_MOD", 1.0)
+    return max(num_hits, int(bleed_total * bleed_mod))
+
+
 def compute_body_hp_damage(
     resolution: ResolutionResult,
     victim: "Creature",
@@ -176,24 +214,17 @@ def compute_body_hp_damage(
     shape pass ``sequence.results``; the pipeline path omits it and
     we pull ``victim_results`` off the per-victim
     :class:`ResolutionResult` via the helper arg.
+
+    Single-resolution wrapper. Multi-attacker round composers should
+    aggregate via :func:`accumulate_bleed_sum` + :func:`apply_body_hp_floor`
+    so the ``int()`` truncation happens once per round, not once per
+    attacker.
     """
-    num_hits = resolution.num_hits
-    if num_hits <= 0:
-        return 0
     iterable = results if results is not None else getattr(
         resolution, "victim_results", []
     )
-    bleed_total = 0.0
-    for r in iterable:
-        damage = getattr(r, "damage", 0)
-        if damage <= 0:
-            continue
-        part = getattr(r, "target_part", None)
-        rate = getattr(part, "bleed_rate", 1.0) if part is not None else 1.0
-        bleed_total += damage * rate
-    bleed_mod = getattr(victim, "BLEED_MOD", 1.0)
-    scaled = int(bleed_total * bleed_mod)
-    return max(num_hits, scaled)
+    bleed_total = accumulate_bleed_sum(iterable)
+    return apply_body_hp_floor(bleed_total, resolution.num_hits, victim)
 
 
 def apply_sequence_to_target(

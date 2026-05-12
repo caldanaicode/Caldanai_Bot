@@ -21,6 +21,8 @@ from caldanai.lib.rpg.helpers import get_random_direction
 _INDENT = "\u2800" * 4
 
 from caldanai.lib.rpg.combat.resolution import (
+    accumulate_bleed_sum as _accumulate_bleed_sum,
+    apply_body_hp_floor as _apply_body_hp_floor,
     apply_sequence_to_target,
     compute_body_hp_damage as _compute_body_hp_damage,
 )
@@ -829,6 +831,22 @@ class Game:
                     f"\n{silhouette_line}{announce}" if announce
                     else f"\n{silhouette_line}"
                 )
+        elif self.passerby is not None and outcome == "death":
+            # Present-passerby symmetric path: the silhouette case
+            # routes through ``_drain_passerby_silhouette`` (which
+            # picks PASSIVE_KILL_REACTIONS or COMBAT_WON internally
+            # via ``drain_silhouette``). The Present case has no
+            # transition to leverage, so render explicitly here when
+            # the killed monster was passive AND the present NPC
+            # has a matching pool entry. Same chronological splice
+            # as the silhouette path so the reaction lands between
+            # the death narration and the loot prompt.
+            present_line = self._render_present_passive_kill_reaction()
+            if present_line:
+                announce = (
+                    f"\n{present_line}{announce}" if announce
+                    else f"\n{present_line}"
+                )
 
         await self.end_combat()
         await self.set_spawn_timer()
@@ -883,6 +901,70 @@ class Game:
                 True,
             )
         return line
+
+    def _render_present_passive_kill_reaction(self) -> Optional[str]:
+        """When a Present passerby witnesses the player kill a passive
+        monster (sheep today), render an in-character reaction from
+        the NPC's :attr:`PASSIVE_KILL_REACTIONS` pool.
+
+        Counterpart to :meth:`_drain_passerby_silhouette` — the
+        silhouette path picks its pool inside ``drain_silhouette``
+        (which branches on passive-kill); the Present path needs
+        explicit handling because the standard pipeline only updates
+        warmth state via :meth:`_notify_passerby_witnessed_kill`
+        without rendering reactive flavor.
+
+        Returns ``None`` when no Present passerby, no monster, the
+        monster wasn't passive, or the NPC has no matching pool entry
+        (stem-specific OR ``"*"`` wildcard). Silent fall-through is
+        deliberate — firing the generic ``COMBAT_WON_REACTIONS``
+        praise pool on a passive kill is exactly the bug this
+        attribute exists to prevent. Authors who want Present-NPC
+        flavor must populate ``PASSIVE_KILL_REACTIONS``.
+        """
+        npc = self.passerby
+        monster = self.monster
+        if npc is None or monster is None:
+            return None
+        is_passive = (
+            getattr(monster, "aggression", None)
+            == AggressionLevels.PASSIVE
+        )
+        if not is_passive:
+            return None
+        monster_stem = (
+            type(monster).__module__.rsplit(".", 1)[-1].lower()
+            if hasattr(monster, "__module__")
+            else type(monster).__name__.lower()
+        )
+        pool = npc.get_passive_kill_pool(monster_stem)
+        if not pool:
+            return None
+
+        # Witness pickup: prefer an alive looter (player who actually
+        # did the killing). Dead-looter case for passive kills is
+        # vanishingly rare in practice (sheep aren't going to drop
+        # anyone) but treat it the same as the silhouette path:
+        # render without an explicit @2 if no alive looter exists.
+        from random import choice
+        from caldanai.lib.rpg.creatures.passersby.rendering import (
+            render_combat_witness, render_npc_only,
+        )
+        from caldanai.lib.rpg.creatures.passersby.state import get_state
+
+        alive = [p for p in (self.looters or []) if not p.is_dead()]
+        witness = alive[0] if alive else None
+
+        line = choice(pool)
+        if witness is None:
+            return render_npc_only(line, npc)
+
+        npc_stem = type(npc).__name__.lower()
+        state = get_state(self.channel_id, npc_stem, witness.user_id)
+        return render_combat_witness(
+            line, npc, witness,
+            acquainted=state.acquainted, naming_bias=npc.NAMING_BIAS,
+        )
 
     async def cancel_combat(self) -> str:
         """Monster escapes — thin wrapper over
@@ -1089,6 +1171,15 @@ class Game:
         monster = self.monster
         round_output = RoundOutput()
         actual_body_damage = 0
+        # Round-level bleed accumulators. Aggregating the bleed sum +
+        # num_hits across all attackers and applying the body-HP floor
+        # once per round (instead of once per attacker) closes a
+        # compound-truncation gap: each per-attacker ``int()`` would
+        # drop up to 1 unit, so an N-attacker round could silently
+        # lose up to N-1 units of body-HP damage relative to the
+        # per-row "Final" sum. See ``apply_body_hp_floor``.
+        bleed_total_running: float = 0.0
+        num_hits_running: int = 0
         damage_by_player: Dict[int, Tuple[Player, int]] = {}
         death_msg = ""
         critical_part_kill = False
@@ -1126,11 +1217,26 @@ class Game:
                     critical_part_kill = True
                 num_hits = player_res.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    final_body_dmg = _compute_body_hp_damage(
-                        player_res, monster,
+                    # Aggregate this player's bleed contribution into
+                    # the round-level running total, then derive the
+                    # new body-HP damage with a single ``int()`` truncation
+                    # at the round level. The delta against the previously-
+                    # applied ``actual_body_damage`` keeps the per-player
+                    # death-check honest (next iteration's
+                    # ``not monster.is_dead()`` guard reads correct health)
+                    # while eliminating the compound per-player truncation
+                    # that previously left displayed-total < sum-of-per-row-Final.
+                    bleed_total_running += _accumulate_bleed_sum(
+                        player_res.victim_results or []
                     )
-                    monster.health = max(0, monster.health - final_body_dmg)
-                    actual_body_damage += final_body_dmg
+                    num_hits_running += num_hits
+                    new_total = _apply_body_hp_floor(
+                        bleed_total_running, num_hits_running, monster,
+                    )
+                    delta = new_total - actual_body_damage
+                    if delta > 0:
+                        monster.health = max(0, monster.health - delta)
+                    actual_body_damage = new_total
                 # Salvage drops for parts this player's resolution
                 # destroyed. ``destroyed_parts`` is populated by
                 # :func:`apply_sequence_to_target` and contains only
@@ -1360,6 +1466,11 @@ class Game:
         msg = ""
         damage = 0
         actual_body_damage = 0
+        # Round-level bleed accumulators — see ``do_combat`` for the
+        # rationale; legacy path mirrors so a regression-revert
+        # preserves the truncation fix.
+        bleed_total_running: float = 0.0
+        num_hits_running: int = 0
         damage_by_player = {}
         death_msg = ""
         critical_part_kill = False
@@ -1402,14 +1513,21 @@ class Game:
                 # Defense subtracted once from the per-player total
                 # (variant B — restored pre-refactor balance).
                 # num_hits is the minimum damage floor (dual-wield = 2, single = 1).
+                # Per-player int() truncation would compound across
+                # attackers; aggregate via running float + delta apply.
                 num_hits = resolution.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    final_body_dmg = _compute_body_hp_damage(
-                        resolution, monster,
-                        results=sequence.results,
+                    bleed_total_running += _accumulate_bleed_sum(
+                        sequence.results
                     )
-                    monster.health = max(0, monster.health - final_body_dmg)
-                    actual_body_damage += final_body_dmg
+                    num_hits_running += num_hits
+                    new_total = _apply_body_hp_floor(
+                        bleed_total_running, num_hits_running, monster,
+                    )
+                    delta = new_total - actual_body_damage
+                    if delta > 0:
+                        monster.health = max(0, monster.health - delta)
+                    actual_body_damage = new_total
 
                 if resolution.injury_feedback_lines:
                     msg += "\n".join(resolution.injury_feedback_lines) + "\n"

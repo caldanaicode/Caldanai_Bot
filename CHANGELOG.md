@@ -4,6 +4,46 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-12 — Help system rework: cog-categorized interactive browser
+
+The previous help paginator (reactions-based `discord.ext.menus.ListPageSource`, 3 commands per page) had grown to ~24 pages at 70+ commands — slow to flip, deprecated library. Rewrote against discord.py 2.x's `discord.ui.View` with a Select-menu category picker + Prev/Next buttons. Same single-command detail view (`$help <command>`); new category overview and per-category drill-down.
+
+- **Category mapping** — single `COG_CATEGORIES` dict in `help_commands.py` maps Cog class names to player-facing labels (emoji + name) + blurbs + `admin_only` flag. Default set: ⚔️ Combat / 🌍 World / 🤝 Social / 🧘 Presence / 🎒 Inventory / 📜 Info / 🔨 Crafting / 📖 General / ⚙️ Admin / ⚙️ Bot Admin. Admin-only categories drop out entirely for invokers who can't run any of their commands.
+- **`HelpView` interactive surface.** Landing page (category index, one field per category with count + blurb) + category page (one field per command, single-line render `**$cmd** — brief *(aliases: ...)* *[group: a, b, c]*`). Select picker drives category transitions; Prev/Next paginate within a category if it exceeds `COMMANDS_PER_CATEGORY_PAGE = 10`. Auth-gated to the invoker per-interaction. 180s timeout — controls gray out in place on expiry rather than deleting the message.
+- **`$help <category>` direct routing.** `$help combat`, `$help inventory`, `$help bot admin` etc. resolve via the label word-form (emoji stripped) and open on that category, skipping the landing page. Cog class name (lowercased) also resolves as a fallback.
+- **Group commands surface their subcommand list inline** in the category view (`**$warmth** — Manage social warmth *[group: default, list, set]*`) so players see the verb's surface at a glance without leaving the listing.
+- **Tests** — new `tests/test_help_commands.py` (26 tests) covering label-token stripping, per-command line rendering, `HelpView` landing + category-page embeds, button state across pages, category resolution, can_run filtering, hidden-command filtering, empty-category dropping, and `$help` routing through bare / category-name / command-name / missing paths.
+
+### 2026-05-12 — Passerby passive-kill reactions ($shepherd watching a sheep-kill)
+
+Player report: a shepherd witnessing a player kill a sheep in his presence rendered praise from `COMBAT_WON_REACTIONS` (*"That's a worthy bit of work"*) — opposite of the design intent encoded in his `PASSIVE_KILL_PENALTY = {"sheep": "tier_drop"}` (which fires correctly). Warmth-side mechanic dropped the killer's tier; narration-side fired the wrong pool. Two layers of the same intent, only one wired.
+
+- **`PASSIVE_KILL_REACTIONS` field** on `PasserbyPlugin` base — keyed by monster filename stem with `"*"` wildcard, mirrors the existing `PASSIVE_KILL_PENALTY` shape. New `get_passive_kill_pool(stem)` helper enforces stem-specific → wildcard → empty precedence.
+- **Silhouette-drain branch.** `drain_silhouette` in `passersby/spawn.py` checks `monster.aggression == PASSIVE` before the standard outcome-pool pick; if passive AND the NPC has a matching pool entry, uses it. Falls through to `COMBAT_WON_REACTIONS` otherwise (so un-authored NPCs aren't silently broken).
+- **Present-passerby branch.** New `Game._render_present_passive_kill_reaction` called from `_finalize_combat` when the NPC is already in the clearing (vs silhouette). Splices into `announce` the same way the silhouette path does. Silent fall-through when no pool entry — does NOT fall back to `COMBAT_WON_REACTIONS` (authors opt into Present-case flavor explicitly).
+- **Pools authored — DRAFTS, voice in authoring lane.** Shepherd: 5 sheep-specific lines (his flock, most acute) + 3 generic-passive `"*"` wildcard lines. Wagoneer / Wren / Herbalist each got `"*"` wildcard pools in their voice register (road-weary disappointment, kid-witness-goes-silent, mythic-disapproval-of-waste). Each pool comment-marked as starter voice.
+- **Tests** — 8 new in `test_passerby_spawn.py` (silhouette-drain passive-kill branch + `get_passive_kill_pool` precedence) + 4 new in `test_passerby_integration.py` (Present-case rendering / suppression / fall-through).
+
+### 2026-05-12 — `$nod` + 10 warmth-aware verbs accept text-token targets
+
+Player-reported: `$nod wagoneer` rendered the bare-invocation self-directed line instead of routing to the wagoneer's `nod` reaction pool. Root cause: `$nod` and 10 sibling warmth-aware verbs (`$high_five`, `$fistbump`, `$salute`, `$comfort`, `$poke`, `$glare`, `$shank`, `$tickle`, `$taunt`, `$wink`) had cog signatures `async def <verb>(self, ctx)` with no parameter to capture trailing text — discord.py dropped the token before the warmth-aware dispatcher ran.
+
+- **Signature fix.** All 11 verbs now take `*, msg: str = None` and forward `msg=msg` to `_dispatch_warmth_aware_verb`. Per-verb docstrings updated with the routing surface (bare → self-directed; @-mention → mention path; text token → verb-dispatch chain). Side benefit: closes the path for the prior cycle's `$glare bandit` retrospective fix to actually reach the monster's bland-line fallback.
+- **Tests** — new `TestWarmthAwareVerbsAcceptTextToken` in `tests/test_passerby_integration.py`. 22 parametrized cases (11 verbs × 2 assertions: inspect-level signature guard + end-to-end mock through the wrapper). The `_MSG_PARAM_VERBS` tuple is the canonical registry — future warmth-aware verbs added there.
+
+### 2026-05-12 — Resurrection narration: silent-rez bug when critical part lifts via regen
+
+The *"X suddenly gasps raggedly as life returns"* line was failing to fire when a player came back from death via critical-part restoration (e.g. regen-tick rebuilds a destroyed neck out of USELESS while body HP simultaneously moves 0 → positive). The cascade-revive gate in `do_health_regen` was using "body HP crossed 0" as a proxy for "the body's apply_damage tail narrated the rez" — but the tail had been suppressed by the still-destroyed critical part, so the HP transition happened silently. Net: Serena died at 02:25, regen-ticked her neck back at 02:39, and was alive at 03:20 without a single rez line.
+
+- **Fix:** cascade-revive gate now checks whether the body apply_damage actually returned a message containing the rez phrase, rather than inferring it from HP movement. Two regression tests pin both directions (silent-body + cascade fires; body-narrated + cascade suppressed).
+
+### 2026-05-12 — Damage display: per-row Body column + single-int round aggregation
+
+The "Total damage done vs Health" row was rendering systematically lower than the sum of per-row Final values, which read player-side as a mystery-bug. Two issues sat behind it: (1) the round composer applied the per-part-bleed-rate scaling per-attacker, accumulating compound `int()` truncation across N attackers; (2) the per-attack table had no visibility on the bleed-rate scaling, so the discrepancy looked like lost damage rather than a documented mechanic.
+
+- **Single-int round-level aggregation.** `do_combat` and `_do_combat_legacy` now accumulate a float bleed-total + total num_hits across all attackers, applying the `int()` truncation once per round instead of once per attacker. Per-player death-check guard still works (monster.health updates by delta between players). New helpers `accumulate_bleed_sum` + `apply_body_hp_floor` in `combat/resolution.py` for both legacy single-resolution callers and the round composer.
+- **Per-row Body column in the attack table.** When any part has bleed_rate < 1.0 or the target has `BLEED_MOD != 1.0`, `attack_result.py`'s `_render_compact_table` shows a `Body` column alongside `Final`. Single-target footer adds `→ N body-HP` after `→ N damage`. Partless / neutral combat reads identically to before — the column suppresses.
+
 ### 2026-05-07 — Presence verbs ($lean / $sit / $rest / $ponder / $tend / $bite) + $thank, warmth-aware
 
 Six new presence verbs in a fresh `rpg_presence_commands.py` cog plus $thank in the social cog. All seven are warmth-aware end-to-end — same intent + acceptance resolution shape as $hug / $glare / etc., with per-NPC reactions in the four passerby NPCs and per-static-object reactions on campfire + stone field where the verb fits.

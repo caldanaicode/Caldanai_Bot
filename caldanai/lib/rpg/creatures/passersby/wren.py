@@ -94,6 +94,19 @@ class Wren(PasserbyPlugin):
         "@1 freezes mid-trot at the verge, drops to a crouch, and watches with the stillness of a small animal that has not yet decided whether to flee.",
     ]
 
+    # Reactive flavor for witnessing a passive-monster kill (sheep
+    # today). Wren goes quiet — the kid who chirps about everything
+    # has nothing to chirp about for this. Authored as starting
+    # voice; revise to taste.
+    PASSIVE_KILL_REACTIONS: Dict[str, List[str]] = {
+        "*": [
+            "@1np chirp dies. She stares at the body, then at @2, then at the body again. She doesn't say anything. She just turns and walks back the way she came — walking instead of running for the first time @2 has seen.",
+            "@1np hand goes to her satchel like she's looking for something to give back, but there's nothing there. \"I won't tell Halrick this one,\" she says, quiet, almost to herself. \"He doesn't need to know everyone.\"",
+            "@1 crosses to the body and touches it with two fingers, careful. She looks up at @2 with the wide-eyed grave expression she usually saves for sermons-overheard. \"That was alive,\" she says. \"I knew it was alive.\"",
+            "@1 sits down on a stump heavily, satchel sagging, and stares at the body without speaking. After a long beat: \"I don't have words for this one. Old Marn would. I don't.\"",
+        ],
+    }
+
     COMBAT_WON_REACTIONS: List[str] = [
         "@1 bounds out of cover the moment the dust settles, eyes huge. \"OH. Oh. I'm telling EVERYONE. @2! That's @2 who killed the BIG one. Halrick's going to want to hear this. Old Marn's going to want to hear this.\"",
         "@1 edges out cautiously, examines the carcass from a respectful three paces, and addresses @2 with sudden formality: \"That's a good kill, that. I'll mention you to the trading-post. They listen to me, sometimes.\"",

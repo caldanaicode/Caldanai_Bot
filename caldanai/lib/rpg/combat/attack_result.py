@@ -183,6 +183,14 @@ class AttackResult:
             "absorbed": self.absorbed,
             "dodge": self.dodge,
             "extra_text": self.extra_text,
+            # Per-part bleed scaling — read by the table renderer to
+            # show a per-row "Body" column when any part scales bleed
+            # (i.e., bleed_rate < 1.0). Partless / legacy whole-body
+            # results fall back to neutral 1.0 so the column suppresses.
+            "bleed_rate": (
+                getattr(self.target_part, "bleed_rate", 1.0)
+                if self.target_part is not None else 1.0
+            ),
         }
 
     def to_markdown(self, label: Optional[str] = None) -> str:
@@ -330,23 +338,51 @@ class AttackSequence:
             f"→ {0 if p['is_miss'] else p['final_damage']}" for p in parts_list
         ]
 
+        # Q.6.2 follow-up: optional Body column showing the per-row
+        # bleed-scaled body-HP equivalent (``int(final * bleed_rate
+        # * BLEED_MOD)``). Suppressed when no row would scale (every
+        # part is bleed_rate=1.0 AND target's BLEED_MOD=1.0) — that
+        # case has Body == Final so the column would just repeat.
+        # Per-row truncation here is informational; the round-level
+        # "Total damage done vs Health" sums via float-then-int-once
+        # so per-row floors don't compound there.
+        bleed_mod = (
+            getattr(self.target, "BLEED_MOD", 1.0)
+            if self.target is not None else 1.0
+        )
+        show_body_col = bleed_mod != 1.0 or any(
+            p.get("bleed_rate", 1.0) != 1.0 for p in parts_list
+        )
+        body_col_list: List[str] = []
+        if show_body_col:
+            body_col_list = [
+                "-" if p["is_miss"] else str(int(
+                    p["final_damage"] * p.get("bleed_rate", 1.0) * bleed_mod
+                ))
+                for p in parts_list
+            ]
+
         # Header labels per column. Def reintroduced post-Phase C —
         # defense is now per-part, not per-player, so each source
         # row passes through a different absorber and wants its
         # own column. H_FINAL is the per-source damage output;
-        # H_CHECK is the attack-check outcome.
+        # H_CHECK is the attack-check outcome. H_BODY shows the
+        # bleed-scaled body-HP equivalent (only when any part scales).
         H_LABEL = "Source"
         H_CHECK = "Roll v Dodge → Result"
         H_DAMAGE = "Damage"
         H_MULT = "Multiplier"
         H_DEF = "Def"
         H_FINAL = "Final"
+        H_BODY = "Body"
 
         label_w = max(len(H_LABEL), max(len(p["label"]) for p in parts_list))
         dmg_w = max(len(H_DAMAGE), max(len(s) for s in dmg_col_list))
         mult_w = max(len(H_MULT), max(len(s) for s in mult_col_list))
         def_w = max(len(H_DEF), max(len(s) for s in def_col_list))
         final_w = max(len(H_FINAL), max(len(s) for s in final_col_list))
+        if show_body_col:
+            body_w = max(len(H_BODY), max(len(s) for s in body_col_list))
 
         if not all_auto_hit:
             check_w = max(len(H_CHECK), max(len(s) for s in check_col_list))
@@ -368,38 +404,58 @@ class AttackSequence:
         if all_auto_hit:
             lines.append("   Auto-hit attack")
 
+        # Body-column suffix appended to header / per-row strings only
+        # when bleed-scaling is in play. Empty otherwise so the table
+        # shape is unchanged for the partless / neutral case.
+        body_header_suffix = (
+            f" | {H_BODY.ljust(body_w)}" if show_body_col else ""
+        )
+
         # Column header row (plain text, no diff prefix)
         if all_auto_hit:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_DAMAGE.ljust(dmg_w)} | "
                 f"{H_MULT.ljust(mult_w)} | {H_DEF.ljust(def_w)} | "
-                f"{H_FINAL.ljust(final_w)}"
+                f"{H_FINAL.ljust(final_w)}{body_header_suffix}"
             )
         else:
             header_row = (
                 f"   {H_LABEL.ljust(label_w)} | {H_CHECK.ljust(check_w)} | "
                 f"{H_DAMAGE.ljust(dmg_w)} | {H_MULT.ljust(mult_w)} | "
                 f"{H_DEF.ljust(def_w)} | {H_FINAL.ljust(final_w)}"
+                f"{body_header_suffix}"
             )
         lines.append(header_row)
 
-        for p, check_col, dmg_col, mult_col, def_col, final_col in zip(
+        # Iteration uses indexed access for body_col_list since the
+        # column is conditional and zip-with-empty-list would short-
+        # circuit the whole loop in the common partless case.
+        for idx, (p, check_col, dmg_col, mult_col, def_col, final_col) in enumerate(zip(
             parts_list, check_col_list,
             dmg_col_list, mult_col_list, def_col_list, final_col_list,
-        ):
+        )):
             prefix = self._prefix_for(p)
             label = p["label"].ljust(label_w)
             dmg_padded = dmg_col.ljust(dmg_w)
             mult_padded = mult_col.ljust(mult_w)
             def_padded = def_col.ljust(def_w)
             emoji = p["damage_type_emoji"]
-            final_rendered = final_col.ljust(final_w) if emoji else final_col
+            # Final padding logic: pad to ``final_w`` when there's
+            # something following on the row (emoji OR body column);
+            # otherwise leave unpadded so the row doesn't carry a
+            # trailing rectangle of spaces.
+            body_padded = (
+                f" | {body_col_list[idx].ljust(body_w)}"
+                if show_body_col else ""
+            )
+            needs_final_pad = bool(emoji) or show_body_col
+            final_rendered = final_col.ljust(final_w) if needs_final_pad else final_col
             emoji_trailer = f" {emoji}" if emoji else ""
 
             if all_auto_hit:
                 row = (
                     f"{prefix} {label} | {dmg_padded} | {mult_padded} | "
-                    f"{def_padded} | {final_rendered}{emoji_trailer}"
+                    f"{def_padded} | {final_rendered}{body_padded}{emoji_trailer}"
                 )
             else:
                 # Pad against the plain check string so column alignment
@@ -416,7 +472,7 @@ class AttackSequence:
                 row = (
                     f"{prefix} {label} | {check_padded} | "
                     f"{dmg_padded} | {mult_padded} | {def_padded} | "
-                    f"{final_rendered}{emoji_trailer}"
+                    f"{final_rendered}{body_padded}{emoji_trailer}"
                 )
             lines.append(row)
 
@@ -491,9 +547,25 @@ class AttackSequence:
             # as a UI bug). Pairs with the per-row Def column.
             raw_total = sum(r.sub_damage for r in self.results)
             absorbed = raw_total - total_damage
+            body_suffix = ""
+            if show_body_col:
+                # Single-truncation aggregation across this block's
+                # results — matches the per-row math but applies
+                # ``int()`` once so the number never undercounts the
+                # sum-of-rows by per-row floors. Aggregates further
+                # at the round level via ``apply_body_hp_floor``.
+                body_total = int(
+                    sum(
+                        r.damage * getattr(
+                            getattr(r, "target_part", None), "bleed_rate", 1.0,
+                        )
+                        for r in self.results if r.damage > 0
+                    ) * bleed_mod
+                )
+                body_suffix = f" → {body_total} body-HP"
             lines.append(
                 f"   Total: {raw_total} raw - {absorbed} absorbed "
-                f"→ {total_damage} damage"
+                f"→ {total_damage} damage{body_suffix}"
             )
         lines.append("```")
 

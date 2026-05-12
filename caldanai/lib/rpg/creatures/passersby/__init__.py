@@ -444,6 +444,36 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
     # a wagoneer might shrug at most passives, etc.).
     PASSIVE_KILL_PENALTY: Dict[str, Union[int, str]] = {}
 
+    # Per-NPC reaction pool for witnessing a player kill a passive
+    # (non-aggressive) monster. Same key shape as
+    # :attr:`PASSIVE_KILL_PENALTY` — monster stem with ``"*"`` wildcard
+    # fallback. Pairs the warmth-state shift with the matching prose
+    # so the player sees evidence of the witnessed-kill displeasure.
+    #
+    # When a kill victim is passive (sheep today) AND this NPC is
+    # present (or the silhouette drains to present after the kill),
+    # the dispatcher prefers a line from this pool over the default
+    # :attr:`COMBAT_WON_REACTIONS` praise pool. Empty default = fall
+    # through to silence (Present case) or :attr:`ARRIVAL_POOL`
+    # (silhouette-drain case) rather than back to COMBAT_WON; firing
+    # praise on a passive kill is the bug this attribute exists to
+    # prevent.
+    PASSIVE_KILL_REACTIONS: Dict[str, List[str]] = {}
+
+    @classmethod
+    def get_passive_kill_pool(cls, monster_stem: str) -> List[str]:
+        """Resolve the reaction pool for witnessing a passive-kill of
+        ``monster_stem``. Tries the stem-specific entry first, then
+        the ``"*"`` wildcard, then returns an empty list (caller
+        decides how to fall through).
+
+        Same key precedence as :attr:`PASSIVE_KILL_PENALTY` lookups
+        in ``state.witness_kill`` — keep them in sync when the
+        precedence rule evolves.
+        """
+        reactions = cls.PASSIVE_KILL_REACTIONS or {}
+        return reactions.get(monster_stem) or reactions.get("*") or []
+
     # ---------------------------------------------------------------
     # Plugin discovery / registry
     # ---------------------------------------------------------------

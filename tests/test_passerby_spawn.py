@@ -393,6 +393,196 @@ class TestDrainSilhouette:
 
 
 # ---------------------------------------------------------------------------
+# drain_silhouette — passive-kill branch
+# ---------------------------------------------------------------------------
+
+
+class TestDrainSilhouettePassiveKill:
+    """When the resolved combat killed a passive monster (e.g. a
+    sheep), the silhouette-drain should pick from the NPC's
+    PASSIVE_KILL_REACTIONS pool instead of the generic
+    COMBAT_WON_REACTIONS praise pool. Player-reported 2026-05-09:
+    *"It looks like the shepherd wanted us to kill his sheep?"* —
+    the COMBAT_WON praise was firing on a sheep-kill, opposite of
+    the design intent encoded in PASSIVE_KILL_PENALTY."""
+
+    def _make_passive_monster(self, stem: str = "sheep"):
+        """Monster mock with PASSIVE aggression + a module-stem the
+        passive-kill lookup can match against."""
+        from caldanai.lib.rpg.helpers.enums import AggressionLevels
+        m = MagicMock()
+        m.aggression = AggressionLevels.PASSIVE
+        # Override __module__ so the spawn-side stem extraction
+        # (``type(monster).__module__.rsplit(".", 1)[-1].lower()``)
+        # produces our intended stem.
+        type(m).__module__ = f"caldanai.lib.rpg.creatures.monsters.{stem}"
+        return m
+
+    def _make_aggressive_monster(self):
+        from caldanai.lib.rpg.helpers.enums import AggressionLevels
+        m = MagicMock()
+        m.aggression = AggressionLevels.VENGEFUL
+        type(m).__module__ = "caldanai.lib.rpg.creatures.monsters.bandit"
+        return m
+
+    def test_passive_kill_uses_passive_pool_when_stem_matches(
+        self, quiet_db,
+    ):
+        """Shepherd has ``PASSIVE_KILL_REACTIONS["sheep"]``. With a
+        passive sheep monster + WON outcome, the dispatch picks
+        from that pool, NOT from COMBAT_WON_REACTIONS."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        game = _make_game(
+            monster=self._make_passive_monster("sheep"),
+            pending=Shepherd(),
+        )
+        captured = []
+
+        def capturing_choice(pool):
+            captured.append(pool)
+            return pool[0]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=capturing_choice,
+        ):
+            drain_silhouette(game, OUTCOME_WON)
+
+        assert captured[0] is Shepherd.PASSIVE_KILL_REACTIONS["sheep"]
+        assert captured[0] is not Shepherd.COMBAT_WON_REACTIONS
+
+    def test_passive_kill_falls_back_to_wildcard_when_no_stem_match(
+        self, quiet_db,
+    ):
+        """Shepherd has ``"*"`` wildcard for any-passive. Killing
+        a hypothetical passive monster with no stem-specific entry
+        falls through to the wildcard pool."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        game = _make_game(
+            # Use a stem that doesn't exist in PASSIVE_KILL_REACTIONS.
+            monster=self._make_passive_monster("hypothetical_passive"),
+            pending=Shepherd(),
+        )
+        captured = []
+
+        def capturing_choice(pool):
+            captured.append(pool)
+            return pool[0]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=capturing_choice,
+        ):
+            drain_silhouette(game, OUTCOME_WON)
+
+        assert captured[0] is Shepherd.PASSIVE_KILL_REACTIONS["*"]
+
+    def test_passive_kill_falls_through_when_no_pool_at_all(
+        self, quiet_db,
+    ):
+        """An NPC without ANY ``PASSIVE_KILL_REACTIONS`` entries
+        falls through to ``COMBAT_WON_REACTIONS``. Bug-prevention
+        tradeoff: silent-fall-through would be more correct
+        philosophically (don't praise the kill), but COMBAT_WON
+        keeps the silhouette beat from disappearing entirely. Authors
+        opt INTO the passive-kill branch by populating the pool."""
+        from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+
+        class _BareNPC(PasserbyPlugin):
+            COMBAT_WON_REACTIONS = ["@1D arrives. \"Done.\""]
+            # No PASSIVE_KILL_REACTIONS — inherits empty default.
+
+        game = _make_game(
+            monster=self._make_passive_monster("sheep"),
+            pending=_BareNPC(),
+        )
+        captured = []
+
+        def capturing_choice(pool):
+            captured.append(pool)
+            return pool[0]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=capturing_choice,
+        ):
+            drain_silhouette(game, OUTCOME_WON)
+
+        assert captured[0] is _BareNPC.COMBAT_WON_REACTIONS
+
+    def test_non_passive_kill_uses_combat_won_unchanged(self, quiet_db):
+        """Non-passive monster (bandit, etc.) → COMBAT_WON_REACTIONS,
+        same as before the fix. The passive-kill branch is gated on
+        ``aggression == PASSIVE``; everything else passes through."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        game = _make_game(
+            monster=self._make_aggressive_monster(),
+            pending=Shepherd(),
+        )
+        captured = []
+
+        def capturing_choice(pool):
+            captured.append(pool)
+            return pool[0]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=capturing_choice,
+        ):
+            drain_silhouette(game, OUTCOME_WON)
+
+        assert captured[0] is Shepherd.COMBAT_WON_REACTIONS
+
+    def test_passive_kill_only_branches_on_won_outcome(self, quiet_db):
+        """FLED/DEATH outcomes don't branch on passive-kill — those
+        outcomes mean the monster wasn't actually killed (FLED) or
+        a player died (DEATH); neither is "you killed a sheep"."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        game = _make_game(
+            monster=self._make_passive_monster("sheep"),
+            pending=Shepherd(),
+        )
+        captured = []
+
+        def capturing_choice(pool):
+            captured.append(pool)
+            return pool[0]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            side_effect=capturing_choice,
+        ):
+            drain_silhouette(game, OUTCOME_FLED)
+        assert captured[0] is Shepherd.COMBAT_FLED_REACTIONS
+
+
+class TestGetPassiveKillPool:
+    """``PasserbyPlugin.get_passive_kill_pool`` helper precedence:
+    stem-specific > ``"*"`` wildcard > empty list. Used by both
+    the silhouette-drain branch (spawn.py) and the Present-passerby
+    branch (Game._render_present_passive_kill_reaction)."""
+
+    def test_stem_specific_wins(self):
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        pool = Shepherd.get_passive_kill_pool("sheep")
+        assert pool is Shepherd.PASSIVE_KILL_REACTIONS["sheep"]
+
+    def test_wildcard_fallback_when_stem_unknown(self):
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        pool = Shepherd.get_passive_kill_pool("hypothetical_other")
+        assert pool is Shepherd.PASSIVE_KILL_REACTIONS["*"]
+
+    def test_empty_when_no_pool_at_all(self):
+        from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+
+        class _BareNPC(PasserbyPlugin):
+            pass
+
+        assert _BareNPC.get_passive_kill_pool("sheep") == []
+        assert _BareNPC.get_passive_kill_pool("anything") == []
+
+
+# ---------------------------------------------------------------------------
 # depart_passerby
 # ---------------------------------------------------------------------------
 

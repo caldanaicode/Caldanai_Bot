@@ -290,6 +290,188 @@ class TestFinalizeCombatDrainsSilhouette:
         )
 
 
+class TestFinalizeCombatPresentPassiveKill:
+    """Player-reported 2026-05-09: shepherd watching a sheep-kill from
+    cover (silhouette path) fired the COMBAT_WON praise pool, opposite
+    of the design intent. Fix branches passive-kill into
+    ``PASSIVE_KILL_REACTIONS`` for both silhouette-drain (covered in
+    test_passerby_spawn.py) AND the Present-passerby case where the
+    NPC was already standing in the clearing during the kill (covered
+    here). The Present case has no silhouette transition to leverage,
+    so it routes through ``Game._render_present_passive_kill_reaction``.
+    """
+
+    def _make_passive_monster(self, stem: str = "sheep"):
+        from caldanai.lib.rpg.helpers.enums import AggressionLevels
+        m = MagicMock()
+        m.aggression = AggressionLevels.PASSIVE
+        type(m).__module__ = f"caldanai.lib.rpg.creatures.monsters.{stem}"
+        return m
+
+    def _make_aggressive_monster(self):
+        from caldanai.lib.rpg.helpers.enums import AggressionLevels
+        m = MagicMock()
+        m.aggression = AggressionLevels.VENGEFUL
+        type(m).__module__ = "caldanai.lib.rpg.creatures.monsters.bandit"
+        return m
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_present_passerby_passive_kill_renders_reaction(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Shepherd already Present + sheep killed → reaction line
+        from PASSIVE_KILL_REACTIONS lands in the announce, splicing
+        before the loot prompt. Confirms the Present-case path
+        symmetric to silhouette-drain."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        game = _make_finalize_game(mock_db, mock_gc_cls)
+        game.pending_silhouette = None
+        game.passerby = Shepherd()
+        game.monster = self._make_passive_monster("sheep")
+        game.looters = [_FakePlayer(1, dead=False, name="Patrick")]
+        game.loot = {1: ["fake_wool"]}
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.state.get_state"
+        ) as mock_get_state:
+            mock_get_state.return_value = SimpleNamespace(
+                acquainted=False, warmth=Warmth.NEUTRAL,
+            )
+            announce = await game._finalize_combat(outcome="death")
+
+        # The reaction line should land before the loot prompt.
+        assert announce
+        loot_idx = announce.find("There might be")
+        assert loot_idx > 0, (
+            f"expected reaction line prepended to loot prompt; "
+            f"got:\n{announce}"
+        )
+        prefix = announce[:loot_idx].strip()
+        # Match a unique fragment from each line in Shepherd's
+        # PASSIVE_KILL_REACTIONS["sheep"] pool — random-pick safe.
+        assert any(
+            phrase in prefix.lower()
+            for phrase in (
+                "one of mine",          # "That was one of mine."
+                "without a word",        # "carries it back the way he came without a word"
+                "under my care",        # "They were under my care."
+                "didn't know your hand",  # "I didn't know your hand yet"
+                "the silence is the answer",  # "The silence is the answer."
+            )
+        ), f"expected sheep-kill reaction; got:\n{prefix}"
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_present_passerby_non_passive_kill_no_reaction(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Present passerby + non-passive (bandit) kill → no
+        PASSIVE_KILL reaction. The Present path does NOT fall back
+        to COMBAT_WON; that's silhouette-only behavior. Today this
+        means non-passive kills with a Present NPC stay silent
+        narration-wise (warmth state still ticks via the existing
+        ``_notify_passerby_witnessed_kill``)."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        game = _make_finalize_game(mock_db, mock_gc_cls)
+        game.pending_silhouette = None
+        game.passerby = Shepherd()
+        game.monster = self._make_aggressive_monster()
+        game.looters = [_FakePlayer(1, dead=False)]
+        game.loot = {1: ["fake_item"]}
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.state.get_state"
+        ) as mock_get_state:
+            mock_get_state.return_value = SimpleNamespace(
+                acquainted=False, warmth=Warmth.NEUTRAL,
+            )
+            announce = await game._finalize_combat(outcome="death")
+
+        # No PASSIVE_KILL_REACTIONS phrasing should appear; the
+        # announce is just the loot prompt (with no prepended line).
+        assert "one of mine" not in (announce or "").lower()
+        assert "under my care" not in (announce or "").lower()
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_present_passerby_no_pool_no_reaction(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """NPC with no PASSIVE_KILL_REACTIONS at all (custom test
+        NPC) + passive kill → silent. The Present path requires the
+        author to opt in; no fall-back to COMBAT_WON here (that's
+        the silhouette-only behavior, and would re-introduce the
+        wrong-praise bug)."""
+        from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+
+        class _BareNPC(PasserbyPlugin):
+            COMBAT_WON_REACTIONS = ["@1D arrives. \"Done.\""]
+            # No PASSIVE_KILL_REACTIONS.
+
+        game = _make_finalize_game(mock_db, mock_gc_cls)
+        game.pending_silhouette = None
+        game.passerby = _BareNPC()
+        game.monster = self._make_passive_monster("sheep")
+        game.looters = [_FakePlayer(1, dead=False)]
+        game.loot = {1: ["fake_item"]}
+
+        await game._finalize_combat(outcome="death")
+        # The COMBAT_WON_REACTIONS line should NOT have fired (that's
+        # the bug this fix prevents). Render returns None so nothing
+        # prepends to announce.
+        # Direct method call to verify the helper itself returns None.
+        assert game._render_present_passive_kill_reaction() is None
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.Dispatcher")
+    @patch("caldanai.lib.rpg.DB")
+    @patch("caldanai.lib.rpg.player_manager")
+    @patch("caldanai.lib.rpg.GameClock")
+    async def test_silhouette_path_preferred_when_both_states_set(
+        self, mock_gc_cls, mock_pm_cls, mock_db, mock_dispatch,
+    ):
+        """Defensive: if both pending_silhouette AND passerby are
+        somehow set (shouldn't happen — attempt_spawn enforces
+        mutual exclusion), the silhouette path wins. Validates the
+        if/elif structure in ``_finalize_combat``."""
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        from caldanai.lib.rpg.creatures.passersby.wagoneer import Wagoneer
+        game = _make_finalize_game(mock_db, mock_gc_cls)
+        game.pending_silhouette = Wagoneer()  # silhouette-side
+        game.passerby = Shepherd()  # already-present
+        game.monster = self._make_passive_monster("sheep")
+        game.looters = [_FakePlayer(1, dead=False)]
+        game.loot = {1: ["fake_item"]}
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.get_state"
+        ) as mock_get_state, patch(
+            "caldanai.lib.rpg.creatures.passersby.state.get_state"
+        ) as mock_get_state2:
+            mock_get_state.return_value = SimpleNamespace(
+                acquainted=False, warmth=Warmth.NEUTRAL,
+            )
+            mock_get_state2.return_value = SimpleNamespace(
+                acquainted=False, warmth=Warmth.NEUTRAL,
+            )
+            await game._finalize_combat(outcome="death")
+
+        # Silhouette drained → game.passerby is now the Wagoneer
+        # (drain_silhouette overwrites the slot with the previously-
+        # pending NPC).
+        assert isinstance(game.passerby, Wagoneer)
+
+
 # ---------------------------------------------------------------------------
 # Game integration: spawn / depart timer routines
 # ---------------------------------------------------------------------------
@@ -633,6 +815,80 @@ class TestSocialPasserbyRouting:
             game, "wagoneer", include_silhouette=True,
         ))
         assert candidates == [game.pending_silhouette]
+
+
+# ---------------------------------------------------------------------------
+# Cog: $nod cog signature accepts a text token
+# ---------------------------------------------------------------------------
+
+
+class TestWarmthAwareVerbsAcceptTextToken:
+    """Regression: warmth-aware verbs were declared
+    ``async def <verb>(self, ctx)`` with no parameter to capture
+    trailing text, so ``$<verb> <token>`` dropped the token and fell
+    into the bare-invocation self-directed line. ``$nod wagoneer``
+    was the player-reported instance (2026-05-09); all 11 warmth-aware
+    verbs in this set share the same shape and are fixed together so
+    the next text-token target also lands on the right responder.
+
+    Pinned both at the inspect-level signature (so no future cog edit
+    silently drops the param) and end-to-end through the dispatch
+    wrapper (so ``msg=`` actually flows through to the verb-dispatch
+    chain)."""
+
+    # Verbs whose cog command must accept a ``msg`` parameter for
+    # text-token target routing. $hug already had it; $wave / $greet
+    # / $thank also had their own custom signatures with target/msg.
+    # This list is the set that was missing the parameter.
+    _MSG_PARAM_VERBS = (
+        "high_five", "fistbump", "salute", "comfort", "poke",
+        "nod", "glare", "shank", "tickle", "taunt", "wink",
+    )
+
+    @pytest.mark.parametrize("verb", _MSG_PARAM_VERBS)
+    def test_cog_signature_accepts_msg_param(self, verb):
+        """Inspect-level guard: each callback's signature must take a
+        ``msg`` keyword so discord.py captures the trailing token
+        instead of dropping it. Pins the regression at the API
+        surface, not the dispatch chain."""
+        import inspect
+        from caldanai.lib.cogs.rpg_social_commands import RpgSocialCommands
+        cmd = getattr(RpgSocialCommands, verb)
+        sig = inspect.signature(cmd.callback)
+        assert "msg" in sig.parameters, (
+            f"${verb} must accept a `msg` parameter to receive "
+            f"text-token targets like `${verb} <token>`; without it, "
+            f"discord.py drops the token and the warmth-aware "
+            f"dispatcher falls into the bare-invocation path."
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("verb", _MSG_PARAM_VERBS)
+    async def test_dispatches_with_text_token(self, verb):
+        """End-to-end: invoking each cog command with ``msg='someone'``
+        forwards through the warmth-aware wrapper into the dispatch
+        chain with the verb name and ``msg='someone'`` preserved.
+        The dispatch chain itself (token-walk + handle_verb routing)
+        is exercised separately; this test pins the cog → wrapper
+        boundary specifically."""
+        from caldanai.lib.cogs.rpg_social_commands import RpgSocialCommands
+
+        cog = RpgSocialCommands(bot=MagicMock())
+        ctx = MagicMock()
+        ctx.message = MagicMock()
+        ctx.message.mentions = []
+        ctx.invoked_with = verb
+
+        with patch.object(
+            cog, "_dispatch_warmth_aware_verb", new_callable=AsyncMock,
+        ) as mock_dispatch:
+            cmd = getattr(RpgSocialCommands, verb)
+            await cmd.callback(cog, ctx, msg="someone")
+
+        mock_dispatch.assert_awaited_once()
+        call_args = mock_dispatch.call_args
+        assert call_args.args[1] == verb
+        assert call_args.kwargs.get("msg") == "someone"
 
 
 # ---------------------------------------------------------------------------

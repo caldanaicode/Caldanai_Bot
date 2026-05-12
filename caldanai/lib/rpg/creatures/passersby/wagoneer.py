@@ -88,6 +88,21 @@ class Wagoneer(PasserbyPlugin):
         "A wagoneer eyes the commotion from the ridgeline, makes the practical choice, and parks his cart out of arrow-range.",
     ]
 
+    # Reactive flavor for witnessing a passive-monster kill (sheep
+    # today; future passive creatures via the ``"*"`` wildcard).
+    # Wagoneer's voice on this is road-weary disappointment — he's
+    # seen what the road costs and has no patience for adding to
+    # the toll. Authored as starting voice; revise to taste.
+    PASSIVE_KILL_REACTIONS: Dict[str, List[str]] = {
+        "*": [
+            "@1D pulls his cart up short and looks at the body. He doesn't get down. \"That wasn't a thing that needed doing,\" he says, with road-tired weariness. \"The road sees enough of that.\"",
+            "@1D shakes his head, slow. \"Some things you walk past, friend. Some things the road wants you to walk past.\"",
+            "@1D ties off his pole, walks over to the body, looks at it a long beat, then back at @2. \"You'll think on this one when the cart's quiet at night. I would.\"",
+            "@1D exhales the way he does when a horse goes lame on a hard mile. \"Ah, friend. There's other things to take a swing at.\"",
+            "@1D doesn't get down from the cart. He looks at the body, then ahead at the road, then snaps the reins. The cart rolls past without him saying a word to @2.",
+        ],
+    }
+
     # COMBAT_WON — the wagoneer approaches after the party kills
     # the monster. ``@1`` = wagoneer; ``@2`` = a representative
     # party member (the killing-blow dealer or random survivor).
