@@ -452,3 +452,226 @@ class TestHelpCommandsRouting:
         # "No such command exists: nonexistent"
         assert "No such command exists" in args[1]
         assert "nonexistent" in args[1]
+
+    @pytest.mark.asyncio
+    async def test_show_help_all_routes_to_dump(self):
+        """``$help all`` must route to the static dump path, NOT the
+        category resolver or the single-command lookup. Otherwise a
+        future command literally named ``all`` would shadow the dump."""
+        ctx = _make_ctx()
+        bot = self._make_bot({})
+        cog = HelpCommands(bot)
+        with patch.object(
+            cog, "_dump_all_commands", new_callable=AsyncMock,
+        ) as mock_dump:
+            await HelpCommands.show_help.callback(cog, ctx, "all", None)
+        mock_dump.assert_awaited_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# HelpCommands._dump_all_commands — static full-surface dump
+# ---------------------------------------------------------------------------
+
+
+class TestDumpAllCommands:
+    """``$help all`` renders every visible category + its commands as
+    static embeds (no View attached). Designed for one-shot
+    ``tail_channel`` reads by automation — bots can't drive
+    ``discord.ui.View`` component interactions, so a paginator misses
+    commands on pages they'd have to click through. The dump fits the
+    entire visible surface into one ``$help all`` call.
+
+    The shape is one field per category (or chunk thereof for
+    overflow). Long categories that exceed Discord's 1024-char
+    field-value cap split into multiple ``Label (count — n/m)`` fields
+    in declaration order. Multiple embeds emit when a single embed's
+    6000-char total cap would be crossed."""
+
+    def _make_cog_with_commands(self, name: str, command_names):
+        cog = MagicMock()
+        cog.__class__.__name__ = name
+        cog.get_commands.return_value = [
+            _make_command(n) for n in command_names
+        ]
+        return cog
+
+    def _make_bot(self, cogs: dict):
+        bot = MagicMock()
+        bot.get_cog.side_effect = lambda key: cogs.get(key)
+        bot.commands = []
+        bot.remove_command = MagicMock()
+        return bot
+
+    @pytest.mark.asyncio
+    async def test_dump_renders_one_field_per_category(self):
+        ctx = _make_ctx()
+        cogs = {
+            "RpgUserCommands": self._make_cog_with_commands(
+                "RpgUserCommands", ["attack", "flee", "pray"],
+            ),
+            "RpgInventoryCommands": self._make_cog_with_commands(
+                "RpgInventoryCommands", ["inv", "equip"],
+            ),
+        }
+        bot = self._make_bot(cogs)
+        cog = HelpCommands(bot)
+
+        with patch(
+            "caldanai.lib.cogs.help_commands.Dispatcher",
+        ) as mock_dispatcher:
+            await cog._dump_all_commands(ctx)
+
+        # One embed dispatched (3 + 2 commands easily fit one embed)
+        assert mock_dispatcher.add.call_count == 1
+        embed = mock_dispatcher.add.call_args.kwargs["embed"]
+        # Two categories → two fields, in COG_CATEGORIES declaration
+        # order (Combat before Inventory).
+        assert len(embed.fields) == 2
+        assert "⚔️ Combat" in embed.fields[0].name
+        assert "(3)" in embed.fields[0].name  # command count
+        assert "🎒 Inventory" in embed.fields[1].name
+        assert "(2)" in embed.fields[1].name
+
+    @pytest.mark.asyncio
+    async def test_dump_field_value_contains_command_lines(self):
+        ctx = _make_ctx()
+        cogs = {
+            "RpgUserCommands": self._make_cog_with_commands(
+                "RpgUserCommands", ["attack", "flee"],
+            ),
+        }
+        # Override briefs for testability
+        cogs["RpgUserCommands"].get_commands.return_value = [
+            _make_command("attack", brief="Attack a monster."),
+            _make_command("flee", brief="Run away.", aliases=["run"]),
+        ]
+        bot = self._make_bot(cogs)
+        cog = HelpCommands(bot)
+
+        with patch(
+            "caldanai.lib.cogs.help_commands.Dispatcher",
+        ) as mock_dispatcher:
+            await cog._dump_all_commands(ctx)
+        embed = mock_dispatcher.add.call_args.kwargs["embed"]
+        combat_field_value = embed.fields[0].value
+        # Both commands show full $name + brief
+        assert "**$attack** — Attack a monster." in combat_field_value
+        assert "**$flee** — Run away." in combat_field_value
+        # Alias surface inline
+        assert "(aliases: run)" in combat_field_value
+
+    @pytest.mark.asyncio
+    async def test_dump_splits_overflow_category_into_chunks(self):
+        """A category whose lines exceed 1024 chars splits across
+        ``Label (count — n/m)`` fields. Order preserved."""
+        ctx = _make_ctx()
+        # Build ~30 commands with verbose briefs so the joined value
+        # exceeds the 1024-char field-value cap and forces chunking.
+        big_cmds = [
+            _make_command(
+                f"verb{i:02d}",
+                brief=(
+                    "A long verbose brief that takes up substantial "
+                    "space — enough to push the joined lines past the "
+                    "1024-char field-value cap once we have enough of them."
+                ),
+            )
+            for i in range(30)
+        ]
+        cog_mock = MagicMock()
+        cog_mock.__class__.__name__ = "RpgUserCommands"
+        cog_mock.get_commands.return_value = big_cmds
+        bot = self._make_bot({"RpgUserCommands": cog_mock})
+        help_cog = HelpCommands(bot)
+
+        with patch(
+            "caldanai.lib.cogs.help_commands.Dispatcher",
+        ) as mock_dispatcher:
+            await help_cog._dump_all_commands(ctx)
+
+        embed = mock_dispatcher.add.call_args.kwargs["embed"]
+        # Expect at least 2 fields for the single Combat category —
+        # split because lines overflow 1024 chars per field.
+        combat_fields = [
+            f for f in embed.fields if "Combat" in f.name
+        ]
+        assert len(combat_fields) >= 2, (
+            f"expected chunked category fields; got {len(combat_fields)} "
+            f"with names: {[f.name for f in combat_fields]}"
+        )
+        # Chunk names follow the (count — n/m) shape regardless of m
+        import re
+        chunk_marker_re = re.compile(r"\(\d+\s*—\s*\d+/\d+\)")
+        for f in combat_fields:
+            assert chunk_marker_re.search(f.name), (
+                f"expected (count — n/m) chunk marker in field name; "
+                f"got '{f.name}'"
+            )
+        # Each chunk fits within the 1024 cap
+        for f in combat_fields:
+            assert len(f.value) <= 1024, (
+                f"field value {len(f.value)} chars exceeds Discord's "
+                f"1024 cap for field-value"
+            )
+
+    @pytest.mark.asyncio
+    async def test_dump_emits_multiple_embeds_when_total_overflows(self):
+        """Many categories that collectively exceed Discord's 6000-char
+        per-embed total split across multiple Dispatcher.add calls.
+        The title carries an ``(n/m)`` part marker so consumers can tell
+        the dump is multi-message."""
+        ctx = _make_ctx()
+        # Build several cogs each with a fat command set so the combined
+        # field bodies exceed the embed's 6000-char total cap. Each cog
+        # has ~10 commands × ~100 chars/line = ~1000 chars per category;
+        # 7 categories ≈ 7000 chars, overflows one embed.
+        bulky_brief = "X" * 90  # 90-char brief per command
+        cogs = {}
+        for cog_key in (
+            "RpgUserCommands", "RpgWorldCommands", "RpgSocialCommands",
+            "RpgPresenceCommands", "RpgInventoryCommands", "RpgInfoCommands",
+            "RpgCraftingCommands",
+        ):
+            cog_mock = MagicMock()
+            cog_mock.__class__.__name__ = cog_key
+            cog_mock.get_commands.return_value = [
+                _make_command(f"{cog_key.lower()}_cmd{i:02d}", brief=bulky_brief)
+                for i in range(10)
+            ]
+            cogs[cog_key] = cog_mock
+        bot = self._make_bot(cogs)
+        cog = HelpCommands(bot)
+
+        with patch(
+            "caldanai.lib.cogs.help_commands.Dispatcher",
+        ) as mock_dispatcher:
+            await cog._dump_all_commands(ctx)
+
+        # Multiple embeds dispatched
+        assert mock_dispatcher.add.call_count >= 2, (
+            f"expected multiple embeds for overflowing dump; got "
+            f"{mock_dispatcher.add.call_count}"
+        )
+        # Each call has an (n/m) part marker in the title
+        for call in mock_dispatcher.add.call_args_list:
+            embed = call.kwargs["embed"]
+            # Title format: "Caldanai Bot — All commands (1/N)"
+            assert "/" in embed.title, (
+                f"expected part marker in multi-embed title; got "
+                f"'{embed.title}'"
+            )
+
+    @pytest.mark.asyncio
+    async def test_dump_with_no_visible_categories_dispatches_text(self):
+        ctx = _make_ctx()
+        bot = self._make_bot({})
+        cog = HelpCommands(bot)
+        with patch(
+            "caldanai.lib.cogs.help_commands.Dispatcher",
+        ) as mock_dispatcher:
+            await cog._dump_all_commands(ctx)
+        # Single text dispatch (the "no commands available" line),
+        # no embed.
+        mock_dispatcher.add.assert_called_once()
+        args = mock_dispatcher.add.call_args.args
+        assert "No commands available" in args[1]

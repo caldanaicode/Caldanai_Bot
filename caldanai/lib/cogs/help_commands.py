@@ -400,8 +400,9 @@ class HelpCommands(Cog):
         - ``$help <category>`` — jump straight into a category (e.g. ``$help combat``)
         - ``$help <command>`` — full details on one command
         - ``$help <group> <subcommand>`` — full details on a subcommand
+        - ``$help all`` — static dump of every category + all commands
 
-        :param cmd: A category name (e.g. "combat"), command name, or omit for the browser.
+        :param cmd: ``all``, a category name, a command name, or omit for the browser.
         :param sub: If ``cmd`` is a command group, the subcommand to drill into.
         """
         # Bare $help → interactive category browser
@@ -411,6 +412,16 @@ class HelpCommands(Cog):
 
         cmd_key = cmd.lower()
         sub_key = sub.lower() if sub else None
+
+        # $help all → static dump path (no View, no pagination).
+        # Primary use case: automation / tester-bot readouts via
+        # ``tail_channel`` — Discord's API doesn't expose component
+        # interactions to bot accounts, so a bot can read a View's
+        # current page but can't drive its Select / Prev / Next.
+        # The static dump gives a one-shot full-surface read.
+        if cmd_key == "all" and sub_key is None:
+            await self._dump_all_commands(ctx)
+            return
 
         # $help <category> — match against label tokens
         if sub_key is None:
@@ -479,6 +490,119 @@ class HelpCommands(Cog):
         # canonical entrypoint; the embed + view ride together.
         msg = await ctx.send(embed=view._render_current_embed(), view=view)
         view.message = msg
+
+    async def _dump_all_commands(self, ctx: Context) -> None:
+        """Static, no-View dump of every visible category and its
+        commands. One field per category, command-per-line in each
+        field's value. Long categories that would exceed Discord's
+        1024-char field-value limit are split into multiple
+        ``Label (n/m)`` fields preserving order. Multiple embeds are
+        emitted when a single embed's 6000-char total cap would be
+        crossed.
+
+        Primary use case: automation that reads the help surface via
+        ``tail_channel`` — bots can't drive ``discord.ui.View``
+        components, so an interactive paginator misses commands that
+        sit on pages a human would have to click through to reach.
+        This dump fits the entire visible surface into a single
+        ``$help all`` call.
+        """
+        categories = await self._build_categories(ctx)
+        if not categories:
+            Dispatcher.add(ctx, "No commands available.")
+            return
+
+        # Build (field_name, field_value) pairs per category, chunked
+        # by the 1024-char field-value cap.
+        fields: List[Tuple[str, str]] = []
+        for _cog_key, label, _blurb, cmds in categories:
+            lines: List[str] = []
+            for cmd in cmds:
+                brief = (cmd.brief or "").strip() or "(no description)"
+                line = f"**{ctx.prefix}{cmd.name}** — {brief}"
+                if cmd.aliases:
+                    line += f" *(aliases: {', '.join(sorted(cmd.aliases))})*"
+                if isinstance(cmd, Group) and cmd.commands:
+                    sub_names = sorted(s.name for s in cmd.commands)
+                    line += f" *[group: {', '.join(sub_names)}]*"
+                lines.append(line)
+
+            # Chunk lines to fit the 1024-char field-value cap.
+            chunks: List[str] = []
+            current: List[str] = []
+            current_len = 0
+            for line in lines:
+                # +1 for the newline separator between lines
+                line_cost = len(line) + 1
+                if current and current_len + line_cost > 1000:
+                    chunks.append("\n".join(current))
+                    current = [line]
+                    current_len = len(line)
+                else:
+                    current.append(line)
+                    current_len += line_cost
+            if current:
+                chunks.append("\n".join(current))
+
+            total_chunks = len(chunks)
+            for idx, chunk_value in enumerate(chunks):
+                if total_chunks > 1:
+                    name = f"{label} ({len(cmds)} — {idx + 1}/{total_chunks})"
+                else:
+                    name = f"{label} ({len(cmds)})"
+                fields.append((name, chunk_value))
+
+        # Emit embeds, packing fields up to the 6000-char total cap
+        # AND the 25-field-per-embed cap. The thumbnail + title +
+        # description we account for via the headroom in the cap
+        # constant below.
+        TOTAL_CAP = 5500  # 500 chars of headroom under Discord's 6000
+        FIELDS_PER_EMBED = 25
+        thumb_url = (
+            ctx.guild.me.avatar.url
+            if ctx.guild is not None else ctx.me.avatar.url
+        )
+
+        def _new_embed(part_idx: int, part_count: int) -> Embed:
+            title = "Caldanai Bot — All commands"
+            if part_count > 1:
+                title += f" ({part_idx + 1}/{part_count})"
+            description = (
+                "Full surface, every category. "
+                f"Use `{ctx.prefix}help <command>` for per-command details."
+            )
+            embed = Embed(title=title, description=description, color=0xFF7700)
+            embed.set_thumbnail(url=thumb_url)
+            return embed
+
+        # First pass: group fields into embeds respecting both caps.
+        embed_field_groups: List[List[Tuple[str, str]]] = []
+        current_group: List[Tuple[str, str]] = []
+        current_size = 0
+        for name, value in fields:
+            field_cost = len(name) + len(value)
+            if (
+                current_group
+                and (
+                    current_size + field_cost > TOTAL_CAP
+                    or len(current_group) >= FIELDS_PER_EMBED
+                )
+            ):
+                embed_field_groups.append(current_group)
+                current_group = [(name, value)]
+                current_size = field_cost
+            else:
+                current_group.append((name, value))
+                current_size += field_cost
+        if current_group:
+            embed_field_groups.append(current_group)
+
+        part_count = len(embed_field_groups)
+        for part_idx, group in enumerate(embed_field_groups):
+            embed = _new_embed(part_idx, part_count)
+            for name, value in group:
+                embed.add_field(name=name, value=value, inline=False)
+            Dispatcher.add(ctx, embed=embed)
 
     async def _build_categories(
         self, ctx: Context,
