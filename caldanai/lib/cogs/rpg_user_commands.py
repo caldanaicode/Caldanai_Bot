@@ -9,7 +9,9 @@ from caldanai.logger import get_logger
 from caldanai.lib.rpg.helpers.utils import RpgUtilities, generate_report
 from caldanai.lib.rpg import Game
 from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.helpers.converters import PartConverter
 from caldanai.lib.rpg.helpers.dice import Dice
+from caldanai.lib.rpg.helpers.fuzzy_resolve import fuzzy_resolve
 from caldanai.lib.rpg.helpers.parser import parse
 
 
@@ -144,13 +146,19 @@ class RpgUserCommands(Cog):
         # (werewolf becomes an unknown part token and silently drops).
         # Forward-compat for multi-monster swarms where the leading
         # token actively picks the enemy.
-        part_input, monster_token_consumed = self._strip_leading_monster_token(
+        part_input, _ = self._strip_leading_monster_token(
             target, game.monster,
         )
 
-        # Parse explicit body-part targets from the command arguments.
-        # Supports one target (all sources hit it) or multiple (one per source).
-        part_targets = self._parse_part_targets(part_input, game.monster)
+        # Per-token part resolution flows through ``fuzzy_resolve`` →
+        # ``PartConverter`` so the resolver dispatcher owns the
+        # string→part conversion. One ``$kill`` invocation may carry
+        # multiple part tokens (``$kill arm.left leg.right``); the
+        # call site handles the variadic split and dedup, the
+        # dispatcher just answers one token at a time. Monster-token
+        # peel above keeps a leading ``$kill werewolf …`` from
+        # producing a spurious "no targetable part" warning.
+        part_targets = await self._parse_part_targets(ctx, part_input)
 
         # Warn if the player typed something but nothing resolved.
         # If we consumed the leading monster token, ``leftover`` is
@@ -318,8 +326,9 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, line)
         return True
 
-    def _parse_part_targets(self, target_str, monster):
-        """Parse body-part names from the player's command input.
+    async def _parse_part_targets(self, ctx, target_str):
+        """Parse body-part names from the player's command input,
+        resolving each token through the fuzzy-resolve dispatcher.
 
         Returns a list of canonical part-name strings (may be empty).
         Accepts: ``"arm.left"``, ``"arm.left leg.right"``,
@@ -327,20 +336,29 @@ class RpgUserCommands(Cog):
         name are silently skipped). Fuzzy-matches per dotted segment so
         ``"leg.r"`` resolves to ``"leg.right"``.
 
+        Per-token resolution goes through
+        :func:`fuzzy_resolve` against :class:`PartConverter`, which
+        consults ``game.monster.find_parts`` under the hood. The
+        dispatcher route gives ``$kill`` / ``$target`` a single,
+        uniform place to plug in additional target types when
+        multi-monster ships (Step 3 scope is parts-only).
+
         Every match expands to the part's canonical ``name`` so that
         ``_display_targets`` always renders cleanly. A token that
         resolves to multiple parts (e.g. ``"leg"`` → both legs, or
         ``"h"`` → head plus hands) contributes one canonical entry per
         match; ``do_attack`` then distributes one name per source slot.
         """
-        if not target_str or not monster.body_parts:
+        if not target_str:
             return []
 
-        from caldanai.lib.rpg.helpers.resolvers import resolve_part
         seen = set()
         matched = []
         for token in target_str.strip().split():
-            for p in resolve_part(monster, token):
+            parts = await fuzzy_resolve(ctx, token, PartConverter)
+            if not parts:
+                continue
+            for p in parts:
                 if p.name in seen:
                     continue
                 seen.add(p.name)
@@ -502,7 +520,7 @@ class RpgUserCommands(Cog):
             Dispatcher.add(game.channel, f"{player.name} clears targeting — attacking randomly.")
             return
 
-        part_targets = self._parse_part_targets(part, game.monster)
+        part_targets = await self._parse_part_targets(ctx, part)
 
         if not part_targets:
             Dispatcher.add(

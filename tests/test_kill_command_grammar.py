@@ -373,6 +373,120 @@ class TestKillCommandGrammar:
         assert not any("No targetable part" in s for s in sent)
 
 
+class TestKillDispatcherIntegration:
+    """End-to-end proofs that per-token part resolution flows through
+    ``fuzzy_resolve(ctx, token, PartConverter)`` after the Step 3
+    migration:
+
+    - A typed fuzzy abbreviation (``arm.l``) reaches ``PartConverter``
+      via the dispatcher and surfaces as the canonical part name.
+    - A token that fuzzy-matches multiple parts (``leg`` against a
+      werewolf-style four-leg body) expands to every matching
+      canonical name — same multi-match shape the converter returns.
+    - A no-match token still emits the "No targetable part" warning
+      and falls back to a random-attack join (combat_targets is
+      ``None``). The dispatcher returning ``None`` is treated as
+      "this token didn't resolve" — same UX as the pre-dispatcher
+      ``resolve_part`` call would have surfaced.
+    - Bare invocation (``$kill`` with no target) joins combat
+      without any per-token resolution; the dispatcher path isn't
+      walked, the combatants list still grows, and ``combat_targets``
+      stays ``None``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_part_match_via_dispatcher(self):
+        """``$kill arm.l`` flows through ``fuzzy_resolve`` →
+        ``PartConverter`` → ``Creature.find_parts`` and resolves to
+        the canonical ``arm.left`` name. The combat-targets entry
+        carries the canonical name (not the typed token) so display
+        renders cleanly."""
+        cog = RpgUserCommands(bot=MagicMock())
+        monster = _make_monster_creature("goblin")
+        game = _make_game(monster=monster, combatants=[])
+        player = _make_player("Alice")
+
+        await _invoke_attack(cog, game, player, target="arm.l")
+
+        assert player in game.combatants
+        assert game.combat_targets[player.user_id] == ["arm.left"]
+        sent = _dispatched_strings(_dispatcher_for(game))
+        assert not any("No targetable part" in s for s in sent)
+        assert any("targeting the left arm" in s for s in sent)
+
+    @pytest.mark.asyncio
+    async def test_multi_match_token_expands_all_legs(self):
+        """``$kill leg`` against a four-legged body matches every
+        leg (foreleg.left, foreleg.right, hindleg.left, hindleg.right).
+        Today's contract: every match contributes one canonical entry
+        so ``do_attack`` can distribute targets across weapon slots."""
+        cog = RpgUserCommands(bot=MagicMock())
+        # Werewolf-shaped four-leg body — bare ``leg`` substring fuzzy
+        # match should reach every foreleg/hindleg pair.
+        monster = Creature(
+            name="werewolf", atk="1d4", defense=2, dodge=5, health_max=30,
+        )
+        monster.body_parts = [
+            BodyPart(name="head", health_max=12),
+            BodyPart(name="torso", health_max=24),
+            BodyPart(name="foreleg.left", health_max=10),
+            BodyPart(name="foreleg.right", health_max=10),
+            BodyPart(name="hindleg.left", health_max=10),
+            BodyPart(name="hindleg.right", health_max=10),
+        ]
+        game = _make_game(monster=monster, combatants=[])
+        player = _make_player("Alice")
+
+        await _invoke_attack(cog, game, player, target="leg")
+
+        assert player in game.combatants
+        assert set(game.combat_targets[player.user_id]) == {
+            "foreleg.left", "foreleg.right",
+            "hindleg.left", "hindleg.right",
+        }
+        sent = _dispatched_strings(_dispatcher_for(game))
+        assert not any("No targetable part" in s for s in sent)
+
+    @pytest.mark.asyncio
+    async def test_no_match_token_warns_and_falls_back_to_random(self):
+        """A token that misses every part — the dispatcher returns
+        None for that token, the per-token loop drops it, and the
+        empty resulting list triggers the existing "No targetable
+        part" warning. ``combat_targets`` stays None so combat falls
+        back to random part selection."""
+        cog = RpgUserCommands(bot=MagicMock())
+        monster = _make_monster_creature("goblin")
+        game = _make_game(monster=monster, combatants=[])
+        player = _make_player("Alice")
+
+        await _invoke_attack(cog, game, player, target="nonsense_part")
+
+        assert player in game.combatants
+        assert game.combat_targets[player.user_id] is None
+        sent = _dispatched_strings(_dispatcher_for(game))
+        assert any(
+            "No targetable part matching 'nonsense_part'" in s for s in sent
+        )
+
+    @pytest.mark.asyncio
+    async def test_bare_invocation_joins_combat_without_resolving(self):
+        """``$kill`` (no target) skips the dispatcher walk entirely:
+        the per-token loop never runs, no warning fires, and the
+        combatants list still grows."""
+        cog = RpgUserCommands(bot=MagicMock())
+        monster = _make_monster_creature("goblin")
+        game = _make_game(monster=monster, combatants=[])
+        player = _make_player("Alice")
+
+        await _invoke_attack(cog, game, player, target=None)
+
+        assert player in game.combatants
+        assert game.combat_targets[player.user_id] is None
+        sent = _dispatched_strings(_dispatcher_for(game))
+        assert not any("No targetable part" in s for s in sent)
+        assert any("prepares to attack" in s for s in sent)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -422,13 +536,23 @@ def _make_ctx():
 async def _invoke_attack(cog, game, player, target):
     """Drive the ``attack`` command callback under patched
     Dispatcher / RpgUtilities. Stashes the dispatcher mock on
-    ``game._dispatcher`` so ``_dispatcher_for`` can dig it back out."""
+    ``game._dispatcher`` so ``_dispatcher_for`` can dig it back out.
+
+    Both ``get_game_and_player`` (entry point) and ``get_game`` (called
+    from inside :class:`PartConverter` during the per-token
+    ``fuzzy_resolve`` walk) are patched to the same stub so the
+    dispatcher route sees the test-supplied monster."""
     ctx = _make_ctx()
     with (
         patch.object(
             _rpg_util_path(),
             "get_game_and_player",
             new=AsyncMock(return_value=(game, player)),
+        ),
+        patch.object(
+            _rpg_util_path(),
+            "get_game",
+            new=AsyncMock(return_value=game),
         ),
         patch("caldanai.lib.cogs.rpg_user_commands.Dispatcher") as dispatcher,
         # dead_invoker_guard reads ``RpgUtilities.dead_invoker_guard`` —
