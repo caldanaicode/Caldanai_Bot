@@ -4,6 +4,14 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-14 — Fuzzy-resolve dispatcher scaffolding (Step 1 of 4)
+
+`934e90e` (2026-05-02, "Fuzzy-matching unification + Converter family") shipped the per-domain resolvers and 10 Converter classes but missed the original-design dispatcher and shaped the converters for discord.py's BadArgument-raising annotation pattern instead of the dispatcher's Optional pattern. Only `FuzzyMemberConverter` reached a real annotation site (`$warmth set <who>`); the other nine were unused scaffolding. This commit adds the dispatcher and reshapes the converters into a dual-contract form. No player-visible behaviour change in this step — proof-of-pattern migrations follow on `$haunt`, `$kill`, and `$equip`.
+
+- **New `fuzzy_resolve(ctx, argument, *types) -> Optional[Any]`** in `caldanai/lib/rpg/helpers/fuzzy_resolve.py`. Walks the declared target types in priority order; returns the first non-None `try_convert` result, or `None` if every converter misses. Empty argument and empty types-list short-circuit to None. Non-BadArgument exceptions propagate. The call site decides what to do with None (silent fall-through, italic fallback, hard error) — the dispatcher itself stays one-string-N-types-first-match-wins.
+- **`try_convert(ctx, argument) -> Optional[T]`** added to every Converter class. Returns the resolved object on a hit, None on any miss (no game state, no match, ambiguous, underlying converter raised). `convert()` is preserved on every class as a forward-compat seam for the discord.py annotation path — for `FuzzyMemberConverter` it's the live consumer at `$warmth set <who>`, for the other nine it's zero-current-callers but cheap to keep.
+- **Tests.** New `tests/test_fuzzy_resolve.py` (9 tests) pins the dispatcher contract with small mock converters — single hit, single miss, first-hits-shortcuts-second, first-miss-second-hits, all miss, empty argument, no types, exception propagation, and the `is not None` (vs falsy) sentinel. `tests/test_converters.py` gains a per-converter `try_convert` section (10 new test classes, 36 cases) covering hit / miss / ambiguous returns plus a `convert()` still-raises spot-check on each non-FuzzyMember class.
+
 ### 2026-05-14 — Per-part injury feedback owner-attribution regression pins (player + AoE)
 
 The owner-possessive prefix on per-part injury lines shipped 2026-04-19 in `1fbacc8` and was pinned for the monster-victim case (``"The goblin's right arm seems…"``), but the player-victim path (``uses_article=False`` → bare ``"Caels's right leg…"``) and the multi-victim AoE concatenation (hydra today, future ranged-splash / swarm) had no dedicated tests. A future refactor that broke either path (article-leak into player possessive, anonymous "The right leg…" line surviving) would only surface in playtest.

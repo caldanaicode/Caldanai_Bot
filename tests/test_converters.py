@@ -612,3 +612,498 @@ class TestFuzzyMemberConverter:
                     await FuzzyMemberConverter().convert(
                         MagicMock(), "alice",
                     )
+
+
+# ---------------------------------------------------------------------------
+# try_convert contract — Optional-returning sibling of convert(), used
+# by the fuzzy_resolve dispatcher. Each converter gets a hit + a miss
+# pair plus, on the non-FuzzyMember classes, a spot-check that convert()
+# still raises BadArgument when try_convert returns None.
+# ---------------------------------------------------------------------------
+
+
+class TestMonsterConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_match_returns_monster(self):
+        m = _make_monster("hexed hydra")
+        game = _make_game(monster=m)
+        with _patch_get_game(game):
+            result = await MonsterConverter().try_convert(
+                MagicMock(), "hydra",
+            )
+        assert result is m
+
+    @pytest.mark.asyncio
+    async def test_no_monster_returns_none(self):
+        game = _make_game(monster=None)
+        with _patch_get_game(game):
+            result = await MonsterConverter().try_convert(
+                MagicMock(), "anything",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self):
+        m = _make_monster("goblin")
+        game = _make_game(monster=m)
+        with _patch_get_game(game):
+            result = await MonsterConverter().try_convert(
+                MagicMock(), "dragon",
+            )
+        assert result is None
+
+
+class TestMonsterClassConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_unique_match_returns_class(self):
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+        MonsterPlugin.load_plugins()
+        from caldanai.lib.rpg.creatures.monsters.goblin import Goblin
+        result = await MonsterClassConverter().try_convert(
+            MagicMock(), "goblin",
+        )
+        assert result is Goblin
+
+    @pytest.mark.asyncio
+    async def test_unknown_returns_none(self):
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+        MonsterPlugin.load_plugins()
+        result = await MonsterClassConverter().try_convert(
+            MagicMock(), "definitely_not_a_monster_xyz",
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_unknown(self):
+        from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
+        MonsterPlugin.load_plugins()
+        with pytest.raises(BadArgument, match="Unknown monster"):
+            await MonsterClassConverter().convert(
+                MagicMock(), "definitely_not_a_monster_xyz",
+            )
+
+
+class TestPlayerConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_fuzzy_match_returns_player(self):
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            result = await PlayerConverter().try_convert(
+                MagicMock(), "alic",
+            )
+        assert result is alice
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self):
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            result = await PlayerConverter().try_convert(
+                MagicMock(), "xyzzy",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_returns_none(self):
+        a1 = _make_player("Alice", member=_make_member("Alice"))
+        a2 = _make_player("Alicia", member=_make_member("Alicia"))
+        game = _make_game(players=[a1, a2])
+        with _patch_get_game(game):
+            result = await PlayerConverter().try_convert(
+                MagicMock(), "ali",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_game_returns_none(self):
+        with _patch_get_game(None):
+            result = await PlayerConverter().try_convert(
+                MagicMock(), "alice",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_mention_returns_none(self):
+        # Mention-shaped argument that doesn't resolve to a Discord
+        # member must return None rather than fall through to fuzzy
+        # matching against the literal "<@!12345>" text.
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            with patch(
+                "caldanai.lib.rpg.helpers.converters.MemberConverter.convert",
+                new=AsyncMock(side_effect=BadArgument("not a mention")),
+            ):
+                result = await PlayerConverter().try_convert(
+                    MagicMock(), "<@!111111111111111111>",
+                )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_mention_resolves_to_game_player(self):
+        member = _make_member("Alice")
+        alice = _make_player("Alice", member=member)
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            with patch(
+                "caldanai.lib.rpg.helpers.converters.MemberConverter.convert",
+                new=AsyncMock(return_value=member),
+            ):
+                with _patch_get_player(alice):
+                    result = await PlayerConverter().try_convert(
+                        MagicMock(), "<@!111111111111111111>",
+                    )
+        assert result is alice
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_no_game(self):
+        with _patch_get_game(None):
+            with pytest.raises(BadArgument, match="No active game"):
+                await PlayerConverter().convert(MagicMock(), "alice")
+
+
+class TestCreatureConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_monster_prefer_returns_monster(self):
+        m = _make_monster("Alice")
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(monster=m, players=[alice])
+        with _patch_get_game(game):
+            result = await CreatureConverter(
+                prefer="monster",
+            ).try_convert(MagicMock(), "alice")
+        assert result is m
+
+    @pytest.mark.asyncio
+    async def test_player_prefer_returns_player(self):
+        m = _make_monster("Alice")
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(monster=m, players=[alice])
+        with _patch_get_game(game):
+            result = await CreatureConverter(
+                prefer="player",
+            ).try_convert(MagicMock(), "alice")
+        assert result is alice
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_secondary(self):
+        m = _make_monster("dragon")
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(monster=m, players=[alice])
+        with _patch_get_game(game):
+            result = await CreatureConverter(
+                prefer="monster",
+            ).try_convert(MagicMock(), "alice")
+        assert result is alice
+
+    @pytest.mark.asyncio
+    async def test_no_match_either_returns_none(self):
+        m = _make_monster("dragon")
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(monster=m, players=[alice])
+        with _patch_get_game(game):
+            result = await CreatureConverter().try_convert(
+                MagicMock(), "xyzzy",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_total_miss(self):
+        m = _make_monster("dragon")
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(monster=m, players=[alice])
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument):
+                await CreatureConverter().convert(MagicMock(), "xyzzy")
+
+
+class TestPartConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_match_returns_list(self):
+        leg_l = _make_part("leg.left")
+        leg_r = _make_part("leg.right")
+        m = _make_monster("test", parts=[leg_l, leg_r])
+        game = _make_game(monster=m)
+        with _patch_get_game(game):
+            result = await PartConverter().try_convert(
+                MagicMock(), "leg",
+            )
+        assert set(result) == {leg_l, leg_r}
+
+    @pytest.mark.asyncio
+    async def test_no_monster_returns_none(self):
+        game = _make_game(monster=None)
+        with _patch_get_game(game):
+            result = await PartConverter().try_convert(
+                MagicMock(), "head",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_part_match_returns_none(self):
+        m = _make_monster("test", parts=[_make_part("head")])
+        game = _make_game(monster=m)
+        with _patch_get_game(game):
+            result = await PartConverter().try_convert(
+                MagicMock(), "tail",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_no_monster(self):
+        game = _make_game(monster=None)
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument, match="No creature"):
+                await PartConverter().convert(MagicMock(), "head")
+
+
+class TestPasserbyConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_match_returns_npc(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        npc = Herbalist()
+        game = _make_game()
+        game.passerby = npc
+        with _patch_get_game(game):
+            result = await PasserbyConverter().try_convert(
+                MagicMock(), "herba",
+            )
+        assert result is npc
+
+    @pytest.mark.asyncio
+    async def test_no_passerby_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        game = _make_game()
+        game.passerby = None
+        with _patch_get_game(game):
+            result = await PasserbyConverter().try_convert(
+                MagicMock(), "anything",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        from caldanai.lib.rpg.creatures.passersby.herbalist import Herbalist
+        npc = Herbalist()
+        game = _make_game()
+        game.passerby = npc
+        with _patch_get_game(game):
+            result = await PasserbyConverter().try_convert(
+                MagicMock(), "dragon",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_no_passerby(self):
+        from caldanai.lib.rpg.helpers.converters import PasserbyConverter
+        game = _make_game()
+        game.passerby = None
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument, match="No passerby"):
+                await PasserbyConverter().convert(MagicMock(), "anything")
+
+
+class TestPendingSilhouetteConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_match_returns_npc(self):
+        from caldanai.lib.rpg.helpers.converters import (
+            PendingSilhouetteConverter,
+        )
+        from caldanai.lib.rpg.creatures.passersby.shepherd import Shepherd
+        npc = Shepherd()
+        game = _make_game()
+        game.pending_silhouette = npc
+        with _patch_get_game(game):
+            result = await PendingSilhouetteConverter().try_convert(
+                MagicMock(), "shep",
+            )
+        assert result is npc
+
+    @pytest.mark.asyncio
+    async def test_no_silhouette_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import (
+            PendingSilhouetteConverter,
+        )
+        game = _make_game()
+        game.pending_silhouette = None
+        with _patch_get_game(game):
+            result = await PendingSilhouetteConverter().try_convert(
+                MagicMock(), "anything",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_no_silhouette(self):
+        from caldanai.lib.rpg.helpers.converters import (
+            PendingSilhouetteConverter,
+        )
+        game = _make_game()
+        game.pending_silhouette = None
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument, match="No silhouette"):
+                await PendingSilhouetteConverter().convert(
+                    MagicMock(), "anything",
+                )
+
+
+class TestStaticObjectConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_match_returns_object(self):
+        from caldanai.lib.rpg.helpers.converters import StaticObjectConverter
+        obj = MagicMock(name="campfire")
+        game = _make_game()
+        game.room0 = MagicMock()
+        game.room0.find_static_object = MagicMock(return_value=obj)
+        with _patch_get_game(game):
+            result = await StaticObjectConverter().try_convert(
+                MagicMock(), "campfire",
+            )
+        assert result is obj
+
+    @pytest.mark.asyncio
+    async def test_no_room_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import StaticObjectConverter
+        game = _make_game()
+        game.room0 = None
+        with _patch_get_game(game):
+            result = await StaticObjectConverter().try_convert(
+                MagicMock(), "campfire",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import StaticObjectConverter
+        game = _make_game()
+        game.room0 = MagicMock()
+        game.room0.find_static_object = MagicMock(return_value=None)
+        with _patch_get_game(game):
+            result = await StaticObjectConverter().try_convert(
+                MagicMock(), "campfire",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_no_match(self):
+        from caldanai.lib.rpg.helpers.converters import StaticObjectConverter
+        game = _make_game()
+        game.room0 = MagicMock()
+        game.room0.find_static_object = MagicMock(return_value=None)
+        with _patch_get_game(game):
+            with pytest.raises(BadArgument, match="Nothing here"):
+                await StaticObjectConverter().convert(
+                    MagicMock(), "campfire",
+                )
+
+
+class TestRecipeConverterTryConvert:
+    @pytest.mark.asyncio
+    async def test_unique_match_returns_recipe(self):
+        from caldanai.lib.rpg.crafting.recipe import discover_recipes
+        discover_recipes()
+        result = await RecipeConverter().try_convert(
+            MagicMock(), "leather_jerkin",
+        )
+        assert result is not None
+        assert result.output == "leather_jerkin"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_returns_none(self):
+        # "leather" matches multiple leather_* recipes; the dispatcher
+        # contract treats ambiguity as a miss so the call site can
+        # fall through to its next target type.
+        from caldanai.lib.rpg.crafting.recipe import discover_recipes
+        discover_recipes()
+        result = await RecipeConverter().try_convert(
+            MagicMock(), "leather",
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_returns_none(self):
+        from caldanai.lib.rpg.crafting.recipe import discover_recipes
+        discover_recipes()
+        result = await RecipeConverter().try_convert(
+            MagicMock(), "definitely_not_a_recipe_xyz",
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_unknown(self):
+        from caldanai.lib.rpg.crafting.recipe import discover_recipes
+        discover_recipes()
+        with pytest.raises(BadArgument, match="Unknown recipe"):
+            await RecipeConverter().convert(
+                MagicMock(), "definitely_not_a_recipe_xyz",
+            )
+
+
+class TestFuzzyMemberConverterTryConvert:
+    """FuzzyMemberConverter keeps convert() as the canonical surface
+    (live consumer at $warmth set <who>); try_convert is provided
+    for dispatcher symmetry and mirrors the same resolution path
+    with None-on-miss semantics."""
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_match_returns_member(self):
+        member = _make_member("AliceDN", "alice_user")
+        alice = _make_player("Alice", member=member)
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            with patch(
+                "caldanai.lib.rpg.helpers.converters.MemberConverter.convert",
+                new=AsyncMock(side_effect=BadArgument("not a mention")),
+            ):
+                result = await FuzzyMemberConverter().try_convert(
+                    MagicMock(), "alic",
+                )
+        assert result is member
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self):
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            with patch(
+                "caldanai.lib.rpg.helpers.converters.MemberConverter.convert",
+                new=AsyncMock(side_effect=BadArgument("not a mention")),
+            ):
+                result = await FuzzyMemberConverter().try_convert(
+                    MagicMock(), "xyzzy",
+                )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_returns_none(self):
+        a1 = _make_player("Alice", member=_make_member("Alice"))
+        a2 = _make_player("Alicia", member=_make_member("Alicia"))
+        game = _make_game(players=[a1, a2])
+        with _patch_get_game(game):
+            with patch(
+                "caldanai.lib.rpg.helpers.converters.MemberConverter.convert",
+                new=AsyncMock(side_effect=BadArgument("not a mention")),
+            ):
+                result = await FuzzyMemberConverter().try_convert(
+                    MagicMock(), "ali",
+                )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_still_raises_on_miss(self):
+        """The live consumer at $warmth set <who> needs the
+        BadArgument-raising convert path; pin that it survives the
+        try_convert addition."""
+        alice = _make_player("Alice", member=_make_member("Alice"))
+        game = _make_game(players=[alice])
+        with _patch_get_game(game):
+            with patch(
+                "caldanai.lib.rpg.helpers.converters.MemberConverter.convert",
+                new=AsyncMock(side_effect=BadArgument("not a mention")),
+            ):
+                with pytest.raises(BadArgument, match="No player"):
+                    await FuzzyMemberConverter().convert(
+                        MagicMock(), "xyzzy",
+                    )

@@ -1,13 +1,31 @@
 """Discord.py Converters for fuzzy-resolved RPG arguments.
 
-Each converter wraps a resolver from
-:mod:`caldanai.lib.rpg.helpers.resolvers` and surfaces 0/1/N results
-through ``commands.BadArgument``:
+Each Converter exposes two methods:
 
-- 0 matches → ``BadArgument`` with a "no match" message
-- 1 match → returned directly
-- N matches → ``BadArgument`` listing candidates so the player can
-  re-issue with a more specific query
+- ``try_convert(ctx, argument) -> Optional[T]`` — the dispatcher-
+  shape contract. Returns the resolved object on a hit and
+  ``None`` on any miss (no game state, no match, ambiguous,
+  underlying converter raised). Used by
+  :func:`fuzzy_resolve` to walk a command's declared target
+  types and pick the first hit; the command decides what to do
+  with the ``None``.
+- ``convert(ctx, argument) -> T`` — discord.py's native
+  annotation contract. Wraps ``try_convert`` and raises
+  ``BadArgument`` when it returns ``None``. Preserves the
+  annotation-driven single-arg path for any future command that
+  wants it via ``async def cmd(ctx, target: MonsterConverter)``.
+
+The two contracts split because the dispatcher's no-match shape
+must be silent-fallback-friendly (``haunted is None`` lets ``$haunt``
+roll its ambient ghost flavor pool instead of erroring the player).
+Raising BadArgument from inside the dispatcher's converter walk
+would force every call site into ``try / except BadArgument``,
+which defeats the point.
+
+``FuzzyMemberConverter`` is the one current consumer of the
+``convert`` path (``$warmth set <who>``); for all others
+``convert`` is preserved as forward-compat seam — zero current
+annotation call sites but cheap to keep.
 
 This module lives in :mod:`caldanai.lib.rpg.helpers` rather than
 ``caldanai/lib/cogs/`` because the cogs directory is the bot's
@@ -37,7 +55,7 @@ Underlying resolvers, by source of truth:
   ``RECIPES`` plugin registry
 """
 
-from typing import List, Type
+from typing import List, Optional, Type
 
 from discord.ext.commands import (
     BadArgument, Context, Converter, MemberConverter,
@@ -85,7 +103,8 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Discord.py Converters — annotation-driven single-arg conversion.
+# Discord.py Converters — dual contract: try_convert (dispatcher) +
+# convert (discord.py annotation).
 # ---------------------------------------------------------------------------
 
 
@@ -93,13 +112,21 @@ class MonsterConverter(Converter):
     """Resolves the active spawned monster from a fuzzy name query.
 
     Used by commands targeting the currently-spawned creature
-    (``$haunt``, ``$look``, ``$creature destroy``). Raises
-    ``BadArgument`` if no monster is spawned or the query doesn't
-    match the spawned creature's name.
+    (``$haunt``, ``$look``, ``$creature destroy``). ``try_convert``
+    returns ``None`` if no monster is spawned or the query doesn't
+    fuzzy-match the spawned creature's name.
 
     For ``$spawn`` (resolving a class to instantiate, not a live
     creature), use :class:`MonsterClassConverter` instead.
     """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[Creature]:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.monster is None:
+            return None
+        return resolve_active_monster(game.monster, argument)
 
     async def convert(self, ctx: Context, argument: str) -> Creature:
         game = await RpgUtilities.get_game(ctx)
@@ -119,20 +146,30 @@ class MonsterClassConverter(Converter):
 
     Used by ``$spawn``: the result is a class for instantiation,
     not a live creature in the channel. Matches stem AND aliases
-    via :meth:`MonsterPlugin.find_plugin_classes`. Raises
-    ``BadArgument`` on no-match or ambiguous-match (with the
-    candidate list so the player can re-issue more specifically).
+    via :meth:`MonsterPlugin.find_plugin_classes`. ``try_convert``
+    returns ``None`` on no-match OR ambiguous-match (the
+    dispatcher contract treats "can't pick one" as a miss); the
+    ``convert`` path raises ``BadArgument`` with a candidate list
+    on ambiguity for the richer annotation-driven UX.
     """
 
-    async def convert(
+    async def try_convert(
         self, ctx: Context, argument: str,
-    ) -> Type[MonsterPlugin]:
+    ) -> Optional[Type[MonsterPlugin]]:
         # The shared resolver's exact tier already short-circuits
         # to the unique class for unique stems / aliases — no need
         # to call ``get_plugin_class`` separately. Doing so would
         # mean a query that exact-matches an alias bypasses the
         # tiered pipeline, which would re-introduce the
         # inconsistency the rework was designed to eliminate.
+        results = resolve_monster_class(argument)
+        if len(results) != 1:
+            return None
+        return results[0]
+
+    async def convert(
+        self, ctx: Context, argument: str,
+    ) -> Type[MonsterPlugin]:
         results = resolve_monster_class(argument)
         if not results:
             raise BadArgument(f"Unknown monster: `{argument}`.")
@@ -155,8 +192,35 @@ class PlayerConverter(Converter):
     On non-mention queries, falls through to fuzzy matching by
     display name / Discord username / cached player name.
 
-    Raises ``BadArgument`` on no-match or ambiguous-match.
+    ``try_convert`` returns ``None`` on any miss (no game, mention
+    that doesn't resolve to a game player, no fuzzy match,
+    ambiguous fuzzy match). The mention-failure case collapses
+    into the same ``None`` so dispatcher callers don't have to
+    distinguish "looked like a mention but wasn't a player" from
+    "didn't fuzzy-match anyone" — both mean "this string is not a
+    Player target," which is all the dispatcher needs to know.
     """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[Player]:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None:
+            return None
+
+        if argument.startswith("<@") and argument.endswith(">"):
+            try:
+                member = await MemberConverter().convert(ctx, argument)
+            except BadArgument:
+                return None
+            return await RpgUtilities.get_player(
+                member, game=game, notify=False,
+            )
+
+        results = resolve_player(game, argument)
+        if len(results) != 1:
+            return None
+        return results[0]
 
     async def convert(self, ctx: Context, argument: str) -> Player:
         game = await RpgUtilities.get_game(ctx)
@@ -224,11 +288,22 @@ class CreatureConverter(Converter):
             )
         self.prefer = prefer
 
-    async def convert(self, ctx: Context, argument: str) -> Creature:
+    def _ordered(self):
         if self.prefer == "monster":
-            primary, fallback = MonsterConverter(), PlayerConverter()
-        else:
-            primary, fallback = PlayerConverter(), MonsterConverter()
+            return MonsterConverter(), PlayerConverter()
+        return PlayerConverter(), MonsterConverter()
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[Creature]:
+        primary, fallback = self._ordered()
+        result = await primary.try_convert(ctx, argument)
+        if result is not None:
+            return result
+        return await fallback.try_convert(ctx, argument)
+
+    async def convert(self, ctx: Context, argument: str) -> Creature:
+        primary, fallback = self._ordered()
         try:
             return await primary.convert(ctx, argument)
         except BadArgument:
@@ -242,13 +317,25 @@ class PartConverter(Converter):
 
     Returns the *list* of matching parts (multi-match is meaningful:
     ``leg`` matches both legs, the caller decides whether to act on
-    all or pick one). Raises ``BadArgument`` only on empty match.
+    all or pick one). ``try_convert`` returns ``None`` on no
+    monster spawned or empty match.
 
     For commands targeting parts on a creature OTHER than
     ``game.monster`` (player self-target, multi-monster
     disambiguation), call :func:`resolve_part(creature, query)`
     directly from the command body.
     """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[List[BodyPart]]:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.monster is None:
+            return None
+        results = resolve_part(game.monster, argument)
+        if not results:
+            return None
+        return results
 
     async def convert(
         self, ctx: Context, argument: str,
@@ -274,16 +361,33 @@ class FuzzyMemberConverter(Converter):
     were previously typed ``Optional[Member]`` keep working unchanged.
     For the Player-returning variant, use :class:`PlayerConverter`.
 
+    Unlike the other converters in this module, ``convert`` here is
+    the live consumer (``$warmth set <who>``) and stays canonical;
+    ``try_convert`` is provided for dispatcher symmetry but mirrors
+    the convert-shape's BadArgument-on-miss into a None-on-miss
+    return.
+
     Resolution order:
 
     1. discord.py's :class:`MemberConverter` (mention / id /
-       name#discrim / exact display_name / exact name).
+       name#discrim / exact display name / exact name).
     2. Fuzzy match via :func:`resolve_player` against the active
        game's player roster, returning that player's
        ``.member`` on a unique match.
-
-    Raises ``BadArgument`` on no-match or ambiguous-match.
     """
+
+    async def try_convert(self, ctx: Context, argument: str):
+        try:
+            return await MemberConverter().convert(ctx, argument)
+        except BadArgument:
+            pass
+        game = await RpgUtilities.get_game(ctx)
+        if game is None:
+            return None
+        results = resolve_player(game, argument)
+        if len(results) != 1:
+            return None
+        return getattr(results[0], "member", None)
 
     async def convert(self, ctx: Context, argument: str):
         # Layer 1 — discord.py's built-in. Handles mention / id /
@@ -326,14 +430,22 @@ class PasserbyConverter(Converter):
     project-standard fuzzy_match (exact → prefix → substring →
     typo) through :meth:`PasserbyPlugin.matches_token`.
 
-    Raises ``BadArgument`` when no passerby is present OR the
-    query doesn't fuzzy-match the present NPC. Most cog call
-    sites prefer to invoke :func:`resolve_passerby` directly so
-    they can compose with silhouette / monster / italic-fallback
-    chains without converting the no-match case to an exception
-    — use this Converter only when the command genuinely REQUIRES
-    a present-passerby target.
+    ``try_convert`` returns ``None`` when no passerby is present
+    OR the query doesn't fuzzy-match. Most cog call sites prefer
+    to invoke :func:`resolve_passerby` directly so they can
+    compose with silhouette / monster / italic-fallback chains
+    without converting the no-match case to an exception — use
+    this Converter only when the command genuinely REQUIRES a
+    present-passerby target.
     """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[PasserbyPlugin]:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.passerby is None:
+            return None
+        return resolve_passerby(game, argument)
 
     async def convert(
         self, ctx: Context, argument: str,
@@ -357,9 +469,16 @@ class PendingSilhouetteConverter(Converter):
     Same shape as :class:`PasserbyConverter` but reads
     ``game.pending_silhouette``. Used when a command needs to
     address a silhouette specifically (e.g. the ``$greet``
-    silhouette-too-far branch). Raises ``BadArgument`` on no
-    silhouette OR no fuzzy-match.
+    silhouette-too-far branch).
     """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[PasserbyPlugin]:
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.pending_silhouette is None:
+            return None
+        return resolve_pending_silhouette(game, argument)
 
     async def convert(
         self, ctx: Context, argument: str,
@@ -385,21 +504,22 @@ class StaticObjectConverter(Converter):
     Matches name + aliases via :meth:`Area.find_static_object`'s
     fuzzy pass chain.
 
-    Raises ``BadArgument`` on no-match. The world cog catches and
-    converts to an italic fallback line so the player gets a clean
-    "nothing here by that name" response rather than discord.py's
-    raw error.
-
     By design, static objects are matched LAST in any cog whose
     verb could plausibly target multiple kinds of entity (a future
-    `$gaze companion` should hit the player before a similarly-named
+    ``$gaze companion`` should hit the player before a similarly-named
     object). Cogs that mix entity types should call player /
     passerby resolvers first and only fall through to this
     converter when those return nothing.
     """
 
+    async def try_convert(self, ctx: Context, argument: str):
+        game = await RpgUtilities.get_game(ctx)
+        if game is None or game.room0 is None:
+            return None
+        return game.room0.find_static_object(argument)
+
     async def convert(self, ctx: Context, argument: str):
-        from caldanai.lib.rpg.world.objects import StaticObjectPlugin
+        from caldanai.lib.rpg.world.objects import StaticObjectPlugin  # noqa: F401
 
         game = await RpgUtilities.get_game(ctx)
         if game is None or game.room0 is None:
@@ -416,10 +536,19 @@ class RecipeConverter(Converter):
     """Resolves a recipe class from a fuzzy name query.
 
     Used by ``$craft <recipe>``. Matches output stem AND display
-    name (``leather_jerkin`` / ``leather jerkin``). Raises
-    ``BadArgument`` on no-match or ambiguous-match (with display
-    names so the player can re-issue).
+    name (``leather_jerkin`` / ``leather jerkin``). ``try_convert``
+    returns ``None`` on no-match OR ambiguous-match (dispatcher
+    treats "can't pick one" as a miss); ``convert`` raises
+    ``BadArgument`` with the candidate display names on ambiguity.
     """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[Type[RecipePlugin]]:
+        results = resolve_recipe(argument)
+        if len(results) != 1:
+            return None
+        return results[0]
 
     async def convert(
         self, ctx: Context, argument: str,
