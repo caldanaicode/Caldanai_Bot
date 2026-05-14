@@ -666,22 +666,29 @@ class RpgUserCommands(Cog):
 
         elif d20.value == 20:
             # Divine miracle: full body + full parts restore for the
-            # ENTIRE party. Every injured player gets their own
-            # radiant-column line; uninjured players are skipped (a
-            # "made whole" beat means nothing for someone already at
-            # full HP). Mirrors the nat-1 storm branch's per-player
-            # iteration shape — actors list grows as we go and the
-            # parser substitutes per-index.
+            # ENTIRE party. Resurrection / per-player heal narration
+            # still fires per player (each gasps back into life on
+            # their own beat), but the closing "radiant column" line
+            # consolidates onto ONE line that names everyone healed:
             #
-            # Includes the praying player themselves: if they're
-            # injured they get healed alongside the rest of the party,
-            # at index 1. If they aren't, they still narrate the
-            # prayer but receive nothing personally (any other
-            # injured player is what powers this branch's flavor).
+            #   N=1 — "engulfs @{i}"
+            #   N=2 — "engulfs @{i} and @{j}"
+            #   N>=3 — "engulfs the whole party" (genericized; named
+            #          oxford-comma list would overstuff at table size)
+            #
+            # Praying player stays at index 1 by convention; other
+            # injured players append in iteration order. Uninjured
+            # players are skipped — a "made whole" line for someone
+            # already at full HP would mean nothing.
+            healed_indices = []
             for p in game.player_manager.players.values():
                 if not p.is_injured():
                     continue
-                index = len(actors) + 1 if p is not player else 1
+                if p is player:
+                    index = 1
+                else:
+                    actors.append(p)
+                    index = len(actors)
                 # apply_damage before heal_fully so the resurrection
                 # narration (only fired when healing from 0 HP)
                 # appends before heal_fully tops everything off.
@@ -691,12 +698,19 @@ class RpgUserCommands(Cog):
                 p.heal_fully()
                 if body_heal_msg:
                     msg += f"\n{body_heal_msg}"
+                healed_indices.append(index)
+
+            if healed_indices:
+                if len(healed_indices) == 1:
+                    subject = f"@{healed_indices[0]}"
+                elif len(healed_indices) == 2:
+                    subject = f"@{healed_indices[0]} and @{healed_indices[1]}"
+                else:
+                    subject = "the whole party"
                 msg += (
-                    f"\nA radiant column of light engulfs @{index}; "
+                    f"\nA radiant column of light engulfs {subject}; "
                     f"wounds seal and broken flesh knits whole in moments."
                 )
-                if p is not player:
-                    actors.append(p)
 
             # Hidden 1d6 smite: a 6 vaporizes every spawned monster.
             # Deliberately silent on non-6 rolls — no debug log, no

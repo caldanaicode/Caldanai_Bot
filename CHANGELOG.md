@@ -4,6 +4,45 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-14 — Per-part injury feedback owner-attribution regression pins (player + AoE)
+
+The owner-possessive prefix on per-part injury lines shipped 2026-04-19 in `1fbacc8` and was pinned for the monster-victim case (``"The goblin's right arm seems…"``), but the player-victim path (``uses_article=False`` → bare ``"Caels's right leg…"``) and the multi-victim AoE concatenation (hydra today, future ranged-splash / swarm) had no dedicated tests. A future refactor that broke either path (article-leak into player possessive, anonymous "The right leg…" line surviving) would only surface in playtest.
+
+- **New regression tests** in `tests/test_combat_resolution.py::TestInjuryFeedback`:
+  - `test_feedback_line_prefixes_player_target_with_bare_possessive` — player victim (``uses_article=False``) renders ``"Caels's right leg seems lightly battered."`` with no leaked article.
+  - `test_multi_victim_aoe_attributes_each_injury_to_its_owner` — two ``apply_sequence_to_target`` calls (one player victim, one monster victim, modelling the hydra per-victim pattern); the concatenated stream carries both ``"Caels's right leg"`` and ``"The goblin's left arm"`` with no anonymous ``"The right leg seems…"`` survival.
+
+### 2026-05-14 — apply_sequence_to_target explicit-kwarg-wins regression pin
+
+The auto-infer of `attacker=sequence.attacker` landed back in `1fbacc8` (2026-04-19) but the "explicit kwarg overrides sequence.attacker" branch had no dedicated test. A future refactor that swapped the precedence (sequence.attacker silently wins over the explicit kwarg) would only surface in playtest when a multi-victim composer's per-target attacker override stopped firing the right hook.
+
+- **New regression test** `tests/test_combat_resolution.py::TestAttackerAsymmetry::test_explicit_attacker_kwarg_overrides_sequence_attacker` — sets `sequence.attacker` to one hooking attacker and passes `attacker=` a different hooking attacker; pins that only the explicit kwarg's `on_target_part_destroyed` fires.
+
+### 2026-05-14 — $sell silent-failure surfacing + $feed favorite-respect + regression tests
+
+Three small inventory bugs swept together. Two were latent regressions whose load-bearing fixes had landed in earlier commits but lacked regression coverage; the third was a genuine open gap.
+
+- **`$sell` no longer drops `player.sell` failures on the floor.** When a candidate sale returns `("Item not found", 0)` (typically because the item vanished mid-loop), the receipt now appends a per-item `Failed to sell ...` line instead of silently omitting it. Category sweeps like `$sell junk` surface every failure to the player.
+- **`$feed` skips ★-favorited fuel items.** `Campfire._collect_fuel_items` filters favorited items out of both the implicit (`$feed campfire`) and explicit (`$feed campfire stick`) fuel pools — masterwork sticks survive idle campfire-feeding. Matches the favorited-skip protection that already existed in `$sell`.
+- **Regression tests** in new `tests/test_sell_command_bugs.py` pin: `$sell tee-shirt` succeeds (hyphen is not parsed as a numeric range), `$sell <indices>` with one worn copy sells the other two (identity-based equip-check, not name-based), `$sell <category>` with a worn copy surfaces the equipped-skip line, the new `Failed to sell` branch fires, and `$feed` skips favorited fuel.
+
+### 2026-05-14 — Doppy gender-pronouns regression pins + werewolf throat-bite anchored on neck
+
+Two small creature-plugin fixes from the backlog. The doppelganger's gender/pronouns copy at imitate-time shipped 2026-04-19 (commit `1fbacc8`) but had no dedicated regression coverage — a future refactor could quietly walk it back and the symptom (*"Caels flexes her arm and winces…"* on a male player) would only surface in playtest. The werewolf throat-bite kill beat was anchored on `head` destruction since pre-Phase-D when neck didn't exist; segmented anatomy (2026-04-22) split throat from skull, and the jaws-on-throat voice belongs on the neck.
+
+- **Werewolf `on_target_part_destroyed` rewired to neck.** Throat-bite beat now fires on `part.name == "neck"`; new decapitation pool fires on bare head destruction (region-collapse big-vs-small attacker, or explicit head target past the neck). Three templates per pool — throat-bite carries the predator-kill voice (jaws closing, fangs sinking), decapitation carries the brutal-physics voice (skull caves inward, bone-cracking force). Throat-bite no longer fires on bare head destruction. Werewolf module docstring updated to match.
+- **Doppy gender-pronouns regression coverage.** Five new tests under `TestImitate` in `tests/test_doppelganger.py`: male / female / non-binary copy pinned independently, pronoun-dict independence after copy (mutation on one side doesn't bleed), and end-to-end via `parse("@1D flexes @1a arm and winces.", doppel)` rendering the COPIED pronouns (the bug Caels caught 2026-04-18). Uses real `Player` instances rather than `MagicMock(spec=Player)` so the `isinstance(target_pronouns, dict)` guard inside `imitate` is exercised correctly.
+- **Werewolf test rework.** `test_throat_bite_narration_on_head_destruction` → `test_throat_bite_narration_on_neck_destruction` + new `test_head_destruction_uses_decapitation_beat_not_throat_bite`. Both sample 40 iterations against `random.choice` to ensure every template in each pool exercises the parser without leaking unparsed `@` tokens. Mock victims now carry a parser-compatible `Pronouns`-enum-keyed pronouns dict (older slash-string shape couldn't drive `@2s` / `@2o` lookups).
+
+### 2026-05-14 — $pray nat-20 consolidated heal line + $haunt fuzzy regression pins
+
+Two small fixes in the user-command surface. The $pray nat-20 branch was emitting one identical "radiant column of light engulfs @{name}" line per healed player — three healed players meant three near-duplicate lines that read as a wall of repetition. $haunt's fuzzy-target wiring already shipped in `934e90e` (Fuzzy-matching unification) but had no dedicated regression tests, so a future refactor could quietly walk it back.
+
+- **Nat-20 pray heal narration consolidates onto one line.** Per-player resurrection / heal-narration still fires per player (each gasps back into life on their own beat), but the closing "radiant column" sentence now lists everyone healed: N=1 bare name, N=2 "X and Y", N>=3 fallback "the whole party" (genericized — listing four-plus names would overstuff the line). Uninjured players are still skipped.
+- **Shared `oxford_join` helper** lifted to `caldanai/lib/rpg/helpers/text.py`. Was duplicated on `BodyPart.gear_drop_flavor` and `Doppelganger._oxford_join` with identical shape; both now route through the helper. Pray's N>=3 path doesn't use it (the fallback genericizes), but the helper is the right home for the next consumer that wants a comma-list voice.
+- **`$haunt` fuzzy-target tests.** New `tests/test_haunt_target_match.py` (7 tests) exercises the end-to-end callback against a stubbed Game: exact / uppercase-exact / prefix / word-token / variant-prefix all surface the monster name in the dispatched line; non-match + no-monster fall through to the bare invocation pool. The underlying `Creature.matches_token` fuzzy passes are already tested via `test_look_target_match.py`.
+- **Pray test pins updated.** `tests/test_pray.py` `TestNat20FullPartyHeal` gains N=1 / N=2 / N>=3 wording assertions; the legacy "two radiant-column lines per two injured players" assertion flipped to "one line listing both."
+
 ### 2026-05-12 — RANGED is a Reach, not a damage type: structural extraction + bestiary sweep
 
 bg Vael's wand strikes on a toad rendered *"The shaft punches clean through her slick hide..."* — bow flavor for an arcane attack. Symptom of a deeper conflation: `DamageTypes.RANGED` was carrying both "this is a magical/piercing/etc. damage type" and "this is a delivery-from-distance modifier" on a single bit. Bow declared `PIERCING | RANGED | COMBINED` and wand declared `MAGICAL | RANGED | COMBINED`; per-monster `traits[]` and `HIT_NARRATIONS` dispatched against the conflated bit, so wand attacks would match the RANGED-keyed bow-flavor entry on any monster that lacked an explicit MAGICAL entry. The 2026-05-11 plan to lift RANGED out of `DamageTypes` was discussed and decided on but didn't ship; this lands it.

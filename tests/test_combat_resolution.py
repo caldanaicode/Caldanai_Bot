@@ -461,6 +461,29 @@ class TestAttackerAsymmetry:
 
         assert arm.is_destroyed()
 
+    def test_explicit_attacker_kwarg_overrides_sequence_attacker(self):
+        """When the caller passes ``attacker=...`` AND ``sequence.attacker``
+        is set to a different value, the explicit kwarg wins. The
+        sequence's attacker is not used as a fallback when the kwarg is
+        already non-None. Documents the override-to-suppress shape:
+        existing callers passing ``attacker=self`` keep their exact
+        behavior even after the auto-infer landed."""
+        arm = _RecordingPart(name="arm", health_max=10)
+        target = _make_creature(health_max=100)
+        target.body_parts = [arm]
+        sequence_attacker = _HookingAttacker(name="sequence_attacker")
+        explicit_attacker = _HookingAttacker(name="explicit_attacker")
+        seq = _make_sequence(
+            sequence_attacker, target, [_make_result(10, arm)],
+        )
+
+        apply_sequence_to_target(seq, target, attacker=explicit_attacker)
+
+        assert arm.is_destroyed()
+        # Explicit kwarg fired the hook; sequence.attacker did not.
+        assert len(explicit_attacker.destruction_calls) == 1
+        assert sequence_attacker.destruction_calls == []
+
     def test_attacker_passed_fires_hook_once_per_destroyed_part(self):
         """When the caller passes ``attacker=...``, the hook fires
         exactly once per part that transitioned into USELESS."""
@@ -612,6 +635,78 @@ class TestInjuryFeedback:
         assert "The right arm seems" not in joined, (
             f"anonymous pre-fix phrasing still present in: {joined!r}"
         )
+
+    def test_feedback_line_prefixes_player_target_with_bare_possessive(self):
+        """Player-victim counterpart to the monster regression above.
+        Players carry ``uses_article=False`` so ``@1npc`` renders as a
+        bare name-possessive (``"Caels's"``), without the leading
+        article. The owner-prefix branch then attributes the line to
+        the player so multi-target rounds attacking a party
+        (future AoE / ranged splash) read as e.g.
+        ``"Caels's right leg seems lightly battered."`` rather than
+        the anonymous ``"The right leg seems lightly battered."``."""
+        leg = _RecordingPart(name="leg.right", health_max=10)
+        target = _make_creature(name="Caels", health_max=100)
+        target.uses_article = False
+        target.body_parts = [leg]
+        attacker = _make_creature(name="bandit")
+        # 4 damage -> 6/10 -> MINOR.
+        seq = _make_sequence(attacker, target, [_make_result(4, leg)])
+
+        rr = apply_sequence_to_target(seq, target)
+
+        joined = "\n".join(rr.injury_feedback_lines)
+        assert "Caels's right leg seems" in joined, (
+            f"owner-prefixed phrasing missing in: {joined!r}"
+        )
+        # No stray article — players are named-entities, no "The Caels's".
+        assert "The Caels" not in joined, (
+            f"article leaked into player possessive in: {joined!r}"
+        )
+
+    def test_multi_victim_aoe_attributes_each_injury_to_its_owner(self):
+        """Hydra-style AoE rounds (and future ranged-splash / swarm)
+        call ``apply_sequence_to_target`` once per victim, then a
+        downstream stage concatenates the lines. Without per-line
+        owner attribution the stream reads as anonymous ``"The right
+        leg…" / "The left arm…"`` and the reader can't tell whose
+        part each line refers to. This pins that each victim's line
+        carries that victim's possessive — so a streamed
+        ``"\n".join(...)`` of both ``injury_feedback_lines`` lists
+        stays unambiguous."""
+        # Two named victims with article-disambiguated bodies — one
+        # player-shaped (``uses_article=False``), one monster-shaped.
+        # Mirrors the realistic case where an AoE hits the player and
+        # an allied passerby / cohort at the same time, or two
+        # adjacent monsters from a future PC-side AoE.
+        caels_leg = _RecordingPart(name="leg.right", health_max=10)
+        caels = _make_creature(name="Caels", health_max=100)
+        caels.uses_article = False
+        caels.body_parts = [caels_leg]
+
+        goblin_arm = _RecordingPart(name="arm.left", health_max=10)
+        goblin = _make_creature(name="goblin", health_max=100)
+        goblin.body_parts = [goblin_arm]
+
+        attacker = _make_creature(name="hydra")
+        seq_caels = _make_sequence(attacker, caels, [_make_result(4, caels_leg)])
+        seq_goblin = _make_sequence(attacker, goblin, [_make_result(4, goblin_arm)])
+
+        rr_caels = apply_sequence_to_target(seq_caels, caels, attacker=attacker)
+        rr_goblin = apply_sequence_to_target(seq_goblin, goblin, attacker=attacker)
+
+        joined = "\n".join(
+            rr_caels.injury_feedback_lines + rr_goblin.injury_feedback_lines
+        )
+        assert "Caels's right leg" in joined, (
+            f"player-victim owner missing in: {joined!r}"
+        )
+        assert "The goblin's left arm" in joined, (
+            f"monster-victim owner missing in: {joined!r}"
+        )
+        # Sanity: neither anonymous form survives the round.
+        assert "The right leg seems" not in joined
+        assert "The left arm seems" not in joined
 
     def test_hook_return_strings_included_in_feedback(self):
         """Non-empty returns from on_injury_change / on_destroyed are

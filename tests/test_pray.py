@@ -218,8 +218,10 @@ def _cog() -> RpgUserCommands:
 
 class TestNat20FullPartyHeal:
     """A nat-20 prayer heals EVERY injured player in the game, not
-    just the most-injured. Mirrors the nat-1 sacrifice branch's
-    party-iteration shape."""
+    just the most-injured. The closing "radiant column" beat
+    consolidates onto ONE line listing the healed party — N=1 bare
+    name, N=2 "X and Y", N>=3 "the whole party" (genericized;
+    spelling out four-plus names would overstuff the line)."""
 
     @pytest.mark.asyncio
     async def test_all_injured_players_made_whole(self):
@@ -238,8 +240,11 @@ class TestNat20FullPartyHeal:
         assert charlie.health == charlie.get_health_max()
 
         sent = "\n".join(_dispatched_strings(game._dispatcher))
-        # Two "radiant column" lines — one per injured player.
-        assert sent.count("radiant column of light") == 2
+        # ONE consolidated radiant-column line names Alice and Bob.
+        assert sent.count("radiant column of light") == 1
+        assert "engulfs Alice and Bob" in sent
+        # Charlie was uninjured — must not appear in the heal line.
+        assert "Charlie" not in sent.split("radiant column of light")[1]
 
     @pytest.mark.asyncio
     async def test_uninjured_players_skipped(self):
@@ -272,6 +277,59 @@ class TestNat20FullPartyHeal:
         assert alice.health == alice.get_health_max()
         sent = "\n".join(_dispatched_strings(game._dispatcher))
         assert sent.count("radiant column of light") == 1
+
+    @pytest.mark.asyncio
+    async def test_single_healed_uses_bare_name(self):
+        """N=1 form: 'engulfs <name>'; no 'and', no 'the whole
+        party'."""
+        cog = _cog()
+        alice = _make_player("Alice", health=5, health_max=20, uid=1)
+        game = _make_game(monster=None, players=[alice])
+
+        await _invoke_pray(cog, game, alice, d20_value=20, d6_value=1)
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        assert "A radiant column of light engulfs Alice;" in sent
+        assert " and " not in sent.split("radiant column of light")[1].split(";")[0]
+        assert "the whole party" not in sent
+
+    @pytest.mark.asyncio
+    async def test_two_healed_uses_and(self):
+        """N=2 form: 'engulfs X and Y'; no Oxford comma needed at
+        this length."""
+        cog = _cog()
+        alice = _make_player("Alice", health=5, health_max=20, uid=1)
+        bob = _make_player("Bob", health=8, health_max=20, uid=2)
+        game = _make_game(monster=None, players=[alice, bob])
+
+        await _invoke_pray(cog, game, alice, d20_value=20, d6_value=1)
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        assert "engulfs Alice and Bob;" in sent
+        # No Oxford comma at N=2 — that form starts at N>=3, and the
+        # fallback at N>=3 swaps in 'the whole party' anyway.
+        assert ", and Bob" not in sent
+        assert "the whole party" not in sent
+
+    @pytest.mark.asyncio
+    async def test_three_or_more_healed_genericizes_to_party(self):
+        """N>=3 fallback: 'engulfs the whole party'. Listing four
+        names spelled out would overstuff the line; the generic
+        form keeps the beat short at scale."""
+        cog = _cog()
+        alice = _make_player("Alice", health=5, health_max=20, uid=1)
+        bob = _make_player("Bob", health=8, health_max=20, uid=2)
+        charlie = _make_player("Charlie", health=12, health_max=20, uid=3)
+        game = _make_game(monster=None, players=[alice, bob, charlie])
+
+        await _invoke_pray(cog, game, alice, d20_value=20, d6_value=1)
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        assert "engulfs the whole party;" in sent
+        # Individual names must NOT appear in the consolidated line.
+        heal_line = sent.split("radiant column of light")[1].split(";")[0]
+        for needle in ("Alice", "Bob", "Charlie"):
+            assert needle not in heal_line
 
     @pytest.mark.asyncio
     async def test_part_injuries_count_as_injured(self):

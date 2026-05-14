@@ -7,6 +7,7 @@ from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.helpers.enums import AggressionLevels, InjuryLevels, Size, TimePartitions
 from caldanai.lib.rpg.helpers.parser import parse
+from caldanai.lib.rpg.helpers.text import oxford_join
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.logger import get_logger
 
@@ -345,23 +346,10 @@ class Doppelganger(MonsterPlugin):
             templates = _PAIN_SUMMARIES_BY_LEVEL.get(level)
             if not templates:
                 continue
-            joined = self._oxford_join([p.display_name for p in parts])
+            joined = oxford_join([p.display_name for p in parts])
             line = parse(choice(templates).format(parts=joined), self)
             lines.append(line)
         return lines
-
-    @staticmethod
-    def _oxford_join(items: list) -> str:
-        """Join with Oxford comma + "and" before the last item.
-        Matches ``BodyPart.gear_drop_flavor``'s join voice so the
-        two narration pipelines read consistently."""
-        if not items:
-            return ""
-        if len(items) == 1:
-            return items[0]
-        if len(items) == 2:
-            return f"{items[0]} and {items[1]}"
-        return ", ".join(items[:-1]) + f", and {items[-1]}"
 
     def on_pre_retaliation(self, damage_by_player: list) -> str:
         """Imitate whoever hit the hardest this round.

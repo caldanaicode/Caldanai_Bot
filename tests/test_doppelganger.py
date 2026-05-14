@@ -233,6 +233,152 @@ class TestImitate:
             f"into the player's bag."
         )
 
+    def test_imitate_copies_male_gender_and_pronouns(self):
+        """The doppelganger's own gender bleeds into post-imitation
+        narration unless ``imitate`` overrides it from the target.
+        Reproduced 2026-04-18 with a male Caels — a doppy carrying
+        ``"female"`` default rendered ``@1a`` as "her" inside the
+        pain-cry templates, producing
+        ``"Caels flexes her arm and winces…"``.
+
+        Real Player here (not MagicMock) so we exercise the real
+        pronouns Dict — the parser keys on ``Pronouns.*`` enum
+        slots, and a Mock would auto-truthy through the isinstance
+        guard inside ``imitate``."""
+        from bson.objectid import ObjectId
+        from caldanai.lib.rpg.creatures.player import Player as RealPlayer
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+
+        target = RealPlayer(
+            pid=ObjectId(), gid=1, uid=2, health=20, health_max=20,
+            defense=6, dodge=6, gender="male",
+            pronouns="he,him,his,his", weight_limit=100, clarks=0,
+        )
+        target.member = MagicMock()
+        target.name = "alice"
+
+        doppel = Doppelganger()
+        # Force a known-different starting gender to make the copy
+        # observable — without this, a doppy that happened to roll
+        # "male" on construction would mask the absence of the fix.
+        doppel.gender = "female"
+        doppel.update_pronouns()
+        doppel.imitate(target)
+
+        assert doppel.gender == "male"
+        assert doppel.pronouns[Pronouns.SUBJECTIVE] == "he"
+        assert doppel.pronouns[Pronouns.OBJECTIVE] == "him"
+        assert doppel.pronouns[Pronouns.ADJECTIVE] == "his"
+
+    def test_imitate_copies_female_gender_and_pronouns(self):
+        """Mirror of the male case — imitating a female target
+        produces feminine post-imitation pronouns regardless of
+        the doppy's pre-imitation roll."""
+        from bson.objectid import ObjectId
+        from caldanai.lib.rpg.creatures.player import Player as RealPlayer
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+
+        target = RealPlayer(
+            pid=ObjectId(), gid=1, uid=2, health=20, health_max=20,
+            defense=6, dodge=6, gender="female",
+            pronouns="she,her,hers,her", weight_limit=100, clarks=0,
+        )
+        target.member = MagicMock()
+        target.name = "bob"
+
+        doppel = Doppelganger()
+        doppel.gender = "male"
+        doppel.update_pronouns()
+        doppel.imitate(target)
+
+        assert doppel.gender == "female"
+        assert doppel.pronouns[Pronouns.SUBJECTIVE] == "she"
+        assert doppel.pronouns[Pronouns.OBJECTIVE] == "her"
+        assert doppel.pronouns[Pronouns.ADJECTIVE] == "her"
+
+    def test_imitate_copies_non_binary_gender_and_pronouns(self):
+        """Non-binary path — they/them — also flows through the
+        copy. Guards against accidental binary-only narrowing of
+        the gender-copy fix."""
+        from bson.objectid import ObjectId
+        from caldanai.lib.rpg.creatures.player import Player as RealPlayer
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+
+        target = RealPlayer(
+            pid=ObjectId(), gid=1, uid=2, health=20, health_max=20,
+            defense=6, dodge=6, gender="non-binary",
+            pronouns="they,them,theirs,their", weight_limit=100, clarks=0,
+        )
+        target.member = MagicMock()
+        target.name = "alice"
+
+        doppel = Doppelganger()
+        doppel.gender = "female"
+        doppel.update_pronouns()
+        doppel.imitate(target)
+
+        assert doppel.gender == "non-binary"
+        assert doppel.pronouns[Pronouns.SUBJECTIVE] == "they"
+        assert doppel.pronouns[Pronouns.OBJECTIVE] == "them"
+        assert doppel.pronouns[Pronouns.ADJECTIVE] == "their"
+
+    def test_imitate_pronoun_dicts_independent_after_copy(self):
+        """Copy uses ``dict(target.pronouns)`` so later mutation on
+        either creature doesn't bleed across. Guards against a
+        future "reference assignment" regression."""
+        from bson.objectid import ObjectId
+        from caldanai.lib.rpg.creatures.player import Player as RealPlayer
+        from caldanai.lib.rpg.helpers.enums import Pronouns
+
+        target = RealPlayer(
+            pid=ObjectId(), gid=1, uid=2, health=20, health_max=20,
+            defense=6, dodge=6, gender="male",
+            pronouns="he,him,his,his", weight_limit=100, clarks=0,
+        )
+        target.member = MagicMock()
+        target.name = "alice"
+
+        doppel = Doppelganger()
+        doppel.imitate(target)
+
+        assert doppel.pronouns is not target.pronouns
+        # Mutate the doppy's side; target's stays put.
+        doppel.pronouns[Pronouns.SUBJECTIVE] = "TAMPERED"
+        assert target.pronouns[Pronouns.SUBJECTIVE] == "he"
+
+    def test_imitate_post_narration_uses_target_pronouns(self):
+        """End-to-end check via the parser: a pain-summary template
+        rendered for the imitating doppy resolves ``@1a`` against
+        the COPIED pronouns. Pre-fix this rendered as the doppy's
+        own default — a male Caels would read
+        ``"Caels staggers as deep wounds tear open across her..."``.
+        Pin via the parser pipeline to catch any future regression
+        that leaves the field stale or copies one tier without the
+        other.
+        """
+        from bson.objectid import ObjectId
+        from caldanai.lib.rpg.creatures.player import Player as RealPlayer
+        from caldanai.lib.rpg.helpers.parser import parse
+
+        target = RealPlayer(
+            pid=ObjectId(), gid=1, uid=2, health=20, health_max=20,
+            defense=6, dodge=6, gender="male",
+            pronouns="he,him,his,his", weight_limit=100, clarks=0,
+        )
+        target.member = MagicMock()
+        target.name = "Caels"
+
+        doppel = Doppelganger()
+        doppel.gender = "female"
+        doppel.update_pronouns()
+        doppel.imitate(target)
+
+        rendered = parse("@1D flexes @1a arm and winces.", doppel)
+        # Post-imitation the doppy speaks as Caels — masculine
+        # possessive ("his arm"), never feminine ("her arm").
+        assert "his arm" in rendered
+        assert "her arm" not in rendered
+
     def test_doppy_salvage_chances_lower_than_base(self):
         """Doppy mimicked equipment is organic flesh shaped to look
         like gear, not actual gear — so most of it dissolves with

@@ -463,20 +463,79 @@ class TestWerewolf:
 
     # -- Throat-bite narration --------------------------------------
 
-    def test_throat_bite_narration_on_head_destruction(self):
-        w = Werewolf()
+    def _victim_with_pronouns(self, name: str):
+        """Mock victim with a parser-compatible pronouns Dict.
+        Throat-bite + decapitation beats reach into ``@2s`` / ``@2o``
+        so the parser needs the Pronouns-enum-keyed shape, not the
+        slash-separated string the older tests carried."""
+        from caldanai.lib.rpg.helpers.enums import Pronouns
         victim = MagicMock()
-        victim.name = "adventurer"
-        victim.pronouns = "they/them/their/theirs/themself"
+        victim.name = name
+        victim.uses_article = False
+        victim.indefinite_article = None
+        victim.plural_verbs = False
+        victim.pronouns = {
+            Pronouns.SUBJECTIVE: "they",
+            Pronouns.OBJECTIVE: "them",
+            Pronouns.POSSESSIVE: "theirs",
+            Pronouns.ADJECTIVE: "their",
+            Pronouns.REFLEXIVE: "themself",
+        }
+        return victim
+
+    def test_throat_bite_narration_on_neck_destruction(self):
+        """Phase D anchored the throat-bite kill beat on the neck part
+        (introduced with segmented anatomy 2026-04-22). Pre-fix the
+        beat fired on head destruction because neck didn't exist; now
+        that anatomy separates throat from skull, the jaws-on-throat
+        voice belongs on the neck.
+
+        Sample the pool repeatedly so every template in
+        ``_THROAT_BITE_BEATS`` exercises the parser — guards against
+        a future template landing with a broken token (rendering an
+        empty string or leaking ``@1`` literal into the output).
+        """
+        w = Werewolf()
+        victim = self._victim_with_pronouns("alice")
+        neck = MagicMock()
+        neck.name = "neck"
+        seen = set()
+        for _ in range(40):
+            msg = w.on_target_part_destroyed(victim, neck)
+            assert msg, "throat-bite hook should always return text on neck destruction"
+            assert "@" not in msg, f"unparsed token leaked: {msg!r}"
+            assert "throat" in msg.lower() or "jaws" in msg.lower() or "fangs" in msg.lower()
+            seen.add(msg)
+        # Pool has 3 templates; 40 samples should cover all of them.
+        assert len(seen) == len(w._THROAT_BITE_BEATS)
+
+    def test_head_destruction_uses_decapitation_beat_not_throat_bite(self):
+        """When the head comes apart without the neck having gone
+        first (region-collapse big-vs-small attacker, or a player
+        explicitly targeting past the neck), the generic
+        decapitation beat fires — NOT the throat-bite voice. The
+        throat-bite line is reserved for jaws-on-throat connects."""
+        w = Werewolf()
+        victim = self._victim_with_pronouns("bob")
         head = MagicMock()
         head.name = "head"
-        msg = w.on_target_part_destroyed(victim, head)
-        assert msg
-        assert "throat" in msg.lower() or "jaws" in msg.lower()
+        seen = set()
+        for _ in range(40):
+            msg = w.on_target_part_destroyed(victim, head)
+            assert msg
+            assert "@" not in msg, f"unparsed token leaked: {msg!r}"
+            # Decapitation pool: skull / head language, NOT throat-bite.
+            assert "throat" not in msg.lower(), (
+                f"head-destruction beat should not carry throat-bite "
+                f"voice; got: {msg!r}"
+            )
+            seen.add(msg)
+        assert len(seen) == len(w._HEAD_DESTRUCTION_BEATS)
 
-    def test_non_head_destruction_has_no_attacker_beat(self):
-        """Only the head triggers the throat-bite line; other parts
-        fall through to the base (empty) hook."""
+    def test_non_neck_non_head_destruction_has_no_attacker_beat(self):
+        """Only neck (throat-bite) and head (decapitation) trigger
+        a werewolf-side beat; other parts fall through to the base
+        (empty) hook."""
         w = Werewolf()
         leg = MagicMock()
         leg.name = "foreleg.left"

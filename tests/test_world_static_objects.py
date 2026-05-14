@@ -293,6 +293,7 @@ class TestCampfireVerbs:
         # interface.
         stick = MagicMock()
         stick.name = "stick"
+        stick.favorited = False
         actor = MagicMock(name="player")
         actor.name = "Caels"
         actor.uses_article = False

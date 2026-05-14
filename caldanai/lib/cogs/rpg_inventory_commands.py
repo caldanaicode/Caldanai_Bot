@@ -20,8 +20,7 @@ _log = get_logger(__name__)
 
 # Numeric-only range matcher for ``$sell <low>-<high>``. Item
 # names with hyphens (``tee-shirt``) must NOT match — they fall
-# through to fuzzy-name resolution. 2026-04-29 fix for the
-# tee-shirt bug Caels caught live.
+# through to fuzzy-name resolution.
 _NUMERIC_RANGE_RE = re.compile(r"\d+-\d+")
 
 
@@ -656,10 +655,10 @@ class RpgInventoryCommands(Cog):
 
             if isinstance(_item, Item):
                 # Pre-resolved numeric input. Identity-based equip
-                # check (was id-set, which collided in the
-                # 2026-04-29 tee-shirt repro). Singular grammar:
-                # one item per index, "selling it" not "selling
-                # them".
+                # check so ``$sell 44 45`` with three same-named
+                # items where only #46 is worn sells 44 and 45 —
+                # any earlier name-based check would refuse both
+                # with a duplicate "must un-equip" line.
                 if not player.is_equipped(_item):
                     candidates.append(_item)
                 else:
@@ -684,7 +683,7 @@ class RpgInventoryCommands(Cog):
                     # Only treat dash as a range when BOTH halves
                     # are numeric. Item names with hyphens (e.g.
                     # ``tee-shirt``) fall through to fuzzy-name
-                    # resolution. 2026-04-29 fix.
+                    # resolution.
                     low, high = map(int, _item.split('-'))
                     if low > high:
                         low, high = high, low
@@ -715,12 +714,6 @@ class RpgInventoryCommands(Cog):
                     favorited_skipped += 1
                     continue
                 if player.is_equipped(item):
-                    # 2026-04-29: surface "equipped, $stow first"
-                    # instead of silent skip. Caels caught the bad
-                    # UX live — ``$sell tee-shirt`` with only the
-                    # worn copy returned "no match", which read
-                    # like "you don't have one" instead of "it's
-                    # on your back."
                     equipped_skipped += 1
                     continue
                 m, v = player.sell(item, 1, True)
@@ -728,6 +721,14 @@ class RpgInventoryCommands(Cog):
                     sell.append(item)
                     total += v
                     msg += f"\n{m}"
+                else:
+                    # ``player.sell`` returned a failure string
+                    # (typically "Item not found" when the item
+                    # was already removed mid-loop). Surface a
+                    # per-item line so a category sweep like
+                    # ``$sell junk`` doesn't drop the failure on
+                    # the floor.
+                    msg += f"\nFailed to sell {item.get_full_name()}: {m}"
 
         if favorited_skipped:
             noun = "item" if favorited_skipped == 1 else "items"

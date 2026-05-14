@@ -289,14 +289,10 @@ class BodyPart(Node, ABC):
         if not items:
             return ""
         from caldanai.lib.rpg.helpers.parser import parse
+        from caldanai.lib.rpg.helpers.text import oxford_join
         names = [getattr(it, "name", None) or "something" for it in items]
-        if len(names) == 1:
-            joined, verb = names[0], "slips"
-        elif len(names) == 2:
-            joined, verb = f"{names[0]} and {names[1]}", "slip"
-        else:
-            joined = ", ".join(names[:-1]) + f", and {names[-1]}"
-            verb = "slip"
+        verb = "slips" if len(names) == 1 else "slip"
+        joined = oxford_join(names)
         return parse(
             f"@1A {joined} {verb} free from @1a now-useless {self.display_name}.",
             creature,

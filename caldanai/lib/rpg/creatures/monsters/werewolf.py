@@ -33,9 +33,13 @@ The base engine already handles the actual dawn-flee (see
   running out and gets reckless. Untargeted (normal exposure
   weighting) — the desperation is about urgency, not precision.
 - **Throat-bite narration** — when an attack destroys the target's
-  head part, the attacker-side ``on_target_part_destroyed`` hook
-  emits a distinctive predator-kill beat. Reinforces the throat-bite
-  target preference that was already biasing head-selection.
+  neck, the attacker-side ``on_target_part_destroyed`` hook emits a
+  distinctive predator-kill beat. Reinforces the throat-bite target
+  preference that biases head-region selection. If the head itself
+  comes apart (e.g. a region-collapse big-vs-small hit lands square
+  on the skull, bypassing the neck), a separate generic decapitation
+  beat fires instead — the throat-bite voice is reserved for the
+  jaws-on-throat connect.
 - **Partial-human reveal on death** — the death narration is
   strengthened from "seems almost to flicker" into an explicit
   partial reversion, with an extra second line appended via
@@ -264,18 +268,50 @@ class Werewolf(MonsterPlugin):
 
     # -- Throat-bite narration ------------------------------------------
 
+    # Throat-bite kill pool — fires when the werewolf's attack destroys
+    # the victim's neck. Pre-Phase-D the trigger was the head part
+    # because neck didn't exist; now that the segmented anatomy
+    # separates throat from skull, the throat-bite voice belongs on the
+    # neck. Region-collapse can still drive a hit through to the head
+    # itself; that case lands on the decapitation pool below.
+    _THROAT_BITE_BEATS = (
+        "Jaws close around @2np throat with a sickening crunch; "
+        "@1d worries the grip once, twice, and does not let go.",
+        "@1Dc's teeth find @2np throat and clamp; arterial blood "
+        "sheets across the matted pelt before @2s can cry out.",
+        "A snarl, a lunge, and @1a fangs sink to the hilt in @2np "
+        "throat — @1s drags @2o down by the bite alone.",
+    )
+
+    # Decapitation pool — fires when the head comes apart without the
+    # neck giving way first (region collapse on a heavily-mismatched
+    # size gap, or a player explicitly targeting the head past the
+    # neck). Different voice from the throat-bite: not the predator
+    # kill beat, just the brutal physics of a wolf-jaws head-strike.
+    _HEAD_DESTRUCTION_BEATS = (
+        "@1Dc's jaws crash through @2np skull with bone-cracking "
+        "force; what's left of @2np head falls slack.",
+        "@1Dc whips @1a head once and the strike tears "
+        "@2np skull apart — there's a wet crunch, then nothing.",
+        "Claws and fangs converge on @2np head in a single brutal "
+        "motion; the skull caves inward and @2s drops where @2s stands.",
+    )
+
     def on_target_part_destroyed(
         self, victim: Creature, part: BodyPart,
     ) -> str:
-        """Predator-signature narration when the werewolf's attack
-        destroys the victim's head (throat bite connecting). Other
-        parts defer to the default (no attacker-side beat)."""
+        """Predator-signature narration on a part-destroying hit.
+
+        Neck destruction triggers the throat-bite beat — the canonical
+        werewolf kill, where the jaws close on the throat directly.
+        Head destruction (without the neck having gone first) falls
+        back to the decapitation beat — the head came apart by force,
+        not by a clean bite. Any other part defers to the base no-op.
+        """
+        if part.name == "neck":
+            return parse(choice(self._THROAT_BITE_BEATS), self, victim)
         if part.name == "head":
-            return parse(
-                "Jaws close around @2's throat with a sickening crunch; "
-                "@1dc worries the grip once, twice, and does not let go.",
-                self, victim,
-            )
+            return parse(choice(self._HEAD_DESTRUCTION_BEATS), self, victim)
         return ""
 
     # -- Death: fatal blow + partial-human reveal -----------------------

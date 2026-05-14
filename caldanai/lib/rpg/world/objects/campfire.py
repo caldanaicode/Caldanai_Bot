@@ -795,10 +795,12 @@ class Campfire(StaticObjectPlugin):
     def _collect_fuel_items(actor) -> List[object]:
         """All fuel-eligible items in the actor's inventory.
         V1 rule: an item is fuel if its name contains 'stick',
-        'branch', 'log', or 'kindling'. Equipped items are
-        excluded — you can't burn the stick that's in your hand.
-        Future: items declare a ``is_fuel`` attribute or a
-        ``fuel_value``; for V1 the keyword sniff is enough.
+        'branch', 'log', or 'kindling'. Equipped + ★-favorited
+        items are excluded — can't burn the stick in your hand,
+        and the favorite flag is the player's "hands off" signal
+        for any consume verb that isn't an explicit $craft / $use
+        (mirrors the $sell protection). Masterwork sticks survive
+        idle campfire-feeding this way.
 
         Inventory is dict-like (defines ``__getitem__`` keyed on
         str/ObjectId) but does NOT define ``__iter__``. Calling
@@ -820,6 +822,8 @@ class Campfire(StaticObjectPlugin):
         for item in items_list:
             name = (getattr(item, "name", "") or "").lower()
             if not any(k in name for k in fuel_keywords):
+                continue
+            if getattr(item, "favorited", False):
                 continue
             try:
                 if actor.is_equipped(item):
