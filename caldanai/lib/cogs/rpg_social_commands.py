@@ -36,7 +36,10 @@ from discord.ext.commands import (
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
-from caldanai.lib.rpg.helpers.converters import FuzzyMemberConverter
+from caldanai.lib.rpg.helpers.converters import (
+    CreatureConverter, FuzzyMemberConverter,
+)
+from caldanai.lib.rpg.helpers.fuzzy_resolve import fuzzy_resolve
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.helpers.parser import parse
@@ -2479,32 +2482,37 @@ class RpgSocialCommands(Cog):
 
         :param target: An optional victim of your haunting; either a player using @mentions, or the name (or fuzzy prefix) of the current monster.
         """
-        from caldanai.lib.rpg.helpers.resolvers import resolve_active_monster
-
         game, player = await RpgUtilities.get_game_and_player(ctx)
-        haunted = None
-
         if game is None or player is None:
             return
 
-        msgs = []
+        # Bot-mention reject stays at the call site: identifying the
+        # bot user is haunt-specific UX, not converter logic. Pre-
+        # checking here keeps the "figment of your imagination" line
+        # out of the converter layer entirely.
+        mentions = ctx.message.mentions or []
+        if target is not None and self.bot.user in mentions:
+            Dispatcher.add(
+                game.channel,
+                parse("You cannot haunt a figment of your imagination, @1.", player),
+            )
+            return
 
-        if target is not None:
-            if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-                if self.bot.user in ctx.message.mentions:
-                    Dispatcher.add(game.channel, parse("You cannot haunt a figment of your imagination, @1.", player))
-                    return
-                haunted = await RpgUtilities.get_player(ctx.message.mentions[0], game=game, notify=False)
-            else:
-                # Fuzzy match against the spawned monster's name —
-                # ``$haunt hyd`` resolves a hexed hydra. Shared
-                # active-monster resolver under all targeting commands.
-                haunted = resolve_active_monster(game.monster, target)
+        # ``CreatureConverter`` resolves either an active monster or
+        # a fellow player from one string. ``prefer="monster"`` (the
+        # default) matches the in-fiction priority: a ghost haunts a
+        # creature in scene before a name-collision player.
+        # ``$haunt @Caels`` flows through the same call — mention
+        # syntax misses MonsterConverter and hits PlayerConverter's
+        # mention fast-path. On full miss we fall through to the
+        # no-target ambient pool below — silent fall-through is the
+        # dispatcher's whole point and the UX the BadArgument-raising
+        # shape couldn't support.
+        haunted = None
+        if target:
+            haunted = await fuzzy_resolve(ctx, target, CreatureConverter)
 
-            if haunted is None or not isinstance(haunted, Creature):
-                await self.haunt(ctx)
-                return
-
+        if haunted is not None:
             if haunted.is_dead():
                 msgs = [
                     f"The spirit of @1 attempts to bond with that of @2, but a slight burst of pressure repels @1o.",
@@ -2512,7 +2520,6 @@ class RpgSocialCommands(Cog):
                     f"As @1np ghostly form approaches the remains of @2, @1 flickers rapidly before suddenly "
                     f"teleporting back to @1a own corpse.",
                 ]
-
             else:
                 msgs = [
                     f"{'The ' if not isinstance(haunted, Player) else ''}@2 glances around the area suspiciously as @2s "
@@ -2525,7 +2532,6 @@ class RpgSocialCommands(Cog):
                     f"Soft laughter echoes in @2np ears as @1np spirit toys with @2o.",
                     f"@2Np breath suddenly catches as @1np shade wisps through @2o.",
                 ]
-
         else:
             msgs = [
                 f"The ghostly presence of @1 floods into the area briefly before ebbing away.",
