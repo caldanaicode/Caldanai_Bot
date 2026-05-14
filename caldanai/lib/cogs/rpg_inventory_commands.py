@@ -7,6 +7,10 @@ from typing import Union, List, Optional
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
+from caldanai.lib.rpg.helpers.converters import (
+    EquipmentSlotConverter, ItemConverter,
+)
+from caldanai.lib.rpg.helpers.fuzzy_resolve import fuzzy_resolve
 from caldanai.lib.rpg.helpers.parser import item_list_to_string
 from caldanai.lib.rpg.helpers.utils import RpgUtilities
 from caldanai.lib.rpg.helpers.enums import EquipmentSlots
@@ -118,10 +122,57 @@ class RpgInventoryCommands(Cog):
         # equip means the second ``wand.b`` now sees the superior
         # as already-equipped and falls back to the next-best.
         for raw in query_list:
-            resolved = RpgUtilities.resolve_items_or_notify(
-                channel, player, [raw], mode="equip",
-            )
-            if not resolved:
+            stripped = raw.strip() if isinstance(raw, str) else raw
+            if not stripped:
+                continue
+            item_str, _, hint_str = stripped.partition("@")
+            item_str = item_str.strip()
+            hint_str = hint_str.strip()
+            if not item_str:
+                continue
+
+            item = await fuzzy_resolve(ctx, item_str, ItemConverter)
+            if item is None:
+                # Re-query the resolver directly to distinguish
+                # ambiguity ("did you mean: A, B?") from no-match.
+                # The dispatcher's Optional contract collapses both
+                # into the same None; $equip's UX wants the
+                # candidate list surfaced when one exists.
+                resolution = player.resolve_item_query(item_str, "equip")
+                if resolution.ambiguity_candidates:
+                    cand_list = ", ".join(
+                        f"`{c}`" for c in resolution.ambiguity_candidates
+                    )
+                    Dispatcher.add(
+                        channel,
+                        f"I see multiple matches for `{item_str}` — "
+                        f"did you mean one of: {cand_list}?",
+                    )
+                else:
+                    Dispatcher.add(
+                        channel,
+                        f"You don't seem to have anything matching `{item_str}`.",
+                    )
+                continue
+
+            hint_slot: Optional[EquipmentSlots] = None
+            if hint_str and hint_str != "_":
+                hint_slot = await fuzzy_resolve(
+                    ctx, hint_str, EquipmentSlotConverter,
+                )
+                if hint_slot is None:
+                    Dispatcher.add(
+                        channel,
+                        f"I don't know the slot `{hint_str}`. "
+                        f"Try `l`/`left`/`r`/`right`/`_`, or a "
+                        f"placement key like `head.worn` or `outer`.",
+                    )
+                    continue
+
+            if not isinstance(item, Equipment):
+                Dispatcher.add(
+                    channel, f"{item.get_full_name()} cannot be equipped.",
+                )
                 continue
 
             # Detect "fully qualified" player intent. A query
@@ -134,42 +185,33 @@ class RpgInventoryCommands(Cog):
             # named-item one. Bare ``$equip <name>`` keeps the
             # gate too. 2026-04-29 fix for Caels' "equip should
             # work if fully qualified" report.
-            query_part = raw.split("@", 1)[0]
-            selectors = [s.lower() for s in query_part.split(".")[1:]]
+            selectors = [s.lower() for s in item_str.split(".")[1:]]
             force_displace = bool(selectors) and "best" not in selectors
 
-            for _item, hint_slot in resolved:
-                if not isinstance(_item, Equipment):
+            # ``hint_slot`` is a ``LEFT_SIDE`` / ``RIGHT_SIDE``
+            # aggregate or a specific placement slot. Narrow to the
+            # item's compatible mask before passing down.
+            final_slot = (
+                EquipmentSlots(hint_slot & item.slots)
+                if hint_slot is not None
+                else None
+            )
+            success, replaced_msg = player.equip(
+                item, final_slot, force_displace=force_displace,
+            )
+            if success:
+                if replaced_msg:
                     Dispatcher.add(
-                        channel, f"{_item.get_full_name()} cannot be equipped.",
+                        channel,
+                        f"{player.name} equipped {item.get_full_name()}, replacing {replaced_msg}.",
                     )
-                    continue
-
-                # ``hint_slot`` from the helper is a ``LEFT_SIDE`` /
-                # ``RIGHT_SIDE`` aggregate or a specific placement slot.
-                # Narrow to the item's compatible mask before passing
-                # down — the old behavior did this intersection inline.
-                final_slot = (
-                    EquipmentSlots(hint_slot & _item.slots)
-                    if hint_slot is not None
-                    else None
-                )
-                success, replaced_msg = player.equip(
-                    _item, final_slot, force_displace=force_displace,
-                )
-                if success:
-                    if replaced_msg:
-                        Dispatcher.add(
-                            channel,
-                            f"{player.name} equipped {_item.get_full_name()}, replacing {replaced_msg}.",
-                        )
-                    else:
-                        Dispatcher.add(
-                            channel,
-                            f"{player.name} equipped {_item.get_full_name()}.",
-                        )
                 else:
-                    Dispatcher.add(channel, replaced_msg)
+                    Dispatcher.add(
+                        channel,
+                        f"{player.name} equipped {item.get_full_name()}.",
+                    )
+            else:
+                Dispatcher.add(channel, replaced_msg)
 
     @staticmethod
     def _resolve_best(base, player, channel):

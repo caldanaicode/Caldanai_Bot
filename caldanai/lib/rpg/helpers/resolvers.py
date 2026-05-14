@@ -24,7 +24,9 @@ from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
 from caldanai.lib.rpg.creatures.player import Player
+from caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from caldanai.lib.rpg.helpers.fuzzy import fuzzy_match
+from caldanai.lib.rpg.inventory.item import Item
 
 
 def resolve_monster_class(query: str) -> List[Type[MonsterPlugin]]:
@@ -145,3 +147,103 @@ def resolve_recipe(query: str) -> List[Type[RecipePlugin]]:
         keys=lambda r: [r.output, r.display_name()],
         strategy="unordered",
     ).tightest
+
+
+def resolve_item(player: Player, query: str) -> Optional[Item]:
+    """Resolve a single-item ``$equip``-shaped query against the
+    player's inventory. Returns the matching :class:`Item` or
+    ``None`` on no-match OR ambiguity — the dispatcher contract.
+
+    Thin wrapper around :meth:`Player.resolve_item_query` in
+    ``equip`` mode (item-first, excludes already-equipped items,
+    ``.best`` falls back to the next-best unequipped). Honours
+    every query selector the underlying resolver supports:
+    ``wand.b`` / ``wand.best``, ``wand.fine``, ``wand.fine.1``,
+    ``wand.1``. The full ``<name>.<quality>.<index>`` shape is
+    treated as deliberate intent in the underlying mode logic.
+
+    Empty query or absent player short-circuits to ``None``. The
+    dispatcher's contract collapses ambiguity to ``None``; callers
+    that need to surface the candidate list (``$equip`` does, for
+    the "did you mean: ..." UX) should call
+    :meth:`Player.resolve_item_query` directly to inspect the
+    full :class:`ItemResolution` rather than going through this
+    wrapper.
+    """
+    if player is None or not query:
+        return None
+    resolution = player.resolve_item_query(query, "equip")
+    if len(resolution.items) != 1:
+        return None
+    return resolution.items[0]
+
+
+# Short-vocabulary slot hints — kept compact because the binding
+# shape is high-frequency typing during dual-wield setup
+# (``$equip sword@l mace@r``). Underscore is the historical
+# "anywhere it fits" wildcard; preserved as a no-op hint so the
+# call site treats it as "no specific placement, auto-route."
+_SHORT_SLOT_HINTS = {
+    "l":     EquipmentSlots.LEFT_SIDE,
+    "left":  EquipmentSlots.LEFT_SIDE,
+    "r":     EquipmentSlots.RIGHT_SIDE,
+    "right": EquipmentSlots.RIGHT_SIDE,
+}
+
+
+def resolve_equipment_slot(hint: str) -> Optional[EquipmentSlots]:
+    """Resolve an ``$equip``-style placement hint (the post-``@``
+    portion of ``wand@h.l``) to an :class:`EquipmentSlots` mask.
+
+    Resolution order:
+
+    1. Short-vocabulary: ``l`` / ``left`` → ``LEFT_SIDE``,
+       ``r`` / ``right`` → ``RIGHT_SIDE``.
+    2. Full ``part.key`` reverse lookup against
+       :data:`SLOT_TO_PART_KEY` and :data:`SLOT_PAIR`
+       (``head.worn`` → ``HEAD``, ``hand.left.held`` →
+       ``LEFT_HELD``). Multi-segment parts split is greedy on the
+       right — ``hand.left.held`` tries the split at
+       ``hand.left | held`` first, then ``hand | left.held``.
+    3. Bare-key match: ``worn`` / ``held`` etc. when exactly one
+       slot uses that key.
+
+    Returns ``None`` on no-match or the wildcard ``_`` (which
+    historically meant "anywhere it fits" — handled at the call
+    site as auto-route). Empty hint short-circuits to ``None``.
+    """
+    if not hint:
+        return None
+
+    h = hint.strip().lower()
+    if not h or h == "_":
+        return None
+
+    short = _SHORT_SLOT_HINTS.get(h)
+    if short is not None:
+        return short
+
+    from caldanai.lib.rpg.creatures.equipment_routing import (
+        SLOT_PAIR, SLOT_TO_PART_KEY,
+    )
+
+    tokens = h.split(".")
+    if len(tokens) >= 2:
+        for split in range(len(tokens) - 1, 0, -1):
+            p = ".".join(tokens[:split])
+            k = ".".join(tokens[split:])
+            for slot, (sp, sk) in SLOT_TO_PART_KEY.items():
+                if sp == p and sk == k:
+                    return slot
+            for slot, pair in SLOT_PAIR.items():
+                if any(sp == p and sk == k for (sp, sk) in pair):
+                    return slot
+
+    for slot, (_, k) in SLOT_TO_PART_KEY.items():
+        if k == h:
+            return slot
+    for slot, pair in SLOT_PAIR.items():
+        if any(k == h for (_, k) in pair):
+            return slot
+
+    return None

@@ -67,8 +67,11 @@ from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.creatures.monsters import MonsterPlugin
 from caldanai.lib.rpg.creatures.player import Player
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
+from caldanai.lib.rpg.helpers.enums import EquipmentSlots
 from caldanai.lib.rpg.helpers.resolvers import (
     resolve_active_monster,
+    resolve_equipment_slot,
+    resolve_item,
     resolve_monster_class,
     resolve_part,
     resolve_passerby,
@@ -77,13 +80,16 @@ from caldanai.lib.rpg.helpers.resolvers import (
     resolve_recipe,
 )
 from caldanai.lib.rpg.helpers.utils import RpgUtilities
+from caldanai.lib.rpg.inventory.item import Item
 
 # Re-exported so import sites that originally landed in this module
 # still work. New callers should prefer importing the resolver
 # helpers directly from ``caldanai.lib.rpg.helpers.resolvers``.
 __all__ = [
     "CreatureConverter",
+    "EquipmentSlotConverter",
     "FuzzyMemberConverter",
+    "ItemConverter",
     "MonsterClassConverter",
     "MonsterConverter",
     "PartConverter",
@@ -93,6 +99,8 @@ __all__ = [
     "RecipeConverter",
     "StaticObjectConverter",
     "resolve_active_monster",
+    "resolve_equipment_slot",
+    "resolve_item",
     "resolve_monster_class",
     "resolve_part",
     "resolve_passerby",
@@ -562,3 +570,88 @@ class RecipeConverter(Converter):
                 f"`{argument}` matched multiple recipes: {names}."
             )
         return results[0]
+
+
+class ItemConverter(Converter):
+    """Resolves a single :class:`Item` from the invoking player's
+    inventory via a ``$equip``-shaped query.
+
+    Used by item-targeting commands (``$equip``, future ``$item``
+    /``$stow`` /``$sell`` migrations). Honours the full query
+    selector grammar — ``wand`` / ``wand.b`` / ``wand.best`` /
+    ``wand.fine`` / ``wand.fine.1`` / ``wand.2`` — via
+    :meth:`Player.resolve_item_query` in ``equip`` mode (the
+    inventory-pool minus already-equipped, ``.best`` falling back
+    to next-best).
+
+    ``try_convert`` returns ``None`` on no-match OR ambiguity OR
+    no game / no player context — the dispatcher contract collapses
+    "can't pick one" into the same None as "no match." Callers
+    that need to distinguish the two (``$equip`` does, for the
+    "did you mean: ..." UX) re-query
+    :meth:`Player.resolve_item_query` directly to inspect the
+    :class:`ItemResolution`'s ``ambiguity_candidates``.
+    """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[Item]:
+        game, player = await RpgUtilities.get_game_and_player(
+            ctx, notify=False,
+        )
+        if game is None or player is None:
+            return None
+        return resolve_item(player, argument)
+
+    async def convert(self, ctx: Context, argument: str) -> Item:
+        game, player = await RpgUtilities.get_game_and_player(
+            ctx, notify=False,
+        )
+        if game is None or player is None:
+            raise BadArgument("No active game in this channel.")
+        resolution = player.resolve_item_query(argument, "equip")
+        if not resolution.items:
+            if resolution.ambiguity_candidates:
+                cand_list = ", ".join(
+                    f"`{c}`" for c in resolution.ambiguity_candidates
+                )
+                raise BadArgument(
+                    f"`{argument}` matched multiple items: {cand_list}.",
+                )
+            raise BadArgument(
+                f"You don't seem to have anything matching `{argument}`.",
+            )
+        return resolution.items[0]
+
+
+class EquipmentSlotConverter(Converter):
+    """Resolves the post-``@`` placement hint of an ``$equip`` term
+    (``wand@h.l`` → ``EquipmentSlots.LEFT_HELD``) to an
+    :class:`EquipmentSlots` mask.
+
+    Short-vocabulary (``l`` / ``left`` / ``r`` / ``right``) +
+    full ``part.key`` reverse lookup (``head.worn``,
+    ``hand.left.held``) + bare-key match (``worn`` / ``held``
+    when exactly one slot uses that key).
+
+    ``try_convert`` returns ``None`` on no-match, on the wildcard
+    ``_`` (which historically meant "anywhere it fits" — handled
+    at the call site as auto-route), and on empty argument.
+    """
+
+    async def try_convert(
+        self, ctx: Context, argument: str,
+    ) -> Optional[EquipmentSlots]:
+        return resolve_equipment_slot(argument)
+
+    async def convert(
+        self, ctx: Context, argument: str,
+    ) -> EquipmentSlots:
+        slot = resolve_equipment_slot(argument)
+        if slot is None:
+            raise BadArgument(
+                f"I don't know the slot `{argument}`. "
+                f"Try `l`/`left`/`r`/`right`/`_`, or a "
+                f"placement key like `head.worn` or `outer`.",
+            )
+        return slot

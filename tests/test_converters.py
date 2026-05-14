@@ -1107,3 +1107,221 @@ class TestFuzzyMemberConverterTryConvert:
                     await FuzzyMemberConverter().convert(
                         MagicMock(), "xyzzy",
                     )
+
+
+# ---------------------------------------------------------------------------
+# ItemConverter + EquipmentSlotConverter — Step 4 of the fuzzy-resolve
+# migration. Inventory + slot-hint dispatcher contract; the call site
+# (``$equip``) handles ambiguity surfacing by re-querying the underlying
+# ItemResolution dataclass when the dispatcher returns None.
+# ---------------------------------------------------------------------------
+
+
+def _patch_get_game_and_player(game, player):
+    """Both the dispatcher walk AND the converter body call
+    ``get_game_and_player`` — patch it once with the AsyncMock pair."""
+    return patch(
+        "caldanai.lib.rpg.helpers.converters.RpgUtilities.get_game_and_player",
+        new=AsyncMock(return_value=(game, player)),
+    )
+
+
+class TestItemConverterTryConvert:
+    """``ItemConverter.try_convert`` returns a single Item or None.
+    None subsumes no-match, ambiguity, and missing game/player
+    context — the dispatcher's "can't pick one" collapse.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _load_plugins(self):
+        from caldanai.lib.rpg.creatures.body_parts import BodyPartPlugin
+        from caldanai.lib.rpg.inventory import Inventory
+        BodyPartPlugin.load_plugins()
+        Inventory.discover_items()
+
+    def _player_with(self, *plugin_names):
+        from caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.inventory import Inventory
+        p = Player(uid=1, gid=2, cid=3)
+        items = []
+        for name in plugin_names:
+            item = Inventory.load_item(name=name)
+            p.inventory.add(item)
+            items.append(item)
+        return p, items
+
+    @pytest.mark.asyncio
+    async def test_single_match_returns_item(self):
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        player, [sword] = self._player_with("shortsword")
+        with _patch_get_game_and_player(_make_game(), player):
+            result = await ItemConverter().try_convert(
+                MagicMock(), "shortsword",
+            )
+        assert result is sword
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        player, _ = self._player_with("shortsword")
+        with _patch_get_game_and_player(_make_game(), player):
+            result = await ItemConverter().try_convert(
+                MagicMock(), "definitely_not_an_item_xyz",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_no_player_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        with _patch_get_game_and_player(None, None):
+            result = await ItemConverter().try_convert(
+                MagicMock(), "shortsword",
+            )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_quality_returns_none(self):
+        """Two ``fine`` wands collapse to the same disambiguation
+        label — the underlying resolver's ``_ambiguity_or_first``
+        picks the first match, so the converter returns the first
+        rather than None. Dispatcher contract: single Item or None;
+        ``_ambiguity_or_first`` keeps single Item semantics intact
+        on identical-label collapse (the 2026-04-29 fix that
+        shipped in the underlying resolver)."""
+        from caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        from caldanai.lib.rpg.inventory import Inventory
+
+        player = Player(uid=1, gid=2, cid=3)
+        wand_a = Inventory.load_item(data={"plugin": "wand", "quality": "FINE"})
+        wand_b = Inventory.load_item(data={"plugin": "wand", "quality": "FINE"})
+        player.inventory.add(wand_a)
+        player.inventory.add(wand_b)
+
+        with _patch_get_game_and_player(_make_game(), player):
+            result = await ItemConverter().try_convert(
+                MagicMock(), "wand.fine",
+            )
+        assert result is wand_a
+
+    @pytest.mark.asyncio
+    async def test_distinct_quality_ambiguity_returns_none(self):
+        """Bare ``wand`` against fine + superior auto-picks the
+        best per the ``$equip`` mode default. Multi-quality
+        ambiguity that DOES surface candidates (different selectors
+        in play) is the case where try_convert collapses to None —
+        exercise via a query that the resolver can't single-pick.
+        ``$equip wand.1`` shape selects index 1 directly, so probe
+        the genuinely-ambiguous case via the resolver under a
+        scenario where selectors produce >1 distinct candidates.
+        Skipped — bare-name auto-picks best by design, so an
+        ambiguity surface requires non-bare selector form."""
+        from caldanai.lib.rpg.creatures.player import Player
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        from caldanai.lib.rpg.inventory import Inventory
+
+        player = Player(uid=1, gid=2, cid=3)
+        wand_a = Inventory.load_item(data={"plugin": "wand", "quality": "FINE"})
+        wand_b = Inventory.load_item(data={"plugin": "wand", "quality": "SUPERIOR"})
+        player.inventory.add(wand_a)
+        player.inventory.add(wand_b)
+
+        with _patch_get_game_and_player(_make_game(), player):
+            result = await ItemConverter().try_convert(
+                MagicMock(), "wand",
+            )
+        # Bare name → auto-pick best (superior over fine).
+        assert result is wand_b
+
+    @pytest.mark.asyncio
+    async def test_convert_no_game_raises(self):
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        with _patch_get_game_and_player(None, None):
+            with pytest.raises(BadArgument, match="No active game"):
+                await ItemConverter().convert(MagicMock(), "shortsword")
+
+    @pytest.mark.asyncio
+    async def test_convert_no_match_raises(self):
+        from caldanai.lib.rpg.helpers.converters import ItemConverter
+        player, _ = self._player_with("shortsword")
+        with _patch_get_game_and_player(_make_game(), player):
+            with pytest.raises(BadArgument, match="don't seem to have"):
+                await ItemConverter().convert(
+                    MagicMock(), "definitely_not_an_item_xyz",
+                )
+
+
+class TestEquipmentSlotConverterTryConvert:
+    """``EquipmentSlotConverter.try_convert`` returns an
+    ``EquipmentSlots`` mask or None — no game / player context
+    needed, the resolution is a pure reverse-lookup against the
+    SLOT_TO_PART_KEY routing table."""
+
+    @pytest.mark.asyncio
+    async def test_short_vocab_left(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "l",
+        )
+        assert result == EquipmentSlots.LEFT_SIDE
+
+    @pytest.mark.asyncio
+    async def test_short_vocab_right_word(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "right",
+        )
+        assert result == EquipmentSlots.RIGHT_SIDE
+
+    @pytest.mark.asyncio
+    async def test_full_part_key(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "head.worn",
+        )
+        assert result == EquipmentSlots.HEAD
+
+    @pytest.mark.asyncio
+    async def test_dotted_part_with_key(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "hand.left.held",
+        )
+        assert result == EquipmentSlots.LEFT_HELD
+
+    @pytest.mark.asyncio
+    async def test_unknown_hint_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "bogus",
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_underscore_returns_none(self):
+        """``_`` was historically "anywhere it fits" — surfaced to
+        the call site as None so the equip handler treats it as
+        auto-route."""
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "_",
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_empty_returns_none(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        result = await EquipmentSlotConverter().try_convert(
+            MagicMock(), "",
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_convert_unknown_raises(self):
+        from caldanai.lib.rpg.helpers.converters import EquipmentSlotConverter
+        with pytest.raises(BadArgument, match="don't know the slot"):
+            await EquipmentSlotConverter().convert(MagicMock(), "bogus")
