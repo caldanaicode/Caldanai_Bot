@@ -83,8 +83,11 @@ class Cyclops(MonsterPlugin):
     # Per-hit narration: cyclops is a huge sack of flesh — most
     # weapons land messily but cleanly. Mild fire sensitivity (the
     # only deviation from baseline 1.0×) gets its own line.
+    # Magical lands at baseline too — included so wand attacks
+    # render arcane flavor instead of falling silent.
     HIT_NARRATIONS = {
-        DamageTypes.FIRE: "Flame finds @1a coarse hair and oily skin readily; @1s bellows at the unfamiliar pain.",
+        DamageTypes.FIRE:    "Flame finds @1a coarse hair and oily skin readily; @1s bellows at the unfamiliar pain.",
+        DamageTypes.MAGICAL: "Arcane force sinks into @1a heavy frame without ceremony; @1s blinks the eye and bellows back at the magic.",
     }
 
     def __init__(self):

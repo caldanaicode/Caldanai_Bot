@@ -29,8 +29,13 @@ class DamageTypes(IntFlag):
 
     COMBINED = 1
     """Determines whether combined flags represent doing all types of damage provided."""
-    RANGED = 1 << 1
-    """Whether damage counts as ranged"""
+    # Bit ``1 << 1`` was ``RANGED`` historically — removed 2026-05-12
+    # when reach was lifted to its own axis on ``AttackSource`` and
+    # the per-creature ``ranged_traits`` / ``RANGED_NARRATIONS``
+    # overlay landed. Bit value left unused (no renumbering) so
+    # legacy stored damage-type ints don't accidentally re-bind to a
+    # different concept; the ``Player._migrate_skill_keys`` migration
+    # handles the skill-key renames.
     MAGICAL = 1 << 2
     """Whether damage counts as magical"""
 
@@ -57,7 +62,7 @@ class DamageTypes(IntFlag):
     """Damage dealt through the power of mathematics. Primes hit different."""
 
     # Combinations
-    ANY = RANGED | MAGICAL | BLUDGEONING | PIERCING | SLASHING | DARK | LIGHT | FIRE | WATER | EARTH | AIR | MATHEMAGICAL
+    ANY = MAGICAL | BLUDGEONING | PIERCING | SLASHING | DARK | LIGHT | FIRE | WATER | EARTH | AIR | MATHEMAGICAL
     """Indicates any damage type"""
     ALL = COMBINED | ANY
     """Indicates all damage types combined (which should be rare)"""
@@ -123,18 +128,17 @@ class DamageTypes(IntFlag):
                 val &= ~alias.value
 
         # Second pass: legacy single-bit accumulation for whatever
-        # bits the aliases didn't consume. RANGED / MAGICAL come first
-        # to preserve the original output ordering ("ranged piercing"
-        # rather than "piercing ranged").
+        # bits the aliases didn't consume. MAGICAL comes first to
+        # keep output ordering stable across the RANGED-bit removal
+        # (legacy ``"ranged X"`` skill keys are preserved by the
+        # weapon's reach-prefix injection elsewhere; the canonical
+        # form here only renders damage-type bits).
         single_bits = []
-        if val & DamageTypes.RANGED:
-            single_bits.append("ranged")
-            val &= ~int(DamageTypes.RANGED)
         if val & DamageTypes.MAGICAL:
             single_bits.append("magical")
             val &= ~int(DamageTypes.MAGICAL)
         for t in cls:
-            if t in (cls.ALL, cls.ANY, cls.COMBINED, cls.MAGICAL, cls.RANGED):
+            if t in (cls.ALL, cls.ANY, cls.COMBINED, cls.MAGICAL):
                 continue
             if (t.value & (t.value - 1)) != 0:
                 continue  # multi-bit member (alias) — handled in pass 1
@@ -217,7 +221,7 @@ class DamageTypes(IntFlag):
         Compound elemental aliases (ICE, POISON, LIGHTNING, ACID)
         get their own dedicated emoji; the rest of the bits fall back
         to single-bit emoji concatenation in the canonical order
-        (ranged → magical → physical → elemental). Mirrors the
+        (magical → physical → elemental). Mirrors the
         alias-aware ``__str__`` so a SLASHING+ICE attack reads as
         "🔪🧊" rather than "🔪🌑💧".
 
@@ -262,7 +266,6 @@ class DamageTypes(IntFlag):
 
 
 _DAMAGE_TYPE_EMOJI = {
-    DamageTypes.RANGED: "🏹",
     DamageTypes.MAGICAL: "✨",
     DamageTypes.BLUDGEONING: "🔨",
     DamageTypes.PIERCING: "🪡",
@@ -288,11 +291,9 @@ _DAMAGE_TYPE_EMOJI = {
 # POISON, LIGHTNING, ACID) are matched strictly (all-bits-present) in
 # the compound-alias loop above; the fallback loop uses a loose
 # ``val & base`` test that would spuriously fire on any alias that
-# shares the COMBINED bit (e.g. a non-ice RANGED|MAGICAL|COMBINED wand
-# would leak a 🧊). Ranged / magical modifiers first, then physical
-# attack shapes, then elemental single bits.
+# shares the COMBINED bit. Magical first (modifier-shaped), then
+# physical attack shapes, then elemental single bits.
 _DAMAGE_TYPE_EMOJI_ORDER = (
-    DamageTypes.RANGED,
     DamageTypes.MAGICAL,
     DamageTypes.BLUDGEONING,
     DamageTypes.PIERCING,

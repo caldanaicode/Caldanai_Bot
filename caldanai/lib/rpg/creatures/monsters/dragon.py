@@ -102,8 +102,13 @@ class Dragon(MonsterPlugin):
         DamageTypes.SLASHING:    "The blade glances off @1a interlocking scales, biting only between the seams.",
         DamageTypes.BLUDGEONING: "The blow lands flat against @1a armored hide; @1s barely registers it.",
         DamageTypes.PIERCING:    "The point seeks the seam between @1a scales and finds purchase.",
-        DamageTypes.RANGED:      "The shaft slips between @1a scales clean as breath, finding the soft tissue beneath.",
         DamageTypes.MAGICAL:     "Arcane force ripples across @1a hide, slowed by the deep magic that runs through every scale.",
+    }
+    # Bow-specific: arrow shafts thread the seams cleaner than a
+    # melee thrust can. Wand attacks fall through to base
+    # HIT_NARRATIONS[MAGICAL] (arcane-vs-deep-magic line).
+    RANGED_NARRATIONS = {
+        DamageTypes.PIERCING:    "The shaft slips between @1a scales clean as breath, finding the soft tissue beneath.",
     }
 
     def __init__(self):
@@ -143,10 +148,12 @@ class Dragon(MonsterPlugin):
             "lasts but a moment, then all is still."
         )
 
-        self.traits[DamageTypes.RANGED] = 1.00
+        # Melee piercing (spear) chips at 0.75× — scales soak. Bow
+        # threads the seam cleanly at 1.5× via ranged_traits below.
+        # Wand (MAGICAL) falls into the ANY-set 0.5× resistance band.
         self.traits[DamageTypes.PIERCING] = 0.75
-        self.traits[DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED] = 1.50
-        self.traits[DamageTypes.ANY - (DamageTypes.RANGED | DamageTypes.PIERCING)] = 0.5
+        self.ranged_traits[DamageTypes.PIERCING] = 1.50
+        self.traits[DamageTypes.ANY - DamageTypes.PIERCING] = 0.5
 
         self.loot["small_gem"] = 0.7
         self.loot["tee_shirt"] = 0.2

@@ -242,11 +242,15 @@ def _apply_body_parts_health(
             part.health = max(0, min(part.health_max, int(entry)))
 
 
-#: Q.6 schema version for player skill XP. Bumped when the XP formula
-#: changes; :func:`_migrate_skills_if_needed` one-time-rescales legacy
-#: players so existing levels stay intact and future gains feel
-#: continuous. See ``Part HP and Bleed Refactor.md``.
-SKILLS_SCHEMA_VERSION: int = 2
+#: Schema version for player skill XP / skill keys. Bumped on changes
+#: that require migration on next load. See:
+#: - v2 (Q.6): :func:`_migrate_skills_if_needed` one-time-rescales XP.
+#: - v3 (RANGED-bit removal, 2026-05-12): :func:`_migrate_skill_keys`
+#:   renames ``"…ranged X combined"`` keys to ``"…ranged X"`` after
+#:   the carrier-compound COMBINED bit was dropped from bow / wand
+#:   ``damage_type``. Real elemental compound skill keys (torch:
+#:   ``"…bludgeoning fire combined"``) are unaffected.
+SKILLS_SCHEMA_VERSION: int = 3
 
 #: Upper bound on the number of saved gear loadouts per player.
 #: Referenced by both ``Player.save_loadout`` (guards against the
@@ -277,28 +281,77 @@ def _level_threshold(level: int) -> int:
     return int(((50 * level - 25) ** 2) / 5 - 125)
 
 
+def _migrate_skill_keys(player: "Player") -> None:
+    """Rename ranged-weapon skill keys after the RANGED-bit removal.
+
+    Bow / wand previously declared ``damage_type =
+    PIERCING|RANGED|COMBINED`` and ``MAGICAL|RANGED|COMBINED``
+    respectively, which produced skill keys ``"one-handed ranged
+    piercing combined"`` and ``"one-handed ranged magical combined"``.
+    After the 2026-05-12 refactor (Reach lifted to its own axis,
+    RANGED dropped from DamageTypes, COMBINED-as-carrier dropped from
+    bow/wand ``damage_type``), the same weapons produce ``"one-handed
+    ranged piercing"`` / ``"one-handed ranged magical"`` — identical
+    player-facing display, but the storage key changed.
+
+    Migration: any skill key matching ``"<prefix> ranged <type>
+    combined"`` where ``<type>`` isn't a compound elemental alias
+    (ice / poison / lightning / acid) is renamed by stripping the
+    trailing ``" combined"``. XP merges into the destination key on
+    collision (existing player has both keys somehow → sum).
+
+    Real elemental compound skills (torch: ``"…bludgeoning fire
+    combined"`` — FIRE | BLUDGEONING | COMBINED) keep their key
+    untouched because they don't have ``"ranged"`` in the prefix.
+
+    Idempotent: re-running on a v3 player is a no-op (no matching
+    keys remain).
+    """
+    _COMPOUND_ALIAS_NAMES = {"ice", "poison", "lightning", "acid"}
+    renames: Dict[str, str] = {}
+    for key in list(player.skills.keys()):
+        if "ranged" not in key.split() or not key.endswith(" combined"):
+            continue
+        # Last word before " combined" is the damage type. Real
+        # compound aliases keep their " combined" marker.
+        words = key.split()
+        # words[-1] == "combined"; words[-2] is the damage-type word.
+        if len(words) >= 2 and words[-2] in _COMPOUND_ALIAS_NAMES:
+            continue
+        renames[key] = key[: -len(" combined")]
+    for old, new in renames.items():
+        existing = player.skills.get(new, 0)
+        player.skills[new] = existing + player.skills.pop(old)
+
+
 def _migrate_skills_if_needed(player: "Player") -> None:
-    """Apply the Q.6 one-time XP rescale once per Player load.
+    """Apply pending one-time migrations once per Player load.
 
     Gated by ``player.skills_schema_version``. Idempotent — a second
     call is a no-op because the version is bumped in step.
 
-    Rescales each skill's in-level progress by dividing by
-    :data:`MIGRATION_RATE_RATIO`, so progress that earned X XP under
-    the old formula now represents X/ratio XP under the new one —
-    keeping players at the same level but preserving their relative
-    position inside the level."""
+    - **v1 → v2 (Q.6):** rescales each skill's in-level progress by
+      dividing by :data:`MIGRATION_RATE_RATIO`, so progress that
+      earned X XP under the old formula now represents X/ratio XP
+      under the new one — keeping players at the same level but
+      preserving their relative position inside the level.
+    - **v2 → v3 (RANGED-bit removal):** renames carrier-compound
+      ranged-weapon skill keys via :func:`_migrate_skill_keys`.
+    """
     current = getattr(player, "skills_schema_version", 1)
     if current >= SKILLS_SCHEMA_VERSION:
         return
-    for skill, xp in list(player.skills.items()):
-        level = player.get_skill_level(skill)
-        floor_xp = _level_threshold(level)
-        progress = xp - floor_xp
-        if progress <= 0:
-            continue
-        rescaled = progress / MIGRATION_RATE_RATIO
-        player.skills[skill] = int(floor_xp + rescaled)
+    if current < 2:
+        for skill, xp in list(player.skills.items()):
+            level = player.get_skill_level(skill)
+            floor_xp = _level_threshold(level)
+            progress = xp - floor_xp
+            if progress <= 0:
+                continue
+            rescaled = progress / MIGRATION_RATE_RATIO
+            player.skills[skill] = int(floor_xp + rescaled)
+    if current < 3:
+        _migrate_skill_keys(player)
     player.skills_schema_version = SKILLS_SCHEMA_VERSION
     player.is_dirty = True
 
@@ -2095,7 +2148,17 @@ class Player(Creature):
             # label text needed). Falls back silently when the skill
             # has no damage-type component (``unarmed``, ``natural``).
             dmg_type = DamageTypes.from_skill_key(skill)
-            emoji_row = f"{dmg_type.emoji}\n" if dmg_type else ""
+            type_emoji = dmg_type.emoji if dmg_type else ""
+            # Reach prefix lives in the skill string ("one-handed
+            # ranged magical") rather than on the damage type — so
+            # the bow icon is reach-prefixed here when the skill key
+            # contains "ranged". Used to be baked into
+            # ``DamageTypes.RANGED.emoji`` before the 2026-05-12
+            # carrier-bit removal; now it's a display-layer concern
+            # that mirrors how ``Weapon.skill`` composes the string.
+            reach_prefix = "🏹" if "ranged" in skill.split() else ""
+            emoji_combined = f"{reach_prefix}{type_emoji}"
+            emoji_row = f"{emoji_combined}\n" if emoji_combined else ""
             msg = (
                 f"{emoji_row}"
                 f"Current XP: {self.skills[skill]:,}\n"

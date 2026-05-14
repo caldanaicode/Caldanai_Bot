@@ -38,14 +38,20 @@ class Toad(MonsterPlugin):
         ),
     ])
 
-    # Per-hit narration: damp slick hide shrugs off blunt blows;
-    # pointed shafts and arrows slip through cleanly. Fire is
-    # devastating against amphibian flesh.
+    # Per-hit narration: damp slick hide shrugs off blunt blows and
+    # diffuses arcane force; pointed shafts find the soft body
+    # cleanly. Fire is devastating against amphibian flesh.
     HIT_NARRATIONS = {
         DamageTypes.FIRE:        "Flame meets damp hide; @1d's flesh blisters audibly, hissing as it cooks.",
-        DamageTypes.RANGED:      "The shaft punches clean through @1a slick hide and finds the soft body beneath.",
+        DamageTypes.MAGICAL:     "Arcane force sluices over @1a damp hide and runs off the way water does; the magic finds less purchase here than it expects.",
         DamageTypes.PIERCING:    "The point slides through @1a slick hide cleanly.",
         DamageTypes.BLUDGEONING: "The blow lands flat against rubbery hide; @1s gives a wet, dismissive croak.",
+    }
+    # Bow-specific overlay (Reach.RANGED + PIERCING). Wand attacks
+    # carry MAGICAL not PIERCING, so they fall through to base
+    # HIT_NARRATIONS[MAGICAL]; only bow shafts trigger this line.
+    RANGED_NARRATIONS = {
+        DamageTypes.PIERCING:    "The shaft punches clean through @1a slick hide and finds the soft body beneath.",
     }
 
     def __init__(self):
@@ -78,12 +84,15 @@ class Toad(MonsterPlugin):
         self.image = None
         self.aggression = AggressionLevels.VENGEFUL
 
-        self.traits[DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.COMBINED] = 1.50
+        # Bow finds the soft body beneath the slick hide cleanly —
+        # piercing-from-distance gets the bonus, melee piercing
+        # (spear) just gets baseline below.
+        self.ranged_traits[DamageTypes.PIERCING] = 1.50
         self.traits[DamageTypes.FIRE] = 2.00
         self.traits[DamageTypes.BLUDGEONING] = 0.75
         self.traits[DamageTypes.PIERCING] = 1.00
         self.traits[
-            DamageTypes.ANY - (DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.FIRE | DamageTypes.BLUDGEONING)
+            DamageTypes.ANY - (DamageTypes.PIERCING | DamageTypes.FIRE | DamageTypes.BLUDGEONING)
         ] = 0.5
 
         self.loot["toad_slime"] = 0.9

@@ -12,6 +12,16 @@ _log = get_logger(__name__)
 
 
 class Weapon(Equipment):
+    # Per-class reach declaration. Bow / wand override to
+    # ``Reach.RANGED``; thrown / polearm subclasses may override
+    # to ``Reach.THROWN`` / ``Reach.REACH``. The ``reach`` property
+    # below reads this; reach is no longer derived from a damage-
+    # type bit (the old ``DamageTypes.RANGED`` carrier-bit pattern
+    # was removed when reach was lifted to its own axis on
+    # ``AttackSource`` and the ``RANGED_TRAITS`` / ``RANGED_NARRATIONS``
+    # dispatch overlay landed).
+    REACH: Reach = Reach.MELEE
+
     def __init__(
         self,
         iid: ObjectId = None,
@@ -34,42 +44,39 @@ class Weapon(Equipment):
         self.attack = atk.lower()
         self.damage_type = dmg_type
         self.attack_msg = atk_msg
-        # Skill key uses the *canonical* damage-type form (with
-        # explicit "combined" marker) so a COMBINED-bit weapon
-        # doesn't quietly share a skill key with a hypothetical
-        # non-COMBINED counterpart. Player-facing display strips
-        # the marker via ``DamageTypes.display_skill_name``.
-        self.skill: str = (
-            f"{'two-handed ' if slots & EquipmentSlots.MULTI_SLOT else 'one-handed '}"
-            f"{self.damage_type.canonical if self.damage_type else ''}".strip()
-        )
+        # Skill key folds the slot prefix + reach word + canonical
+        # damage type into one stable string. Reach contributes the
+        # "ranged" word for bow / wand (was previously baked into
+        # the damage type via the ``DamageTypes.RANGED`` carrier-bit
+        # which is gone now). Real elemental compounds (torch:
+        # ``BLUDGEONING | FIRE | COMBINED``) still surface "combined"
+        # via :attr:`DamageTypes.canonical`; player-facing display
+        # strips that marker via ``DamageTypes.display_skill_name``.
+        slot_word = "two-handed " if slots & EquipmentSlots.MULTI_SLOT else "one-handed "
+        reach_word = "ranged " if self.reach == Reach.RANGED else ""
+        type_word = self.damage_type.canonical if self.damage_type else ""
+        self.skill: str = f"{slot_word}{reach_word}{type_word}".strip()
 
         dice = Dice.__int__(self.attack.split("d")[0])
         self.bonus = bonus or int(dice * self.quality.value["multiplier"])
 
     @property
     def reach(self) -> Reach:
-        """The attack reach classification derived from ``damage_type``.
-
-        ``DamageTypes.RANGED`` → ``Reach.RANGED`` (bows, wands, any
-        projectile / magical distance attack). Everything else falls
-        back to ``Reach.MELEE``. Subclasses can override this property
-        for weapons that don't fit the standard mapping (e.g. a
-        polearm that should declare ``Reach.REACH``).
+        """The attack reach classification — declared per weapon class
+        via :attr:`REACH`. Defaults to ``Reach.MELEE`` on the base
+        Weapon; bow / wand override to ``Reach.RANGED``; future
+        thrown / polearm classes can override to ``Reach.THROWN`` /
+        ``Reach.REACH``.
 
         Consumed by ``Player.get_attack_sources`` when building a
         ``WeaponAttackSource`` so ``effective_dodge_for_part`` honors
-        the correct body-part exposure at the reach. Without this,
-        every weapon defaults to MELEE and ranged attacks see melee
-        exposure values — which was the live bug: bow vs. dragon wing
-        produced the same targeted dodge as a sword, because wings
-        have a melee exposure of 0.5 but a ranged exposure of 1.0.
+        the correct body-part exposure at the reach (wings expose at
+        1.0 to ranged but 0.5 to melee), and consumed by
+        ``Creature.get_trait_multiplier`` / ``get_hit_narration`` to
+        consult the per-creature ``ranged_traits`` /
+        ``RANGED_NARRATIONS`` overlay.
         """
-        if self.damage_type is None:
-            return Reach.MELEE
-        if self.damage_type & DamageTypes.RANGED:
-            return Reach.RANGED
-        return Reach.MELEE
+        return self.REACH
 
     def get_embed(self) -> tuple:
         embed, file = super().get_embed()

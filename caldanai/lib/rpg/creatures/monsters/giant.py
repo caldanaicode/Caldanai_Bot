@@ -19,10 +19,14 @@ class Giant(MonsterPlugin):
     # Magic at giant-scale is the great leveller.
     HIT_NARRATIONS = {
         DamageTypes.MAGICAL:     "Arcane force ripples through @1a vast frame; even mountains feel magic.",
-        DamageTypes.RANGED:      "The shot strikes @1d but seems undersized for the target — a thrown pebble against a hill.",
         DamageTypes.SLASHING:    "The blade opens a long, shallow line in @1a thick hide.",
         DamageTypes.PIERCING:    "The point sinks into @1a flesh but seems lost in the mass of @1o.",
         DamageTypes.BLUDGEONING: "The blow lands heavy; @1s shifts a half-step but doesn't fall.",
+    }
+    # Bow shafts read undersized against the target. Wand falls
+    # through to base HIT_NARRATIONS[MAGICAL] (mountains-feel-magic).
+    RANGED_NARRATIONS = {
+        DamageTypes.PIERCING:    "The shot strikes @1d but seems undersized for the target — a thrown pebble against a hill.",
     }
 
     def __init__(self):
@@ -45,11 +49,16 @@ class Giant(MonsterPlugin):
             "small tremor."
         )
 
-        self.traits[DamageTypes.RANGED] = 0.75
+        # Anything fired at a giant under-delivers — the projectile
+        # is undersized relative to the target. Same shape regardless
+        # of damage type (arrow shaft or arcane bolt, both look
+        # small against a hill). Captured as ranged_traits[ANY] so
+        # both bow and wand pick it up at the dispatcher.
+        self.ranged_traits[DamageTypes.ANY] = 0.75
         self.traits[DamageTypes.PIERCING | DamageTypes.SLASHING] = 1.0
         self.traits[DamageTypes.MAGICAL] = 1.50
         self.traits[
-            DamageTypes.ANY - (DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.SLASHING | DamageTypes.MAGICAL)
+            DamageTypes.ANY - (DamageTypes.PIERCING | DamageTypes.SLASHING | DamageTypes.MAGICAL)
         ] = 0.5
 
         self.loot["rock"] = 0.7

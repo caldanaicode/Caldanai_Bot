@@ -84,6 +84,30 @@ _SIZE_SENSITIVITY: float = 2.0
 _REGION_COLLAPSE_THRESHOLD: float = 2.0
 
 
+def _matches_dmg_type(dmg_type: DamageTypes, trait: DamageTypes) -> bool:
+    """True iff ``trait`` should fire against an attack of ``dmg_type``.
+
+    Two cases:
+
+    - **Compound trait** (``trait & COMBINED``): the trait expresses a
+      genuine compound damage concept (ICE = WATER|DARK|COMBINED, etc.)
+      and only fires when the attack itself is declared as a compound
+      of those bits — ``dmg_type`` must carry COMBINED *and* be a
+      superset of the trait bits. A pure-water attack against an
+      ice-vulnerability trait does not fire (water alone isn't ice).
+    - **Single-bit trait**: matches on any bit overlap.
+
+    The COMBINED gate isolates real elemental compounds from the
+    bit-overlap branch — without it, a ``DARK | WATER`` trait would
+    fire on pure-dark or pure-water attacks. Used by
+    :meth:`Creature.get_trait_multiplier` and the deviation sort in
+    :meth:`Creature.get_hit_narration`.
+    """
+    if trait & DamageTypes.COMBINED:
+        return bool(dmg_type & DamageTypes.COMBINED) and (dmg_type & trait == trait)
+    return bool(dmg_type & trait)
+
+
 def _roll_absorption(defense: int, raw: int) -> int:
     """Q.7 trial: roll ``1d{defense}`` for absorbed damage.
 
@@ -205,6 +229,14 @@ class Creature(GenderMixin, HealMixin):
         self.is_dirty: bool = False
         self.pronouns: Dict[Pronouns, str] = {}
         self.traits: Dict[DamageTypes, float] = traits or {}
+        # Reach-specific trait overlay. Consulted by
+        # ``get_trait_multiplier`` only when the source's reach matches
+        # — today only ``Reach.RANGED``, populated by per-monster
+        # ``__init__`` for creatures that interact differently with
+        # bow / wand than with melee weapons of the same damage type
+        # (toad weak to PIERCING from a distance; bearowl exposed to
+        # any ranged hit). Empty by default.
+        self.ranged_traits: Dict[DamageTypes, float] = {}
         # Per-instance composition: body parts and state flags must be
         # fresh mutable containers on every instance so that injuring one
         # goblin's leg doesn't injure every goblin's leg. Subclasses
@@ -274,26 +306,50 @@ class Creature(GenderMixin, HealMixin):
         #
         #         self.stats[stat] = 1
 
-    def get_trait_multiplier(self, dmg_type: DamageTypes) -> float:
+    def get_trait_multiplier(
+        self, dmg_type: DamageTypes, reach: Optional[Reach] = None,
+    ) -> float:
+        """Trait multiplier for ``dmg_type`` against this creature.
+
+        Walks ``self.traits`` always; also walks ``self.ranged_traits``
+        when ``reach == Reach.RANGED``. Per-trait match logic lives in
+        :func:`_matches_dmg_type` — compound traits (with COMBINED bit)
+        require dmg_type to also have COMBINED and to be a superset of
+        the trait bits; single-bit traits match on any overlap.
+
+        Multiple matching traits aggregate via ``max`` (most-permissive
+        wins). When the same key appears in both ``traits`` and
+        ``ranged_traits``, the ranged entry wins on the exact-match
+        shortcut — bow / wand context shadows the base damage-type
+        interaction for that creature.
+
+        Default of 1.0 when no trait matches preserves the original
+        no-op behavior.
+        """
         if not dmg_type:
             return 1.0
 
+        # Exact-match shortcut. Ranged dict consulted first when the
+        # source is ranged so a creature's bow- or wand-specific entry
+        # (e.g. ``ranged_traits[PIERCING] = 1.5`` for toad) outranks
+        # a base entry on the identical key.
+        if reach == Reach.RANGED and dmg_type in self.ranged_traits:
+            return self.ranged_traits[dmg_type]
         if dmg_type in self.traits:
             return self.traits[dmg_type]
 
+        # Walk both dicts (when reach matches), aggregating via max.
+        trait_dicts = [self.traits]
+        if reach == Reach.RANGED:
+            trait_dicts.append(self.ranged_traits)
+
         highest = 0.0
         trait_matched = False
-        for trait in self.traits:
-            if trait & DamageTypes.COMBINED:
-                if not dmg_type & DamageTypes.COMBINED:
-                    continue
-                if dmg_type & trait == trait:
-                    highest = max(self.traits[trait], highest)
+        for d in trait_dicts:
+            for trait in d:
+                if _matches_dmg_type(dmg_type, trait):
+                    highest = max(d[trait], highest)
                     trait_matched = True
-
-            elif dmg_type & trait:
-                highest = max(self.traits[trait], highest)
-                trait_matched = True
 
         if not trait_matched:
             highest = 1.0
@@ -1128,6 +1184,22 @@ class Creature(GenderMixin, HealMixin):
 
     HIT_NARRATIONS: Dict[DamageTypes, str] = {}
 
+    # ------------------------------------------------------------------
+    # Per-hit narration: ranged-source overlay
+    #
+    # Mirrors ``HIT_NARRATIONS`` shape. Entries here fire only when the
+    # incoming attack source declares ``reach == Reach.RANGED`` (bow,
+    # wand, anything throwable / fired). The dispatcher merges this
+    # dict on top of ``HIT_NARRATIONS`` for ranged attacks, with
+    # ranged-keyed entries shadowing base entries on key collision —
+    # letting a creature express bow-specific flavor ("@1dc's hide
+    # parts cleanly under the shaft") distinct from melee flavor for
+    # the same damage type. No effect on melee attacks; the base
+    # ``HIT_NARRATIONS`` dispatch path is unchanged.
+    # ------------------------------------------------------------------
+
+    RANGED_NARRATIONS: Dict[DamageTypes, str] = {}
+
     @classmethod
     def _resolved_hit_narrations(cls) -> Dict[DamageTypes, str]:
         """Walk ``__mro__`` and merge every ``HIT_NARRATIONS`` dict
@@ -1146,6 +1218,21 @@ class Creature(GenderMixin, HealMixin):
         merged: Dict[DamageTypes, str] = {}
         for klass in reversed(cls.__mro__):
             entries = klass.__dict__.get("HIT_NARRATIONS")
+            if entries:
+                merged.update(entries)
+        return merged
+
+    @classmethod
+    def _resolved_ranged_narrations(cls) -> Dict[DamageTypes, str]:
+        """MRO-walk for ``RANGED_NARRATIONS`` — same shape and
+        precedence rules as :meth:`_resolved_hit_narrations`. Returns
+        an empty dict for classes that don't declare any ranged-
+        specific lines; the dispatcher treats that as "no overlay,"
+        falling back to base narration entirely.
+        """
+        merged: Dict[DamageTypes, str] = {}
+        for klass in reversed(cls.__mro__):
+            entries = klass.__dict__.get("RANGED_NARRATIONS")
             if entries:
                 merged.update(entries)
         return merged
@@ -1178,6 +1265,15 @@ class Creature(GenderMixin, HealMixin):
             return None
 
         narrations = self._resolved_hit_narrations()
+        if source.reach == Reach.RANGED:
+            # Ranged-source overlay: merge wins on key collision so a
+            # bow-specific entry shadows a base entry for the same
+            # damage type. Wand attacks and bow attacks both flow
+            # through this branch and pick whichever damage-type-
+            # keyed entry is present — wand renders its MAGICAL
+            # entry (base or ranged); bow renders its PIERCING entry
+            # (base or ranged), neither leaks the other's flavor.
+            narrations = {**narrations, **self._resolved_ranged_narrations()}
         matches = [
             (dmg_type, template)
             for dmg_type, template in narrations.items()
@@ -1190,7 +1286,7 @@ class Creature(GenderMixin, HealMixin):
         # declaration order, preserving prior behavior for
         # equal-deviation cases.
         matches.sort(
-            key=lambda kv: -abs(self.get_trait_multiplier(kv[0]) - 1.0)
+            key=lambda kv: -abs(self.get_trait_multiplier(kv[0], source.reach) - 1.0)
         )
         return parse(matches[0][1], self, attacker)
 
@@ -1315,7 +1411,7 @@ class Creature(GenderMixin, HealMixin):
             reported_target = target_part
 
         combined = CombinedRoll(atk_roll, dmg_roll, dodge)
-        multiplier = self.get_trait_multiplier(source.damage_type)
+        multiplier = self.get_trait_multiplier(source.damage_type, source.reach)
         sub_dmg = int(multiplier * combined.result)
         # Q.7 trial: absorption rolls 1d{defense} instead of subtracting
         # the flat defense pool. Same intent as a 40k save — variance

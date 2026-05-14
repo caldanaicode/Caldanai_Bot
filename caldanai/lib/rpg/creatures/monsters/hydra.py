@@ -123,7 +123,7 @@ _REPERTOIRE_SWAMP = {
                "label": "poison cloud", "cooldown": 3},
     "spit":   {"cost": 1, "weight": 0.05, "dice": "1d4",
                "label": "acid spit",
-               "dmg_type": DamageTypes.ACID | DamageTypes.RANGED,
+               "dmg_type": DamageTypes.ACID,
                "reach": Reach.RANGED},
 }
 
@@ -136,7 +136,7 @@ _REPERTOIRE_HEXED = {
                "label": "dark pulse", "cooldown": 4},
     "hex":    {"cost": 1, "weight": 0.15, "dice": "1d10",
                "label": "hex bolt",
-               "dmg_type": DamageTypes.DARK | DamageTypes.MAGICAL | DamageTypes.RANGED,
+               "dmg_type": DamageTypes.DARK | DamageTypes.MAGICAL,
                "reach": Reach.RANGED},
 }
 

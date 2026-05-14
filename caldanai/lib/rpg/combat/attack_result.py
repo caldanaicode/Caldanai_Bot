@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from caldanai.lib.rpg.helpers import ansi
-from caldanai.lib.rpg.helpers.enums import DamageTypes
+from caldanai.lib.rpg.helpers.enums import DamageTypes, Reach
 from caldanai.lib.rpg.helpers.roll_data import CombinedRoll
 
 
@@ -146,6 +146,20 @@ class AttackResult:
             return 0
         return max(1, int(self.multiplier * self.combined.result))
 
+    def _reach_prefix_emoji(self) -> str:
+        """Bow-glyph (🏹) prefix for ranged sources.
+
+        After the 2026-05-12 Reach-as-axis refactor, ``DamageTypes.RANGED``
+        was removed from the enum (reach is now a separate field on
+        ``AttackSource``), so ``self.dmg_type.emoji`` no longer carries
+        the bow icon for wand / bow attacks. This helper restores the
+        prefix at the display layer for ranged sources, mirroring the
+        same pattern in ``Player.get_skill_display``. Empty string for
+        melee or unknown reach so the icon string stays clean.
+        """
+        source_reach = getattr(self.source, "reach", None) if self.source else None
+        return "🏹" if source_reach == Reach.RANGED else ""
+
     def to_display_parts(self) -> Dict[str, Any]:
         """Returns a dict of display-ready pieces for this result.
 
@@ -155,7 +169,10 @@ class AttackResult:
         like `prime_flavor` or other custom metadata.
         """
         dmg_type_str = str(self.dmg_type).title() if self.dmg_type else ""
-        dmg_type_emoji = self.dmg_type.emoji if self.dmg_type else ""
+        dmg_type_emoji = (
+            f"{self._reach_prefix_emoji()}{self.dmg_type.emoji}"
+            if self.dmg_type else ""
+        )
 
         label = self.source.label if self.source else ""
         if self.target_part:
@@ -209,7 +226,10 @@ class AttackResult:
         hit_mark = ansi.wrap("-" if self.combined.isMiss else "+", color, intensity=intensity)
         hit_str = ansi.wrap(self.combined.get_hit_string(), color, intensity=intensity)
         dmg_type_str = f"{str(self.dmg_type).title()} " if self.dmg_type else ""
-        emoji = self.dmg_type.emoji if self.dmg_type else ""
+        emoji = (
+            f"{self._reach_prefix_emoji()}{self.dmg_type.emoji}"
+            if self.dmg_type else ""
+        )
         sub = self.sub_damage
 
         header = f"**{label}:**" if label else ""

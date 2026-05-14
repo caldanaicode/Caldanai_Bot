@@ -38,8 +38,9 @@ class Undead:
     }
 
     HIT_NARRATIONS = {
-        DamageTypes.LIGHT: "Holy radiance burns @1d's unliving form.",
-        DamageTypes.DARK:  "Shadow flows over @1d like a familiar tide; nothing seems to take hold.",
+        DamageTypes.LIGHT:   "Holy radiance burns @1d's unliving form.",
+        DamageTypes.DARK:    "Shadow flows over @1d like a familiar tide; nothing seems to take hold.",
+        DamageTypes.MAGICAL: "Arcane force flows through @1a unliving form the way it would through any vessel; the binding holds, but is felt.",
     }
 
     def __init__(self, *args, **kwargs):

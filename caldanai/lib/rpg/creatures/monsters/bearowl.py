@@ -21,10 +21,17 @@ class Bearowl(MonsterPlugin):
     # the muscle and bone beneath. Ranged shots have the angle to
     # find the gaps that melee can't reach.
     HIT_NARRATIONS = {
-        DamageTypes.RANGED:      "The shot threads between @1a feathers and lodges deep — distance was the friend @1s lacked.",
+        DamageTypes.MAGICAL:     "Arcane force finds purchase in @1a strange hide; bear and owl both feel it, neither quite sure where the touch lands.",
         DamageTypes.SLASHING:    "The blade opens @1a hide cleanly; clumps of fur and down drift loose.",
         DamageTypes.PIERCING:    "The point parts feather and pelt and finds the muscle beneath without resistance.",
         DamageTypes.BLUDGEONING: "The blow sinks into thick fur and dense down; @1s barely feels it.",
+    }
+    # Bow finds the gap between the airborne layers — wand attacks
+    # carry MAGICAL not PIERCING, so they fall through to base
+    # HIT_NARRATIONS[MAGICAL] above (the bear-and-owl-both-feel-it
+    # arcane line).
+    RANGED_NARRATIONS = {
+        DamageTypes.PIERCING:    "The shot threads between @1a feathers and lodges deep — distance was the friend @1s lacked.",
     }
 
     # Crafting materials. Bearowl is the first source-creature for
@@ -95,7 +102,11 @@ class Bearowl(MonsterPlugin):
             ]
         )
 
-        self.traits[DamageTypes.RANGED] = 1.50
+        # Ranged-vulnerable across the board: airborne attack pattern
+        # exposes the soft parts, regardless of whether the projectile
+        # is an arrow shaft or an arcane bolt. Vael observed *1.5 on
+        # wand attacks 2026-05-12 confirming the shape.
+        self.ranged_traits[DamageTypes.ANY] = 1.50
         self.traits[DamageTypes.PIERCING | DamageTypes.SLASHING] = 1.25
         self.traits[DamageTypes.BLUDGEONING] = 0.5
 

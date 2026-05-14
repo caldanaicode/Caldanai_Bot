@@ -609,12 +609,17 @@ class TestDragonSanityUnchanged:
         assert expected_keys.issubset(set(d.loot.keys()))
 
     def test_traits_identity_preserved(self):
+        """Dragon's bow-vulnerability moved from the conflated
+        ``traits[RANGED]`` /  ``traits[PIERCING|RANGED|COMBINED]``
+        keys into ``ranged_traits[PIERCING]`` after the 2026-05-12
+        RANGED-bit removal. Spear baseline (PIERCING) stays in
+        ``traits``."""
         from caldanai.lib.rpg.helpers.enums import DamageTypes
 
         with _force_variant(False):
             d = Dragon()
-        assert DamageTypes.RANGED in d.traits
         assert DamageTypes.PIERCING in d.traits
+        assert DamageTypes.PIERCING in d.ranged_traits
 
     def test_attack_random_still_present(self):
         with _force_variant(False):

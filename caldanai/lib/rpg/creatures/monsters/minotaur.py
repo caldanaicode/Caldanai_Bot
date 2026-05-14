@@ -42,6 +42,7 @@ class Minotaur(MonsterPlugin):
     # catches fire surprisingly well.
     HIT_NARRATIONS = {
         DamageTypes.FIRE:        "Flame catches in @1a coarse coat and spreads with the smell of burning hair.",
+        DamageTypes.MAGICAL:     "Arcane force ripples through @1a heavy frame; @1s rolls a horn against the touch and does not slow.",
         DamageTypes.PIERCING:    "The point parts @1a hide and slips between thick cords of muscle.",
         DamageTypes.BLUDGEONING: "The blow sinks into dense muscle; @1s rocks back but holds the line.",
         DamageTypes.SLASHING:    "The blade scores @1a hide; sweat-darkened fur splits and reveals raw skin beneath.",

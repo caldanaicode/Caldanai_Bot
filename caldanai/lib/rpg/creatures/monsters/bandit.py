@@ -92,9 +92,11 @@ class Bandit(MonsterPlugin):
             ]
         )
 
-        self.traits[DamageTypes.RANGED] = 1.00
+        # Bandit takes magical at 1.5× (patchwork armor isn't designed
+        # for arcane); everything else lands at 0.75× (leather and
+        # straps absorb).
         self.traits[DamageTypes.MAGICAL] = 1.50
-        self.traits[DamageTypes.ANY - (DamageTypes.RANGED | DamageTypes.MAGICAL)] = 0.75
+        self.traits[DamageTypes.ANY - DamageTypes.MAGICAL] = 0.75
 
         # Shortsword moved to SPAWN_LOADOUT (held slot on hand) —
         # the held-weapons-via-loadout path replaces the death-time

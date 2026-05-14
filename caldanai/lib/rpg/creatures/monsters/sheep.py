@@ -17,6 +17,7 @@ class Sheep(MonsterPlugin):
         DamageTypes.SLASHING:    "The blade catches in @1a thick wool, opening a shallow line through the layered fleece.",
         DamageTypes.PIERCING:    "The point parts @1a wool cleanly and sinks deep into the body beneath.",
         DamageTypes.BLUDGEONING: "The blow lands solid; even fleece can only soften so much.",
+        DamageTypes.MAGICAL:     "Arcane force drifts through @1a wool and finds the body beneath; @1s bleats once and keeps to @1a grazing.",
     }
 
     def __init__(self):

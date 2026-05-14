@@ -81,6 +81,7 @@ class Werewolf(MonsterPlugin):
     HIT_NARRATIONS = {
         DamageTypes.LIGHT:       "Holy light brands a glowing scar through @1a coarse fur; @1s yelps and shies away.",
         DamageTypes.FIRE:        "Flame catches in @1a thick pelt and spreads with a crackle of singed hair.",
+        DamageTypes.MAGICAL:     "Arcane force courses through @1a coarse pelt and sinks into the wolf-shape; @1s growls low at the foreign touch.",
         DamageTypes.BLUDGEONING: "The blow sinks into dense pelt and corded muscle; @1s rolls with the impact.",
         DamageTypes.PIERCING:    "The point parts @1a fur cleanly and bites deep into the muscle beneath.",
     }

@@ -72,28 +72,29 @@ class TestWeaponReach:
         assert weapon.reach == Reach.MELEE
 
     def test_ranged_weapon_reach(self):
-        weapon = Weapon(
-            quality=Qualities.ORDINARY,
-            atk="2d10",
-            dmg_type=DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED,
-            plugin="bow",
+        """Bow / wand declare ``REACH = Reach.RANGED`` at the class
+        level — reach is no longer derived from a damage-type bit
+        (the historical ``DamageTypes.RANGED`` carrier-bit was
+        removed 2026-05-12 when reach was lifted to its own axis)."""
+        from caldanai.lib.rpg.inventory.equipment.weapons.bow import (
+            WeaponPlugin as Bow,
         )
-        assert weapon.reach == Reach.RANGED
+        bow = Bow(quality=Qualities.ORDINARY)
+        assert bow.reach == Reach.RANGED
 
     def test_magical_ranged_weapon_reach(self):
-        """Wands carry ``RANGED`` alongside ``MAGICAL``; reach tracks
-        distance, not damage flavor."""
-        weapon = Weapon(
-            quality=Qualities.ORDINARY,
-            atk="2d4",
-            dmg_type=DamageTypes.MAGICAL | DamageTypes.RANGED | DamageTypes.COMBINED,
-            plugin="wand",
+        """Wands declare ``REACH = Reach.RANGED`` — same shape as
+        bow. Damage type is MAGICAL only; reach is independent."""
+        from caldanai.lib.rpg.inventory.equipment.weapons.wand import (
+            WeaponPlugin as Wand,
         )
-        assert weapon.reach == Reach.RANGED
+        wand = Wand(quality=Qualities.ORDINARY)
+        assert wand.reach == Reach.RANGED
+        assert wand.damage_type == DamageTypes.MAGICAL
 
     def test_magical_melee_weapon_reach(self):
-        """A purely magical weapon without RANGED should still read as
-        MELEE — magic doesn't imply distance on its own."""
+        """A purely magical weapon without REACH override defaults
+        to MELEE — the base ``Weapon.REACH`` is ``Reach.MELEE``."""
         weapon = Weapon(
             quality=Qualities.ORDINARY,
             atk="1d6",

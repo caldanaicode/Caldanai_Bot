@@ -165,24 +165,24 @@ class TestAliasEmojiDisplay:
 
     def test_combined_without_alias_does_not_leak_alias_emoji(self):
         """Regression: a compound damage type with COMBINED set but
-        with bits that don't match any alias (e.g. wand: RANGED |
-        MAGICAL | COMBINED, bow: RANGED | PIERCING | COMBINED) must
-        NOT pick up a spurious alias emoji via the single-bit
-        fallback loop. The loose ``val & base`` check there used to
-        fire on any alias sharing the COMBINED bit (produced 🧊 for
-        wands because ICE was in the fallback order list)."""
-        wand = DamageTypes.RANGED | DamageTypes.MAGICAL | DamageTypes.COMBINED
-        assert wand.emoji == "🏹✨"
-        assert "🧊" not in wand.emoji
-        assert "🧪" not in wand.emoji
-        assert "⚡" not in wand.emoji
-        assert "⚗️" not in wand.emoji
+        with bits that don't match any alias (torch: BLUDGEONING |
+        FIRE | COMBINED) must NOT pick up a spurious alias emoji
+        via the single-bit fallback loop. The loose ``val & base``
+        check there used to fire on any alias sharing the COMBINED
+        bit (produced 🧊 for compound non-alias damage types because
+        ICE was in the fallback order list).
 
-        bow = DamageTypes.RANGED | DamageTypes.PIERCING | DamageTypes.COMBINED
-        assert bow.emoji == "🏹🪡"
-
+        Torch is the live test case after the 2026-05-12 RANGED-bit
+        removal — bow / wand no longer carry COMBINED in their
+        damage types (the conflated carrier-bit was the original
+        2026-05-12 motivation for the regression check, but the
+        cleaner architecture removes the conflation entirely)."""
         torch = DamageTypes.BLUDGEONING | DamageTypes.FIRE | DamageTypes.COMBINED
         assert torch.emoji == "🔨🔥"
+        assert "🧊" not in torch.emoji
+        assert "🧪" not in torch.emoji
+        assert "⚡" not in torch.emoji
+        assert "⚗️" not in torch.emoji
 
 
 # ---------------------------------------------------------------------------
@@ -222,12 +222,19 @@ class TestCanonicalForm:
         assert torch.canonical == "bludgeoning fire combined"
 
     def test_bow_canonical_form(self):
-        bow = DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED
-        assert bow.canonical == "ranged piercing combined"
+        """Bow ``damage_type`` after the 2026-05-12 RANGED-bit removal
+        is just PIERCING. The "ranged" word in the skill string comes
+        from ``Weapon.skill``'s reach-prefix injection, not from
+        ``canonical``."""
+        bow = DamageTypes.PIERCING
+        assert bow.canonical == "piercing"
 
     def test_wand_canonical_form(self):
-        wand = DamageTypes.MAGICAL | DamageTypes.RANGED | DamageTypes.COMBINED
-        assert wand.canonical == "ranged magical combined"
+        """Wand ``damage_type`` after the 2026-05-12 RANGED-bit removal
+        is just MAGICAL. The "ranged" word in the skill string comes
+        from ``Weapon.skill``'s reach-prefix injection."""
+        wand = DamageTypes.MAGICAL
+        assert wand.canonical == "magical"
 
     def test_legacy_combo_without_combined_unchanged(self):
         """A legacy ``WATER | DARK`` (no COMBINED bit) doesn't get a
@@ -287,9 +294,14 @@ class TestFromSkillKey:
         key = f"one-handed {torch.canonical}"
         assert DamageTypes.from_skill_key(key) == torch
 
-    def test_ranged_compound_round_trip(self):
-        """Bow: PIERCING | RANGED | COMBINED."""
-        bow = DamageTypes.PIERCING | DamageTypes.RANGED | DamageTypes.COMBINED
+    def test_bow_round_trip(self):
+        """Bow ``damage_type`` is just PIERCING after the 2026-05-12
+        RANGED-bit removal — no COMBINED, no ranged carrier-bit. The
+        round-trip preserves the bare damage type. The "ranged" word
+        in the player-facing skill string comes from
+        ``Weapon.skill``'s reach-prefix injection (tested in
+        ``test_weapon.py``), not from this round-trip."""
+        bow = DamageTypes.PIERCING
         key = f"one-handed {bow.canonical}"
         assert DamageTypes.from_skill_key(key) == bow
 
