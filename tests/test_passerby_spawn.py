@@ -29,6 +29,7 @@ from caldanai.lib.rpg.creatures.passersby.spawn import (
     drain_silhouette,
     flee_from_attack,
     is_combat_active,
+    overhear_keywords,
     overhear_mentions,
     pick_npc,
 )
@@ -600,6 +601,100 @@ class TestDepartPasserby:
         assert "wagoneer" in line.lower() or "cart" in line.lower()
 
 
+class TestKeywordBiasedDeparture:
+    """Per-visit keyword bias on DEPARTURE_POOL. When the NPC has
+    overheard a ``NAME_DROP_KEYWORDS`` token in player chat, the
+    matching pool line is heavily weighted at depart-time so the
+    name-drop feels like the world responding rather than a
+    1-in-N lottery draw."""
+
+    def test_empty_heard_keywords_uses_unweighted_choice(self):
+        """No heard keywords → no weights passed; the implementation
+        falls through to plain ``random.choice``. Patch both
+        ``choice`` and ``choices`` to assert only ``choice`` is
+        called."""
+        wren = Wren()
+        assert wren.heard_keywords == set()
+        game = _make_game(passerby=wren)
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            return_value="canned-line",
+        ) as mock_choice, patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choices",
+        ) as mock_choices:
+            depart_passerby(game)
+        assert mock_choice.called
+        assert not mock_choices.called
+
+    def test_heard_keyword_with_matching_line_biases_via_weights(self):
+        """When a heard keyword's substring appears in a pool line,
+        ``random.choices`` is called with a weights list where the
+        matching line carries ``_KEYWORD_BIAS_WEIGHT`` and the rest
+        carry 1. Verifies the weight construction, not the random
+        outcome (deterministic over the build, not the pick)."""
+        wren = Wren()
+        wren.heard_keywords.add("halrick")
+        game = _make_game(passerby=wren)
+        captured_weights = []
+        captured_pool = []
+
+        def fake_choices(pool, weights, k=1):
+            captured_pool.extend(pool)
+            captured_weights.extend(weights)
+            return [pool[0]]
+
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choices",
+            side_effect=fake_choices,
+        ):
+            depart_passerby(game)
+
+        # Pool was Wren's full DEPARTURE_POOL.
+        assert captured_pool == Wren.DEPARTURE_POOL
+        # Exactly one line in Wren's pool contains "Halrick" — that
+        # one gets bias weight; the other five get weight 1.
+        halrick_lines = [
+            i for i, line in enumerate(Wren.DEPARTURE_POOL)
+            if "Halrick" in line
+        ]
+        assert len(halrick_lines) == 1
+        halrick_idx = halrick_lines[0]
+        for i, weight in enumerate(captured_weights):
+            if i == halrick_idx:
+                assert weight > 1, (
+                    f"line {i} ({Wren.DEPARTURE_POOL[i]!r}) should be "
+                    f"weighted >1, got {weight}"
+                )
+            else:
+                assert weight == 1, (
+                    f"line {i} should be weight 1, got {weight}"
+                )
+
+    def test_heard_keyword_with_no_matching_line_falls_back_to_choice(self):
+        """If a heard keyword's substring doesn't appear in any pool
+        line (e.g. a name-drop that hasn't been authored yet), the
+        weights list collapses to all-1 — pragmatically equivalent
+        to ``choice`` — so the bias path no-ops gracefully. The
+        implementation chooses ``choice`` directly when no pool
+        line matches any heard substring."""
+        wren = Wren()
+        # Synthetic: pretend Wren learned "ghost" but no pool line
+        # contains the substring "Ghost".
+        wren.NAME_DROP_KEYWORDS = {"ghost": "Ghost"}
+        wren.heard_keywords.add("ghost")
+        assert not any("Ghost" in line for line in Wren.DEPARTURE_POOL)
+        game = _make_game(passerby=wren)
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choice",
+            return_value="canned-line",
+        ) as mock_choice, patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choices",
+        ) as mock_choices:
+            depart_passerby(game)
+        assert mock_choice.called
+        assert not mock_choices.called
+
+
 # ---------------------------------------------------------------------------
 # flee_from_attack — kill-route flee path
 # ---------------------------------------------------------------------------
@@ -786,6 +881,122 @@ class TestOverhearMentions:
             mock_db._queues = queues_dict
             result = overhear_mentions(game, msg, collection=coll)
         assert result == [42]
+
+
+class TestOverhearKeywords:
+    """Keyword overhear hook. When a player posts a message and the
+    NPC has opted into ``NAME_DROP_KEYWORDS``, matching tokens
+    accumulate on the NPC's per-visit ``heard_keywords`` set for
+    later use in :func:`_pick_departure_line`."""
+
+    def test_no_passerby_returns_empty(self):
+        game = _make_game()
+        msg = SimpleNamespace(content="tell Halrick about it")
+        assert overhear_keywords(game, msg) == []
+
+    def test_npc_without_name_drop_keywords_no_ops(self):
+        """An NPC class that hasn't opted into the bias (the default)
+        skips the scan entirely — no scribbling on a set the NPC
+        doesn't use."""
+        wagoneer = Wagoneer()
+        assert wagoneer.NAME_DROP_KEYWORDS == {}
+        game = _make_game(passerby=wagoneer)
+        msg = SimpleNamespace(content="tell Halrick about it")
+        assert overhear_keywords(game, msg) == []
+        assert wagoneer.heard_keywords == set()
+
+    def test_keyword_token_added_to_heard(self):
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        msg = SimpleNamespace(
+            content="Tell old Marn the standing-stones got a new one today",
+        )
+        newly_heard = overhear_keywords(game, msg)
+        assert newly_heard == ["marn"]
+        assert "marn" in wren.heard_keywords
+
+    def test_case_insensitive_token_match(self):
+        """Player-side capitalization doesn't matter for token
+        detection — ``Marn`` / ``MARN`` / ``marn`` all add the
+        ``"marn"`` key."""
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        msg = SimpleNamespace(content="HALRICK was just asking about you")
+        newly_heard = overhear_keywords(game, msg)
+        assert newly_heard == ["halrick"]
+        assert "halrick" in wren.heard_keywords
+
+    def test_message_without_keyword_no_ops(self):
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        msg = SimpleNamespace(
+            content="the cyclops just walked, dirt knows where",
+        )
+        assert overhear_keywords(game, msg) == []
+        assert wren.heard_keywords == set()
+
+    def test_duplicate_keyword_not_re_added(self):
+        """Same token in a later message returns empty newly_heard
+        (already accumulated). The set stays the size it was."""
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        first = SimpleNamespace(content="tell Halrick")
+        overhear_keywords(game, first)
+        assert wren.heard_keywords == {"halrick"}
+        second = SimpleNamespace(content="and Halrick says hi back")
+        assert overhear_keywords(game, second) == []
+        assert wren.heard_keywords == {"halrick"}
+
+    def test_multiple_keywords_in_one_message(self):
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        msg = SimpleNamespace(
+            content="news for old Marn AND Halrick at the ferry-house",
+        )
+        newly_heard = overhear_keywords(game, msg)
+        assert set(newly_heard) == {"marn", "halrick"}
+        assert wren.heard_keywords == {"marn", "halrick"}
+
+    def test_silhouette_npc_also_overhears(self):
+        """An NPC in pending_silhouette mode is at the verge, not
+        deaf — keywords spoken during combat accumulate so the
+        eventual departure (after the silhouette resolves and the
+        NPC eventually departs) carries the bias."""
+        wren = Wren()
+        game = _make_game(pending=wren)
+        msg = SimpleNamespace(content="news for old Marn")
+        newly_heard = overhear_keywords(game, msg)
+        assert newly_heard == ["marn"]
+        assert wren.heard_keywords == {"marn"}
+
+    def test_missing_content_attr_treated_as_empty(self):
+        """Defensive: a malformed message object without a
+        ``content`` attribute should no-op cleanly rather than
+        raise — protects against unexpected discord.py message
+        shapes."""
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        msg = SimpleNamespace()  # no content attribute
+        assert overhear_keywords(game, msg) == []
+        assert wren.heard_keywords == set()
+
+    def test_end_to_end_overhear_then_depart_biases(self):
+        """Integration: the NPC overhears a keyword, then the
+        departure call sees the heard set and invokes the weighted
+        ``choices`` path. Verifies the side-effect chain through
+        ``heard_keywords`` rather than mocking pieces."""
+        wren = Wren()
+        game = _make_game(passerby=wren)
+        overhear_keywords(
+            game, SimpleNamespace(content="tell Halrick about the kill"),
+        )
+        assert "halrick" in wren.heard_keywords
+        with patch(
+            "caldanai.lib.rpg.creatures.passersby.spawn.choices",
+            return_value=[Wren.DEPARTURE_POOL[0]],  # any line; just witness call
+        ) as mock_choices:
+            depart_passerby(game)
+        assert mock_choices.called
 
 
 class TestFleeFromAttack:

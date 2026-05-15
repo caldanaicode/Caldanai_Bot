@@ -37,7 +37,7 @@ NPC arrives. All three operate on a duck-typed game object —
 tests use a :class:`SimpleNamespace` standing in.
 """
 
-from random import choice, random
+from random import choice, choices, random
 from typing import Any, Optional, Type
 
 from caldanai.lib.rpg.creatures.passersby import PasserbyPlugin
@@ -287,6 +287,91 @@ def drain_silhouette(
     )
 
 
+# Heavy bias factor for departure lines matching a keyword the NPC
+# overheard during this visit. 10× the baseline weight effectively
+# makes the keyword line near-deterministic when triggered (≈ 91%
+# at 1 keyword line vs 5 baseline entries in Wren's 6-line pool),
+# leaving small variance for the non-keyword lines so the world
+# stays texture-rich even when a keyword fires.
+_KEYWORD_BIAS_WEIGHT = 10
+
+
+def _pick_departure_line(npc: Any) -> Optional[str]:
+    """Pool selection for `depart_passerby`. Biases toward lines
+    matching a keyword the player dropped during this visit when
+    the NPC has both opted into `NAME_DROP_KEYWORDS` and overheard
+    a matching token. Falls through to unweighted `choice` when no
+    bias applies (empty `NAME_DROP_KEYWORDS`, empty
+    `heard_keywords`, or no pool line contains any matching
+    substring).
+    """
+    pool = npc.DEPARTURE_POOL
+    if not pool:
+        return None
+    heard = getattr(npc, "heard_keywords", None) or set()
+    keywords = getattr(npc, "NAME_DROP_KEYWORDS", None) or {}
+    matching_substrings = [
+        keywords[k] for k in heard if k in keywords
+    ]
+    if not matching_substrings:
+        return choice(pool)
+    weights = [
+        _KEYWORD_BIAS_WEIGHT
+        if any(sub in line for sub in matching_substrings)
+        else 1
+        for line in pool
+    ]
+    # If no pool line contained any matching substring, weights are
+    # all 1 — semantically equivalent to plain `choice`. Short-
+    # circuit so the weighted path runs only when there's actual
+    # bias to apply (the keyword was overheard AND the substring is
+    # authored in at least one pool entry).
+    if not any(w > 1 for w in weights):
+        return choice(pool)
+    return choices(pool, weights=weights, k=1)[0]
+
+
+def overhear_keywords(game: Any, message: Any) -> "list[str]":
+    """When a player posts an in-channel message, scan for tokens
+    listed in the present (or pending-silhouette) NPC's
+    `NAME_DROP_KEYWORDS` keys and accumulate matches onto the NPC's
+    per-visit `heard_keywords` set. Returns the list of newly-added
+    keywords for telemetry / test introspection.
+
+    Pure substring match, case-insensitive on the keyword side. The
+    pool-line substring stays case-sensitive at bias-pick time —
+    this only flags WHICH player-tokens have been observed.
+
+    No-ops if no NPC is present in any state OR the NPC has no
+    `NAME_DROP_KEYWORDS` opt-in.
+    """
+    npc = getattr(game, "passerby", None) or getattr(
+        game, "pending_silhouette", None,
+    )
+    if npc is None:
+        return []
+    keywords = getattr(npc, "NAME_DROP_KEYWORDS", None) or {}
+    if not keywords:
+        return []
+    content = getattr(message, "content", "") or ""
+    content_lower = content.lower()
+    heard = getattr(npc, "heard_keywords", None)
+    if heard is None:
+        # Defensive: older NPC instances predating the heard_keywords
+        # instance attribute. Initialize lazily so the bias still
+        # works on long-lived in-memory state.
+        heard = set()
+        npc.heard_keywords = heard
+    newly_heard: list[str] = []
+    for token in keywords:
+        if token in heard:
+            continue
+        if token in content_lower:
+            heard.add(token)
+            newly_heard.append(token)
+    return newly_heard
+
+
 def depart_passerby(game: Any) -> Optional[str]:
     """Send the present passerby on their way. Returns the
     departure flavor for the dispatcher; sets ``game.passerby``
@@ -296,6 +381,10 @@ def depart_passerby(game: Any) -> Optional[str]:
     Fires :func:`mark_visit_depart` so the per-visit tracking
     resets and decay applies to any player who was acquainted
     with this NPC but didn't interact this visit.
+
+    Departure-line selection is biased by any name-drop keywords
+    the NPC overheard during this visit via
+    :func:`overhear_keywords`. See :func:`_pick_departure_line`.
     """
     npc = getattr(game, "passerby", None)
     if npc is None:
@@ -303,10 +392,10 @@ def depart_passerby(game: Any) -> Optional[str]:
     npc_stem = type(npc).__name__.lower()
     game.passerby = None
     _try_mark_depart(game, npc_stem, apply_decay=True)
-    pool = npc.DEPARTURE_POOL
-    if not pool:
+    line = _pick_departure_line(npc)
+    if line is None:
         return None
-    return render_npc_only(choice(pool), npc)
+    return render_npc_only(line, npc)
 
 
 def flee_from_attack(

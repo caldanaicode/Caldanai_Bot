@@ -2962,7 +2962,10 @@ class RpgSocialCommands(Cog):
         # module-load path. Both modules are cheap to import after
         # the bot's already running.
         from caldanai.lib.rpg import Game
-        from caldanai.lib.rpg.creatures.passersby.spawn import overhear_mentions
+        from caldanai.lib.rpg.creatures.passersby.spawn import (
+            overhear_keywords,
+            overhear_mentions,
+        )
 
         game = Game.for_channel(message.channel.id)
         if game is None:
@@ -2975,6 +2978,18 @@ class RpgSocialCommands(Cog):
         except Exception:
             _log.exception("overhear_mentions raised; ignoring")
             return
+        # Name-drop keyword overhear: NPC accumulates which
+        # `NAME_DROP_KEYWORDS` tokens the player mentioned this
+        # visit. Read at depart-time to bias DEPARTURE_POOL toward
+        # the matching named-adult exit line. No cue dispatch — the
+        # bias surfaces at departure rather than at mention-time, so
+        # the mechanism stays texture rather than feedback-loop.
+        try:
+            overhear_keywords(game, message)
+        except Exception:
+            _log.exception("overhear_keywords raised; ignoring")
+            # Don't return — the mention-cue path below should still
+            # fire for any players newly acquainted on this message.
 
         # Per-player cue dispatch — one italicized line per newly-
         # learned face. Resolves the player object from the game's

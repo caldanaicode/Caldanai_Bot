@@ -331,6 +331,11 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
         adopts a player's pronouns post-acquaintance).
         """
         self.pronouns = self.get_pronoun_dict()
+        # Per-visit accumulator: keys from `NAME_DROP_KEYWORDS` that
+        # the player has dropped in chat during this visit. Lives on
+        # the instance; resets implicitly when the NPC departs and a
+        # fresh instance spawns for the next visit.
+        self.heard_keywords: set = set()
 
     # Per-NPC bias toward using a player's actual name vs the
     # generic "traveler" form when the NPC is acquainted with that
@@ -350,6 +355,23 @@ class PasserbyPlugin(GenderMixin, SpawnTimeMixin):
     # consistent (no "@1d ... @1np" rendering as "Caels ... the
     # traveler's" mid-sentence).
     NAMING_BIAS: float = 0.7
+
+    # Per-NPC name-drop keyword mapping for the departure-bias hook.
+    # When a player message overheard during this visit contains one
+    # of the keys (case-insensitive substring), the matching string
+    # value gets heavily weighted in `DEPARTURE_POOL` selection at
+    # depart-time — so a player dropping "Halrick" in chat-to-Wren
+    # actually surfaces the "Got to get to Halrick before sundown."
+    # exit line, not random.choice variance.
+    #
+    # Empty default → opt-in per NPC. Wren wires Marn + Halrick;
+    # other NPCs leave it empty until they have name-drop lines in
+    # their own pools that warrant biasing.
+    #
+    # Shape: {token-to-detect-in-player-chat: substring-to-match-in-pool-line}.
+    # Token is lowercased before comparison; substring is matched
+    # case-sensitively against pool entries.
+    NAME_DROP_KEYWORDS: Dict[str, str] = {}
 
     # ---------------------------------------------------------------
     # Flavor pools — subclasses populate these.

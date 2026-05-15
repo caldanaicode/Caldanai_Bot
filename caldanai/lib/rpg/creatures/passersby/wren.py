@@ -55,6 +55,18 @@ class Wren(PasserbyPlugin):
     # affects formal-traveler manners when she wants something.
     NAMING_BIAS = 0.7
 
+    # Name-drop keyword bias on the DEPARTURE_POOL. When the player
+    # mentions "Marn" or "Halrick" in chat during Wren's visit, the
+    # matching pool line is heavily favored at depart-time — so the
+    # name-drops in lines 81-82 feel keyword-responsive rather than
+    # 1-in-6 lottery draws. Both lines exist in the canonical pool
+    # already; this just makes Wren actually carry the message
+    # to the named adult she's heading toward.
+    NAME_DROP_KEYWORDS: Dict[str, str] = {
+        "marn": "Marn",
+        "halrick": "Halrick",
+    }
+
     ARRIVAL_POOL: List[str] = [
         "A girl trots into the clearing at the unhurried pace of someone running a message and willing to wait until she's noticed. A leather satchel bumps her hip; her face is sharp under a mop of dark hair.",
         "A child arrives at the verge with the official-looking gait of someone who's been on errands since she was old enough to remember addresses. @1S plants herself, surveys the adventurers, nods like she's confirming a list.",
