@@ -346,6 +346,16 @@ class PlayerManager:
             # as the pray cascade-revive narration fix.
             was_dead = player.is_dead()
             body_before = player.health
+            # Snapshot the ramp counter so we can detect a change at
+            # the end of the tick and mark the player dirty. Without
+            # this, the part-heal path and the ramp counter itself
+            # mutate state silently — body ``apply_damage`` is the
+            # only path that already sets ``is_dirty``, so a player
+            # at full body HP with injured parts would heal in
+            # memory and lose all progress on bot restart. (2026-05-17
+            # bug surfaced by a playtester whose last combat was
+            # 48 hours prior and who was still showing injured parts.)
+            regen_before = player.health_regen
 
             m = ""
             if body_needs:
@@ -416,6 +426,17 @@ class PlayerManager:
                 )
             )
             player.health_regen = (player.health_regen + 2) if any_injury else 0
+
+            # Persistence flag. Body ``apply_damage`` above already
+            # sets ``is_dirty`` on body-HP transitions, but the
+            # part-only heal and the ``health_regen`` ramp counter
+            # are otherwise silent — without this flag the player's
+            # in-memory regen progress wouldn't survive a bot
+            # restart. Skip the dirty mark when nothing changed
+            # (fully-rested player with ``health_regen`` already 0)
+            # so idle ticks don't trigger pointless DB writes.
+            if any_injury or player.health_regen != regen_before:
+                player.is_dirty = True
 
         if msg and self.channel is not None:
             Dispatcher.add(self.channel, msg)

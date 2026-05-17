@@ -4,6 +4,20 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-17 — Idle regen now persists across bot restarts
+
+A playtester whose last combat was 48 hours prior was still showing injured body parts. Root cause: `PlayerManager.do_health_regen` set `player.is_dirty = True` only via `Player.apply_damage`'s built-in dirty flag — which fires only on body-HP changes. Two regen-tick mutations were therefore silent to the persistence layer:
+
+- The part-heal path (`injured_part.apply_damage(-x)` at line 362) modifies `BodyPart.health` directly; `BodyPart.apply_damage` doesn't and shouldn't know about the owning player's dirty flag.
+- The `health_regen` ramp counter assignment at the bottom of the loop.
+
+So a player at full body HP with injured parts healed in memory only — every bot restart wiped the in-memory progress, leaving them effectively frozen at their last-saved injury level forever. Same mechanism reset the `health_regen` ramp counter to 0 on restart, forcing the slow-recovery ramp to climb from scratch each time.
+
+Snapshot `health_regen` at tick start, and set `player.is_dirty = True` whenever the player is still injured at end-of-tick OR the ramp counter changed value (covers ramp-reset-to-zero on this-tick-brought-to-full). Idle fully-rested players (no injury, ramp already 0) skip the dirty mark so we don't trigger pointless DB writes every tick.
+
+- **`caldanai/lib/rpg/player_manager/__init__.py`** — added `regen_before = player.health_regen` snapshot at top of per-player loop, and `if any_injury or player.health_regen != regen_before: player.is_dirty = True` at the bottom.
+- **Regression tests** in `tests/test_player_manager.py::TestDoHealthRegenDirtyFlag` (4 cases): part-only-heal sets dirty, ramp-increment sets dirty, ramp-reset-to-zero sets dirty, fully-rested-idle stays clean.
+
 ### 2026-05-17 — Combat table column renames + per-attacker body-HP truncation
 
 Per bg Vael's confusion on the giant duo-kill table: the "Final" and "Body" column names didn't telegraph that "Final" is **per-part** damage (after defense / multiplier) and "Body" is the **core-HP equivalent** of that damage after bleed-rate scaling. Renaming both makes the two numbers tell you what they are without needing the docstring. Same pass also fixes a math drift between the per-attacker `Total: → N body-HP` block lines and the round-level `Total damage done vs Health` aggregate: in the duo-giant example the blocks showed 21 + 16 = 37 body-HP, but the aggregate row read 38. The drift came from float-then-int-once at round level (more precise) vs float-then-int-per-attacker for the block totals (truncates fractions). Switched the round-level aggregator to sum per-attacker truncated values so the rows reconcile visually.

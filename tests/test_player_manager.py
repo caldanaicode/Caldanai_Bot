@@ -878,3 +878,132 @@ class TestDoHealthRegen:
         assert msg_text.count("gasps raggedly") == 1, (
             f"expected exactly one 'gasps raggedly'; got:\n{msg_text}"
         )
+
+
+class TestDoHealthRegenDirtyFlag:
+    """Pin the persistence contract for ``do_health_regen``.
+
+    Body ``apply_damage`` sets ``is_dirty`` on its own path, but the
+    part-only-heal route and the ``health_regen`` ramp counter would
+    otherwise mutate state silently. Pre-fix bug (2026-05-17):
+    a player at full body HP with injured parts healed in memory and
+    lost progress on every bot restart, because no ``is_dirty=True``
+    fired to trigger DB persistence.
+    """
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Dispatcher")
+    async def test_part_only_heal_marks_player_dirty(self, mock_dispatch):
+        """Full body HP, injured part — regen heals the part and
+        MUST set is_dirty so the heal persists to DB."""
+        from caldanai.lib.rpg.creatures.body_part import BodyPart
+
+        channel = MagicMock()
+        pm = PlayerManager(channel=channel)
+
+        arm = BodyPart(name="arm.right", health_max=10)
+        arm.health = 7
+
+        player = MagicMock()
+        player.health = 20
+        player.health_regen = 2
+        player.get_health_max.return_value = 20
+        player.body_parts = [arm]
+        player.apply_damage.return_value = ""
+        player.is_dirty = False
+
+        pm.players = {1: player}
+        await pm.do_health_regen()
+
+        # Body apply_damage never fired (body at full); the part
+        # heal alone must trip the dirty flag.
+        player.apply_damage.assert_not_called()
+        assert arm.health == 9
+        assert player.is_dirty is True
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Dispatcher")
+    async def test_regen_ramp_increment_marks_player_dirty(self, mock_dispatch):
+        """Body needs heal — body apply_damage already sets is_dirty,
+        and we also bump the ramp counter. Both transitions land in
+        the same dirty flag (one save covers both)."""
+        channel = MagicMock()
+        pm = PlayerManager(channel=channel)
+
+        player = MagicMock()
+        player.health = 15
+        player.health_regen = 3
+        player.get_health_max.return_value = 20
+        player.apply_damage.return_value = ""
+        player.body_parts = []
+        player.is_dirty = False
+
+        pm.players = {1: player}
+        await pm.do_health_regen()
+
+        # Ramp incremented from 3 to 5 — persistence must fire so
+        # the new ramp value survives a restart.
+        assert player.health_regen == 5
+        assert player.is_dirty is True
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Dispatcher")
+    async def test_ramp_reset_to_zero_marks_player_dirty(self, mock_dispatch):
+        """Player was injured (ramp counter > 0), this tick brought
+        them to full → ramp resets to 0. The reset itself is a state
+        change that must persist (otherwise next restart loads a
+        stale ramp value > 0 for a fully-healed player)."""
+        from caldanai.lib.rpg.creatures.body_part import BodyPart
+        from caldanai.lib.rpg.creatures import Creature
+
+        channel = MagicMock()
+        pm = PlayerManager(channel=channel)
+
+        # Part at 9/10 — one tick of regen=1 brings it to 10/10.
+        # All parts + body at full afterwards → ramp resets to 0.
+        # Crossing the FULL threshold fires recovery narration, so
+        # use a real Creature with pronouns so parse() succeeds.
+        arm = BodyPart(name="arm.right", health_max=10)
+        arm.health = 9
+
+        player = Creature(
+            name="Caels", atk=None, defense=1, dodge=1,
+            health_max=20, health=20,
+            pronouns="she, her, hers, her",
+        )
+        player.uses_article = False
+        player.health_regen = 1
+        player.body_parts = [arm]
+        player.is_dirty = False
+
+        pm.players = {1: player}
+        await pm.do_health_regen()
+
+        assert arm.health == 10
+        assert player.health_regen == 0
+        assert player.is_dirty is True
+
+    @pytest.mark.asyncio
+    @patch("caldanai.lib.rpg.player_manager.Dispatcher")
+    async def test_idle_full_health_player_stays_clean(self, mock_dispatch):
+        """Fully-healed player with ramp already at 0 → nothing
+        changes, dirty flag stays False so we don't trigger
+        pointless DB writes on every idle tick."""
+        channel = MagicMock()
+        pm = PlayerManager(channel=channel)
+
+        player = MagicMock()
+        player.health = 20
+        player.health_regen = 0
+        player.get_health_max.return_value = 20
+        player.body_parts = []
+        player.is_dirty = False
+
+        pm.players = {1: player}
+        await pm.do_health_regen()
+
+        # No mutation occurred; dirty must stay False to avoid
+        # spurious saves on every idle player every tick.
+        player.apply_damage.assert_not_called()
+        assert player.health_regen == 0
+        assert player.is_dirty is False
