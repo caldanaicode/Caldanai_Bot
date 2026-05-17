@@ -15,7 +15,7 @@ class ArmorPlugin(Armor):
                 "A sleeveless body-cloth of rough weave, fastened "
                 "with mismatched buttons. Stained at the seams."
             ),
-            unit_weight=0.7,
+            unit_weight=1.5,
             unit_value=3,
             image=None,
             quality=quality,

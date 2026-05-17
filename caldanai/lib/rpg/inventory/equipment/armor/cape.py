@@ -10,7 +10,7 @@ class ArmorPlugin(Armor):
             iid=iid,
             name="cape",
             desc="This cape is short, yet stylish. Wearing this may impart minor delusions of grandeur.",
-            unit_weight=1.0,
+            unit_weight=0.7,
             unit_value=1,
             image=None,
             quality=quality,

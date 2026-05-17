@@ -10,7 +10,7 @@ class WeaponPlugin(Weapon):
             iid=iid,
             name="spear",
             desc="Stick them with the pointy end!",
-            unit_weight=3.5,
+            unit_weight=5,
             unit_value=15,
             image="spear128.png",
             quality=quality,

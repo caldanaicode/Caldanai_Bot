@@ -11,7 +11,7 @@ class WeaponPlugin(Weapon):
             name="stick",
             desc="It's brown. It's sticky. It's a simple stick, probably from some nearby tree. It's only slightly "
             "better than being bare-handed.",
-            unit_weight=0.3,
+            unit_weight=0.2,
             unit_value=0,
             image="stick128.png",
             quality=quality,

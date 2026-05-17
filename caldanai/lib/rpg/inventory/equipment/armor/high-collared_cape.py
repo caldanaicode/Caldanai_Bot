@@ -10,7 +10,7 @@ class ArmorPlugin(Armor):
             iid=iid,
             name="high-collared cape",
             desc="With ragged edges and a few holes, this cape has seen better days.",
-            unit_weight=1.0,
+            unit_weight=0.8,
             unit_value=1,
             image=None,
             quality=quality,

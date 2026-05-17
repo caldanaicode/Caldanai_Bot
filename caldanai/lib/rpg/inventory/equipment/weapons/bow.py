@@ -12,7 +12,7 @@ class WeaponPlugin(Weapon):
             iid=iid,
             name="bow",
             desc="For the socially-distanced adventurer.",
-            unit_weight=5,
+            unit_weight=3.5,
             unit_value=15,
             image="bow128.png",
             quality=quality,

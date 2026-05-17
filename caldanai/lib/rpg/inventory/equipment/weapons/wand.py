@@ -12,7 +12,7 @@ class WeaponPlugin(Weapon):
             iid=iid,
             name="wand",
             desc="Kinda like a stick, but more magical",
-            unit_weight=0.3,
+            unit_weight=0.2,
             unit_value=10,
             image="stick128.png",
             quality=quality,

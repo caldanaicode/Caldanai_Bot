@@ -4,6 +4,14 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-16 — Item weight rebalance pass (audit-driven; more to come)
+
+bg Vael's first systematic weight audit surfaced two specific intuitive-feel inversions plus a category-wide cloth-vs-weapon imbalance: a bow at 5.0 was heavier than a spear at 3.5 (intuitively reversed — a spear is shaft + iron head, a bow is mostly bent wood), and a rough jerkin at 0.7 was lighter than a cape at 1.0 (sleeveless body-cloth + mismatched buttons is bulkier than a single shoulder layer). This pass swaps bow / spear, makes rough jerkin meaningfully bulky, lightens the cloth layers (cape, high-collared cape, bandanna) toward the floor where small accessories belong, and trims stick / wand down by 0.1. More rebalancing likely follows once the audit picks up the next pass of items.
+
+- **Weapons:** bow `5.0` → `3.5`, spear `3.5` → `5.0` (swap), stick `0.3` → `0.2`, wand `0.3` → `0.2`.
+- **Cloth armor:** cape `1.0` → `0.7`, high-collared cape `1.0` → `0.8`, bandanna `0.2` → `0.1`.
+- **Bulky scrap armor:** rough jerkin `0.7` → `1.5` (the inversion fix — rough is the bulky cloth-and-buttons variant, lighter leather is the eventual craft upgrade).
+
 ### 2026-05-15 — Wren departure-pool keyword bias: Marn / Halrick name-drops now actually carry
 
 bg Vael's playtest hypothesis that Wren's name-drop exits ("Got to get to Halrick before sundown," "Tell Marn I came through!") were keyword-responsive turned out to be a charming fallacy — the prior code did pure `random.choice` over the 6-line `DEPARTURE_POOL`, and her 2026-05-09 "Marn-keyword fires" confirmation was small-n pattern-matching on a 1-in-6 lucky pull. Both lines existed; the biasing mechanism that would make them feel responsive didn't. This commit wires the mechanism so Vael's interpretation of reality becomes the actual mechanic: dropping "Marn" or "Halrick" in chat during Wren's visit now near-deterministically surfaces the matching exit line. Opt-in via a new `NAME_DROP_KEYWORDS` class attribute on `PasserbyPlugin`; only Wren wires it today.

@@ -10,7 +10,7 @@ class ArmorPlugin(Armor):
             iid=iid,
             name="bandanna",
             desc="A multifunctional piece of patterned cloth.",
-            unit_weight=0.2,
+            unit_weight=0.1,
             unit_value=1,
             image="bandanna128.png",
             quality=quality,
