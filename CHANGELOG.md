@@ -4,6 +4,14 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-17 — `$fav` / `$unfav` / `$use` migrated to fuzzy resolver
+
+The fuzzy-matching migration completed in Steps 1-4 (`a7ef9b8` … `91b5387`) missed three inventory commands: `$fav`, `$unfav`, and `$use` still called raw `Inventory.filter()`. Symptom surfaced via bg Vael's `$fav torch.q` on 2026-05-17 — the prompt returned *"I'm afraid you don't have any torch.q"* even with a quality torch in inventory, because the raw filter checks `"Q"` against the literal `Qualities` enum (where only full names like `QUALITY` / `MASTERWORK` are members). The fuzzy resolver's `_expand_quality_suffix` already handled `.q` → `.quality`; it just wasn't on these commands' paths.
+
+- **`$fav` / `$unfav`** route through `RpgUtilities.resolve_items_or_notify(mode="sell")` for the multi-match case (`$fav sword` still flags every sword, includes equipped items on bare-name queries), and through the existing `_resolve_best` helper for `.best`-suffixed queries (single highest-quality match, including equipped — so `$fav sword.best` can lock in a currently-worn masterwork). Quality-prefix abbreviations (`.j` / `.o` / `.f` / `.q` / `.s` / `.m` / `.b`) now resolve correctly on both.
+- **`$use`** annotated with `item: ItemConverter` (replacing `item: Union[int, str]` + raw filter). Single-item resolution flows through discord.py's converter annotation path; `BadArgument` on no-match / ambiguity is caught by the existing `@use.error` handler. First non-`FuzzyMemberConverter` annotation-site adoption — proof that `convert()` as a forward-compat seam works at command-parameter sites, not just dispatcher call sites.
+- **`_resolve_best`** retained for the `.best` selector on `$fav` / `$unfav`. Becomes obsolete once the converter family is extended to return lists (so the dispatcher can express multi-match natively), but that's a larger architectural shift left for later.
+
 ### 2026-05-16 — Item weight rebalance pass (audit-driven; more to come)
 
 bg Vael's first systematic weight audit surfaced two specific intuitive-feel inversions plus a category-wide cloth-vs-weapon imbalance: a bow at 5.0 was heavier than a spear at 3.5 (intuitively reversed — a spear is shaft + iron head, a bow is mostly bent wood), and a rough jerkin at 0.7 was lighter than a cape at 1.0 (sleeveless body-cloth + mismatched buttons is bulkier than a single shoulder layer). This pass swaps bow / spear, makes rough jerkin meaningfully bulky, lightens the cloth layers (cape, high-collared cape, bandanna) toward the floor where small accessories belong, and trims stick / wand down by 0.1. More rebalancing likely follows once the audit picks up the next pass of items.

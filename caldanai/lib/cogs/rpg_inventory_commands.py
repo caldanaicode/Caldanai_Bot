@@ -1,12 +1,13 @@
 import re
 
 from discord.ext.commands import Cog, command, cooldown, group, BucketType, guild_only, Context
-from discord.ext.commands.errors import MissingRequiredArgument
+from discord.ext.commands.errors import MissingRequiredArgument, BadArgument
 from discord import Embed
 from typing import Union, List, Optional
 
 from caldanai.dispatcher import Dispatcher
 from caldanai.logger import get_logger
+from caldanai.lib.rpg.creatures.player import _expand_quality_suffix
 from caldanai.lib.rpg.helpers.converters import (
     EquipmentSlotConverter, ItemConverter,
 )
@@ -585,10 +586,28 @@ class RpgInventoryCommands(Cog):
             Dispatcher.add(channel, "You must specify an item.")
             return
 
-        matches = [i for i in player.inventory.filter(item) if i is not None]
-        if not matches:
-            Dispatcher.add(channel, f"I'm afraid you don't have any {item}.")
-            return
+        # ``.best`` selector resolves to the single highest-quality
+        # matching equipment via ``_resolve_best`` (which considers
+        # equipped items too — so ``$fav sword.best`` can fav your
+        # currently-worn masterwork sword). Every other query shape
+        # flows through the standard fuzzy resolver in ``sell`` mode:
+        # multi-match (``$fav sword`` flags every sword), includes
+        # equipped items on bare-name queries, and honors the full
+        # selector grammar (``sword.fine``, ``sword.fine.1``, etc.)
+        # — the same path as the other fuzzy-aware inventory verbs.
+        expanded = _expand_quality_suffix(item.lower().strip())
+        if expanded.endswith(".best") and len(expanded) > 5:
+            best = self._resolve_best(expanded[:-5], player, channel)
+            if best is None:
+                return
+            matches: List[Item] = [best]
+        else:
+            resolved = RpgUtilities.resolve_items_or_notify(
+                channel, player, [item], mode="sell",
+            )
+            if not resolved:
+                return
+            matches = [it for it, _placement in resolved]
 
         changed = [i for i in matches if i.favorited != value]
         for i in changed:
@@ -875,7 +894,7 @@ class RpgInventoryCommands(Cog):
 
     @command(name='use', brief='Attempts to use an item.')
     @cooldown(1, 5, BucketType.member)
-    async def use(self, ctx: Context, item: Union[int, str], gid: int = None):
+    async def use(self, ctx: Context, item: ItemConverter, gid: int = None):
         """
         Attempts to use an item.
 
@@ -897,13 +916,7 @@ class RpgInventoryCommands(Cog):
         ):
             return
 
-        _item, *_ = player.inventory.filter(item)
-
-        if _item:
-            Dispatcher.add(channel, player.use_item(_item))
-
-        else:
-            Dispatcher.add(channel, f"I'm afraid you don't have that, {player.name}")
+        Dispatcher.add(channel, player.use_item(item))
 
     @use.error
     async def use_err(self, ctx: Context, error):
@@ -914,6 +927,8 @@ class RpgInventoryCommands(Cog):
                 color=0xff0000
             )
             Dispatcher.add(ctx, embed=embed)
+        elif isinstance(error, BadArgument):
+            Dispatcher.add(ctx, str(error))
 
     # -----------------------------------------------------------------
     # $loadout — save / load / clear named gear sets
