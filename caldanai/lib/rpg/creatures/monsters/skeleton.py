@@ -121,6 +121,6 @@ class Skeleton(Undead, MonsterPlugin):
             "@1dc rattles alarmingly as @2 {inv}s @1o, bone grinding on "
             "bone.".replace("{inv}", invocation),
             "@1dc's arm comes loose in @2's embrace. Awkward.",
-            "@1d's jaw clacks open and shut as if trying to return the "
+            "@1D's jaw clacks open and shut as if trying to return the "
             "{inv}.".replace("{inv}", invocation),
         ])

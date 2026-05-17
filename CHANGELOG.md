@@ -4,6 +4,14 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-17 — Combat table column renames + per-attacker body-HP truncation
+
+Per bg Vael's confusion on the giant duo-kill table: the "Final" and "Body" column names didn't telegraph that "Final" is **per-part** damage (after defense / multiplier) and "Body" is the **core-HP equivalent** of that damage after bleed-rate scaling. Renaming both makes the two numbers tell you what they are without needing the docstring. Same pass also fixes a math drift between the per-attacker `Total: → N body-HP` block lines and the round-level `Total damage done vs Health` aggregate: in the duo-giant example the blocks showed 21 + 16 = 37 body-HP, but the aggregate row read 38. The drift came from float-then-int-once at round level (more precise) vs float-then-int-per-attacker for the block totals (truncates fractions). Switched the round-level aggregator to sum per-attacker truncated values so the rows reconcile visually.
+
+- **Column renames** in `caldanai/lib/rpg/combat/attack_result.py`: `H_FINAL = "Part Dmg"`, `H_BODY = "Core Dmg"`. The variable names and inline comments still reference the old "Final" / "Body" labels in a few places — left intentionally to avoid churning a much larger rename.
+- **Per-attacker body-HP aggregation** in `Game.do_combat` and its legacy mirror (`caldanai/lib/rpg/__init__.py`). Replaced the round-level running float + single `int()` floor with `_apply_body_hp_floor(player_bleed_sum, num_hits, monster)` per attacker, summed into `actual_body_damage`. Trade-off: in a multi-attacker round, each per-attacker `int()` can drop a fractional unit, so the round-level total can undercount the float-precision sum by up to N-1 units (N attackers). Accepted: display consistency over a few units of body-HP precision per multi-attacker round.
+- **Two flavor-text fixes** caught by a parallel parse-audit subagent: skeleton `on_hugged` line 124 had `@1d's` at sentence start, rendering as *"the skeleton's jaw clacks..."* — corrected to `@1D's`. Minotaur arrival line 70 had subject-verb disagreement (*"It has decided Caels look like a problem"*) — corrected to `looks`.
+
 ### 2026-05-17 — `$fav` / `$unfav` / `$use` migrated to fuzzy resolver
 
 The fuzzy-matching migration completed in Steps 1-4 (`a7ef9b8` … `91b5387`) missed three inventory commands: `$fav`, `$unfav`, and `$use` still called raw `Inventory.filter()`. Symptom surfaced via bg Vael's `$fav torch.q` on 2026-05-17 — the prompt returned *"I'm afraid you don't have any torch.q"* even with a quality torch in inventory, because the raw filter checks `"Q"` against the literal `Qualities` enum (where only full names like `QUALITY` / `MASTERWORK` are members). The fuzzy resolver's `_expand_quality_suffix` already handled `.q` → `.quality`; it just wasn't on these commands' paths.

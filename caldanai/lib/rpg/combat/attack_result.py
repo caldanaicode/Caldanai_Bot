@@ -393,8 +393,8 @@ class AttackSequence:
         H_DAMAGE = "Damage"
         H_MULT = "Multiplier"
         H_DEF = "Def"
-        H_FINAL = "Final"
-        H_BODY = "Body"
+        H_FINAL = "Part Dmg"
+        H_BODY = "Core Dmg"
 
         label_w = max(len(H_LABEL), max(len(p["label"]) for p in parts_list))
         dmg_w = max(len(H_DAMAGE), max(len(s) for s in dmg_col_list))

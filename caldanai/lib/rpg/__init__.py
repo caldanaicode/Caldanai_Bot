@@ -1171,15 +1171,18 @@ class Game:
         monster = self.monster
         round_output = RoundOutput()
         actual_body_damage = 0
-        # Round-level bleed accumulators. Aggregating the bleed sum +
-        # num_hits across all attackers and applying the body-HP floor
-        # once per round (instead of once per attacker) closes a
-        # compound-truncation gap: each per-attacker ``int()`` would
-        # drop up to 1 unit, so an N-attacker round could silently
-        # lose up to N-1 units of body-HP damage relative to the
-        # per-row "Final" sum. See ``apply_body_hp_floor``.
-        bleed_total_running: float = 0.0
-        num_hits_running: int = 0
+        # Per-attacker body-HP truncation, summed at round level. Each
+        # attacker's "Total: → N Core Dmg" line in the table block uses
+        # ``int(sum(damage * bleed_rate) * BLEED_MOD)`` — float-then-int
+        # once per attacker. Aggregating the SAME way at round level
+        # means the "Total damage done vs Health" row exactly equals
+        # the sum of the per-attacker Core Dmg totals shown in the
+        # blocks above it. Cost: in a multi-attacker round, each
+        # per-attacker ``int()`` can drop a fractional unit, so the
+        # round-level total can undercount the float-precision sum by
+        # up to N-1 units (N attackers). Trade-off accepted 2026-05-17
+        # — display consistency over a few units of body-HP precision
+        # per multi-attacker round.
         damage_by_player: Dict[int, Tuple[Player, int]] = {}
         death_msg = ""
         critical_part_kill = False
@@ -1217,26 +1220,22 @@ class Game:
                     critical_part_kill = True
                 num_hits = player_res.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    # Aggregate this player's bleed contribution into
-                    # the round-level running total, then derive the
-                    # new body-HP damage with a single ``int()`` truncation
-                    # at the round level. The delta against the previously-
-                    # applied ``actual_body_damage`` keeps the per-player
-                    # death-check honest (next iteration's
-                    # ``not monster.is_dead()`` guard reads correct health)
-                    # while eliminating the compound per-player truncation
-                    # that previously left displayed-total < sum-of-per-row-Final.
-                    bleed_total_running += _accumulate_bleed_sum(
+                    # Per-attacker body-HP floor — same float-then-int
+                    # math as the per-attacker "Total: → N Core Dmg"
+                    # block in :meth:`AttackSequence._render_compact_table`.
+                    # Summing the per-attacker truncated values at the
+                    # round level keeps the aggregate "Total damage done
+                    # vs Health" row visibly consistent with the
+                    # block-level totals above it.
+                    player_bleed_sum = _accumulate_bleed_sum(
                         player_res.victim_results or []
                     )
-                    num_hits_running += num_hits
-                    new_total = _apply_body_hp_floor(
-                        bleed_total_running, num_hits_running, monster,
+                    player_body_damage = _apply_body_hp_floor(
+                        player_bleed_sum, num_hits, monster,
                     )
-                    delta = new_total - actual_body_damage
-                    if delta > 0:
-                        monster.health = max(0, monster.health - delta)
-                    actual_body_damage = new_total
+                    if player_body_damage > 0:
+                        monster.health = max(0, monster.health - player_body_damage)
+                    actual_body_damage += player_body_damage
                 # Salvage drops for parts this player's resolution
                 # destroyed. ``destroyed_parts`` is populated by
                 # :func:`apply_sequence_to_target` and contains only
@@ -1466,11 +1465,10 @@ class Game:
         msg = ""
         damage = 0
         actual_body_damage = 0
-        # Round-level bleed accumulators — see ``do_combat`` for the
-        # rationale; legacy path mirrors so a regression-revert
-        # preserves the truncation fix.
-        bleed_total_running: float = 0.0
-        num_hits_running: int = 0
+        # Per-attacker body-HP truncation, summed at round level —
+        # mirrors ``do_combat`` so the legacy path and the modern path
+        # produce identical aggregates. See ``do_combat`` for the
+        # display-consistency rationale (2026-05-17).
         damage_by_player = {}
         death_msg = ""
         critical_part_kill = False
@@ -1510,24 +1508,21 @@ class Game:
                 if resolution.critical_part_kill:
                     critical_part_kill = True
 
-                # Defense subtracted once from the per-player total
-                # (variant B — restored pre-refactor balance).
-                # num_hits is the minimum damage floor (dual-wield = 2, single = 1).
-                # Per-player int() truncation would compound across
-                # attackers; aggregate via running float + delta apply.
+                # Per-attacker body-HP floor — same float-then-int math
+                # as the per-attacker "Total: → N Core Dmg" block in
+                # :meth:`AttackSequence._render_compact_table`. Summed
+                # at round level so the aggregate "Total damage done
+                # vs Health" row stays visibly consistent with the
+                # block-level totals shown above it.
                 num_hits = resolution.num_hits
                 if num_hits > 0 and not monster.is_dead():
-                    bleed_total_running += _accumulate_bleed_sum(
-                        sequence.results
+                    player_bleed_sum = _accumulate_bleed_sum(sequence.results)
+                    player_body_damage = _apply_body_hp_floor(
+                        player_bleed_sum, num_hits, monster,
                     )
-                    num_hits_running += num_hits
-                    new_total = _apply_body_hp_floor(
-                        bleed_total_running, num_hits_running, monster,
-                    )
-                    delta = new_total - actual_body_damage
-                    if delta > 0:
-                        monster.health = max(0, monster.health - delta)
-                    actual_body_damage = new_total
+                    if player_body_damage > 0:
+                        monster.health = max(0, monster.health - player_body_damage)
+                    actual_body_damage += player_body_damage
 
                 if resolution.injury_feedback_lines:
                     msg += "\n".join(resolution.injury_feedback_lines) + "\n"

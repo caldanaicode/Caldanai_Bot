@@ -67,7 +67,7 @@ class Minotaur(MonsterPlugin):
             "A bellowing roar echoes through the area; @1i emerges from "
             "a swirl of kicked-up dust, nostrils flaring.",
             "@1ic paws at the ground, a line of breath steaming from its "
-            "bull-like nose. It has decided @2 look like a problem.",
+            "bull-like nose. It has decided @2 looks like a problem.",
         ])
 
         self.flavor = choice([
