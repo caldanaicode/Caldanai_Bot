@@ -91,7 +91,9 @@ class Wren(PasserbyPlugin):
 
     DEPARTURE_POOL: List[str] = [
         "@1 springs to her feet, slaps her satchel closed, and announces to nobody: \"Got to get to Halrick before sundown.\" She's already moving as the sentence finishes.",
-        "@1 stretches dramatically, the way she's seen old men do, and trots back toward the south path. \"Tell Marn I came through!\" she calls back over her shoulder, to nobody specifically.",
+        "@1 springs off the stump, slaps her satchel closed: \"Old Marn's at the ferry-house, and I'm late.\" She's already moving south.",
+        "@1 hops to her feet, shoulders her satchel. \"Got to get to Marn at the ferry by sundown — he worries.\" She's already on the south path.",
+        "@1 trots toward the south path, calling back over her shoulder: \"If I'm not at the ferry by sundown Marn'll send someone, and that someone will be me tomorrow.\"",
         "@1 tucks her treasures back into her satchel one by one — a small ceremony — and departs the way she came, humming.",
         "@1 bounces off the stump, salutes the clearing with one too-formal hand, and vanishes back into the brush.",
         "@1 leaves at her trotting pace, already mid-conversation with the next person she expects to see, who is half a valley away.",
@@ -123,7 +125,7 @@ class Wren(PasserbyPlugin):
         "@1 bounds out of cover the moment the dust settles, eyes huge. \"OH. Oh. I'm telling EVERYONE. @2! That's @2 who killed the BIG one. Halrick's going to want to hear this. Old Marn's going to want to hear this.\"",
         "@1 edges out cautiously, examines the carcass from a respectful three paces, and addresses @2 with sudden formality: \"That's a good kill, that. I'll mention you to the trading-post. They listen to me, sometimes.\"",
         "\"That,\" @1 says, emerging from her stump-shelter with all the gravity of a small judge, \"is the kind of thing the cooper said couldn't be done. The cooper was wrong. The cooper is OFTEN wrong.\" She nods sagely at @2.",
-        "@1 comes out grinning, satchel rattling. \"I saw it. I SAW the whole thing. @2d, I'm going to tell that one to Marn at the ferry-house tomorrow and she's going to call me a liar and I'm going to make her give me a sweet.\"",
+        "@1 comes out grinning, satchel rattling. \"I saw it. I SAW the whole thing. @2d, I'm going to tell that one to Marn at the ferry-house tomorrow and he's going to call me a liar and I'm going to make him give me a sweet.\"",
         "@1 approaches @2 with the dignity she imagines a courier would use. \"News will be carried,\" she announces. \"Word will go. The granary will know. The granny three valleys over will know. The road remembers what it sees.\"",
         "@1 fishes a copper out of her satchel, considers it solemnly, and presses it into @2np hand. \"For your tally,\" she says, with great seriousness. \"Halrick gives me one when I bring good news. You should have one too.\"",
     ]
@@ -141,7 +143,7 @@ class Wren(PasserbyPlugin):
         "@1 approaches @2 with a hesitant gravity that doesn't suit her usual chirp. \"I'll tell them,\" she says quietly. \"Marn. Halrick. The granny. They should know. The road should know.\"",
         "@1 kneels by @2, pulls her best treasure from her satchel — a flat stone painted with a small careful bird — and lays it beside @2np head. \"For the road back,\" she says, repeating something she's heard adults say without quite knowing what it means.",
         "@1 doesn't say anything at first. She just stands at @2np side, satchel forgotten, eyes wet but stubborn. Finally: \"I'm going to mention you to everyone I run for tomorrow. Just so they know.\"",
-        "@1 removes a small dried flower from her satchel — saved from somewhere, for someone — and lays it on @2np chest. \"Old Marn'll keep a place,\" she says. \"She always does. Mendholm mends. The granny says.\"",
+        "@1 removes a small dried flower from her satchel — saved from somewhere, for someone — and lays it on @2np chest. \"Old Marn'll keep a place,\" she says. \"He always does. Mendholm mends. The granny says.\"",
     ]
 
     SOCIAL_REACTIONS: Dict[str, Dict[Warmth, List[str]]] = {
@@ -152,7 +154,7 @@ class Wren(PasserbyPlugin):
                 "\"@1!\" @2 calls, beaming. She launches off her stump and waves with both hands, satchel and all.",
             ],
             Warmth.WARM: [
-                "@2 waves back warmly. \"Hi @1! Old Marn says hello — she always says hello when I tell her about you.\"",
+                "@2 waves back warmly. \"Hi @1! Old Marn says hello — he always says hello when I tell him about you.\"",
                 "@2 grins and lifts a hand in answer. \"@1d. I knew you'd be around here today. The wind was right.\"",
                 "@2 nods with professional satisfaction and waves. \"Knew you'd be passing.\"",
             ],
@@ -201,7 +203,7 @@ class Wren(PasserbyPlugin):
         },
         "greet": {
             Warmth.HOT: [
-                "\"@1d!\" @2 explodes, scrambling off her stump. \"Halrick was JUST asking, and old Marn said you'd come through, and I told her she was wrong but she WASN'T, and —\" She runs out of breath.",
+                "\"@1d!\" @2 explodes, scrambling off her stump. \"Halrick was JUST asking, and old Marn said you'd come through, and I told him he was wrong but he WASN'T, and —\" She runs out of breath.",
                 "@2 beams, plants both hands on her hips. \"There you are! Sit down. I have NEWS. The cooper got drunk again and the ferry-house has new ropes and the granny says hello.\"",
                 "\"@1!\" @2 sings. \"Tell me everything. EVERYTHING. I'll trade you. I have a copper. I have a feather. The feather's better, actually.\"",
             ],
@@ -282,7 +284,7 @@ class Wren(PasserbyPlugin):
         },
         "tend": {
             Warmth.HOT: [
-                "@2 stands very still for the gesture, satchel held flat. When @1d is done she beams. \"Old Marn does that. She'd like you.\"",
+                "@2 stands very still for the gesture, satchel held flat. When @1d is done she beams. \"Old Marn does that. He'd like you.\"",
                 "@2 ducks her head obligingly while @1d works, and offers a small ceremonial \"Thanks, that,\" when it's done. \"Halrick'd want me looking proper.\"",
                 "@2 grins crookedly. \"Aye. Going to tell the granny somebody fussed over me proper. She'll make a face, but she'll like it.\"",
             ],

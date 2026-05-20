@@ -4,6 +4,15 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-18 — Wren-polish: Marn pronouns + 3 toward-Marn departure variants
+
+Two coupled cleanups for Wren's Marn references. (1) **Gender pronouns**: five `wren.py` flavor lines referred to Old Marn with `she/her/She'd` — Marn is a male ferryman (the canonical "old Marn at the ferry-house" anchor); fixed to `he/him/He'd` at lines 126, 144, 155, 204, 285. (2) **Departure-pool direction**: the keyword-bias mechanism shipped in `5ea3c62` (2026-05-15) was firing semantically backwards on the original `DEPARTURE_POOL:94` Marn line *"Tell Marn I came through!"* — that line is Wren going AWAY from Marn (asking a relay), but the keyword intent is *"Wren actually carries the message to the named adult she's heading toward."* So when a player dropped "Marn" in chat, the bias surfaced a line that did the opposite of what the player presumably wanted. Removed the away-from-Marn line; added three toward-Marn variants drafted for Wren's voice. Halrick stays single-line (only one canonical direction in the lore).
+
+- **5 gender-pronoun fixes** in `caldanai/lib/rpg/creatures/passersby/wren.py` at lines 126, 144, 155, 204, 285. Render-checked via `tools/render_flavor`; remaining she/her references near Marn all refer to Wren herself.
+- **DEPARTURE_POOL expanded 6 → 8 entries**: removed `:94` away-from-Marn line; added three toward-Marn variants ("Old Marn's at the ferry-house, and I'm late." / "Got to get to Marn at the ferry by sundown — he worries." / "If I'm not at the ferry by sundown Marn'll send someone, and that someone will be me tomorrow."). Halrick line at `:93` retained as-is.
+- **New keyword-bias probabilities** with the expanded pool: Halrick keyword drop = 10/17 ≈ 58.8% matching line (was 66.7% with the smaller pool). Marn keyword drop = 30/35 ≈ 85.7% matching, 28.6% per specific Marn variant. Asymmetry is intentional — Marn has bidirectional lore (toward + from), Halrick is canonically a single-direction authority.
+- **`project_marn_ferryman.md` memory** banked separately so future Wren-pool authoring stays consistent on Marn's pronouns and ferryman lore.
+
 ### 2026-05-17 — Idle regen now persists across bot restarts
 
 A playtester whose last combat was 48 hours prior was still showing injured body parts. Root cause: `PlayerManager.do_health_regen` set `player.is_dirty = True` only via `Player.apply_damage`'s built-in dirty flag — which fires only on body-HP changes. Two regen-tick mutations were therefore silent to the persistence layer:
