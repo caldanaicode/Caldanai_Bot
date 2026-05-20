@@ -4,6 +4,14 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-05-19 — `$use` regression fix: consumables now resolve correctly
+
+`$use candy` (and other consumable invocations like `$use sandwich`) returned *"You don't seem to have anything matching candy"* even when the item was in inventory. Regression introduced by the 2026-05-17 `$fav` / `$unfav` / `$use` fuzzy migration (commit `dace4ae`): the `ItemConverter` discord.py annotation path on `$use` routes through `resolve_item_query(argument, "equip")`, and equip mode applies the predicate `isinstance(i, Equipment) and not self.is_equipped(i)` at `player.py:1524-1529` — which filters `Consumable` items (candy, sandwich) out entirely. Caels caught it in live channel at 2026-05-19T18:29Z when `$use candy` failed despite `$item candy` showing three uses remaining.
+
+Reverted `$use` to take a `Union[int, str]` arg and route through `RpgUtilities.resolve_items_or_notify(mode="item")` instead. The `"item"` mode at `player.py:1550-1567` uses `_filter_matching_items` without an Equipment-only predicate, with single-match ambiguity-surfacing — exactly right for `$use`. `ItemConverter` remains hardcoded to equip-mode and continues to fit `$equip` cleanly; making it mode-parametrizable so the annotation pattern works for `$use` / `$item` / etc. is a separate architectural follow-up.
+
+- **`caldanai/lib/cogs/rpg_inventory_commands.py`** — `$use` annotation reverted from `item: ItemConverter` back to `item: Union[int, str]`; body now calls `resolve_items_or_notify(..., mode="item")` and extracts the single resolved Item before passing to `player.use_item`. `@use.error`'s `BadArgument` branch removed (no longer needed without the converter raising).
+
 ### 2026-05-18 — Wren-polish: Marn pronouns + 3 toward-Marn departure variants
 
 Two coupled cleanups for Wren's Marn references. (1) **Gender pronouns**: five `wren.py` flavor lines referred to Old Marn with `she/her/She'd` — Marn is a male ferryman (the canonical "old Marn at the ferry-house" anchor); fixed to `he/him/He'd` at lines 126, 144, 155, 204, 285. (2) **Departure-pool direction**: the keyword-bias mechanism shipped in `5ea3c62` (2026-05-15) was firing semantically backwards on the original `DEPARTURE_POOL:94` Marn line *"Tell Marn I came through!"* — that line is Wren going AWAY from Marn (asking a relay), but the keyword intent is *"Wren actually carries the message to the named adult she's heading toward."* So when a player dropped "Marn" in chat, the bias surfaced a line that did the opposite of what the player presumably wanted. Removed the away-from-Marn line; added three toward-Marn variants drafted for Wren's voice. Halrick stays single-line (only one canonical direction in the lore).

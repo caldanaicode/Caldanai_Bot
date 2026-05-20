@@ -894,7 +894,7 @@ class RpgInventoryCommands(Cog):
 
     @command(name='use', brief='Attempts to use an item.')
     @cooldown(1, 5, BucketType.member)
-    async def use(self, ctx: Context, item: ItemConverter, gid: int = None):
+    async def use(self, ctx: Context, item: Union[int, str], gid: int = None):
         """
         Attempts to use an item.
 
@@ -916,7 +916,21 @@ class RpgInventoryCommands(Cog):
         ):
             return
 
-        Dispatcher.add(channel, player.use_item(item))
+        # ``ItemConverter`` (the annotation path) hardcodes ``"equip"``
+        # mode, which filters to ``isinstance(i, Equipment)`` — that
+        # excludes ``Consumable`` items (candy, sandwich) entirely, so
+        # ``$use candy`` returned "you don't seem to have anything
+        # matching" even when candy was in inventory. Use ``"item"``
+        # mode via the dispatcher helper instead — same fuzzy
+        # resolution + ambiguity-surfacing, no Equipment-only filter.
+        resolved = RpgUtilities.resolve_items_or_notify(
+            channel, player, [str(item)], mode="item",
+        )
+        if not resolved:
+            return
+
+        _item, _ = resolved[0]
+        Dispatcher.add(channel, player.use_item(_item))
 
     @use.error
     async def use_err(self, ctx: Context, error):
@@ -927,8 +941,6 @@ class RpgInventoryCommands(Cog):
                 color=0xff0000
             )
             Dispatcher.add(ctx, embed=embed)
-        elif isinstance(error, BadArgument):
-            Dispatcher.add(ctx, str(error))
 
     # -----------------------------------------------------------------
     # $loadout — save / load / clear named gear sets
