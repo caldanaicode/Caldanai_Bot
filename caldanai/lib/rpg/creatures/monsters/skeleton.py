@@ -87,7 +87,7 @@ class Skeleton(Undead, MonsterPlugin):
         self.death = choice([
             "With a final, dry rattle, @1d collapses into a clattering heap.",
             "@1dc's skull rolls free of its neck as the rest of @1o topples.",
-            "The light in @1d's sockets guts, and @1s falls apart at every "
+            "The light in @1d's sockets gutters, and @1s falls apart at every "
             "joint.",
         ])
 

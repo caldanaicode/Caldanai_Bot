@@ -32,6 +32,12 @@ PINK = "35"
 CYAN = "36"
 WHITE = "37"
 
+# Background color codes are the fg digits + 10 (40–47). Pass one as the
+# ``bg`` kwarg of :func:`wrap` for a per-token highlight/badge — used
+# sparingly (e.g. the masterwork "gold badge" in the inventory), since a
+# full-row background can't be filled cleanly inside a Discord ansi fence
+# (it only paints behind characters, so a row-wide panel goes ragged).
+
 # Intensity modifiers — prefix to a color code via the ``intensity``
 # kwarg on :func:`wrap`. ``DIM`` (``2;``) was the existing convention
 # for body-part injury coloring; combat-table reactive flavors use
@@ -47,15 +53,17 @@ UNDERLINE = "4"
 RESET = "\x1b[0m"
 
 
-def wrap(text: str, color: str, *, intensity: str = NORMAL) -> str:
-    """Wrap ``text`` in an ANSI color escape, with optional intensity.
+def wrap(text: str, color: str, *, intensity: str = NORMAL, bg: str = None) -> str:
+    """Wrap ``text`` in an ANSI color escape, with optional intensity/bg.
 
     ``color`` is a foreground digit (e.g. :data:`GREEN`); ``intensity``
     is one of :data:`NORMAL` / :data:`BOLD` / :data:`DIM` /
-    :data:`UNDERLINE`. Empty ``text`` is returned as-is — avoids stray
-    reset codes leaking into output when a caller has nothing to
-    color.
+    :data:`UNDERLINE`; ``bg`` is an optional background digit (40–47)
+    for a per-token highlight/badge. Empty ``text`` is returned as-is —
+    avoids stray reset codes leaking into output when a caller has
+    nothing to color.
     """
     if not text:
         return text
-    return f"\x1b[{intensity};{color}m{text}{RESET}"
+    sgr = f"{intensity};{bg};{color}" if bg else f"{intensity};{color}"
+    return f"\x1b[{sgr}m{text}{RESET}"

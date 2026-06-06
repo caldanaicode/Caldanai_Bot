@@ -95,7 +95,7 @@ _LEAN_FLAVOR: List[str] = [
 ]
 
 _SIT_FLAVOR: List[str] = [
-    "*@1 sits down where @1s stands.*",
+    "*@1 sits down where @1s @1v(stands|stand).*",
     "*@1 lowers @1r onto a flat patch of moss and lets @1a knees stop arguing.*",
     "*@1 finds a stone the right shape for sitting and accepts the offer.*",
     "*@1 folds @1a legs under @1r and settles cross-legged on the dirt.*",

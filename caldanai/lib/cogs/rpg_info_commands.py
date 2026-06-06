@@ -899,6 +899,21 @@ class RpgInfoCommands(Cog):
                 Dispatcher.add(game.channel, embed=embed)
                 return
 
+        # Fuzzy player-name fallback (bare name or plain-text ``@name``).
+        # Real Discord mentions are handled above via ctx.message.mentions.
+        if target:
+            from caldanai.lib.rpg.helpers.resolvers import resolve_player
+            probe = (
+                target[1:]
+                if target.startswith("@") and not target.startswith("<@")
+                else target
+            )
+            matches = resolve_player(game, probe)
+            if len(matches) == 1:
+                embed = matches[0].get_profile(game.guild.name)
+                Dispatcher.add(game.channel, embed=embed)
+                return
+
         Dispatcher.add(game.channel, msg)
 
     @cooldown(1, 5, BucketType.member)
@@ -915,15 +930,11 @@ class RpgInfoCommands(Cog):
         if game is None or player is None:
             return
 
-        if ctx.message.mentions is None:
-            Dispatcher.add(ctx, "You must include someone for comparison by @mentioning them.")
-            return
-
-        if player.member in ctx.message.mentions:
+        if player.member in (ctx.message.mentions or []):
             Dispatcher.add(ctx, "If you need to compare yourself to yourself, then please make use of a mirror.")
             return
 
-        if self.bot.user in ctx.message.mentions:
+        if self.bot.user in (ctx.message.mentions or []):
             Dispatcher.add(ctx, "Comparing yourself to the AI will only leave you feeling inadequate.")
             return
 
@@ -940,11 +951,19 @@ class RpgInfoCommands(Cog):
         dice = ("d4", "d6", "d8", "d10", "d12", "d20")
         dtype = "d20" if opt0 in ("fumbles", "crits") else opt0 if opt0 in dice else None
 
-        roll = (
-            0
-            if opt0 == "fumbles"
-            else 19 if opt0 == "crits" else int(options[1]) - 1 if len(options) > 1 and options[1].isnumeric() else None
-        )
+        # ``fumbles`` / ``crits`` don't consume a roll-value token, so
+        # name candidates start at ``options[1:]``. A die type takes
+        # ``options[1]`` as the roll value, so name candidates start
+        # at ``options[2:]``.
+        if opt0 in ("fumbles", "crits"):
+            roll = 0 if opt0 == "fumbles" else 19
+            name_args = options[1:]
+        elif opt0 in dice and len(options) > 1 and options[1].isnumeric():
+            roll = int(options[1]) - 1
+            name_args = options[2:]
+        else:
+            roll = None
+            name_args = ()
 
         if dtype is None or roll is None:
             Dispatcher.add(ctx, f"Invalid options. See `{ctx.prefix}help cmproll` for more information.")
@@ -952,6 +971,33 @@ class RpgInfoCommands(Cog):
 
         if roll < 0 or roll > int(dtype[1:]) - 1:
             Dispatcher.add(ctx, "The provided roll value is invalid for the selected die type.")
+            return
+
+        # Build the comparison set: real @-mentions first, then any
+        # bare-name / plain-text ``@name`` tokens from the trailing
+        # positional args resolved via the fuzzy player roster.
+        from caldanai.lib.rpg.helpers.resolvers import resolve_player
+
+        comparison_players = []
+        seen_user_ids = {player.user_id}
+
+        for m in (ctx.message.mentions or []):
+            if p := await RpgUtilities.get_player(m, game, False):
+                if p.user_id not in seen_user_ids:
+                    seen_user_ids.add(p.user_id)
+                    comparison_players.append(p)
+
+        for arg in name_args:
+            if arg.startswith("<@"):
+                continue
+            probe = arg[1:] if arg.startswith("@") else arg
+            matches = resolve_player(game, probe)
+            if len(matches) == 1 and matches[0].user_id not in seen_user_ids:
+                seen_user_ids.add(matches[0].user_id)
+                comparison_players.append(matches[0])
+
+        if not comparison_players:
+            Dispatcher.add(ctx, "You must include someone for comparison — a mention or a name.")
             return
 
         r = player.rolls[dtype][roll]
@@ -964,20 +1010,19 @@ class RpgInfoCommands(Cog):
         high_avg = a
         low_avg = a
 
-        for m in ctx.message.mentions:
-            if p := await RpgUtilities.get_player(m, game, False):
-                r = p.rolls[dtype][roll]
-                t = sum(p.rolls[dtype])
-                a = r / t if t > 0 else 0
-                rolls[p.name] = (r, t, a)
-                name_len = max(name_len, len(p.name))
-                roll_len = max(roll_len, len(f"{r:,}"))
-                sum_len = max(sum_len, len(f"{t:,}"))
-                high_avg = max(high_avg, a)
-                low_avg = min(low_avg, a)
+        for p in comparison_players:
+            r = p.rolls[dtype][roll]
+            t = sum(p.rolls[dtype])
+            a = r / t if t > 0 else 0
+            rolls[p.name] = (r, t, a)
+            name_len = max(name_len, len(p.name))
+            roll_len = max(roll_len, len(f"{r:,}"))
+            sum_len = max(sum_len, len(f"{t:,}"))
+            high_avg = max(high_avg, a)
+            low_avg = min(low_avg, a)
 
         if len(rolls) < 2:
-            Dispatcher.add(ctx, "You must mention other players for comparison.")
+            Dispatcher.add(ctx, "You must include other players for comparison.")
             return
 
         s = sorted(rolls.items(), key=lambda i: i[1][2])

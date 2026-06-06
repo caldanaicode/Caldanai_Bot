@@ -52,6 +52,12 @@ def _make_ctx_with_monster(cog, monster, channel_id: int = 42):
     during the test body via ``with patch(...)``; tests that need
     it should wrap their callback invocation in
     ``patch_get_game(game)``.
+
+    Also sets a string default on the monster's ``apply_damage``
+    return so test paths that iterate ``dispatcher.add.call_args_list``
+    don't choke on the MagicMock-default return now that admin-
+    destroy emits the apply_damage narration at destroy-time.
+    Individual tests can override per-call as needed.
     """
     ctx = MagicMock()
     ctx.channel.id = channel_id
@@ -59,6 +65,8 @@ def _make_ctx_with_monster(cog, monster, channel_id: int = 42):
     game = MagicMock()
     game.monster = monster
     game.channel = MagicMock()
+    if monster is not None:
+        monster.apply_damage.return_value = ""
     return ctx, game
 
 
@@ -312,6 +320,7 @@ class TestDestroyPlayerTargeting:
         the article (players don't take ``the``)."""
         head = _make_part("head", health_max=15)
         player = MagicMock()
+        player.apply_damage.return_value = ""
         player.name = "Caels"
         # Players don't have ``uses_article`` — duck-type check
         # in the production code falls through to no article.
@@ -373,3 +382,118 @@ class TestDestroyPlayerTargeting:
             h1.health_max, dmg_type=None, target_part=h1,
         )
         monster.find_parts.assert_called_once_with("head.1")
+
+    @pytest.mark.asyncio
+    async def test_player_fuzzy_name_targets_player(self, cog):
+        """``$creature destroy Caels head`` — first arg matches a
+        player's name (not the spawned monster's) → target the
+        player via the fuzzy roster fallback."""
+        head = _make_part("head", health_max=15)
+        player = MagicMock()
+        player.apply_damage.return_value = ""
+        player.name = "Caels"
+        del player.uses_article
+        player.find_parts = MagicMock(return_value=[head])
+
+        monster = MagicMock()
+        monster.name = "hydra"
+        monster.uses_article = True
+        monster.find_parts = MagicMock(return_value=[_make_part("ignored")])
+
+        ctx, game = _make_ctx_with_monster(cog, monster)
+
+        with (
+            _patch_get_game(game),
+            patch(
+                "caldanai.lib.rpg.helpers.resolvers.resolve_player",
+                return_value=[player],
+            ),
+            patch("caldanai.lib.cogs.rpg_admin_commands.Dispatcher") as dispatcher,
+        ):
+            await cog.creature_destroy.callback(cog, ctx, "Caels", "head")
+
+        player.apply_damage.assert_called_once_with(
+            head.health_max, dmg_type=None, target_part=head,
+        )
+        head.on_destroyed.assert_called_once_with(player)
+        monster.find_parts.assert_not_called()
+
+        sent = " ".join(
+            call.args[1] for call in dispatcher.add.call_args_list if len(call.args) > 1
+        )
+        assert "Caels's head" in sent
+        assert "the Caels" not in sent
+
+    @pytest.mark.asyncio
+    async def test_plain_text_at_name_targets_player(self, cog):
+        """``$creature destroy @Caels head`` typed as plain text
+        (no real Discord mention populated) still routes to the
+        player roster: the leading ``@`` is stripped before fuzzy-
+        match. This is the case Caels hit at the live test bot."""
+        head = _make_part("head", health_max=15)
+        player = MagicMock()
+        player.apply_damage.return_value = ""
+        player.name = "Caels"
+        del player.uses_article
+        player.find_parts = MagicMock(return_value=[head])
+
+        monster = MagicMock()
+        monster.name = "bandit"
+        monster.uses_article = True
+        monster.find_parts = MagicMock(return_value=[_make_part("ignored")])
+
+        ctx, game = _make_ctx_with_monster(cog, monster)
+
+        with (
+            _patch_get_game(game),
+            patch(
+                "caldanai.lib.rpg.helpers.resolvers.resolve_player",
+                return_value=[player],
+            ) as resolve,
+            patch("caldanai.lib.cogs.rpg_admin_commands.Dispatcher"),
+        ):
+            await cog.creature_destroy.callback(cog, ctx, "@Caels", "head")
+
+        # Leading ``@`` got stripped before the roster lookup.
+        resolve.assert_called_once_with(game, "Caels")
+        player.apply_damage.assert_called_once_with(
+            head.health_max, dmg_type=None, target_part=head,
+        )
+        monster.find_parts.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_damage_narration_emits_at_destroy_time(self, cog):
+        """Critical-part destroy on a player emits the death tail
+        (``Caels crumples to the ground lifelessly!``) at destroy-
+        time. Pre-fix, the apply_damage return was discarded and
+        the death narration surfaced late during a subsequent regen
+        tick (2026-05-22)."""
+        head = _make_part("head", health_max=15)
+        player = MagicMock()
+        player.apply_damage.return_value = (
+            "Caels crumples to the ground lifelessly!"
+        )
+        player.name = "Caels"
+        del player.uses_article
+        player.find_parts = MagicMock(return_value=[head])
+
+        monster = MagicMock()
+        monster.name = "hydra"
+        monster.uses_article = True
+        ctx, game = _make_ctx_with_monster(cog, monster)
+        ctx.message.mentions = [MagicMock()]
+
+        with (
+            _patch_get_game(game),
+            patch(
+                "caldanai.lib.cogs.rpg_admin_commands.RpgUtilities.get_player",
+                new=AsyncMock(return_value=player),
+            ),
+            patch("caldanai.lib.cogs.rpg_admin_commands.Dispatcher") as dispatcher,
+        ):
+            await cog.creature_destroy.callback(cog, ctx, "head")
+
+        sent = " ".join(
+            call.args[1] for call in dispatcher.add.call_args_list if len(call.args) > 1
+        )
+        assert "crumples to the ground lifelessly" in sent

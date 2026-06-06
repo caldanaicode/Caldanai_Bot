@@ -4,7 +4,12 @@ Stats (dodge, defense, HIT) emerge from body-part functionality, creature
 size, and core properties rather than flat base + debuff-modifier.
 """
 
-from caldanai.lib.rpg.creatures import Creature, _functionality_ratio, _part_base_name
+from caldanai.lib.rpg.creatures import (
+    Creature,
+    GROUNDED_FLYER_DODGE_PENALTY,
+    _functionality_ratio,
+    _part_base_name,
+)
 from caldanai.lib.rpg.creatures.body_part import BodyPart
 from caldanai.lib.rpg.helpers.enums import InjuryLevels, Size, Stat
 
@@ -171,6 +176,45 @@ class TestDodgeEmergence:
         c.body_parts = BodyPart.quadruped_winged()
         # All wings healthy → ratio 1.0, size mod 1.0 → dodge = 10
         assert c.get_dodge() == 10
+
+    def test_grounded_flyer_dodge_halved_by_penalty(self):
+        """Regression (LIVE 2026-06-04): a winged creature on the ground
+        keeps only ``GROUNDED_FLYER_DODGE_PENALTY`` of its leg-based
+        dodge. Without this, grounded legs substitute for wings 1:1 and
+        destroying every wing left dodge unchanged (the pixie stayed at
+        31 with both wings gone)."""
+        c = _make_creature(dodge=10)
+        c.size = Size.MEDIUM
+        c.body_parts = BodyPart.quadruped_winged()  # has wings, NOT flying
+        # legs ratio 1.0, size 1.0, then × the grounded-flyer penalty.
+        assert c.get_dodge() == int(10 * 1.0 * 1.0 * GROUNDED_FLYER_DODGE_PENALTY)
+
+    def test_flying_dodge_is_double_grounded_for_a_flyer(self):
+        """Same creature: airborne dodge exceeds grounded dodge purely
+        because grounding triggers the flyer penalty (legs and wings are
+        both at full functionality). This is what makes destroying a
+        flyer's wings actually lower its dodge."""
+        flying = _make_creature(dodge=10)
+        flying.size = Size.MEDIUM
+        flying.flags.add("flying")
+        flying.body_parts = BodyPart.quadruped_winged()
+
+        grounded = _make_creature(dodge=10)
+        grounded.size = Size.MEDIUM
+        grounded.body_parts = BodyPart.quadruped_winged()
+
+        assert grounded.get_dodge() < flying.get_dodge()
+        assert grounded.get_dodge() == int(
+            flying.get_dodge() * GROUNDED_FLYER_DODGE_PENALTY
+        )
+
+    def test_grounded_non_flyer_not_penalized(self):
+        """A creature with NO wings (humanoid) is not a flyer, so the
+        grounded-flyer penalty must not touch its leg-based dodge."""
+        c = _make_creature(dodge=10)
+        c.size = Size.MEDIUM
+        c.body_parts = BodyPart.humanoid()  # no wings
+        assert c.get_dodge() == 10  # full, un-penalized
 
     def test_all_legs_destroyed_returns_core_agility(self):
         """When all legs are destroyed, dodge falls to core_agility."""

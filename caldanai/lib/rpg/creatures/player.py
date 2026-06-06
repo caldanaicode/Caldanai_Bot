@@ -27,7 +27,8 @@ from caldanai.lib.rpg.creatures.equipment_routing import (
     keys_on_part,
     resolve_placements,
 )
-from caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes, InjuryLevels
+from caldanai.lib.rpg.helpers.enums import EquipmentSlots, DamageTypes, InjuryLevels, QUALITY_ANSI
+from caldanai.lib.rpg.helpers import ansi
 from caldanai.lib.rpg.helpers.parser import item_list_to_string
 from caldanai.lib.rpg.helpers.plotting import CYAN_ACCENT, fig_to_file, style_axes_dark
 from caldanai.lib.rpg.helpers.roll_data import CombinedRoll
@@ -524,7 +525,16 @@ class Player(Creature):
             if p.get_injury_level() == InjuryLevels.USELESS
         }
 
-        was_alive = self.health > 0
+        # ``was_alive`` snapshot has to match ``is_dead()``'s full
+        # semantics (body HP OR critical-part destroyed), not just
+        # body HP — otherwise a heal call against a player whose body
+        # HP is positive but whose critical part is still destroyed
+        # (the gap between body-revive and part-restore across regen
+        # ticks) reads ``was_alive=True`` and falsely fires the
+        # "crumples lifelessly" tail. 2026-05-22: late-firing death
+        # narration during regen-revive after an admin destroy that
+        # had discarded the in-time narration.
+        was_alive = not self.is_dead()
         super().apply_damage(
             amount,
             dmg_type=dmg_type,
@@ -2075,20 +2085,28 @@ class Player(Creature):
                 absolute_idx = all_items.index(item)
             except ValueError:
                 continue
-            msg += f"\n{absolute_idx + 1}: {item.get_full_name()}"
+            qfg, qint, qbg = QUALITY_ANSI.get(item.quality, (ansi.WHITE, ansi.NORMAL, None))
+            # Per-token coloring inside the ```ansi fence: cyan index,
+            # quality-colored name (MASTERWORK rides a black-on-gold
+            # badge via the bg). No full-row background — Discord can't
+            # fill a fence cleanly, so a row-wide panel goes ragged.
+            idx = ansi.wrap(str(absolute_idx + 1), ansi.CYAN)
+            name = ansi.wrap(item.get_full_name(), qfg, intensity=qint, bg=qbg)
+            msg += f"\n{idx}: {name}"
             # Mark equipped items with their placement(s). Multi-
             # placement items (two-handed, paired) get one tag per
             # placement so the player sees everywhere the item is
             # occupying — avoids the "why can't I sell this?"
             # confusion when one of the placements is off-screen.
+            # Tags ride cyan (metadata, like the index); ★ rides yellow.
             seen_placements = set()
             for part_name in self.part_equipment:
                 for key, equipped in self.part_equipment[part_name].items():
                     if equipped is item and (part_name, key) not in seen_placements:
-                        msg += f" [{part_name}.{key}]"
+                        msg += " " + ansi.wrap(f"[{part_name}.{key}]", ansi.CYAN)
                         seen_placements.add((part_name, key))
             if item.favorited:
-                msg += " ★"
+                msg += " " + ansi.wrap("★", ansi.YELLOW)
 
         if len(msg) == 0 and not filtr:
             msg = "\nYou have no items."
@@ -2408,14 +2426,17 @@ class Player(Creature):
                         self.update_roll_count(roll.damage.sides, r)
 
     def use_item(self, item: Union[Usable, Consumable]) -> str:
-        msg = "There does not seem to be a way to do that."
         if item and isinstance(item, Consumable):
             msg, any_left = item.use(self)
             if not any_left:
                 self.inventory.remove(item)
                 self.is_dirty = True
+            return msg
 
-        elif item and isinstance(item, Usable):
-            msg = item.use(self)
+        if item and isinstance(item, Usable):
+            return item.use(self)
 
-        return msg
+        if item is not None:
+            return f"{item.get_article(item.name).capitalize()} isn't something you can consume."
+
+        return "There does not seem to be a way to do that."

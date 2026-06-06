@@ -129,7 +129,7 @@ class RpgCraftingCommands(Cog):
         Craft an item:
 
         ``$craft <item>``         — attempt to craft.
-        ``$craft list``           — recipes you know AND can craft right now.
+        ``$craft list``           — recipes you know, split into craftable now vs needing more materials.
         ``$craft info <item>``    — recipe details + current success chance.
 
         Material costs scale with item size (a jerkin needs more
@@ -389,13 +389,11 @@ class RpgCraftingCommands(Cog):
     async def _send_list(self, channel, player) -> None:
         if not list_recipes():
             discover_recipes()
-        rows: List[str] = []
+        craftable: List[str] = []
+        needs_materials: List[str] = []
         for cls in list_recipes():
             # Hide locked recipes the player can't see at all.
             if cls.requires_known and cls.output not in player.known_recipes:
-                continue
-            ok, _, _ = _find_materials(player, cls.materials)
-            if not ok:
                 continue
             skill_xp = (
                 player.skills.get(cls.skill, 0)
@@ -404,13 +402,20 @@ class RpgCraftingCommands(Cog):
             )
             if cls.skill and skill_xp < cls.min_skill:
                 continue
-            chance = success_chance(skill_xp, cls.min_skill)
-            rows.append(
-                f"• **{cls.display_name()}** "
-                f"({int(chance * 100)}% success)"
-            )
+            ok, _, missing = _find_materials(player, cls.materials)
+            if ok:
+                chance = success_chance(skill_xp, cls.min_skill)
+                craftable.append(
+                    f"• **{cls.display_name()}** "
+                    f"({int(chance * 100)}% success)"
+                )
+            else:
+                needs_materials.append(
+                    f"• **{cls.display_name()}** "
+                    f"(missing: {', '.join(missing)})"
+                )
 
-        if not rows:
+        if not craftable and not needs_materials:
             Dispatcher.add(
                 channel,
                 "Nothing craftable right now — gather more materials "
@@ -418,10 +423,17 @@ class RpgCraftingCommands(Cog):
             )
             return
 
-        Dispatcher.add(
-            channel,
-            f"{player.name} can craft:\n" + "\n".join(rows),
-        )
+        sections: List[str] = []
+        if craftable:
+            sections.append(
+                f"{player.name} can craft:\n" + "\n".join(craftable)
+            )
+        if needs_materials:
+            sections.append(
+                "Need more materials for:\n" + "\n".join(needs_materials)
+            )
+
+        Dispatcher.add(channel, "\n\n".join(sections))
 
     async def _send_info(self, channel, player, raw_name: str) -> None:
         recipe = self._resolve_recipe_or_notify(channel, raw_name)

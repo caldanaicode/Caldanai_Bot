@@ -122,26 +122,26 @@ class Wren(PasserbyPlugin):
     }
 
     COMBAT_WON_REACTIONS: List[str] = [
-        "@1 bounds out of cover the moment the dust settles, eyes huge. \"OH. Oh. I'm telling EVERYONE. @2! That's @2 who killed the BIG one. Halrick's going to want to hear this. Old Marn's going to want to hear this.\"",
-        "@1 edges out cautiously, examines the carcass from a respectful three paces, and addresses @2 with sudden formality: \"That's a good kill, that. I'll mention you to the trading-post. They listen to me, sometimes.\"",
-        "\"That,\" @1 says, emerging from her stump-shelter with all the gravity of a small judge, \"is the kind of thing the cooper said couldn't be done. The cooper was wrong. The cooper is OFTEN wrong.\" She nods sagely at @2.",
-        "@1 comes out grinning, satchel rattling. \"I saw it. I SAW the whole thing. @2d, I'm going to tell that one to Marn at the ferry-house tomorrow and he's going to call me a liar and I'm going to make him give me a sweet.\"",
-        "@1 approaches @2 with the dignity she imagines a courier would use. \"News will be carried,\" she announces. \"Word will go. The granary will know. The granny three valleys over will know. The road remembers what it sees.\"",
+        "@1 bounds out of cover the moment the dust settles, eyes huge. \"OH. Oh. I'm telling EVERYONE. @2C! That's @2d who killed the BIG one. Halrick's going to want to hear this. Old Marn's going to want to hear this.\"",
+        "@1 edges out cautiously, examines the carcass from a respectful three paces, and addresses @2d with sudden formality: \"That's a good kill, that. I'll mention you to the trading-post. They listen to me, sometimes.\"",
+        "\"That,\" @1 says, emerging from her stump-shelter with all the gravity of a small judge, \"is the kind of thing the cooper said couldn't be done. The cooper was wrong. The cooper is OFTEN wrong.\" She nods sagely at @2d.",
+        "@1 comes out grinning, satchel rattling. \"I saw it. I SAW the whole thing. @2D, I'm going to tell that one to Marn at the ferry-house tomorrow and he's going to call me a liar and I'm going to make him give me a sweet.\"",
+        "@1 approaches @2d with the dignity she imagines a courier would use. \"News will be carried,\" she announces. \"Word will go. The granary will know. The granny three valleys over will know. The road remembers what it sees.\"",
         "@1 fishes a copper out of her satchel, considers it solemnly, and presses it into @2np hand. \"For your tally,\" she says, with great seriousness. \"Halrick gives me one when I bring good news. You should have one too.\"",
     ]
 
     COMBAT_FLED_REACTIONS: List[str] = [
         "@1 peeks out, sees the empty space where the creature was, and lets out a long whistle she's clearly practiced. \"That. Was. CLOSE. I'm telling old Marn that one for sure.\"",
-        "@1 emerges trembling but trying to look professional about it. \"Walked off,\" she reports to @2, like she's filing it. \"Walked off injured, probably. I'll keep an ear out at the ferry-house. People hear things.\"",
+        "@1 emerges trembling but trying to look professional about it. \"Walked off,\" she reports to @2d, like she's filing it. \"Walked off injured, probably. I'll keep an ear out at the ferry-house. People hear things.\"",
         "@1 scrambles up onto her stump for a better view of the path the creature took, narrows her eyes the way Halrick narrows his when he's thinking hard. \"It'll be back,\" she pronounces. \"Or it won't. Either way, you're alive. Halrick'd want me to mention that.\"",
         "@1 comes out of cover smoothing her coat indignantly. \"I was going to help. I was. The granny says you don't run TOWARD trouble unless you can carry it. I can't carry that.\"",
-        "@1 hops off her stump and approaches @2 with cautious professional respect. \"You held,\" she says. \"That counts. The cooper says holding's the only thing that counts when the running's faster than you.\"",
+        "@1 hops off her stump and approaches @2d with cautious professional respect. \"You held,\" she says. \"That counts. The cooper says holding's the only thing that counts when the running's faster than you.\"",
     ]
 
     PARTY_DEATH_REACTIONS: List[str] = [
-        "@1 creeps out of cover slowly, sees @2, and goes very still in the way kids do when they suddenly understand a thing. Her satchel slips off her shoulder. She doesn't pick it up.",
-        "@1 approaches @2 with a hesitant gravity that doesn't suit her usual chirp. \"I'll tell them,\" she says quietly. \"Marn. Halrick. The granny. They should know. The road should know.\"",
-        "@1 kneels by @2, pulls her best treasure from her satchel — a flat stone painted with a small careful bird — and lays it beside @2np head. \"For the road back,\" she says, repeating something she's heard adults say without quite knowing what it means.",
+        "@1 creeps out of cover slowly, sees @2d, and goes very still in the way kids do when they suddenly understand a thing. Her satchel slips off her shoulder. She doesn't pick it up.",
+        "@1 approaches @2d with a hesitant gravity that doesn't suit her usual chirp. \"I'll tell them,\" she says quietly. \"Marn. Halrick. The granny. They should know. The road should know.\"",
+        "@1 kneels by @2d, pulls her best treasure from her satchel — a flat stone painted with a small careful bird — and lays it beside @2np head. \"For the road back,\" she says, repeating something she's heard adults say without quite knowing what it means.",
         "@1 doesn't say anything at first. She just stands at @2np side, satchel forgotten, eyes wet but stubborn. Finally: \"I'm going to mention you to everyone I run for tomorrow. Just so they know.\"",
         "@1 removes a small dried flower from her satchel — saved from somewhere, for someone — and lays it on @2np chest. \"Old Marn'll keep a place,\" she says. \"He always does. Mendholm mends. The granny says.\"",
     ]

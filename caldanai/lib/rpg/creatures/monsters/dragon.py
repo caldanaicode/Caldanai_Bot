@@ -182,17 +182,22 @@ class Dragon(MonsterPlugin):
     def get_dodge(self):
         """Dragon dodge on top of the base Creature emergence.
 
-        Base ``Creature.get_dodge`` already picks the right mobility
-        source (wings while flying, legs once grounded) so a dragon
-        with all four legs intact retains real dodge even after a
-        wing destruction drops it out of the sky. The adjustments
-        here are dragon-specific flavor:
+        Base ``Creature.get_dodge`` picks the right mobility source
+        (wings while flying, legs once grounded) AND, as of the
+        2026-06-04 grounded-flyer fix, halves grounded dodge for any
+        winged creature (``GROUNDED_FLYER_DODGE_PENALTY``) — so a
+        grounded dragon now keeps real-but-reduced dodge from its legs
+        rather than the full leg value. The adjustments here are
+        dragon-specific flavor layered on top:
 
         - **Flying bonus** (``×1.5``): a dragon on the wing is
           genuinely harder to hit than a ground-based creature of
           the same stats. The HUGE ``dodge_mod`` (``0.5``) scales
           dodge by mass; a flying dragon undoes half of that
-          because mass in the air is still mobile.
+          because mass in the air is still mobile. This stacks with
+          the base grounded penalty: a dragon is ×1.5 airborne and
+          ×0.5 grounded, so flight is a 3× dodge swing for dragons
+          specifically (vs 2× for plainer flyers).
         - **Toed-variant grounded penalty** (``-62``): if this is
           the 62-toe variant and it's been grounded, the ludicrous
           toe count tanks footwork. Pre-existing; preserved here.

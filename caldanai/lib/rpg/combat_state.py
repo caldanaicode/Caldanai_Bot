@@ -84,26 +84,57 @@ class CombatState:
         game_clock: "GameClock",
         do_combat_routine,
     ) -> None:
-        """Single source of truth for combat teardown.
+        """Full combat teardown — convenience wrapper that calls
+        :meth:`tear_down_state` and :meth:`release_combat_roles` back
+        to back. Use this for paths that DON'T dispatch a post-combat
+        announce containing the ``RPG Combatant`` role-mention (error
+        paths, admin ``$creature kill``, etc.).
 
-        Clears combat state (monster, combatants, targets, looters)
-        and unconditionally removes combat roles from everyone who
-        participated (tracked via ``self.looters`` — the authoritative
-        list of players who received the combat role). Does NOT touch
-        ``self.loot`` — callers manage the loot lifecycle (generate,
-        timer, or clear) before calling this.
+        The normal ``_finalize_combat`` death/flee path splits the
+        two halves explicitly so the role-mention in the loot-announce
+        still pings everyone — see :meth:`tear_down_state` and
+        :meth:`release_combat_roles` for the ordering contract.
+        """
+        await self.tear_down_state(game_clock, do_combat_routine)
+        await self.release_combat_roles(player_manager)
 
-        Also removes the periodic ``do_combat`` routine from the game
-        clock so no further combat ticks fire once the encounter
-        ends.
+    async def tear_down_state(
+        self,
+        game_clock: "GameClock",
+        do_combat_routine,
+    ) -> None:
+        """Clear combat STATE only — monster, combatants, targets,
+        the recurring ``do_combat`` clock routine, and the loot-size
+        snapshot. Deliberately leaves ``looters`` intact and the
+        Discord combat-role still attached to every participant so a
+        post-combat announce containing the ``<@&combatant>`` mention
+        still pings them.
 
-        Does NOT start the spawn timer — callers follow up with
-        ``Game.set_spawn_timer`` when appropriate.
+        Pairs with :meth:`release_combat_roles`, which the caller
+        invokes (typically via ``game_clock.add_routine`` with a small
+        delay) AFTER the announce has been dispatched. Without that
+        deferral, the role-mention pings an empty role and the loot
+        notice reaches nobody. Bug pattern Caels caught 2026-05-25.
         """
         self.monster = None
         self.combatants.clear()
         self.combat_targets.clear()
         game_clock.remove_routine(do_combat_routine)
+        self.loot_size_at_start = 0
+
+    async def release_combat_roles(
+        self, player_manager: "PlayerManager",
+    ) -> None:
+        """Remove the ``RPG Combatant`` Discord role from every
+        looter, then clear the looters list. Pairs with
+        :meth:`tear_down_state` — call after the post-combat announce
+        has been dispatched so the role-mention in the announce still
+        resolves against the populated role.
+
+        Idempotent on empty ``looters`` (early-return) so re-entry
+        through error paths doesn't double-remove or crash.
+        """
+        if not self.looters:
+            return
         await player_manager.clear_combat_roles(self.looters)
         self.looters.clear()
-        self.loot_size_at_start = 0

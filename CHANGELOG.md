@@ -4,6 +4,106 @@ All notable changes to the Caldanai Bot project will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-06-06 — Grounded flyers dodge worse than airborne ones
+
+Destroying a flying creature's wings grounded it in the flavor but didn't lower its dodge: the mode-gated `_emergent_dodge` just switched from wing-based to leg-based mobility at the same scaling, and with intact legs the value was identical — so a pixie kept dodge 31 with both wings gone (caught in LIVE play). The static wing `DODGE: -5` debuff that should have done it is vestigial (`get_dodge` never reads the debuffs table). Added a generalized grounded-flyer penalty so losing flight costs evasion for every winged creature, not just the dragon (which already encoded it via a bespoke flying bonus).
+
+- **`creatures/__init__.py`** — new `GROUNDED_FLYER_DODGE_PENALTY = 0.5`. `_emergent_dodge` applies it when a creature with airborne-mobility parts (wings, destroyed or not) is grounded: grounded dodge = half of airborne, so flight is now a 2× dodge swing.
+- **`monsters/dragon.py`** — docstring only; the dragon's existing `×1.5` flying bonus is preserved (its HUGE-mass-in-air comp) and now stacks with the base grounded penalty, leaving it a 3× swing.
+- **Tests** — `tests/test_stat_emergence.py` (grounded-flyer halving, flying = 2× grounded, wingless creatures un-penalized); `tests/test_dragon_body_parts.py` grounded expectations updated for the `×0.5`.
+
+### 2026-06-06 — Body-HP floor lowered to 0; combat damage math consistent everywhere
+
+Two coupled combat-math fixes. (1) **Light hits can now deal 0 body HP.** The body-HP-from-bleed formula floored at `num_hits` (`max(num_hits, int(bleed × BLEED_MOD))`), so a flurry of light scratches forced ≥1 body HP *per hit* — a fighter could be chipped to death by twenty glancing blows. The floor is lowered to 0: body damage is now purely the bleed sum, so tiny hits contribute 0 body HP (they still deal part damage, and death still comes from critical-part destruction). (2) **The `Core Dmg` column reconciles with the applied total.** It used to `int()` each row independently and could sum to *less* than the body actually took (a landed hit even showing `0` while the body lost more — caught in LIVE hydra play: column summed to 1, bleed-through line said 2). Now the column, the single-target footer, the hydra bleed-through line, and the value `apply_damage` writes all show the same number.
+
+- **`combat/resolution.py`** — `apply_body_hp_floor` drops the `max(num_hits, …)` (now `int(bleed_total × BLEED_MOD)`, floor 0). New `distribute_body_hp` apportions that total across landed hits by largest-remainder bleed-share, so the column sums exactly to the applied value and a sub-1-bleed hit can legitimately show 0.
+- **`combat/attack_result.py`** — the `Core Dmg` column and the single-target footer body-HP suffix both sum from `distribute_body_hp`.
+- **Tests** — `tests/test_combat_resolution.py::TestDistributeBodyHp` (incl. light-scratches-floor-to-0); `tests/test_q6_body_hp_bleed.py` updated (tiny bleed → 0, not 1).
+
+### 2026-06-06 — Combat death announcement no longer swallowed by a gear-drop line
+
+A player killed by a monster's multi-source retaliation could die with no "crumples to the ground lifelessly!" line. `apply_sequence_to_target` captured `Player.apply_damage`'s return first-non-empty-wins, but that return is conflated — gear-drop narration AND the death tail. When an earlier attack source destroyed a gear-bearing non-fatal part (the hand still holding a torch) before a later source landed the fatal blow, the gear-drop line claimed the slot and the death line was discarded (caught in LIVE cyclops play: a player at 0/21 HP read as "still upright"). Now accumulates every non-empty `apply_damage` return in hit order, so gear-drop AND death both surface.
+
+- **`combat/resolution.py`** — `apply_sequence_to_target` collects all `apply_damage` returns instead of keeping only the first.
+- **Tests** — `tests/test_combat_resolution.py` (gear-drop-before-fatal-source regression).
+
+### 2026-06-05 — `tools/now.py`: unattended-clock helper (internal)
+
+New `tools/now.py` prints the current UTC ISO timestamp (plus `--since` collector-staleness and `--expiry` status modes) for the bg-Vael synthesis cron, which had no clock during unattended fires and was inferring "now" from stale digest content. Covered by the existing `Bash(python -m tools.*)` allowlist. Tested in `tests/test_tools_now.py`. No player-facing surface.
+
+### 2026-06-04 — `$craft list` now shows recipes you're short materials for
+
+`$craft list` previously hid any recipe whose materials you couldn't fully cover, so a player one bone short of a recipe saw nothing and had no signal that they were close. The list now splits into two sections — **"can craft"** (with success %) and **"need more materials for"** (with the specific missing materials) — so the command doubles as a gather-goal hint instead of a binary gate.
+
+- **`rpg_crafting_commands.py`** — `_send_list` builds two lists (`craftable` / `needs_materials`) instead of filtering on `_find_materials` success; locked/under-skilled recipes still hidden. Missing-material recipes render `(missing: <mats>)`. Help text updated.
+
+### 2026-06-04 — Skeleton death-flavor typo
+
+`skeleton.py` death pool: "The light in @1d's sockets **guts**" → "**gutters**" (a flame gutters; "guts" was a plain typo).
+
+### 2026-06-03 — `$sit` subject-verb agreement for they/them players
+
+A `$sit` variant rendered "Vael Caldanai sits down where they **stands**" — the verb was hardcoded singular but `@1s` resolves to "they" for they/them players. Fixed via the parser's verb-agreement token.
+
+- **`rpg_presence_commands.py`** + **`rpg_social_commands.py`** — `@1s stands` → `@1s @1v(stands|stand)`.
+
+### 2026-05-25 — Combat role-mention reaches everyone: deferred role-clear
+
+The loot-announce reached nobody after a `$pray` nat-1 sacrifice left a player out of the `RPG Combatant` role at announce time. Root cause: `_finalize_combat` cleared the combat role from every participant *immediately*, but the `Dispatcher` queues messages and drains on a ~1-second background loop — so the loot-announce (which embeds the `<@&combatant>` role-mention) hadn't reached Discord yet. Discord then resolved the mention against an already-emptied role and pinged no one. Split combat teardown: state-teardown fires immediately, role-clear is deferred ~3 seconds via the game clock so the dispatch loop has flushed the announce first.
+
+- **`combat_state.py`** — `end_combat` is now a thin wrapper over two new methods. `tear_down_state` clears monster / combatants / targets / the `do_combat` clock routine / loot-size snapshot but deliberately *leaves* `looters` and the Discord role intact. `release_combat_roles` removes the role from every looter and clears the list; idempotent on empty `looters`. `end_combat` (full back-to-back teardown) retained for paths that don't dispatch a role-mention announce (error paths, admin `$creature kill`).
+- **`rpg/__init__.py`** — `_finalize_combat` calls `tear_down_state` immediately, then schedules `_release_combat_roles_after_announce` on the game clock with a 3-second delay (new, idempotent helper).
+- **Tests** — `tests/test_game.py::TestCancelCombat` updated: looters + role stay populated when `cancel_combat` returns; the deferred clear is asserted scheduled instead of an immediate `clear_combat_roles`.
+
+### 2026-05-25 — Heal budget routes by what's actually injured (body-only `$pray` no longer "tingles")
+
+A `d20=17` `$pray` on a target at 4/20 body HP with no part injuries fell through to *"pleasant tingle, no effect"* on a clearly-injured target. Root cause in `HealMixin.distribute_heal`: the canonical 2:1 part:body split was unconditional, so `total_heal=1` floored `part_budget=1 / body_budget=0`, then stranded that part budget against an empty injured-parts list — and the part→body spillover valve halves overflow, so 50%+ of the heal evaporated. The 2:1 split only makes sense when *both* dimensions are wounded. Route the budget by injury shape: part-only injuries send the whole heal part-side, body-only injuries send it all body-side, only the mixed case uses the 2:1 split (with the original `total_heal=1` part-floor now correctly scoped to the mixed branch).
+
+- **`creatures/healing.py`** — `distribute_heal` gains `has_part_injuries` / `has_body_injury` checks and three routing branches.
+- **Tests** — `tests/test_pray.py` gains `test_body_only_injury_with_total_heal_one_lands_on_body`.
+
+### 2026-05-25 — Stone field `$look` reflects the golem-disengage tally
+
+The stone-field `$look` line was static. It now interpolates a rough standing-stone count derived from the lifetime golem-disengage tally (players walk every defensive golem, so the world reflects the record back). Estimate is rounded *down* to the nearest ten (`"180-ish stones"`); below ten it falls back to *"a thin scatter of stones"*.
+
+- **`world/objects/stone_field.py`** — new `_stones_count_phrase` / `_golem_escape_count`. The count sums the persisted `monsters.golem.escaped` stat (read directly from Mongo's `statics` doc) with the in-memory `game.monster_statics` Counter. Any read failure (no guild/channel/DB, missing doc) degrades to the in-memory value alone — `$look` never raises. **(Note: this is a synchronous Mongo read on the `$look` path — try/except-guarded so it can't raise, but worth a perf eyeball if `$look` is high-frequency.)**
+- **Tests** — `tests/test_world_static_objects.py` gains three cases (rounded-down ≥10, thin-scatter <10, DB-unreachable safety).
+
+### 2026-05-23 — Shared `expand_inventory_args`: numeric index / range / multi-arg `$fav`, ANSI inventory
+
+A consolidation + UX pass across the inventory verbs. The numeric-index, range (`1-10`), `all`, and progressive-fuzzy resolution logic was duplicated inline in `$sell` (including the 2026-04-29 index-shift pinning) and partially reimplemented per command. Extracted into one shared generator so `$sell` / `$fav` / `$unfav` / `$equip` / `$stow` all share a single matching path, and the numeric-index selector the `$favorite` docstring already promised now actually works everywhere.
+
+- **`helpers/utils.py`** — new `RpgUtilities.expand_inventory_args(channel, player, raw_queries, mode)` generator: pre-pins numeric indices / ranges / `all` to `Item` refs (so mid-loop inventory mutation doesn't re-key indices), holds fuzzy strings for lazy progressive resolution (so `$sell wand.b wand.b` still picks best-then-next-best), and dispatches user-facing errors for bad indices/ranges. `resolve_items_or_notify` gained numeric-index + range handling and, in `stow` mode, a sell-mode probe distinguishing *"you don't own this"* from *"you own it but it's not equipped."*
+- **`rpg_inventory_commands.py`** — `$fav` / `$unfav` are now variadic (`$favorite sword shield 7 candy.best` flags multiple, deduped by identity); `$sell` collapsed onto the shared loop; `$equip` and `$stow` accept a bare 1-based inventory index (`$equip 35`, `$stow 7`); `_resolve_best` lost its vestigial no-demote refusal (so `$fav wand.best` can favorite the masterwork you're wielding — stripped after Caels caught it in playtest); `$loot` overburden message appends *"`$sell` to make room, then `$loot` again to claim them."*; inventory fences switched ` ```js ` → ` ```ansi `.
+- **`creatures/player.py`** — `get_inventory` renders per-token ANSI: cyan index, quality-colored name, cyan placement tags, yellow ★ favorite. `use_item` returns a specific *"X isn't something you can consume"* line for non-usable items instead of the generic catch-all.
+- **`helpers/enums.py`** — new `QUALITY_ANSI` map (per-quality fg/intensity/bg; MASTERWORK a black-on-gold badge). **`helpers/ansi.py`** — `wrap()` gains an optional `bg` kwarg for per-token badges.
+- **`tools/ansi_swatch.py`** (+ `tests/test_tools_ansi_swatch.py`) — palette-tuning aid for the quality colors above.
+- **Tests** — `tests/test_resolve_items_or_notify.py` (+150) covering the numeric/range/stow-probe paths.
+
+### 2026-05-22 — Player-death narration lands at destroy-time (admin `$creature destroy`)
+
+An admin `$creature destroy` on a player's critical part computed death correctly but **discarded** the `apply_damage` return, so the death tail and gear-drop lines never surfaced at destroy-time — they fired *late* on the next idle regen tick. Compounded by a `Player.apply_damage` snapshot bug: `was_alive` came from body HP alone (`self.health > 0`), not full `is_dead()` semantics, so a player with positive body HP but a still-destroyed critical part (the gap between body-revive and part-restore across regen ticks) read `was_alive=True` and falsely re-fired the "crumples lifelessly" tail during regen-revive.
+
+- **`rpg_admin_commands.py`** — `creature_destroy` captures the `apply_damage` return and dispatches it immediately.
+- **`creatures/player.py`** — `apply_damage` snapshots `was_alive = not self.is_dead()` (full body-HP-OR-critical-part semantics).
+- **Tests** — `tests/test_rpg_admin_destroy.py` gains `test_apply_damage_narration_emits_at_destroy_time`.
+
+### 2026-05-22 — Player commands accept fuzzy names + plain-text `@name` (admin + info)
+
+Several player-targeting commands required a *real* Discord mention and silently no-op'd on a bare name or a plain-text `@Caels` typed without selecting Discord's autocomplete. Unified resolution: real `@`-mentions first, then positional args via the fuzzy player roster (leading `@` stripped, raw `<@!id>` tokens skipped), deduped by player identity.
+
+- **`rpg_admin_commands.py`** — `$smite` / `$unsmite` are now variadic and share a new `_resolve_smite_targets` helper. `$creature destroy <name> …` first-arg falls back from monster-name to player-name resolution, so `$creature destroy Caels head` and plain-text `$creature destroy @Caels head` both target the player. Brief/help text updated "mentioned" → "named."
+- **`rpg_info_commands.py`** — `$profile`/look-at gains a fuzzy player-name fallback. `$cmproll` accepts trailing name args (real mentions + fuzzy names); rewrote option-parsing so `fumbles`/`crits` vs die-type correctly offset where name args begin, with hardened `ctx.message.mentions` None-guards.
+- **Tests** — `tests/test_rpg_admin_destroy.py` gains `test_player_fuzzy_name_targets_player` and `test_plain_text_at_name_targets_player`.
+
+### 2026-05-?? — Wren flavor: article-form token fixes in combat/death reaction pools
+
+Eleven Wren reaction-pool lines addressed the killing player with a bare `@2` (literal name) where the article form `@2d` was intended, plus two sentence-start capitalization fixes (`@2C` / `@2D`). Parser-correctness only — no new content. *(Date uncertain — distinct from the 2026-05-18 Marn-pronoun Wren arc.)*
+
+- **`creatures/passersby/wren.py`** — `COMBAT_WON_REACTIONS`, `COMBAT_FLED_REACTIONS`, `PARTY_DEATH_REACTIONS`: bare `@2` → `@2d`, plus `@2C`/`@2D` at sentence start.
+
+## [2026-05-20]
+
 ### 2026-05-19 — `$use` regression fix: consumables now resolve correctly
 
 `$use candy` (and other consumable invocations like `$use sandwich`) returned *"You don't seem to have anything matching candy"* even when the item was in inventory. Regression introduced by the 2026-05-17 `$fav` / `$unfav` / `$use` fuzzy migration (commit `dace4ae`): the `ItemConverter` discord.py annotation path on `$use` routes through `resolve_item_query(argument, "equip")`, and equip mode applies the predicate `isinstance(i, Equipment) and not self.is_equipped(i)` at `player.py:1524-1529` — which filters `Consumable` items (candy, sandwich) out entirely. Caels caught it in live channel at 2026-05-19T18:29Z when `$use candy` failed despite `$item candy` showing three uses remaining.

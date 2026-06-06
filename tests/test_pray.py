@@ -602,6 +602,42 @@ class TestNat17To19RescueAndDistribute:
         )
 
     @pytest.mark.asyncio
+    async def test_body_only_injury_with_total_heal_one_lands_on_body(self):
+        """Caels 2026-05-25: Serena at 4/20 body HP with NO part
+        injuries took a d20=17 pray. ``total_heal = rolled_floor + 0``
+        landed at 1, distribute_heal's old unconditional 2:1 split
+        floored ``part_budget`` to 1 / ``body_budget`` to 0, then
+        wasted the part_budget against an empty injured_parts list
+        (spillover halves to 0). Heal narration fell through to
+        "pleasant tingle, no effect" on a clearly-injured target.
+
+        Post-fix: with no part injuries, the entire heal routes to
+        body — 4/20 → 5/20 — and the "imbuing with 1 point" line
+        fires."""
+        cog = _cog()
+        caels = _make_player("Caels", health=20, health_max=20, uid=1)
+        # Serena: body-only injury (4/20), no parts at all so the
+        # has_part_injuries check trivially short-circuits.
+        serena = _make_player("Serena", health=4, health_max=20, uid=2)
+        serena.body_parts = []
+        game = _make_game(monster=None, players=[caels, serena])
+
+        await _invoke_pray(cog, game, caels, d20_value=17, d6_value=1)
+
+        # Body must move — the bug was that it didn't.
+        assert serena.health == 5, (
+            f"Expected body 4 → 5 with total_heal=1 on body-only "
+            f"injury; got {serena.health}. Regression of the "
+            f"distribute_heal part-budget-floor stranding bug."
+        )
+
+        sent = "\n".join(_dispatched_strings(game._dispatcher))
+        assert "warm light suffuses" in sent
+        # The bug was tingle-firing on a real heal. Must not happen.
+        assert "pleasant tingle" not in sent
+        assert "imbuing" in sent
+
+    @pytest.mark.asyncio
     async def test_rescue_lifts_non_critical_ancestor_without_overwriting_critical(self):
         """Caels-2026-05-01 incident: neck (non-critical) is destroyed,
         cascade-destroying head (critical, but own HP intact). Pre-fix

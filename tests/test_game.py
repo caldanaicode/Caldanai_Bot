@@ -299,9 +299,14 @@ class TestCancelCombat:
         """``cancel_combat`` (monster fleeing) clears combat state
         but preserves any mid-combat salvage already accumulated
         in ``Game.loot``. Players keep what they earned even when
-        the monster bolts. Pre-Phase-2 this method also called
-        ``self.loot.clear()``; that erased legitimate dismemberment
-        loot and was removed once salvage drops became a thing."""
+        the monster bolts.
+
+        The role-clear is DEFERRED via game_clock (per the 2026-05-25
+        split — the loot-announce embeds the role-mention and the
+        dispatcher takes ~1s to flush, so the role-clear waits ~3s).
+        ``looters`` and the Discord role therefore stay populated
+        when this method returns; they only get cleared when the
+        scheduled ``_release_combat_roles_after_announce`` fires."""
         game = _make_combat_game(mock_db, mock_gc_cls)
         # Seed mid-combat salvage to verify it's preserved.
         game.loot[42] = ["pre-existing salvage item"]
@@ -309,11 +314,16 @@ class TestCancelCombat:
 
         assert game.monster is None
         assert len(game.combatants) == 0
-        assert len(game.looters) == 0
+        # Looters + role preserved until deferred clear fires.
+        assert len(game.looters) == 1
+        game.player_manager.clear_combat_roles.assert_not_awaited()
         # Salvage survives the flee.
         assert game.loot[42] == ["pre-existing salvage item"]
         game.set_spawn_timer.assert_awaited_once()
-        game.player_manager.clear_combat_roles.assert_awaited_once()
+        # Deferred role-clear scheduled on the game clock.
+        game.game_clock.add_routine.assert_any_call(
+            game._release_combat_roles_after_announce, 3, True,
+        )
 
 
 class TestCheckTimeFlee:

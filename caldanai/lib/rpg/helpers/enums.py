@@ -482,6 +482,30 @@ class Qualities(Enum):
         return quality
 
 
+# Quality → ANSI ``(fg_digit, intensity_digit, bg_digit_or_None)`` for the
+# inventory listing. Per-token coloring (each item name wrapped on its own
+# via ``ansi.wrap``) — NOT a full-row background: Discord's ansi bg only
+# paints behind characters and can't fill a fence to a clean rectangle, so
+# a row-wide panel always goes ragged.
+#
+# Discord-palette constraints (8 colors, no 256/truecolor, only bold
+# honored — dim ignored, no usable gray since ``30`` reads black): the two
+# neutral low tiers separate by WEIGHT on white (junk plain, ordinary
+# bold), SUPERIOR borrows pink, and MASTERWORK gets the one per-token
+# BADGE — black-on-gold (fg 30 / bg 43) — which makes the rarest tier pop
+# and, because the bg forces its own canvas, stays legible on the light
+# theme too. (Plain whites wash out on light theme; accepted for the
+# common low tiers — only the badge is theme-proofed.)
+QUALITY_ANSI = {
+    Qualities.JUNK:       ("37", "0", None),  # plain white — dull/unremarkable
+    Qualities.ORDINARY:   ("37", "1", None),  # bold white — weight separates it from junk
+    Qualities.FINE:       ("32", "0", None),  # green
+    Qualities.QUALITY:    ("34", "0", None),  # blue
+    Qualities.SUPERIOR:   ("35", "0", None),  # pink (≈ purple)
+    Qualities.MASTERWORK: ("30", "0", "43"),  # black-on-gold badge — theme-proof, the one bg highlight
+}
+
+
 class Roles(Enum):
     ACTIVE = "Active RPG Player"
     COMBAT_MAIN = "RPG Combatant"

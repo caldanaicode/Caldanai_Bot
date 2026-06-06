@@ -29,6 +29,8 @@ from caldanai.lib.rpg.combat.attack_result import AttackResult, AttackSequence
 from caldanai.lib.rpg.combat.resolution import (
     ResolutionResult,
     apply_sequence_to_target,
+    compute_body_hp_damage,
+    distribute_body_hp,
 )
 from caldanai.lib.rpg.creatures import Creature
 from caldanai.lib.rpg.creatures.body_part import BodyPart
@@ -795,6 +797,60 @@ class TestDeathMessage:
 
         assert rr.death_msg == ""
 
+    def test_gear_drop_line_does_not_swallow_later_death_line(self):
+        """Regression (LIVE cyclops fight, 2026-06-04): a multi-source
+        retaliation where an EARLIER source destroys a gear-bearing
+        non-fatal part and a LATER source lands the fatal blow.
+
+        ``Player.apply_damage`` returns a CONFLATED string — gear-drop
+        narration for the newly-useless part PLUS a death tail on the
+        alive->dead transition. The old first-non-empty-wins capture
+        let the right-hand's "torch slips free" line claim the single
+        ``death_msg`` slot, so the neck-kill's "crumples lifelessly"
+        line was silently dropped: the player died with no death
+        message in the channel. Every non-empty ``apply_damage`` return
+        must now survive, in hit order."""
+        hand = _RecordingPart(name="hand", health_max=6)  # non-critical
+        neck = _RecordingPart(name="neck", health_max=8, is_critical=True)
+        target = _make_creature(name="Vael", health_max=21)
+        target.body_parts = [hand, neck]
+
+        # Mimic ``Player.apply_damage``'s conflated return: a gear-drop
+        # line for a newly-destroyed non-critical part, a crumple tail
+        # on death — joined into one string per call.
+        real_apply = target.apply_damage
+
+        def player_like_apply(amount, dmg_type=None, target_part=None):
+            was_alive = not target.is_dead()
+            real_apply(amount, dmg_type=dmg_type, target_part=target_part)
+            lines = []
+            if (
+                target_part is not None
+                and target_part.is_destroyed()
+                and not target_part.is_critical
+            ):
+                lines.append("Their torch slips free.")
+            if was_alive and target.is_dead():
+                lines.append("Vael crumples to the ground lifelessly!")
+            return "\n".join(lines)
+
+        target.apply_damage = player_like_apply
+
+        attacker = _make_creature(name="cyclops")
+        # Hand destroyed FIRST (drops gear), neck destroyed SECOND (kills).
+        seq = _make_sequence(
+            attacker, target,
+            [_make_result(6, hand), _make_result(8, neck)],
+        )
+
+        rr = apply_sequence_to_target(seq, target)
+
+        assert target.is_dead()
+        assert "Their torch slips free." in rr.death_msg
+        assert "Vael crumples to the ground lifelessly!" in rr.death_msg
+        # In-fiction order: gear leaves while still alive, then death.
+        assert rr.death_msg.index("torch") < rr.death_msg.index("crumples")
+
 
 # ---------------------------------------------------------------------------
 # Empty / null-route sequence
@@ -838,3 +894,104 @@ class TestEmptySequence:
         # Totals still accumulate so the caller can apply them.
         assert rr.num_hits == 1
         assert rr.body_damage_total == 10
+
+
+# ---------------------------------------------------------------------------
+# distribute_body_hp — Core Dmg column reconciles with applied body HP
+# ---------------------------------------------------------------------------
+
+
+def _bleed_part(name, rate):
+    part = _RecordingPart(name=name, health_max=50)
+    part.bleed_rate = rate
+    return part
+
+
+class TestDistributeBodyHp:
+    """The Core Dmg column must sum to exactly the body HP that
+    ``apply_damage`` writes (``compute_body_hp_damage``). The old per-row
+    ``int(final * rate * mod)`` dropped fractional carry AND skipped the
+    ``max(num_hits, …)`` floor, so a landed hit could show 0 while the
+    body still took >= 1 for it — the live hydra mismatch (column summed
+    to 1, bleed-through line said 2)."""
+
+    def _result(self, damage, rate):
+        return _make_result(damage, _bleed_part(f"p{rate}", rate))
+
+    def _applied(self, results, victim):
+        rr = ResolutionResult(
+            body_damage_total=sum(r.damage for r in results if r.damage > 0),
+            num_hits=sum(1 for r in results if r.damage > 0),
+        )
+        return compute_body_hp_damage(rr, victim, results=results)
+
+    def test_reported_hydra_scenario_column_sums_to_bleedthrough(self):
+        """leg 3@0.3 + torso 2@0.55 → float-sum 2.0 → applied 2, but the
+        old column showed int(0.9)=0 and int(1.1)=1 (sum 1). The fix
+        apportions the real total so the column sums to 2."""
+        victim = _make_creature(health_max=22)
+        results = [self._result(3, 0.3), self._result(2, 0.55)]
+
+        alloc = distribute_body_hp(results, victim)
+
+        assert sum(alloc) == self._applied(results, victim) == 2
+        assert alloc == [1, 1]  # 2 apportioned across the 2 hits
+
+    def test_surplus_distributed_by_bleed_share(self):
+        """8@0.5 + 2@0.5 → float-sum 5.0 → applied 5, apportioned purely
+        by bleed-share (4.0 vs 1.0) → [4, 1]; no per-hit floor."""
+        victim = _make_creature(health_max=100)
+        results = [self._result(8, 0.5), self._result(2, 0.5)]
+
+        alloc = distribute_body_hp(results, victim)
+
+        assert sum(alloc) == self._applied(results, victim) == 5
+        assert alloc == [4, 1]
+
+    def test_misses_get_zero_and_dont_count(self):
+        victim = _make_creature(health_max=100)
+        hit = self._result(4, 0.5)
+        miss = _make_result(0, _bleed_part("missed", 0.5))  # damage 0
+        results = [miss, hit]
+
+        alloc = distribute_body_hp(results, victim)
+
+        assert alloc[0] == 0  # the miss contributes nothing
+        assert sum(alloc) == self._applied(results, victim)
+
+    def test_bleed_mod_scales_the_total(self):
+        """A creature-wide BLEED_MOD > 1 raises the applied total; the
+        apportionment must still sum to it."""
+        victim = _make_creature(health_max=100)
+        victim.BLEED_MOD = 2.0
+        results = [self._result(3, 0.5), self._result(3, 0.5)]
+        # float-sum 3.0 * 2.0 = 6.0 → applied 6.
+        alloc = distribute_body_hp(results, victim)
+
+        assert sum(alloc) == self._applied(results, victim) == 6
+
+    def test_sum_always_equals_applied_invariant(self):
+        victim = _make_creature(health_max=100)
+        for spec in ([(1, 0.2)], [(5, 0.4), (1, 0.9)],
+                     [(2, 0.1), (2, 0.1), (9, 0.8)], [(7, 1.0)]):
+            results = [self._result(d, r) for d, r in spec]
+            alloc = distribute_body_hp(results, victim)
+            assert sum(alloc) == self._applied(results, victim)
+            assert all(a >= 0 for a in alloc)  # floor at 0, not 1
+
+    def test_light_scratches_floor_to_zero(self):
+        """Floor lowered from num_hits to 0 (2026-06-06): a flurry of
+        light scratches that bleeds < 1 in total deals 0 body HP, and the
+        Core Dmg column shows 0 for every row — nobody dies from
+        scratches. The old num_hits floor would have forced N body HP."""
+        victim = _make_creature(health_max=100)
+        # 2*0.1 + 2*0.1 + 1*0.1 = 0.5 → int 0.
+        results = [self._result(2, 0.1), self._result(2, 0.1),
+                   self._result(1, 0.1)]
+        alloc = distribute_body_hp(results, victim)
+        assert self._applied(results, victim) == 0
+        assert alloc == [0, 0, 0]
+        # A single sub-1 bleed also floors to 0 (was 1 under the old floor).
+        one = [self._result(5, 0.05)]  # 0.25 → int 0
+        assert distribute_body_hp(one, victim) == [0]
+        assert self._applied(one, victim) == 0

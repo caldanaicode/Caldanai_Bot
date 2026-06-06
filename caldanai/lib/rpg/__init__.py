@@ -760,6 +760,16 @@ class Game:
             self.player_manager, self.game_clock, self.do_combat,
         )
 
+    async def _release_combat_roles_after_announce(self):
+        """Game-clock-scheduled tail of the ``_finalize_combat`` split.
+        Fires ~3 seconds after combat ends, by which point the
+        dispatcher's 1-second send loop has flushed the loot-announce
+        (which embeds the role-mention) to Discord. Removes the role
+        + clears looters via :meth:`CombatState.release_combat_roles`.
+        Idempotent — safe if the looters list is already empty.
+        """
+        await self.combat.release_combat_roles(self.player_manager)
+
     async def _finalize_combat(self, outcome: str) -> str:
         """Universal end-of-combat shutdown: record the outcome,
         emit a loot-announce when the pool has anything in it,
@@ -848,7 +858,24 @@ class Game:
                     else f"\n{present_line}"
                 )
 
-        await self.end_combat()
+        # Split teardown: tear down combat state immediately, but
+        # DEFER the role-clear so the announce above (which embeds
+        # ``<@&combatant>``) still pings everyone when Discord
+        # processes it. ``Dispatcher`` queues messages and drains via
+        # a 1-second background loop, so the announce hasn't actually
+        # reached Discord yet by the time this function returns. A 3-
+        # second delay on the role-clear gives the dispatch loop time
+        # to send the message, after which Discord can resolve the
+        # role-mention against the still-populated role. Without this
+        # split (the pre-2026-05-25 behavior), the role-clear fired
+        # immediately and Discord saw an empty role at mention-resolve
+        # time — the loot notice reached nobody. Caels caught it
+        # after a $pray nat-1 sacrifice left him not-in-role for the
+        # loot announce.
+        await self.combat.tear_down_state(self.game_clock, self.do_combat)
+        self.game_clock.add_routine(
+            self._release_combat_roles_after_announce, 3, True,
+        )
         await self.set_spawn_timer()
         return announce
 

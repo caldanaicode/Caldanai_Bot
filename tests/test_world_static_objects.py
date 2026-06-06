@@ -564,6 +564,47 @@ class TestStoneField:
         line = sf.on_verb("light", _make_game(), actor)
         assert line is None
 
+    def test_look_line_uses_rounded_estimate_when_count_at_least_ten(self):
+        """`get_look_line` interpolates a "<N>-ish stones" phrase
+        with N = floor(golem.escaped / 10) * 10. Vael walks every
+        defensive golem; her in-fiction count of standing stones
+        should be the world's record back at her. The rounded-down
+        estimate sidesteps the unknown pre-stone-field tally:
+        order-of-magnitude reads natural, exact counts would feel
+        forensic."""
+        sf = StoneField()
+        game = _make_game()
+        game.guild = MagicMock(id=1)
+        game.channel = MagicMock(id=2)
+        from collections import Counter
+        game.monster_statics = Counter({"golem.escaped": 187})
+        line = sf.get_look_line(game)
+        assert "180-ish stones" in line
+        assert "190-ish" not in line  # rounded down, not nearest
+
+    def test_look_line_falls_back_below_ten(self):
+        """Below the ten-tier the rough-estimate phrasing reads
+        worse than a poetic fallback. The field is older than the
+        clearing in lore — a fresh-deploy single-digit count is an
+        artefact, not a narrative state."""
+        sf = StoneField()
+        game = _make_game()
+        game.guild = MagicMock(id=1)
+        game.channel = MagicMock(id=2)
+        from collections import Counter
+        game.monster_statics = Counter({"golem.escaped": 3})
+        line = sf.get_look_line(game)
+        assert "thin scatter" in line
+        assert "-ish" not in line
+
+    def test_look_line_safe_when_db_unreachable(self):
+        """No guild / no channel / no DB → degrades gracefully to
+        in-memory + fallback. ``$look`` must never raise."""
+        sf = StoneField()
+        line = sf.get_look_line(_make_game())  # no guild/channel attrs
+        assert line is not None
+        assert "thin scatter" in line
+
 
 # ---------------------------------------------------------------------------
 # World cog dispatch

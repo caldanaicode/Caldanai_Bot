@@ -59,6 +59,16 @@ EXPOSURE_TAX_COEF: float = 1.0
 # separately tunable.
 DODGE_CAP_COEF: float = 2.0
 
+# Grounded-flyer dodge penalty. A creature that is structurally a flyer
+# (has airborne-mobility parts — wings — even destroyed ones) but is
+# currently grounded keeps only this fraction of its leg-based dodge:
+# losing flight loses its primary evasion. Without it, grounded dodge
+# emerges from intact legs at the SAME scaling as wings, so destroying
+# every wing was mechanically free for dodge (LIVE 2026-06-04: a pixie
+# kept dodge 31 with both wings gone). 0.5 → grounded flyers dodge at
+# half of airborne, i.e. flying is twice as evasive as grounded.
+GROUNDED_FLYER_DODGE_PENALTY: float = 0.5
+
 # Size-aware target selection (see "Size-Aware Targeting" design doc).
 # ``pick_random_part`` multiplies each part's exposure weight by a
 # size-ratio attractor: small-exposure parts (eye, ear) get
@@ -1912,11 +1922,9 @@ class Creature(GenderMixin, HealMixin):
         if not self.body_parts:
             return max(0, self.dodge)
 
+        mobility = self.find_all(Mobility)
         mode = "airborne" if self.is_flying() else "grounded"
-        mode_sources = [
-            p for p in self.find_all(Mobility)
-            if p.MOBILITY_MODE == mode
-        ]
+        mode_sources = [p for p in mobility if p.MOBILITY_MODE == mode]
         if not mode_sources:
             # No mobility sources in the current mode (snake with
             # no legs, djinn with neither legs nor wings).
@@ -1928,7 +1936,23 @@ class Creature(GenderMixin, HealMixin):
             node_filter=lambda n: n.MOBILITY_MODE == mode,
         )
         size_mod = self.size.value["dodge_mod"]
-        emergent = int(self.dodge * ratio * size_mod) + self.core_agility
+        # Grounded-flyer penalty: a creature with wings (airborne
+        # mobility parts, destroyed or not) that's currently on the
+        # ground evades with leg footwork only — a fraction of its
+        # airborne dodge. This is what makes destroying a flyer's wings
+        # actually lower its dodge; otherwise grounded legs substitute
+        # for wings 1:1 at the same scaling and grounding is free. The
+        # Dragon layers an additional flying bonus on top of this for
+        # its HUGE-mass-in-air flavor (see ``Dragon.get_dodge``).
+        flyer_penalty = 1.0
+        if mode == "grounded" and any(
+            p.MOBILITY_MODE == "airborne" for p in mobility
+        ):
+            flyer_penalty = GROUNDED_FLYER_DODGE_PENALTY
+        emergent = (
+            int(self.dodge * ratio * size_mod * flyer_penalty)
+            + self.core_agility
+        )
         floor = 1 if ratio > 0 else 0
         return max(floor, emergent)
 

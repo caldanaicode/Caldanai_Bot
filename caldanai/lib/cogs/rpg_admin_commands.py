@@ -197,84 +197,125 @@ class RpgAdminCommands(Cog):
             else:
                 Dispatcher.add(ctx, "Roles removed!")
 
-    @command(brief="Pass in a mention to call down the wrath of the Divine upon some hapless player.")
+    async def _resolve_smite_targets(self, ctx, game, args):
+        """Build the player-target list for ``$smite`` / ``$unsmite``
+        from both Discord @-mentions and positional name args.
+
+        Resolution order: real mentions first (in ctx-mention order),
+        then positional args via fuzzy player-name match. A leading
+        ``@`` on a positional arg is stripped before fuzzy-resolve so
+        plain-text ``@Caels`` (typed without selecting Discord's
+        autocomplete) still works. Raw ``<@!id>`` tokens in args are
+        skipped since they're already accounted for in
+        ``ctx.message.mentions``. Dedup is by player identity so
+        ``$smite @Caels Caels`` doesn't double-strike.
+        """
+        from caldanai.lib.rpg.helpers.resolvers import resolve_player
+
+        targets = []
+        seen_user_ids = set()
+
+        for mention in (ctx.message.mentions or []):
+            target = await RpgUtilities.get_player(
+                mention, game=game, notify=False,
+            )
+            uid = getattr(target, "user_id", None)
+            if target is not None and uid is not None and uid not in seen_user_ids:
+                seen_user_ids.add(uid)
+                targets.append(target)
+
+        for arg in args:
+            if arg.startswith("<@"):
+                continue
+            probe = arg[1:] if arg.startswith("@") else arg
+            matches = resolve_player(game, probe)
+            if len(matches) == 1:
+                p = matches[0]
+                uid = getattr(p, "user_id", None)
+                if uid is not None and uid not in seen_user_ids:
+                    seen_user_ids.add(uid)
+                    targets.append(p)
+        return targets
+
+    @command(brief="Pass in a mention or player name to call down the wrath of the Divine upon some hapless player.")
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)
-    async def smite(self, ctx: Context):
+    async def smite(self, ctx: Context, *args: str):
         """
-        Pass in a mention to call down the wrath of the Divine upon some hapless player.
+        Call down the wrath of the Divine upon some hapless player.
+        Targets can be supplied as Discord mentions, plain-text
+        ``@name`` (Discord autocomplete miss), or bare fuzzy names.
 
         (5-second cool-down server-wide)
         """
         if game := await RpgUtilities.get_game(ctx):
-            if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-                msg = (
-                    "An angry scar tears across the sky and an ominous red light pours out. Fire begins to rain "
-                    "upon the land, burning everything it touches..."
+            targets = await self._resolve_smite_targets(ctx, game, args)
+            if not targets:
+                return
+            msg = (
+                "An angry scar tears across the sky and an ominous red light pours out. Fire begins to rain "
+                "upon the land, burning everything it touches..."
+            )
+            for target in targets:
+                target.apply_damage(target.health)
+                msg += parse(
+                    "\n\n@1 cannot escape the righteous fire, and an enormous ball of molten lava consumes "
+                    "@1o. @1ac screams last but a moment, before all that remains is a burnt skeleton, "
+                    "and cinders lapping away at the cracks.",
+                    target,
                 )
-
-                for mention in ctx.message.mentions:
-                    target = await RpgUtilities.get_player(mention, game=game, notify=False)
-                    if target:
-                        target.apply_damage(target.health)
-                        msg += parse(
-                            "\n\n@1 cannot escape the righteous fire, and an enormous ball of molten lava consumes "
-                            "@1o. @1ac screams last but a moment, before all that remains is a burnt skeleton, "
-                            "and cinders lapping away at the cracks.",
-                            target,
-                        )
-
-                msg += "\n\nThe hole in the sky vanishes, and the strange light with it."
-                msgs = Dispatcher.split_message(msg)
-                for m in msgs:
-                    Dispatcher.add(game.channel, m)
+            msg += "\n\nThe hole in the sky vanishes, and the strange light with it."
+            msgs = Dispatcher.split_message(msg)
+            for m in msgs:
+                Dispatcher.add(game.channel, m)
 
     @command(brief="Resurrects a dead player, because maybe someone feels guilty.")
     @guild_only()
     @check_any(is_owner(), has_permissions(manage_guild=True))
     @cooldown(1, 5, BucketType.guild)
-    async def unsmite(self, ctx: Context):
+    async def unsmite(self, ctx: Context, *args: str):
         """
         Resurrects a dead player, because maybe someone feels guilty.
+        Targets can be supplied as Discord mentions, plain-text
+        ``@name`` (Discord autocomplete miss), or bare fuzzy names.
 
         (5-second cool-down server-wide)
         """
         if game := await RpgUtilities.get_game(ctx):
-            if ctx.message.mentions is not None and len(ctx.message.mentions) > 0:
-                msg = (
-                    f"A radiant light bursts forth from the bod{'ies' if len(ctx.message.mentions) > 1 else 'y'} "
-                    f"of "
-                )
+            targets = await self._resolve_smite_targets(ctx, game, args)
+            if not targets:
+                return
+            msg = (
+                f"A radiant light bursts forth from the bod{'ies' if len(targets) > 1 else 'y'} "
+                f"of "
+            )
 
-                corpses = []
-                for mention in ctx.message.mentions:
-                    target = await RpgUtilities.get_player(mention, game=game, notify=False)
-                    if target is None:
-                        continue
-                    # "Needs healing" covers both body-HP damage and
-                    # any non-full body part — a player with a
-                    # destroyed arm but full body HP should still be
-                    # restored by unsmite, since the parts and the
-                    # body HP are parallel accounting under Model D.
-                    if not target.is_injured():
-                        continue
+            corpses = []
+            for target in targets:
+                # "Needs healing" covers both body-HP damage and
+                # any non-full body part — a player with a
+                # destroyed arm but full body HP should still be
+                # restored by unsmite, since the parts and the
+                # body HP are parallel accounting under Model D.
+                if not target.is_injured():
+                    continue
 
-                    # Full restore: body HP, every part, regen reset,
-                    # dirty flag. Divine light is total — no selective
-                    # half-measures on an unsmite.
-                    target.heal_fully()
-                    corpses.append(target.name)
+                # Full restore: body HP, every part, regen reset,
+                # dirty flag. Divine light is total — no selective
+                # half-measures on an unsmite.
+                target.heal_fully()
+                corpses.append(target.name)
 
-                if corpses:
-                    if len(corpses) > 1:
-                        c = ", ".join(corpses[:-1]) + " and " + corpses[-1]
-                    else:
-                        c = corpses[0]
-                    msg += f"{c}, who now appear{'' if len(corpses) > 1 else 's'} whole."
-                    Dispatcher.add(game.channel, msg)
+            if corpses:
+                if len(corpses) > 1:
+                    c = ", ".join(corpses[:-1]) + " and " + corpses[-1]
                 else:
-                    Dispatcher.add(game.channel, "Everyone mentioned appears to already be in good health.")
+                    c = corpses[0]
+                msg += f"{c}, who now appear{'' if len(corpses) > 1 else 's'} whole."
+                Dispatcher.add(game.channel, msg)
+            else:
+                Dispatcher.add(game.channel, "Everyone named appears to already be in good health.")
 
     @command(brief="Test-only: force-pray with a specific d20 result, bypassing cooldown.")
     @guild_only()
@@ -377,10 +418,11 @@ class RpgAdminCommands(Cog):
         Target resolution:
 
         - ``$creature destroy @player <part> [<part>...]`` —
-          targets the mentioned player.
-        - ``$creature destroy <monster-name> <part> [<part>...]``
-          — targets the currently-spawned monster if its name
-          contains the provided substring (fuzzy match).
+          mention path; works whether the @-token is a real
+          Discord mention or just plain text.
+        - ``$creature destroy <name> <part> [<part>...]`` —
+          fuzzy match against the spawned monster's name OR a
+          player's display/Discord name.
         - ``$creature destroy <part> [<part>...]`` — defaults to
           the currently-spawned monster (legacy ``$spawn destroy``
           behavior).
@@ -414,15 +456,27 @@ class RpgAdminCommands(Cog):
             )
             args_list = [a for a in args_list if not a.startswith("<@")]
 
-        # Fuzzy monster-name match if no mention. Routes through
-        # ``resolve_active_monster`` (the shared spawned-monster
-        # resolver under all targeting commands) instead of an
-        # ad-hoc substring ``in`` check, so ``$creature destroy
-        # hyd head.1`` resolves a hexed hydra the same way ``$kill
-        # hyd`` does.
+        # First-arg fuzzy resolution: monster name OR player name.
+        # ``$creature destroy hyd ...`` resolves a hexed hydra the
+        # same way ``$kill hyd`` does; ``$creature destroy Caels
+        # ...`` resolves a player by display/Discord name. Plain-
+        # text ``@Caels`` (typed without selecting Discord's
+        # autocomplete) renders identically to a real mention but
+        # leaves ``ctx.message.mentions`` empty — stripping the
+        # leading ``@`` here lets it still match the player roster.
         if target is None and args_list:
-            from caldanai.lib.rpg.helpers.resolvers import resolve_active_monster
-            matched = resolve_active_monster(game.monster, args_list[0])
+            from caldanai.lib.rpg.helpers.resolvers import (
+                resolve_active_monster,
+                resolve_player,
+            )
+            probe = args_list[0]
+            if probe.startswith("@") and not probe.startswith("<@"):
+                probe = probe[1:]
+            matched = resolve_active_monster(game.monster, probe)
+            if matched is None:
+                players = resolve_player(game, probe)
+                if len(players) == 1:
+                    matched = players[0]
             if matched is not None:
                 target = matched
                 args_list = args_list[1:]
@@ -473,15 +527,19 @@ class RpgAdminCommands(Cog):
                 # direct ``part.health = 0`` mutation produced — pure
                 # ``is_dead`` returned True correctly but downstream
                 # displays still showed the body-HP number, reading
-                # as inconsistent. The apply_damage return is
-                # discarded; we render our own admin announcement
-                # below to keep the admin output clean.
-                target.apply_damage(
+                # as inconsistent. Emit the apply_damage return so
+                # gear-drop lines and the death tail ("Caels crumples
+                # to the ground lifelessly!") land at destroy-time —
+                # discarding them caused the death narration to
+                # surface late during the next regen tick (2026-05-22).
+                narration = target.apply_damage(
                     part.health_max,
                     dmg_type=None,
                     target_part=part,
                 )
                 destroyed.append(part)
+                if narration:
+                    Dispatcher.add(game.channel, narration)
                 hook_msg = part.on_destroyed(target)
                 if hook_msg:
                     Dispatcher.add(game.channel, parse(hook_msg, target))

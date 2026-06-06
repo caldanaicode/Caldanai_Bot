@@ -3,8 +3,8 @@
 Covers the three levers the design doc locks in:
 
 - ``compute_body_hp_damage``: per-victim final body-HP subtract with
-  per-part ``bleed_rate`` and creature-wide ``BLEED_MOD``. The
-  ``num_hits`` floor still applies.
+  per-part ``bleed_rate`` and creature-wide ``BLEED_MOD``. Floored at 0
+  (not ``num_hits``) since 2026-06-06 — light hits can deal 0 body HP.
 - ``MonsterPlugin.BLEED_MOD`` creature-wide multiplier stacks on top
   of per-part ``bleed_rate``.
 - ``BodyPart.defense_bonus`` — Q.6.3 additive integer adjustment to
@@ -55,24 +55,24 @@ def _resolution(num_hits: int, results):
 class TestBleedThroughFormula:
     def test_single_torso_hit(self):
         """Torso bleed_rate 0.7 × damage 20 = 14. Defense 0 →
-        final = max(num_hits=1, 14) = 14."""
+        int(14) = 14."""
         torso = BodyPart.make("torso", name="torso")
         res = _resolution(1, [_result(20, torso)])
         assert compute_body_hp_damage(res, _victim()) == 14
 
     def test_single_eye_hit_low_bleed(self):
-        """Eye bleed_rate 0.1 × damage 20 = 2. Below num_hits floor
-        (1 is less than 2, so 2 wins)."""
+        """Eye bleed_rate 0.1 × damage 20 = 2.0 → int 2."""
         eye = BodyPart.make("eye", name="eye")
         res = _resolution(1, [_result(20, eye)])
         assert compute_body_hp_damage(res, _victim()) == 2
 
-    def test_num_hits_floor_kicks_in_on_tiny_bleed(self):
-        """Toe bleed 0.05 × damage 5 = 0 (int truncates from 0.25).
-        num_hits=1 is the floor → 1 body HP."""
+    def test_tiny_bleed_floors_at_zero(self):
+        """Toe bleed 0.05 × damage 5 = 0.25 → int 0. The ``num_hits``
+        floor was lowered to 0 (2026-06-06), so a lone light scratch
+        deals 0 body HP — only part damage. Nobody dies from scratches."""
         toe = BodyPart.make("toe", name="toe")
         res = _resolution(1, [_result(5, toe)])
-        assert compute_body_hp_damage(res, _victim()) == 1
+        assert compute_body_hp_damage(res, _victim()) == 0
 
     def test_defense_param_dropped(self):
         """Q.6.3-followup: the ``defense`` param that earlier was
@@ -94,7 +94,7 @@ class TestBleedThroughFormula:
 
     def test_multi_source_bucket_sums_across_parts(self):
         """Dual-wield 15 torso + 15 arm = 15*0.7 + 15*0.3 = 15.
-        Two hits, defense 0 → max(2, 15) = 15."""
+        Two hits, defense 0 → int(15) = 15."""
         torso = BodyPart.make("torso", name="torso")
         arm = BodyPart.make("arm", name="arm")
         res = _resolution(2, [_result(15, torso), _result(15, arm)])

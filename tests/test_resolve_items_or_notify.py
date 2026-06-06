@@ -223,3 +223,153 @@ class TestHintParsing:
         )
         _, placement = result[0]
         assert placement is None
+
+
+class TestNumericIndex:
+    """Numeric queries (``$equip 35`` / ``$fav 12`` / ``$stow 7``)
+    resolve via 1-indexed inventory lookup. Mirrors the $sell pre-
+    pass behavior at ``rpg_inventory_commands.py:697`` — same
+    syntax, now available to every caller routed through this
+    resolver."""
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_numeric_string_resolves_to_indexed_item(self, mock_dispatch):
+        p = _player()
+        _give(p, "shortsword")
+        hat = _give(p, "mushroom_hat")
+        _give(p, "cape")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["2"], mode="equip",
+        )
+        assert len(result) == 1
+        item, placement = result[0]
+        assert item is hat
+        assert placement is None
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_numeric_int_resolves_to_indexed_item(self, mock_dispatch):
+        """Discord's ``Union[int, str]`` parsing can hand the
+        command an int directly; the resolver accepts both."""
+        p = _player()
+        sword = _give(p, "shortsword")
+        _give(p, "mushroom_hat")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, [1], mode="equip",
+        )
+        assert len(result) == 1
+        item, _ = result[0]
+        assert item is sword
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_out_of_range_dispatches_error(self, mock_dispatch):
+        p = _player()
+        _give(p, "shortsword")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["99"], mode="equip",
+        )
+        assert result == []
+        msgs = " ".join(
+            str(call.args[1]) for call in mock_dispatch.add.call_args_list
+            if len(call.args) > 1
+        )
+        assert "No such item" in msgs
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_numeric_carries_placement_hint(self, mock_dispatch):
+        """``$equip 1@l`` — index plus placement hint."""
+        p = _player()
+        sword = _give(p, "shortsword")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["1@l"], mode="equip",
+        )
+        assert len(result) == 1
+        item, placement = result[0]
+        assert item is sword
+        assert placement == EquipmentSlots.LEFT_SIDE
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_mixed_numeric_and_name_queries(self, mock_dispatch):
+        """Multi-query invocations can mix numeric and fuzzy."""
+        p = _player()
+        sword = _give(p, "shortsword")
+        hat = _give(p, "mushroom_hat")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["1", "mushroom"], mode="equip",
+        )
+        assert len(result) == 2
+        assert result[0][0] is sword
+        assert result[1][0] is hat
+
+
+class TestNumericRange:
+    """Numeric range queries (``1-10``) yield every inventory item
+    in the inclusive 1-based range. Mirrors $sell's existing range
+    syntax — same input shape now works for $fav / $unfav / $stow /
+    other resolver-driven inventory verbs."""
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_range_resolves_each_indexed_item(self, mock_dispatch):
+        p = _player()
+        items = [
+            _give(p, "shortsword"),
+            _give(p, "mushroom_hat"),
+            _give(p, "cape"),
+        ]
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["1-3"], mode="sell",
+        )
+        assert len(result) == 3
+        for i, (item, _) in enumerate(result):
+            assert item is items[i]
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_range_swapped_bounds_normalized(self, mock_dispatch):
+        """``3-1`` should normalize to ``1-3``."""
+        p = _player()
+        items = [
+            _give(p, "shortsword"),
+            _give(p, "mushroom_hat"),
+            _give(p, "cape"),
+        ]
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["3-1"], mode="sell",
+        )
+        assert len(result) == 3
+        for i, (item, _) in enumerate(result):
+            assert item is items[i]
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_range_partially_out_of_bounds_dispatches_error(self, mock_dispatch):
+        p = _player()
+        _give(p, "shortsword")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["1-99"], mode="sell",
+        )
+        assert result == []
+        msgs = " ".join(
+            str(call.args[1]) for call in mock_dispatch.add.call_args_list
+            if len(call.args) > 1
+        )
+        assert "range invalid" in msgs.lower()
+
+    @patch("caldanai.lib.rpg.helpers.utils.Dispatcher")
+    def test_range_single_item_low_equals_high(self, mock_dispatch):
+        """``2-2`` is a valid degenerate range — picks one item."""
+        p = _player()
+        _give(p, "shortsword")
+        hat = _give(p, "mushroom_hat")
+        _give(p, "cape")
+        channel = MagicMock()
+        result = RpgUtilities.resolve_items_or_notify(
+            channel, p, ["2-2"], mode="sell",
+        )
+        assert len(result) == 1
+        assert result[0][0] is hat

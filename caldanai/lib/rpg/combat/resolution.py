@@ -165,17 +165,27 @@ def apply_body_hp_floor(
     num_hits: int,
     victim: "Creature",
 ) -> int:
-    """Apply the Q.6.2 body-HP floor (``max(num_hits, int(bleed_total *
-    BLEED_MOD))``) to a pre-summed bleed total. Single ``int()``
-    truncation point — pair with :func:`accumulate_bleed_sum` to
-    aggregate across multiple attackers before the truncation, so
-    per-attacker ``int()`` drops don't compound (an N-attacker round
-    can lose up to N-1 units of body-HP damage to per-call truncation).
+    """Body-HP damage from a pre-summed bleed total: ``int(bleed_total ×
+    BLEED_MOD)``. Single ``int()`` truncation point — pair with
+    :func:`accumulate_bleed_sum` to aggregate across multiple attackers
+    before the truncation, so per-attacker ``int()`` drops don't
+    compound (an N-attacker round can lose up to N-1 units of body-HP
+    damage to per-call truncation).
+
+    **Floor lowered from ``num_hits`` to 0 (2026-06-06).** This used to
+    return ``max(num_hits, int(...))`` so every landed hit cost >= 1
+    body HP — which floored a flurry of light scratches up to N body HP,
+    i.e. a fighter "dying from twenty light scratches" rather than from
+    real bleed-through. The floor is now just the natural ``int()`` floor
+    at 0: body damage is purely the bleed sum, so tiny hits can
+    contribute **0** body HP. They still deal PART damage, and death
+    still comes from critical-part destruction — only the >= 1 per-hit
+    chip is gone. ``num_hits`` now only short-circuits the no-hits case.
     """
     if num_hits <= 0:
         return 0
     bleed_mod = getattr(victim, "BLEED_MOD", 1.0)
-    return max(num_hits, int(bleed_total * bleed_mod))
+    return int(bleed_total * bleed_mod)
 
 
 def compute_body_hp_damage(
@@ -188,12 +198,12 @@ def compute_body_hp_damage(
 
     Formula::
 
-        body_hp_dmg = max(
-            num_hits,
-            int(sum(r.damage * r.target_part.bleed_rate) * victim.BLEED_MOD)
-        )
+        body_hp_dmg = int(sum(r.damage * r.target_part.bleed_rate) * victim.BLEED_MOD)
 
-    - ``num_hits`` remains the floor ("you connected").
+    - **Floor at 0, not ``num_hits``** (2026-06-06): a round of light
+      hits can deal 0 body HP. Part damage still lands and critical-part
+      destruction still kills — only the per-hit ">= 1 body HP" chip is
+      gone. See :func:`apply_body_hp_floor`.
     - Per-part ``bleed_rate`` tunes how much part-damage bleeds into
       body HP — torso is high, eye is low.
     - ``victim.BLEED_MOD`` is a creature-wide multiplier (default 1.0)
@@ -227,6 +237,64 @@ def compute_body_hp_damage(
     return apply_body_hp_floor(bleed_total, resolution.num_hits, victim)
 
 
+def distribute_body_hp(results, victim) -> "List[int]":
+    """Apportion the applied body-HP total across the landed hits so the
+    per-row ``Core Dmg`` column sums EXACTLY to what ``apply_damage``
+    writes — keeping the column, the single-target footer, the hydra
+    bleed-through line, and the applied value all showing one number.
+
+    The body HP a victim takes is ``int(float-summed bleed × BLEED_MOD)``
+    — NO ``num_hits`` floor as of 2026-06-06 (see
+    :func:`apply_body_hp_floor`). Rendering each row independently as
+    ``int(dmg × rate × BLEED_MOD)`` drops fractional carry, so the
+    per-row ints can sum to less than the real total; this apportions
+    the real total instead, by largest-remainder weighted by each hit's
+    ``dmg × rate`` share.
+
+    Because there is no per-hit floor, a hit can legitimately show ``0``
+    body HP when the total is smaller than the hit count — a light
+    scratch that bleeds < 1 unit. That is the intended "scratches don't
+    chip you to death" behavior, and the column still sums to the
+    applied total.
+
+    The returned list aligns 1:1 with ``results``; misses and
+    zero-damage rows get ``0``. ``sum(result) ==
+    compute_body_hp_damage(...)`` for the same victim's results.
+    """
+    results = list(results)
+    out = [0] * len(results)
+    landed = [(i, r) for i, r in enumerate(results) if getattr(r, "damage", 0) > 0]
+    if not landed:
+        return out
+
+    num_hits = len(landed)
+    shares: List[float] = []
+    for _, r in landed:
+        part = getattr(r, "target_part", None)
+        rate = getattr(part, "bleed_rate", 1.0) if part is not None else 1.0
+        shares.append(r.damage * rate)
+
+    total = apply_body_hp_floor(sum(shares), num_hits, victim)
+    if total <= 0:
+        return out  # bleed rounded to 0 — part damage only, no body HP
+
+    share_sum = sum(shares) or 1.0
+    ideal = [s / share_sum * total for s in shares]
+    floors = [int(x) for x in ideal]
+    remainder = total - sum(floors)
+    # Largest-remainder (Hamilton): hand the leftover units to the hits
+    # with the biggest fractional share so the column sums to ``total``
+    # exactly. Hits with the smallest shares can land on 0 — intended.
+    order = sorted(
+        range(num_hits), key=lambda k: ideal[k] - floors[k], reverse=True,
+    )
+    for k in order[:remainder]:
+        floors[k] += 1
+    for (idx, _), a in zip(landed, floors):
+        out[idx] = a
+    return out
+
+
 def apply_sequence_to_target(
     sequence: "AttackSequence",
     target: "Creature",
@@ -257,7 +325,17 @@ def apply_sequence_to_target(
     if attacker is None:
         attacker = getattr(sequence, "attacker", None)
     injury_feedback: List[str] = []
-    death_msg = ""
+    # Accumulate every non-empty ``apply_damage`` return in hit order.
+    # ``Player.apply_damage`` returns a CONFLATED string — gear-drop
+    # lines for a newly-useless part AND the death/revive tail. A
+    # first-non-empty-wins capture loses the real death line whenever an
+    # earlier source destroys a gear-bearing non-fatal part (dropping
+    # gear) before a later source lands the fatal blow: the gear-drop
+    # line claimed the slot and the crumple was discarded. Collecting
+    # all of them preserves the in-fiction order (gear leaves, then
+    # death) and also surfaces every destroyed part's gear drop, not
+    # just the first.
+    death_lines: List[str] = []
     num_hits = 0
     body_damage_total = 0
     critical_part_kill = False
@@ -303,8 +381,8 @@ def apply_sequence_to_target(
             dmg_type=result.dmg_type,
             target_part=part,
         )
-        if d_msg and not death_msg:
-            death_msg = d_msg
+        if d_msg:
+            death_lines.append(d_msg)
         # Critical-part kill signal: when the victim died as a result
         # of this part-targeted ``apply_damage`` call, it was a
         # critical-part destruction (head, torso, etc. — see
@@ -365,6 +443,7 @@ def apply_sequence_to_target(
                 if attacker_msg:
                     injury_feedback.append(f"   {attacker_msg}")
 
+    death_msg = "\n".join(death_lines)
     return ResolutionResult(
         body_damage_total=body_damage_total,
         injury_feedback_lines=injury_feedback,

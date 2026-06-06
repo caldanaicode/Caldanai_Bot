@@ -375,11 +375,27 @@ class AttackSequence:
         )
         body_col_list: List[str] = []
         if show_body_col:
+            # Apportion the APPLIED body-HP total (the floored float-sum
+            # that ``apply_damage`` actually writes) across each victim's
+            # landed rows, so the Core Dmg column sums to the
+            # bleed-through line instead of drifting below it. The old
+            # per-row ``int(final * rate * mod)`` both dropped fractional
+            # carry AND skipped the per-hit floor, so a landed hit could
+            # show 0 while the body still took >= 1 for it. Grouped by
+            # victim because body HP is computed per-victim.
+            from caldanai.lib.rpg.combat.resolution import distribute_body_hp
+            body_values = [0] * len(self.results)
+            victim_groups: Dict[int, Any] = {}
+            for i, r in enumerate(self.results):
+                v = getattr(r, "victim", None) or self.target
+                victim_groups.setdefault(id(v), (v, []))[1].append(i)
+            for _, (v, idxs) in victim_groups.items():
+                alloc = distribute_body_hp([self.results[i] for i in idxs], v)
+                for local_k, i in enumerate(idxs):
+                    body_values[i] = alloc[local_k]
             body_col_list = [
-                "-" if p["is_miss"] else str(int(
-                    p["final_damage"] * p.get("bleed_rate", 1.0) * bleed_mod
-                ))
-                for p in parts_list
+                "-" if parts_list[i]["is_miss"] else str(body_values[i])
+                for i in range(len(parts_list))
             ]
 
         # Header labels per column. Def reintroduced post-Phase C —
@@ -569,19 +585,16 @@ class AttackSequence:
             absorbed = raw_total - total_damage
             body_suffix = ""
             if show_body_col:
-                # Single-truncation aggregation across this block's
-                # results — matches the per-row math but applies
-                # ``int()`` once so the number never undercounts the
-                # sum-of-rows by per-row floors. Aggregates further
-                # at the round level via ``apply_body_hp_floor``.
-                body_total = int(
-                    sum(
-                        r.damage * getattr(
-                            getattr(r, "target_part", None), "bleed_rate", 1.0,
-                        )
-                        for r in self.results if r.damage > 0
-                    ) * bleed_mod
+                # Sum the SAME per-row apportionment the Core Dmg column
+                # shows, so the footer total == the column sum == the
+                # body HP ``apply_damage`` writes (floored at num_hits,
+                # float-summed once). The pre-fix ``int(sum(...) * mod)``
+                # here omitted the per-hit floor and so could disagree
+                # with both the column and the applied value.
+                from caldanai.lib.rpg.combat.resolution import (
+                    distribute_body_hp,
                 )
+                body_total = sum(distribute_body_hp(self.results, self.target))
                 body_suffix = f" → {body_total} body-HP"
             lines.append(
                 f"   Total: {raw_total} raw - {absorbed} absorbed "

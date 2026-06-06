@@ -101,8 +101,8 @@ _DEAD_INVOKER_FLAVOR: Dict[str, List[str]] = {
         "The shade of @1 reaches out, but @1np arms close on nothing.",
         "A faint warmth gathers over the remains of @1 for a moment, then dissipates.",
         "@1np stillness seems a little lonelier than a moment ago.",
-        "Somewhere beyond the veil, @1 accepts the gesture.",
-        "The chill near @1np body softens briefly, as if remembering how to be held.",
+        "Somewhere beyond the veil, @1 reaches for the gesture, but the gesture won't keep its shape.",
+        "The chill near @1np body softens briefly, as if @1np arms remembered how to close around someone.",
     ],
     "high_five": [
         "The hand of @1 twitches at the wrist, short of a palm that isn't there.",
@@ -1813,7 +1813,7 @@ _SELF_TARGET_LINES: Dict[str, str] = {
     # pools in rpg_presence_commands.py already carry richer
     # texture, so these are deliberately spare.
     "lean":      "@1 leans against @1a own arm a moment.",
-    "sit":       "@1 sits down where @1s is.",
+    "sit":       "@1 sits down where @1s @1v(is|are).",
     "rest":      "@1 rests for a beat, eyes half-closing.",
     "ponder":    "@1 ponders the middle distance.",
     "tend":      "@1 tends to a strap on @1a own coat.",

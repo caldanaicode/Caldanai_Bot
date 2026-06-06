@@ -217,22 +217,27 @@ class TestDragonFlyingFlag:
         with _force_variant(True):
             d = Dragon()
         d.flags.discard("flying")
-        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        from caldanai.lib.rpg.creatures import (
+            _functionality_ratio, _part_base_name, GROUNDED_FLYER_DODGE_PENALTY,
+        )
         legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
         ratio = _functionality_ratio(legs)
-        base_emergence = int(d.dodge * ratio * 0.5)
+        base_emergence = int(d.dodge * ratio * 0.5 * GROUNDED_FLYER_DODGE_PENALTY)
         expected = max(0, base_emergence - 62)
         assert d.get_dodge() == expected
 
     def test_non_toes_variant_grounded_no_penalty(self):
-        """Non-toes variant grounded: dodge emerges from legs with HUGE mod."""
+        """Non-toes variant grounded: dodge emerges from legs with HUGE
+        mod, halved by the grounded-flyer penalty (no -62 toe penalty)."""
         with _force_variant(False):
             d = Dragon()
         d.flags.discard("flying")
-        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        from caldanai.lib.rpg.creatures import (
+            _functionality_ratio, _part_base_name, GROUNDED_FLYER_DODGE_PENALTY,
+        )
         legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
         ratio = _functionality_ratio(legs)
-        expected = int(d.dodge * ratio * 0.5)
+        expected = int(d.dodge * ratio * 0.5 * GROUNDED_FLYER_DODGE_PENALTY)
         assert d.get_dodge() == expected
 
     def test_flying_dodge_exceeds_grounded_intact_legs(self):
@@ -292,10 +297,12 @@ class TestDragonGetDodgeOverride:
         with _force_variant(True):
             d = Dragon()
         d.flags.discard("flying")
-        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        from caldanai.lib.rpg.creatures import (
+            _functionality_ratio, _part_base_name, GROUNDED_FLYER_DODGE_PENALTY,
+        )
         legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
         ratio = _functionality_ratio(legs)
-        base_emergence = int(d.dodge * ratio * 0.5)
+        base_emergence = int(d.dodge * ratio * 0.5 * GROUNDED_FLYER_DODGE_PENALTY)
         assert d.get_dodge() == max(0, base_emergence - 62)
 
     def test_override_no_penalty_when_flying_with_toes(self):
@@ -312,10 +319,12 @@ class TestDragonGetDodgeOverride:
         with _force_variant(False):
             d = Dragon()
         d.flags.discard("flying")
-        from caldanai.lib.rpg.creatures import _functionality_ratio, _part_base_name
+        from caldanai.lib.rpg.creatures import (
+            _functionality_ratio, _part_base_name, GROUNDED_FLYER_DODGE_PENALTY,
+        )
         legs = [p for p in d.body_parts if _part_base_name(p) == "leg"]
         ratio = _functionality_ratio(legs)
-        expected = int(d.dodge * ratio * 0.5)
+        expected = int(d.dodge * ratio * 0.5 * GROUNDED_FLYER_DODGE_PENALTY)
         assert d.get_dodge() == expected
 
 

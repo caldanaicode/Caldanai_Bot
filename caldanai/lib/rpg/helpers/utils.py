@@ -490,15 +490,22 @@ class RpgUtilities:
         zero-or-more per query (the resolver returns every
         matching unequipped item).
         """
+        import re
         from caldanai.lib.rpg.creatures.equipment_routing import SLOT_TO_PART_KEY, SLOT_PAIR
+        from caldanai.lib.rpg.creatures.player import ItemResolution
         from caldanai.lib.rpg.helpers.enums import EquipmentSlots
+
+        # ``1-10`` shape: inclusive numeric range over inventory
+        # slots. Mirrors $sell's existing range handling at
+        # ``rpg_inventory_commands.py:743``.
+        _NUMERIC_RANGE_RE = re.compile(r"\d+-\d+")
 
         results: List[Tuple[Item, Optional[EquipmentSlots]]] = []
 
         for raw in raw_queries:
-            if not isinstance(raw, str):
+            if not isinstance(raw, (str, int)):
                 continue
-            stripped = raw.strip()
+            stripped = str(raw).strip()
             if not stripped:
                 continue
 
@@ -511,7 +518,50 @@ class RpgUtilities:
             else:
                 item_q, hint_raw = stripped, ""
 
-            resolution = player.resolve_item_query(item_q, mode)
+            # Numeric query → 1-indexed inventory lookup. Mirrors
+            # the $sell pre-pass at ``rpg_inventory_commands.py:697``
+            # so the same ``$sell 35`` index syntax now works for
+            # any caller routed through this resolver (``$fav 35``,
+            # ``$stow 35``, ``$use 35``, etc.). The docstring on
+            # ``$favorite`` already promises ``index`` as a valid
+            # selector — this is the implementation.
+            resolution: "Optional[ItemResolution]" = None
+            if item_q.isnumeric():
+                idx = int(item_q)
+                if 1 <= idx <= len(player.inventory):
+                    item = player.inventory.filter(idx)[0]
+                    if item is not None:
+                        resolution = ItemResolution(items=[item])
+                if resolution is None:
+                    Dispatcher.add(
+                        channel,
+                        f"No such item: {idx}.",
+                    )
+                    continue
+            elif _NUMERIC_RANGE_RE.fullmatch(item_q):
+                # Range query (``1-10``) → every item in that
+                # inventory slice. Range expansions ignore the
+                # placement hint — ``@hint`` on a range would
+                # apply ambiguously and ranges are by-index by
+                # definition. ``low-1`` because the user gave a
+                # 1-based inclusive range; Python slice is
+                # 0-based exclusive on the upper.
+                low_str, _, high_str = item_q.partition("-")
+                low, high = int(low_str), int(high_str)
+                if low > high:
+                    low, high = high, low
+                if 1 <= low <= high <= len(player.inventory):
+                    resolution = ItemResolution(
+                        items=list(player.inventory.all()[low - 1:high])
+                    )
+                else:
+                    Dispatcher.add(
+                        channel,
+                        f"Index range invalid: `{item_q}`.",
+                    )
+                    continue
+            else:
+                resolution = player.resolve_item_query(item_q, mode)
 
             if not resolution.items:
                 if resolution.ambiguity_candidates:
@@ -524,10 +574,28 @@ class RpgUtilities:
                         f"did you mean one of: {cand_list}?",
                     )
                 else:
-                    Dispatcher.add(
-                        channel,
-                        f"You don't seem to have anything matching `{item_q}`.",
-                    )
+                    # Stow-mode no-match: the item may exist in
+                    # inventory but not be currently equipped
+                    # (consumable, or just un-equipped). Probe the
+                    # sell-mode resolver (item-first, excludes
+                    # equipped) to distinguish "you don't own this"
+                    # from "you own it but it's not equipped."
+                    inv_match = None
+                    if mode == "stow":
+                        sell_probe = player.resolve_item_query(item_q, "sell")
+                        if sell_probe.items:
+                            inv_match = sell_probe.items[0]
+                    if inv_match is not None:
+                        Dispatcher.add(
+                            channel,
+                            f"{inv_match.get_full_name().capitalize()} "
+                            f"isn't currently equipped.",
+                        )
+                    else:
+                        Dispatcher.add(
+                            channel,
+                            f"You don't seem to have anything matching `{item_q}`.",
+                        )
                 continue
 
             # Resolve the placement hint, if any.
@@ -596,6 +664,103 @@ class RpgUtilities:
                 results.append((item, placement))
 
         return results
+
+    @staticmethod
+    def expand_inventory_args(channel, player, raw_queries, mode):
+        """Generator yielding ``Item`` references from a multi-arg
+        invocation, centralizing the variadic + numeric + range +
+        ``all`` + fuzzy expansion pattern shared by ``$sell``,
+        ``$favorite``, ``$unfavorite``, and other multi-item verbs.
+
+        Generator semantics — yield-with-caller-mutation supports
+        progressive fuzzy resolution like ``$sell wand.b wand.b``
+        picking best-then-next-best. Callers that mutate inventory
+        between iterations (sell, equip, stow) see the updated
+        state on subsequent yields; callers that don't mutate
+        (fav, unfav) can dedupe by identity after iteration.
+
+        Pre-pinning:
+
+        - Numeric indices (``35``) resolve at pre-pass time so
+          ``$sell 35 38 43`` doesn't hit the index-shift bug.
+        - Numeric ranges (``1-10``) expand to a slice of inventory
+          at pre-pass time.
+        - The ``all`` keyword expands to every inventory item at
+          pre-pass time.
+
+        Anything else (item name, ``name.quality``, ``name.best``,
+        bare placement key, ``@hint`` shapes) is held as a string
+        and resolved lazily via :meth:`resolve_items_or_notify`
+        with the supplied ``mode``. Mode-specific selector grammar
+        (``.best`` no-demote logic, ``stow``-mode placement broadening)
+        flows through the existing resolver.
+
+        Invalid numeric indices and out-of-range ranges dispatch
+        user-facing messages and skip the entry.
+        """
+        import re
+
+        _NUMERIC_RANGE_RE = re.compile(r"\d+-\d+")
+
+        # Pre-pass: classify each arg as either a pinned Item
+        # reference (numeric / range / all) or a lazy string
+        # token. List-of-tuples carries the classification.
+        pinned: List[Tuple[str, object]] = []
+        for raw in raw_queries:
+            if raw is None:
+                continue
+            token = str(raw).strip()
+            if not token:
+                continue
+
+            # Strip the optional ``@hint`` for the classification
+            # check; numeric / range / all queries don't carry
+            # placement hints (those are equip/stow concepts that
+            # don't apply to index-based selection). Strings keep
+            # the original token (with @hint intact) so the lazy
+            # path's resolver sees the hint.
+            item_q = token.partition("@")[0].strip()
+
+            if item_q.lower() == "all":
+                for item in player.inventory.all():
+                    pinned.append(("ITEM", item))
+                continue
+
+            if item_q.isnumeric():
+                idx = int(item_q)
+                if 1 <= idx <= len(player.inventory):
+                    item = player.inventory.filter(idx)[0]
+                    if item is not None:
+                        pinned.append(("ITEM", item))
+                        continue
+                Dispatcher.add(channel, f"No such item: {idx}.")
+                continue
+
+            if _NUMERIC_RANGE_RE.fullmatch(item_q):
+                low, high = sorted(map(int, item_q.split("-")))
+                if 1 <= low <= high <= len(player.inventory):
+                    for item in player.inventory.all()[low - 1:high]:
+                        pinned.append(("ITEM", item))
+                    continue
+                Dispatcher.add(
+                    channel, f"Index range invalid: `{item_q}`.",
+                )
+                continue
+
+            pinned.append(("FUZZY", token))
+
+        # Main pass: yield items, lazy-resolving fuzzy strings
+        # at each step so caller mutation between yields is
+        # visible to subsequent string resolutions.
+        for entry_kind, entry_data in pinned:
+            if entry_kind == "ITEM":
+                yield entry_data
+            else:
+                resolved = RpgUtilities.resolve_items_or_notify(
+                    channel, player, [entry_data], mode,
+                )
+                for item, _placement in resolved:
+                    yield item
 
     @staticmethod
     async def init(bot: Bot):

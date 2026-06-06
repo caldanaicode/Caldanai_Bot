@@ -205,20 +205,36 @@ class HealMixin:
         if total_heal <= 0:
             return 0, 0, [], ""
 
-        part_budget = (total_heal * 2) // 3
-        body_budget = total_heal - part_budget
-
-        # Floor: any non-zero heal magnitude must reach at least 1
-        # HP somewhere effective. Without the floor, ``total_heal=1``
-        # gives ``part_budget=0`` (integer division) and the full
-        # body_budget=1 lands on a possibly-full body — which
-        # clamps to 0 and the caller's narration falls through to
-        # the "tingle" no-effect branch despite a real heal roll.
-        # Caels 2026-05-01 after a d20=17 / total_heal=1 case
-        # produced "imbuing... tingle" on an injured target.
-        if part_budget == 0:
-            part_budget = 1
-            body_budget = max(0, body_budget - 1)
+        # Route the budget based on what's actually injured. The
+        # canonical 2:1 part:body split (inverse of damage's 1:0.5
+        # routing) only makes sense when BOTH dimensions are wounded;
+        # if the target has only one type of injury, sending budget
+        # to the empty side is wasted (the spillover valve halves
+        # part→body overflow, so a stranded part_budget on a body-
+        # only target loses 50%+ of the heal). Pre-2026-05-25 the
+        # split was unconditional and the body-only case silently
+        # produced "tingle, no effect" on a real heal roll — Caels
+        # caught it with a d20=17 on a 4/20 Serena.
+        has_part_injuries = any(
+            p.health < p.health_max for p in (self.body_parts or [])
+        )
+        has_body_injury = self.health < self.get_health_max()
+        if not has_part_injuries:
+            part_budget, body_budget = 0, total_heal
+        elif not has_body_injury:
+            part_budget, body_budget = total_heal, 0
+        else:
+            part_budget = (total_heal * 2) // 3
+            body_budget = total_heal - part_budget
+            # Floor: when total_heal=1 splits to part_budget=0 via
+            # integer division, the original 2026-05-01 fallback
+            # stole 1 from the body budget so SOMETHING landed
+            # part-side. Only valid in the mixed-injury branch
+            # (above body-only branch already routes the whole
+            # heal to body, so the floor isn't needed there).
+            if part_budget == 0:
+                part_budget = 1
+                body_budget = max(0, body_budget - 1)
 
         def _heal_priority(p):
             if p.is_critical and p.is_destroyed():

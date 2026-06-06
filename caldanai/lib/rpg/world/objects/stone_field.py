@@ -22,6 +22,7 @@ endure.
 import random
 from typing import List, Optional
 
+from caldanai.db import DB
 from caldanai.lib.rpg.helpers.enums import TimesOfDay
 from caldanai.lib.rpg.helpers.parser import parse
 from caldanai.lib.rpg.world.objects import StaticObjectPlugin
@@ -47,15 +48,16 @@ class StoneField(StaticObjectPlugin):
     # ---------------------------------------------------------------
 
     def get_look_line(self, game) -> Optional[str]:
+        count_phrase = self._stones_count_phrase(game)
         if self._is_night(game):
             return parse(
-                "@1Dc stands at the clearing's edge — stones half-"
-                "buried, glyphs faintly catching the dark.",
+                f"@1Dc stands at the clearing's edge — {count_phrase} "
+                f"half-buried, glyphs faintly catching the dark.",
                 self,
             )
         return parse(
-            "@1Dc rests at the clearing's edge — half-buried stones "
-            "in slow ranks, waiting for nothing in particular.",
+            f"@1Dc rests at the clearing's edge — {count_phrase} "
+            f"half-buried, in slow ranks, waiting for nothing in particular.",
             self,
         )
 
@@ -217,6 +219,56 @@ class StoneField(StaticObjectPlugin):
     # ---------------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------------
+
+    def _stones_count_phrase(self, game) -> str:
+        """Return the lead noun-phrase for ``get_look_line``.
+
+        Estimate phrase rounded DOWN to the nearest ten, e.g.
+        ``"180-ish stones"``. The lifetime golem-disengage tally
+        (``monsters.golem.escaped`` in the per-channel stats doc)
+        feeds the count; pre-stone-field walks fold in but the
+        rough-estimate framing absorbs the inflation. Below a tier
+        of ten the phrase falls back to ``"a thin scatter of
+        stones"`` — the field is older than the clearing in lore,
+        so a near-zero count is a fresh-deploy artefact rather
+        than a narrative state.
+        """
+        count = self._golem_escape_count(game)
+        rounded = (count // 10) * 10
+        if rounded < 10:
+            return "a thin scatter of stones"
+        return f"{rounded}-ish stones"
+
+    @staticmethod
+    def _golem_escape_count(game) -> int:
+        """Lifetime golem-disengage tally for this (guild, channel).
+
+        Sums the persisted ``monsters.golem.escaped`` value with
+        the in-memory ``game.monster_statics`` Counter so the count
+        reflects walk-offs that haven't been flushed to Mongo yet
+        by the periodic ``update_statics`` batch. Any read failure
+        (no guild, no DB connection, missing doc) degrades to the
+        in-memory value alone — never raises into ``$look``.
+        """
+        persisted = 0
+        guild = getattr(game, "guild", None)
+        channel = getattr(game, "channel", None)
+        guild_id = getattr(guild, "id", None)
+        channel_id = getattr(channel, "id", None)
+        if guild_id is not None and channel_id is not None:
+            try:
+                doc = DB._mongoDB.statics.find_one(
+                    {"guild_id": guild_id, "channel_id": channel_id}
+                ) or {}
+                persisted = int(
+                    doc.get("monsters", {}).get("golem", {}).get("escaped", 0)
+                )
+            except Exception:
+                persisted = 0
+        in_flight = int(
+            getattr(game, "monster_statics", {}).get("golem.escaped", 0)
+        )
+        return persisted + in_flight
 
     @staticmethod
     def _is_night(game) -> bool:

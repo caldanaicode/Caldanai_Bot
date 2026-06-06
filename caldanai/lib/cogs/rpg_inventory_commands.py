@@ -1,5 +1,3 @@
-import re
-
 from discord.ext.commands import Cog, command, cooldown, group, BucketType, guild_only, Context
 from discord.ext.commands.errors import MissingRequiredArgument, BadArgument
 from discord import Embed
@@ -22,11 +20,6 @@ from caldanai.lib.rpg.inventory.equipment.weapons import Weapon
 
 
 _log = get_logger(__name__)
-
-# Numeric-only range matcher for ``$sell <low>-<high>``. Item
-# names with hyphens (``tee-shirt``) must NOT match — they fall
-# through to fuzzy-name resolution.
-_NUMERIC_RANGE_RE = re.compile(r"\d+-\d+")
 
 
 # Shared dead-invoker flavor pool for every inventory command —
@@ -69,8 +62,9 @@ class RpgInventoryCommands(Cog):
             $equip <item> l|r|left|right|_    # legacy 2-arg form
 
         Item queries support ``item.n`` (nth of item),
-        ``item.quality``, ``item.quality.n``, and ``item.best``
-        (highest-quality variant).
+        ``item.quality``, ``item.quality.n``, ``item.best``
+        (highest-quality variant), or a bare 1-based inventory
+        index (``$equip 35``).
 
         Placement hints (the part after ``@``):
         ``l``/``left``/``r``/``right``/``_`` (wildcard), or any
@@ -132,29 +126,46 @@ class RpgInventoryCommands(Cog):
             if not item_str:
                 continue
 
-            item = await fuzzy_resolve(ctx, item_str, ItemConverter)
-            if item is None:
-                # Re-query the resolver directly to distinguish
-                # ambiguity ("did you mean: A, B?") from no-match.
-                # The dispatcher's Optional contract collapses both
-                # into the same None; $equip's UX wants the
-                # candidate list surfaced when one exists.
-                resolution = player.resolve_item_query(item_str, "equip")
-                if resolution.ambiguity_candidates:
-                    cand_list = ", ".join(
-                        f"`{c}`" for c in resolution.ambiguity_candidates
-                    )
-                    Dispatcher.add(
-                        channel,
-                        f"I see multiple matches for `{item_str}` — "
-                        f"did you mean one of: {cand_list}?",
-                    )
+            # Numeric query → 1-indexed inventory lookup, same as
+            # $sell / $stow / $fav. Bypasses the fuzzy resolver
+            # since the index is exact. Equipped items resolve via
+            # index too (the index references the inventory slot,
+            # which still exists for an equipped item) — the
+            # downstream ``player.equip`` call handles the already-
+            # equipped case via its own short-circuit.
+            if item_str.isnumeric():
+                idx = int(item_str)
+                if 1 <= idx <= len(player.inventory):
+                    item = player.inventory.filter(idx)[0]
                 else:
-                    Dispatcher.add(
-                        channel,
-                        f"You don't seem to have anything matching `{item_str}`.",
-                    )
-                continue
+                    item = None
+                if item is None:
+                    Dispatcher.add(channel, f"No such item: {idx}.")
+                    continue
+            else:
+                item = await fuzzy_resolve(ctx, item_str, ItemConverter)
+                if item is None:
+                    # Re-query the resolver directly to distinguish
+                    # ambiguity ("did you mean: A, B?") from no-match.
+                    # The dispatcher's Optional contract collapses both
+                    # into the same None; $equip's UX wants the
+                    # candidate list surfaced when one exists.
+                    resolution = player.resolve_item_query(item_str, "equip")
+                    if resolution.ambiguity_candidates:
+                        cand_list = ", ".join(
+                            f"`{c}`" for c in resolution.ambiguity_candidates
+                        )
+                        Dispatcher.add(
+                            channel,
+                            f"I see multiple matches for `{item_str}` — "
+                            f"did you mean one of: {cand_list}?",
+                        )
+                    else:
+                        Dispatcher.add(
+                            channel,
+                            f"You don't seem to have anything matching `{item_str}`.",
+                        )
+                    continue
 
             hint_slot: Optional[EquipmentSlots] = None
             if hint_str and hint_str != "_":
@@ -217,8 +228,12 @@ class RpgInventoryCommands(Cog):
     @staticmethod
     def _resolve_best(base, player, channel):
         """Pick the highest-quality equipment matching ``base`` from
-        inventory, applying the no-demote rule: if an equipped item of
-        the same type is already equal-or-better, keep it."""
+        inventory. Considers all matching items, equipped or not —
+        ``$fav wand.best`` should be able to favorite the masterwork
+        wand you're currently wielding (the original implementation
+        had a vestigial-from-$equip "no-demote" refusal that hid
+        the equipped best wand from $fav / $unfav; stripped 2026-05-23
+        after Caels caught it in playtest)."""
         candidates = [
             i for i in player.inventory.filter(base)
             if i is not None and isinstance(i, Equipment)
@@ -230,26 +245,7 @@ class RpgInventoryCommands(Cog):
         candidates.sort(
             key=lambda i: i.quality.value["multiplier"], reverse=True,
         )
-        best = candidates[0]
-
-        # Walk every ``(part, key)`` placement. Multi-placement
-        # items (two-handed weapons, paired gear) share references
-        # so checking identity against the "best" candidate would
-        # false-positive; identity here is fine because a freshly-
-        # picked inventory candidate is distinct from anything
-        # already equipped.
-        for equipped in player._iter_equipped_items():
-            if (
-                equipped.plugin == best.plugin
-                and equipped.quality.value["multiplier"] >= best.quality.value["multiplier"]
-            ):
-                Dispatcher.add(
-                    channel,
-                    f"{player.name} is already wielding the finest {base}.",
-                )
-                return None
-
-        return best
+        return candidates[0]
 
     @command(aliases=['slots', 'gear'], brief="Shows a player's equipment.")
     @cooldown(1, 10, BucketType.member)
@@ -285,6 +281,7 @@ class RpgInventoryCommands(Cog):
 
         - An item name (``$stow wand``), with the usual
           ``.n`` / ``.quality`` / ``.best`` selectors.
+        - A 1-based inventory index (``$stow 7``) — exact item by slot.
         - A placement key (``$stow worn``, ``$stow outer``) —
           short form picks first anatomy-order occupied match.
         - A full ``part.key`` placement (``$stow head.worn``,
@@ -389,7 +386,7 @@ class RpgInventoryCommands(Cog):
         inv = Dispatcher.split_message(player.get_inventory(filtr), keep_sep=True)
 
         for msg in inv:
-            Dispatcher.add(dest, f'```js\n{msg.strip()}```')
+            Dispatcher.add(dest, f'```ansi\n{msg.strip()}```')
 
     @command(
         name='sort',
@@ -430,7 +427,7 @@ class RpgInventoryCommands(Cog):
         Dispatcher.add(dest, f'Inventory for {player.name} on {game.guild.name}')
         inv = Dispatcher.split_message(player.get_inventory(), keep_sep=True)
         for msg in inv:
-            Dispatcher.add(dest, f'```js\n{msg.strip()}```')
+            Dispatcher.add(dest, f'```ansi\n{msg.strip()}```')
 
     @command(name='item', brief='Displays details about an item or placement.')
     @cooldown(1, 2, BucketType.member)
@@ -532,7 +529,8 @@ class RpgInventoryCommands(Cog):
             if len(dropped) > 0:
                 txt = item_list_to_string(dropped)
                 msg += f" It appears you may have a hoarding problem, though. The following item" \
-                    f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}."
+                    f"{'s' if len(dropped) > 1 else ''} would overburden you: {txt}." \
+                    f" `$sell` to make room, then `$loot` again to claim them."
         elif fled:
             msg = (
                 f"{player.name} sifts the dust where the runaway "
@@ -549,65 +547,87 @@ class RpgInventoryCommands(Cog):
 
     @command(name='favorite', aliases=['fav', 'lock'], brief='Favorites items to protect them from bulk-sell.')
     @cooldown(1, 2, BucketType.member)
-    async def favorite(self, ctx: Context, *, item: str = None):
+    async def favorite(self, ctx: Context, *items: Union[int, str]):
         """
         Flags matching items as favorited. Favorited items get a ★ in
         ``$inventory`` and are skipped by ``$sell``. Fuzzy-matches the
         same way as every other item command, so ``$favorite sword``
-        flags every sword in your bag.
+        flags every sword in your bag. Multiple items can be space-
+        separated: ``$favorite sword shield 7 candy.best``.
 
         (2-second cool-down)
 
-        :param item: An item name, item.n, item.quality, item.quality.n, or index.
+        :param items: One or more item names, item.n, item.quality, item.quality.n, .best, or 1-based inventory indices.
         """
-        await self._toggle_favorite(ctx, item, value=True)
+        await self._toggle_favorite(ctx, list(items), value=True)
 
     @command(name='unfavorite', aliases=['unfav', 'unlock'], brief='Unfavorites items so they can be sold again.')
     @cooldown(1, 2, BucketType.member)
-    async def unfavorite(self, ctx: Context, *, item: str = None):
+    async def unfavorite(self, ctx: Context, *items: Union[int, str]):
         """
         Clears the favorited flag on matching items. Use before
-        selling an item you previously protected.
+        selling an item you previously protected. Multiple items
+        can be space-separated.
 
         (2-second cool-down)
 
-        :param item: An item name, item.n, item.quality, item.quality.n, or index.
+        :param items: One or more item names, item.n, item.quality, item.quality.n, .best, or 1-based inventory indices.
         """
-        await self._toggle_favorite(ctx, item, value=False)
+        await self._toggle_favorite(ctx, list(items), value=False)
 
-    async def _toggle_favorite(self, ctx: Context, item: Optional[str], value: bool):
+    async def _toggle_favorite(self, ctx: Context, items: List[Union[int, str]], value: bool):
         game, player = await RpgUtilities.get_game_and_player(ctx)
         if game is None or player is None:
             return
 
         channel = RpgUtilities.resolve_reply_channel(ctx, game)
 
-        if not item:
+        if not items:
             Dispatcher.add(channel, "You must specify an item.")
             return
 
-        # ``.best`` selector resolves to the single highest-quality
-        # matching equipment via ``_resolve_best`` (which considers
-        # equipped items too — so ``$fav sword.best`` can fav your
-        # currently-worn masterwork sword). Every other query shape
-        # flows through the standard fuzzy resolver in ``sell`` mode:
-        # multi-match (``$fav sword`` flags every sword), includes
-        # equipped items on bare-name queries, and honors the full
-        # selector grammar (``sword.fine``, ``sword.fine.1``, etc.)
-        # — the same path as the other fuzzy-aware inventory verbs.
-        expanded = _expand_quality_suffix(item.lower().strip())
-        if expanded.endswith(".best") and len(expanded) > 5:
-            best = self._resolve_best(expanded[:-5], player, channel)
-            if best is None:
-                return
-            matches: List[Item] = [best]
-        else:
-            resolved = RpgUtilities.resolve_items_or_notify(
-                channel, player, [item], mode="sell",
-            )
-            if not resolved:
-                return
-            matches = [it for it, _placement in resolved]
+        # Per-query resolution accumulating into a single match list.
+        # ``.best`` selectors route through ``_resolve_best`` (which
+        # considers equipped items too — ``$fav sword.best`` can fav
+        # your currently-worn masterwork sword) and stay inline
+        # because their no-demote logic is fav-specific. Everything
+        # else (bare name, name.n, name.quality, numeric index,
+        # numeric range, ``all``) flows through the shared
+        # ``expand_inventory_args`` helper. Multi-arg invocations
+        # accumulate matches across queries and dedupe by identity
+        # at the end so ``$fav sword sword`` on a dual-wield doesn't
+        # double-toggle the same item.
+        all_matches: List[Item] = []
+        deferred: List[Union[int, str]] = []
+        for raw in items:
+            token = str(raw).strip()
+            if not token:
+                continue
+            expanded = _expand_quality_suffix(token.lower())
+            if expanded.endswith(".best") and len(expanded) > 5:
+                best = self._resolve_best(expanded[:-5], player, channel)
+                if best is None:
+                    continue
+                all_matches.append(best)
+            else:
+                deferred.append(raw)
+
+        for item in RpgUtilities.expand_inventory_args(
+            channel, player, deferred, mode="sell",
+        ):
+            all_matches.append(item)
+
+        # Dedupe by identity, preserving first-seen order.
+        seen_ids: set = set()
+        matches: List[Item] = []
+        for it in all_matches:
+            if id(it) in seen_ids:
+                continue
+            seen_ids.add(id(it))
+            matches.append(it)
+
+        if not matches:
+            return
 
         changed = [i for i in matches if i.favorited != value]
         for i in changed:
@@ -694,102 +714,37 @@ class RpgInventoryCommands(Cog):
         favorited_skipped = 0
         equipped_skipped = 0
 
-        # Pre-resolve numeric inputs to ``Item`` references upfront,
-        # before any sells fire. Resolving an index AFTER a prior
-        # sell has rekeyed inventory pulls the wrong item — was the
-        # 2026-04-29 ``$sell 35 38 43`` shift bug. Strings stay as
-        # strings and resolve progressively in the main loop so
-        # ``$sell wand.b wand.b`` still picks BEST then NEXT-BEST.
-        prepared: List[Union[Item, str, int]] = []
-        for _item in items:
-            if (
-                (isinstance(_item, int) or (isinstance(_item, str) and _item.isnumeric()))
-                and 1 <= int(_item) <= len(player.inventory)
-            ):
-                pinned = player.inventory.filter(_item)[0]
-                prepared.append(pinned if pinned is not None else _item)
+        # All query-grammar handling (numeric indices with index-
+        # shift pinning, ranges, ``all``, fuzzy strings with
+        # progressive resolution) flows through the shared
+        # ``expand_inventory_args`` generator. Per-item favorites /
+        # equipped guards stay here because they're sell-specific
+        # post-resolution policy. Pre-2026-05-23 this method had
+        # inline pre-pass + main-loop branches that duplicated the
+        # helper's logic; the consolidation lets $fav / $unfav /
+        # $sell share one matching path.
+        for item in RpgUtilities.expand_inventory_args(
+            channel, player, list(items), mode="sell",
+        ):
+            if item.favorited:
+                favorited_skipped += 1
+                continue
+            if player.is_equipped(item):
+                equipped_skipped += 1
+                continue
+            m, v = player.sell(item, 1, True)
+            if v or m.startswith("You sold"):
+                sell.append(item)
+                total += v
+                msg += f"\n{m}"
             else:
-                prepared.append(_item)
-
-        for _item in prepared:
-            candidates: List[Item] = []
-
-            if isinstance(_item, Item):
-                # Pre-resolved numeric input. Identity-based equip
-                # check so ``$sell 44 45`` with three same-named
-                # items where only #46 is worn sells 44 and 45 —
-                # any earlier name-based check would refuse both
-                # with a duplicate "must un-equip" line.
-                if not player.is_equipped(_item):
-                    candidates.append(_item)
-                else:
-                    msg += f'\nYou must un-equip {_item.get_full_name()} before selling it.'
-
-            elif isinstance(_item, (int, str)) and (
-                isinstance(_item, int) or _item.isnumeric()
-            ):
-                # Numeric input that didn't resolve in the
-                # pre-pass (out of range / inventory shrank).
-                msg += f'\nNo such item: {_item}.'
-
-            elif isinstance(_item, str):
-                if _item.lower() == 'all':
-                    # Equipped items pass through to the candidate
-                    # loop so they're counted into ``equipped_skipped``
-                    # rather than silently dropped — a player asking
-                    # "$sell all" should know how much of their bag
-                    # is locked behind ``$stow``.
-                    candidates = list(player.inventory.all())
-                elif _NUMERIC_RANGE_RE.fullmatch(_item):
-                    # Only treat dash as a range when BOTH halves
-                    # are numeric. Item names with hyphens (e.g.
-                    # ``tee-shirt``) fall through to fuzzy-name
-                    # resolution.
-                    low, high = map(int, _item.split('-'))
-                    if low > high:
-                        low, high = high, low
-                    low -= 1
-                    if 0 <= low <= high <= len(player.inventory):
-                        candidates = list(player.inventory.all()[low:high])
-                    else:
-                        msg += f"\nIndex range invalid."
-                else:
-                    # Fuzzy name / ``.best`` / quality-prefix —
-                    # shared resolver. Sell mode returns every
-                    # matching unequipped item.
-                    resolved = RpgUtilities.resolve_items_or_notify(
-                        channel, player, [_item], mode="sell",
-                    )
-                    candidates = [item for item, _slot in resolved]
-
-            else:
-                msg += f"\nI'm afraid you don't have any {_item}."
-
-            # Apply favorites guard + identity-based equipped
-            # re-check per candidate, then actually sell. Each
-            # successful sale removes the item from inventory,
-            # which is what makes the next query's resolver pick a
-            # different instance for fuzzy-name queries.
-            for item in candidates:
-                if item.favorited:
-                    favorited_skipped += 1
-                    continue
-                if player.is_equipped(item):
-                    equipped_skipped += 1
-                    continue
-                m, v = player.sell(item, 1, True)
-                if v or m.startswith("You sold"):
-                    sell.append(item)
-                    total += v
-                    msg += f"\n{m}"
-                else:
-                    # ``player.sell`` returned a failure string
-                    # (typically "Item not found" when the item
-                    # was already removed mid-loop). Surface a
-                    # per-item line so a category sweep like
-                    # ``$sell junk`` doesn't drop the failure on
-                    # the floor.
-                    msg += f"\nFailed to sell {item.get_full_name()}: {m}"
+                # ``player.sell`` returned a failure string
+                # (typically "Item not found" when the item
+                # was already removed mid-loop). Surface a
+                # per-item line so a category sweep like
+                # ``$sell junk`` doesn't drop the failure on
+                # the floor.
+                msg += f"\nFailed to sell {item.get_full_name()}: {m}"
 
         if favorited_skipped:
             noun = "item" if favorited_skipped == 1 else "items"
